@@ -8,6 +8,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -378,7 +379,20 @@ func (g *GstPipeline) Stop() {
 		wasRunning := g.running.Swap(false)
 
 		if g.pipeline != nil {
+			// SetState(Null) is async — child elements (nvh264enc, pipewiresrc, etc.)
+			// may still be in PLAYING when it returns. We must wait for the state
+			// change to propagate before Unref, otherwise NVIDIA's encoder lib
+			// calls abort() when disposed in PLAYING state.
+			// Use a 5s timeout to avoid deadlock if the pipeline is stuck.
 			g.pipeline.SetState(gst.StateNull)
+			ret, _ := g.pipeline.GetState(gst.StateNull, gst.ClockTime(5*time.Second))
+			if ret != gst.StateChangeSuccess {
+				// Pipeline is stuck — Unref in this state would crash (nvh264enc
+				// abort()s when disposed while PLAYING). Exit the process and let
+				// the restart loop in start-desktop-bridge.sh bring us back clean.
+				fmt.Printf("[GST_PIPELINE] FATAL: pipeline stuck (GetState returned %v after 5s), exiting to let restart loop recover\n", ret)
+				os.Exit(1)
+			}
 			// Explicitly unref to free GPU resources (CUDA contexts, NVENC sessions)
 			// immediately rather than waiting for Go's GC finalizer.
 			// The go-gst TransferNone/Take wrapper adds its own ref+finalizer, so

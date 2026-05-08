@@ -19,7 +19,10 @@ type OptimusConfig struct {
 func NewOptimusAgentApp(cfg OptimusConfig) *types.App {
 	appName := "Optimus (" + cfg.ProjectName + ")"
 
-	defaultAssistant := cfg.DefaultApp.Config.Helix.Assistants[0]
+	var defaultAssistant types.AssistantConfig
+	if cfg.DefaultApp != nil && len(cfg.DefaultApp.Config.Helix.Assistants) > 0 {
+		defaultAssistant = cfg.DefaultApp.Config.Helix.Assistants[0]
+	}
 	systemSettings := cfg.SystemSettings
 	if systemSettings == nil {
 		systemSettings = &types.SystemSettings{}

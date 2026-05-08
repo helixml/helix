@@ -308,6 +308,19 @@ function build-runner-image() {
     .
 }
 
+# Background helper used by build-zed (and other long Rust builds) to keep
+# the helix-api container and sandbox-nvidia streaming pipeline responsive
+# when the host is under CPU contention. Watches for compiler/linker
+# processes spawned inside BuildKit's runc containers and renices them down.
+# Renice is idempotent, so re-running on already-niced PIDs is harmless.
+_nice_rust_workers() {
+  while true; do
+    sudo pgrep -f 'rustc|cc1plus|cc1|lld|mold' 2>/dev/null \
+      | xargs -r sudo renice -n 19 -p >/dev/null 2>&1
+    sleep 2
+  done
+}
+
 function build-zed() {
   # ====================================================================
   # Build Zed inside Docker with BuildKit cache mounts
@@ -380,6 +393,11 @@ EIGNORE
 
   echo "🚀 Starting Docker build (cached after first run)..."
 
+  # Background-nice rustc/cc1/lld so helix-api and sandbox-nvidia stay
+  # responsive while this build saturates the host. See _nice_rust_workers.
+  _nice_rust_workers &
+  local _NICE_PID=$!
+
   # Build using Dockerfile.zed-build with the Zed source as context
   # --output extracts just the binary from the scratch final stage
   # --build-arg passes the build type (dev or release)
@@ -392,6 +410,9 @@ EIGNORE
     "$ZED_SOURCE_DIR"
 
   local BUILD_EXIT=$?
+
+  kill $_NICE_PID 2>/dev/null || true
+  wait $_NICE_PID 2>/dev/null || true
 
   # Clean up temporary .dockerignore (unless it existed before)
   if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
@@ -569,7 +590,7 @@ function start-tmux() {
   tmux split-window -t "$TMUX_SESSION" -v -d
   tmux split-window -t "$TMUX_SESSION" -v -d
 
-  # Split the top row into 3 columns (Frontend, API, Haystack)
+  # Split the top row into 3 columns (Frontend, API, free slot)
   tmux select-pane -t "$TMUX_SESSION:0.0"
   tmux split-window -t "$TMUX_SESSION" -h -d
   tmux select-pane -t "$TMUX_SESSION:0.1"
@@ -584,15 +605,15 @@ function start-tmux() {
   # Bottom pane (6) stays full-width for hacking terminal
 
   # Set pane titles and start processes in 3x2 + full-width layout
-  # Top row (0-2): Frontend, API, Haystack
+  # Top row (0-2): Frontend, API, Postgres
   tmux select-pane -t "$TMUX_SESSION:0.0" -T "Frontend Logs"
   tmux send-keys -t "$TMUX_SESSION:0.0" 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
 
   tmux select-pane -t "$TMUX_SESSION:0.1" -T "API Logs"
   tmux send-keys -t "$TMUX_SESSION:0.1" 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
 
-  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Haystack Logs"
-  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Postgres Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f postgres' C-m
 
   # Determine sandbox logs command based on Helix-in-Helix mode
   local SANDBOX_LOGS_CMD
@@ -1039,15 +1060,15 @@ function build-desktop() {
   _dt_elapsed "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file: ${IMAGE_TAG}"
-
   # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "ℹ️  Image unchanged (layers cached)"
   fi
+
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
 
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
@@ -2062,8 +2083,8 @@ function test() {
     exit 1
   fi
 
-  # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
+  # Ensure postgres and chrome are running
+  docker compose -f docker-compose.dev.yaml up -d postgres chrome
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
@@ -2071,15 +2092,6 @@ function test() {
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
 
-  export PGVECTOR_USER=postgres
-  export PGVECTOR_PASSWORD=postgres
-  export PGVECTOR_DATABASE=postgres
-  export PGVECTOR_HOST=localhost
-  export PGVECTOR_PORT=5433
-
-  export TYPESENSE_URL=http://localhost:8108
-  export TYPESENSE_API_KEY=typesense
-  export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
   # To debug test hangs, try this:

@@ -67,6 +67,19 @@ type CreateDevContainerRequest struct {
 	// GPU settings
 	GPUVendor string `json:"gpu_vendor"` // "nvidia", "amd", "intel", ""
 
+	// GPUIndex pins this dev container to a specific GPU on a multi-GPU
+	// host. Counted starting at 0. Pointer so omission means "no pin"
+	// (current behaviour: all GPUs visible) — preserves backwards
+	// compatibility for callers that don't yet pass a value. When set:
+	//   nvidia: NVIDIA_VISIBLE_DEVICES=<n> (instead of =all)
+	//   amd:    only /dev/dri/renderD<128+n> mounted (instead of all)
+	//   intel:  only /dev/dri/renderD<128+n> mounted
+	// HELIX_GPU_INDEX=<n> is also set in the container env so
+	// detect-render-node.sh picks the matching card device for Mutter
+	// + GStreamer encoder. See Decision 15 in the sandbox-absorbs-runner
+	// design doc.
+	GPUIndex *int `json:"gpu_index,omitempty"`
+
 	// Docker socket to use (from Hydra isolation or default sandbox dockerd)
 	// If empty, uses the sandbox's default Docker socket
 	DockerSocket string `json:"docker_socket,omitempty"`
@@ -87,6 +100,23 @@ type CreateDevContainerRequest struct {
 	// Golden build sessions use a plain directory (not overlay) for Docker data,
 	// and the data is promoted to golden when the container exits with code 0.
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// VCPUs caps the number of CPUs the container can use. 0 = no cap.
+	VCPUs int `json:"vcpus,omitempty"`
+
+	// MemoryMB caps the memory the container can use, in MB. 0 = no cap.
+	MemoryMB int `json:"memory_mb,omitempty"`
+
+	// Entrypoint and Cmd override the image defaults. Used by the Sandboxes
+	// API "headless" runtime to keep a plain ubuntu container alive with
+	// `sleep infinity` so users can exec into it.
+	Entrypoint []string `json:"entrypoint,omitempty"`
+	Cmd        []string `json:"cmd,omitempty"`
+
+	// SkipImageValidation lets the caller use a non-helix-prefixed image (e.g.
+	// `ubuntu:22.04`). The Sandboxes API headless runtime sets this so plain
+	// docker images can be used.
+	SkipImageValidation bool `json:"skip_image_validation,omitempty"`
 }
 
 // DevContainerResponse is the response after creating/querying a dev container

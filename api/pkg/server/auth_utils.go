@@ -22,6 +22,12 @@ Middlewares
 */
 func requireUser(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
+		// CORS preflight requests must reach the handler to receive
+		// Access-Control-* headers. Auth has nothing useful to add.
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
 		user := getRequestUser(r)
 		if !hasUser(user) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)

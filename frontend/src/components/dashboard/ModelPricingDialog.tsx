@@ -32,6 +32,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
     name: '',
     prompt: '',
     completion: '',
+    cacheRead: '',
+    cacheWrite: '',
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,6 +74,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
           name: model.name || '',
           prompt: convertToPerMillionDisplay(model.model_info?.pricing?.prompt || ''),
           completion: convertToPerMillionDisplay(model.model_info?.pricing?.completion || ''),
+          cacheRead: convertToPerMillionDisplay(model.model_info?.pricing?.input_cache_read || ''),
+          cacheWrite: convertToPerMillionDisplay(model.model_info?.pricing?.input_cache_write || ''),
         });
       } else {
         // Create mode - reset form
@@ -80,6 +84,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
           name: '',
           prompt: '',
           completion: '',
+          cacheRead: '',
+          cacheWrite: '',
         });
       }
       setError('');
@@ -98,6 +104,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
         name: model.name || '',
         prompt: convertToPerMillionDisplay(model.model_info?.pricing?.prompt || ''),
         completion: convertToPerMillionDisplay(model.model_info?.pricing?.completion || ''),
+        cacheRead: convertToPerMillionDisplay(model.model_info?.pricing?.input_cache_read || ''),
+        cacheWrite: convertToPerMillionDisplay(model.model_info?.pricing?.input_cache_write || ''),
       });
     }
   }, [open, model, hasUserInput]);
@@ -125,7 +133,15 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
       setError('Completion price must be a valid number (e.g., 3.20)');
       return false;
     }
-    
+    if (formData.cacheRead.trim() && isNaN(parseFloat(formData.cacheRead))) {
+      setError('Cache read price must be a valid number (e.g., 0.30)');
+      return false;
+    }
+    if (formData.cacheWrite.trim() && isNaN(parseFloat(formData.cacheWrite))) {
+      setError('Cache write price must be a valid number (e.g., 3.75)');
+      return false;
+    }
+
     return true;
   };
 
@@ -146,6 +162,12 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
         // Convert per-million token price to per-token price
         const completionPricePerMillion = parseFloat(formData.completion.trim());
         pricing.completion = convertToPerTokenPrice(completionPricePerMillion);
+      }
+      if (formData.cacheRead.trim()) {
+        pricing.input_cache_read = convertToPerTokenPrice(parseFloat(formData.cacheRead.trim()));
+      }
+      if (formData.cacheWrite.trim()) {
+        pricing.input_cache_write = convertToPerTokenPrice(parseFloat(formData.cacheWrite.trim()));
       }
 
       const modelInfo: TypesModelInfo = {
@@ -284,6 +306,40 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
             margin="normal"
             placeholder="e.g., 3.20"
             helperText="Price per 1M output/completion tokens (e.g., 3.20 = $3.20 per 1M tokens). This will be stored as per-token price in the API."
+            inputProps={{
+              step: "0.01",
+              min: "0"
+            }}
+          />
+
+          <TextField
+            fullWidth
+            label="Cache Read Price"
+            value={formData.cacheRead}
+            onChange={(e) => {
+              setFormData({ ...formData, cacheRead: e.target.value });
+              setHasUserInput(true);
+            }}
+            margin="normal"
+            placeholder="e.g., 0.30"
+            helperText="Price per 1M cached-input tokens (cache hits). Leave blank to bill cache reads at the prompt rate."
+            inputProps={{
+              step: "0.01",
+              min: "0"
+            }}
+          />
+
+          <TextField
+            fullWidth
+            label="Cache Write Price"
+            value={formData.cacheWrite}
+            onChange={(e) => {
+              setFormData({ ...formData, cacheWrite: e.target.value });
+              setHasUserInput(true);
+            }}
+            margin="normal"
+            placeholder="e.g., 3.75"
+            helperText="Price per 1M cache-write tokens (Anthropic cache creation). Leave blank for providers that don't charge separately for cache writes."
             inputProps={{
               step: "0.01",
               min: "0"

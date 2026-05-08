@@ -47,6 +47,16 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("project_id = ?", query.ProjectID)
 	}
 
+	if query.SessionRole != "" {
+		q = q.Where("config->>'session_role' = ?", query.SessionRole)
+	}
+
+	if len(query.ExcludeRoles) > 0 {
+		for _, role := range query.ExcludeRoles {
+			q = q.Where("(config->>'session_role' IS NULL OR config->>'session_role' != ?)", role)
+		}
+	}
+
 	if !query.IncludeExternalAgents {
 		q = q.Where("model_name != 'external_agent'")
 	}
@@ -170,6 +180,13 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	if len([]rune(session.Name)) > 255 {
 		session.Name = string([]rune(session.Name)[:255])
 	}
+
+	// Always bump the updated timestamp. The field is named "Updated" (not
+	// "UpdatedAt") so GORM doesn't auto-update it. Without this, callers
+	// that read-modify-write a session (e.g. StartDesktop) silently
+	// preserve the old timestamp, which causes the idle checker to
+	// immediately kill just-restarted sessions.
+	session.Updated = time.Now()
 
 	// Log session metadata before update
 	ragResultsCount := 0
@@ -360,6 +377,11 @@ WITH desktop_last_activity AS (
       AND s.config->>'external_agent_status' = 'running'
       AND s.config->>'dev_container_id' IS NOT NULL
       AND s.config->>'dev_container_id' != ''
+      AND NOT EXISTS (
+          SELECT 1 FROM spec_tasks st
+          WHERE st.planning_session_id = s.id
+            AND st.keep_alive = true
+      )
     GROUP BY s.config->>'dev_container_id'
 )
 SELECT DISTINCT ON (s.config->>'dev_container_id') s.*

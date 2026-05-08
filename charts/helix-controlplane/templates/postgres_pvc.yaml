@@ -1,0 +1,28 @@
+{{- if and .Values.postgresql.enabled .Values.postgresql.persistence.enabled (not .Values.postgresql.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-postgres-pvc
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  {{- with .Values.postgresql.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+  {{- range .Values.postgresql.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size | quote }}
+  {{- if .Values.postgresql.persistence.selector }}
+  selector: {{- include "helix-controlplane.tplvalues.render" (dict "value" .Values.postgresql.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.postgresql.persistence.dataSource }}
+  dataSource: {{- include "helix-controlplane.tplvalues.render" (dict "value" .Values.postgresql.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "helix-controlplane.storage.class" (dict "persistence" .Values.postgresql.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}

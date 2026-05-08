@@ -12,7 +12,8 @@ func TestFirstMessage(t *testing.T) {
 	a := &MessageAccumulator{}
 	a.AddMessage("msg-1", "Hello world")
 
-	if a.Content != "Hello world" {
+	a.Rebuild()
+	if a.Content !="Hello world" {
 		t.Errorf("expected 'Hello world', got %q", a.Content)
 	}
 	if a.LastMessageID != "msg-1" {
@@ -29,7 +30,8 @@ func TestSameMessageStreaming(t *testing.T) {
 	a.AddMessage("msg-1", "Hello")
 	a.AddMessage("msg-1", "Hello world")
 
-	if a.Content != "Hello world" {
+	a.Rebuild()
+	if a.Content !="Hello world" {
 		t.Errorf("expected 'Hello world', got %q", a.Content)
 	}
 }
@@ -40,7 +42,8 @@ func TestTwoDistinctMessages(t *testing.T) {
 	a.AddMessage("msg-2", "Tool call result")
 
 	expected := "Hello world\n\nTool call result"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 	if a.Offset != len("Hello world")+2 {
@@ -59,7 +62,8 @@ func TestMultiMessageWithStreaming(t *testing.T) {
 	a.AddMessage("msg-2", "[tool: edit.py]")
 
 	expected := "Hello world\n\n[tool: edit.py]"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
@@ -71,7 +75,8 @@ func TestThreeDistinctMessages(t *testing.T) {
 	a.AddMessage("msg-3", "Final response")
 
 	expected := "Hello world\n\nTool call\n\nFinal response"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
@@ -95,7 +100,8 @@ func TestInterleavedStreamingAndNewMessages(t *testing.T) {
 	a.AddMessage("msg-3", "Done!")
 
 	expected := "I'll help you with that.\n\n```tool\nedit file.py\n```\n\nDone!"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, a.Content)
 	}
 }
@@ -108,7 +114,8 @@ func TestStreamingAfterAppendPreservesPrefix(t *testing.T) {
 	a.AddMessage("msg-2", "Second complete message")
 
 	expected := "First message content\n\nSecond complete message"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -123,7 +130,8 @@ func TestEmptyContent(t *testing.T) {
 	a := &MessageAccumulator{}
 	a.AddMessage("msg-1", "")
 
-	if a.Content != "" {
+	a.Rebuild()
+	if a.Content !="" {
 		t.Errorf("expected empty content, got %q", a.Content)
 	}
 }
@@ -154,7 +162,8 @@ func TestOutOfOrderFlushUpdates(t *testing.T) {
 	a.AddMessage("18", "The design docs")
 
 	// Verify truncated state
-	if a.Content != "I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
+	a.Rebuild()
+	if a.Content !="I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
 		t.Fatalf("unexpected truncated state:\n%s", a.Content)
 	}
 
@@ -165,7 +174,8 @@ func TestOutOfOrderFlushUpdates(t *testing.T) {
 	a.AddMessage("18", "The design docs have been pushed and are ready for review.")
 
 	expected := "I'll start...understand the codebase structure\n\n**Tool Call: List the `clean-truncation-test`**\nStatus: Completed\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very minimal — just a README.\n\nThe design docs have been pushed and are ready for review."
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("out-of-order flush failed.\nexpected:\n%s\n\ngot:\n%s", expected, a.Content)
 	}
 }
@@ -182,7 +192,8 @@ func TestFlushDoesNotDuplicateContent(t *testing.T) {
 	a.AddMessage("1", "FIRST (corrected)")
 
 	expected := "FIRST (corrected)\n\nsecond\n\nthird"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -305,17 +316,20 @@ func TestEntriesStreamingGrowth(t *testing.T) {
 }
 
 func TestResumeFromPersistedState(t *testing.T) {
-	// Simulate restoring state from DB after API restart
-	a := &MessageAccumulator{
-		Content:       "Previous message\n\nStreaming...",
-		LastMessageID: "msg-2",
-		Offset:        len("Previous message") + 2,
-	}
+	// Simulate restoring state from DB after API restart using structured entries
+	entries := []byte(`[{"type":"text","content":"Previous message","message_id":"msg-1"},{"type":"text","content":"Streaming...","message_id":"msg-2"}]`)
+	a := RestoreAccumulator(
+		"Previous message\n\nStreaming...",
+		"msg-2",
+		len("Previous message")+2,
+		entries,
+	)
 
 	// Continue streaming msg-2
 	a.AddMessage("msg-2", "Streaming complete")
 
 	expected := "Previous message\n\nStreaming complete"
+	a.Rebuild()
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
@@ -324,6 +338,7 @@ func TestResumeFromPersistedState(t *testing.T) {
 	a.AddMessage("msg-3", "Final")
 
 	expected = "Previous message\n\nStreaming complete\n\nFinal"
+	a.Rebuild()
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
@@ -334,14 +349,17 @@ func TestSanitizeNullBytes(t *testing.T) {
 
 	// Content with null bytes (from terminal output or binary data)
 	a.AddMessage("msg-1", "Hello\x00World")
+	a.Rebuild()
 	assert.Equal(t, "HelloWorld", a.Content, "null bytes should be stripped")
 
 	// Content with multiple null bytes
 	a.AddMessage("msg-2", "\x00before\x00middle\x00after\x00")
+	a.Rebuild()
 	assert.Equal(t, "HelloWorld\n\nbeforemiddleafter", a.Content)
 
 	// Content without null bytes should pass through unchanged
 	a.AddMessage("msg-3", "clean content")
+	a.Rebuild()
 	assert.Contains(t, a.Content, "clean content")
 }
 
@@ -375,4 +393,129 @@ func TestSanitizeForPostgres(t *testing.T) {
 	// Fast path — clean strings return unchanged (same pointer)
 	clean := "nothing to strip here"
 	assert.Equal(t, clean, sanitize.ForPostgres(clean))
+}
+
+// Reproduces the cross-interaction leak surfaced by the e2e RESPONSE ENTRIES
+// ISOLATION VALIDATION step in Drone build #1024 (tag 2.11.0).
+//
+// Scenario:
+//   - Session has interaction A with a single assistant entry (msg_id "1").
+//   - Interaction A completes; user submits a follow-up so interaction B
+//     starts with a fresh accumulator.
+//   - Zed's flush_streaming_throttle replays ALL entries in the ACP thread on
+//     every event, so B's accumulator receives msg_id "1" again before its
+//     own msg_id "3" arrives.
+//   - Without the prior-id filter, msg_id "1" lands in B's response_entries.
+func TestPriorEntriesFilterPreventsCrossInteractionLeak(t *testing.T) {
+	// Interaction B's accumulator is told that msg_id "1" with the exact
+	// content from A belongs to A. Zed replays the same (id, content) pair
+	// during B's turn — that's the wrapper-flush replay we want to drop.
+	b := &MessageAccumulator{}
+	b.SetPriorEntries([]ResponseEntry{
+		{MessageID: "1", Content: "interaction A content (replayed)", Type: "text"},
+	})
+
+	b.AddMessageWithType("1", "interaction A content (replayed)", "text")
+	b.AddMessageWithType("3", "interaction B real content", "text")
+
+	entries := b.Entries()
+	require.Len(t, entries, 1, "msg_id 1 must not leak into interaction B")
+	assert.Equal(t, "3", entries[0].MessageID)
+	assert.Equal(t, "interaction B real content", entries[0].Content)
+	assert.Equal(t, "3", b.LastMessageID, "LastMessageID must reflect B's own msg only")
+
+	b.Rebuild()
+	assert.Equal(t, "interaction B real content", b.Content)
+	assert.Equal(t, 0, b.Offset)
+}
+
+// Wrapper-restart renumbering: same message_id but DIFFERENT content. The new
+// content must be accepted, NOT dropped. Regression test for the empty-response
+// bounce on int_01kqjsrhndcpwb9zv068dn7mv9 (2026-05-01) — see
+// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+func TestPriorEntriesAcceptsRenumberedNewContent(t *testing.T) {
+	b := &MessageAccumulator{}
+	b.SetPriorEntries([]ResponseEntry{
+		{MessageID: "348", Content: "old turn's response from before the wrapper restarted", Type: "text"},
+	})
+
+	// Wrapper restarted, message_ids reset; Zed sends a fresh entry under the
+	// reused id "348" with totally different content. Must be accepted.
+	b.AddMessageWithType("348", "<thinking>\n\n</thinking>", "text")
+	b.AddMessageWithType("349", "**Tool Call: git status**\nStatus: Failed", "tool_call")
+
+	entries := b.Entries()
+	require.Len(t, entries, 2, "renumbered new content must not be dropped")
+	assert.Equal(t, "348", entries[0].MessageID)
+	assert.Equal(t, "<thinking>\n\n</thinking>", entries[0].Content)
+	assert.Equal(t, "349", entries[1].MessageID)
+}
+
+// Without SetPriorEntries the leak occurs - this is the bug being fixed.
+func TestPriorEntriesLeakWhenFilterUnset(t *testing.T) {
+	b := &MessageAccumulator{}
+	b.AddMessageWithType("1", "leaked from A", "text")
+	b.AddMessageWithType("3", "B content", "text")
+
+	entries := b.Entries()
+	require.Len(t, entries, 2,
+		"without SetPriorEntries the leak is unfiltered (documents the bug)")
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "3", entries[1].MessageID)
+}
+
+// SetPriorEntries is additive across calls and tolerates empty/duplicate inputs.
+func TestSetPriorEntriesIdempotent(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.SetPriorEntries(nil)                                            // no-op
+	a.SetPriorEntries([]ResponseEntry{{MessageID: "", Content: "x"}}) // empty id ignored
+	a.SetPriorEntries([]ResponseEntry{{MessageID: "1", Content: "drop"}})
+	a.SetPriorEntries([]ResponseEntry{{MessageID: "1", Content: "drop"}, {MessageID: "2", Content: "drop"}}) // dedup
+	a.AddMessage("1", "drop")
+	a.AddMessage("2", "drop")
+	a.AddMessage("3", "keep")
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "3", entries[0].MessageID)
+}
+
+// The filter must hold against repeated streaming updates for a prior id
+// (Zed sends incremental content for the same msg_id many times during a turn).
+// Each chunk is checked independently; a chunk that exactly matches the prior
+// snapshot is dropped, everything else passes.
+func TestPriorEntriesFilterStableUnderStreaming(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.SetPriorEntries([]ResponseEntry{
+		{MessageID: "1", Content: "Hello world"},
+	})
+
+	// Streaming chunks that don't match the final prior content are accepted
+	// (they're early-stream updates of new content, not the final replay).
+	// The final "Hello world" matches the prior snapshot exactly and IS dropped.
+	for _, chunk := range []string{"He", "Hel", "Hello", "Hello world"} {
+		a.AddMessageWithType("1", chunk, "text")
+	}
+	a.AddMessageWithType("3", "B's reply", "text")
+
+	entries := a.Entries()
+	// id "1" was last set to "Hello" before the final "Hello world" was
+	// dropped, so it lingers with content "Hello".
+	require.Len(t, entries, 2)
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "Hello", entries[0].Content)
+	assert.Equal(t, "3", entries[1].MessageID)
+	assert.Equal(t, "B's reply", entries[1].Content)
+}
+
+// SetPriorMessageIDs (legacy id-only API, kept for backwards compat) only
+// drops entries whose CONTENT is empty — anything with content passes through.
+// New code should use SetPriorEntries.
+func TestSetPriorMessageIDsOnlyDropsEmptyContent(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.SetPriorMessageIDs([]string{"1"})
+	a.AddMessageWithType("1", "", "text")    // matches stored empty-content snapshot, dropped
+	a.AddMessageWithType("1", "real", "text") // different content, accepted
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "real", entries[0].Content)
 }

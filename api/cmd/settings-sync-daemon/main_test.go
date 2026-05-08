@@ -233,3 +233,106 @@ func TestInjectAvailableModels(t *testing.T) {
 		})
 	}
 }
+
+// TestMergeAgentBlock_HelixManagedFieldsProtected verifies that the daemon's
+// client-side merge drops user-side overrides for helix-managed agent.* model
+// fields. See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
+	helixAgent := map[string]interface{}{
+		"default_model":          map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+		"inline_assistant_model": map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+		"commit_message_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+		"thread_summary_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+		"auto_open_panel":        true,
+		"show_onboarding":        false,
+	}
+
+	t.Run("user override of default_model is dropped", func(t *testing.T) {
+		userAgent := map[string]interface{}{
+			"default_model": map[string]interface{}{
+				"provider":        "anthropic",
+				"model":           "claude-sonnet-4-6-latest",
+				"effort":          "high",
+				"enable_thinking": true,
+			},
+		}
+		merged := mergeAgentBlock(helixAgent, userAgent).(map[string]interface{})
+
+		dm := merged["default_model"].(map[string]interface{})
+		assert.Equal(t, "openai", dm["provider"])
+		assert.Equal(t, "numpty/openai/gpt-oss-120b", dm["model"])
+		assert.NotContains(t, dm, "effort")
+		assert.NotContains(t, dm, "enable_thinking")
+	})
+
+	t.Run("all four model fields are protected", func(t *testing.T) {
+		userAgent := map[string]interface{}{
+			"default_model":          map[string]interface{}{"provider": "anthropic", "model": "claude"},
+			"inline_assistant_model": map[string]interface{}{"provider": "anthropic", "model": "claude"},
+			"commit_message_model":   map[string]interface{}{"provider": "anthropic", "model": "claude"},
+			"thread_summary_model":   map[string]interface{}{"provider": "anthropic", "model": "claude"},
+		}
+		merged := mergeAgentBlock(helixAgent, userAgent).(map[string]interface{})
+
+		for _, field := range []string{"default_model", "inline_assistant_model", "commit_message_model", "thread_summary_model"} {
+			dm := merged[field].(map[string]interface{})
+			assert.Equal(t, "openai", dm["provider"], "%s.provider", field)
+			assert.Equal(t, "numpty/openai/gpt-oss-120b", dm["model"], "%s.model", field)
+		}
+	})
+
+	t.Run("non-model agent fields can still be user-overridden", func(t *testing.T) {
+		userAgent := map[string]interface{}{
+			"default_model":              map[string]interface{}{"provider": "anthropic", "model": "claude"},
+			"play_sound_when_agent_done": true,
+			"button":                     false,
+		}
+		merged := mergeAgentBlock(helixAgent, userAgent).(map[string]interface{})
+
+		assert.Equal(t, "numpty/openai/gpt-oss-120b", merged["default_model"].(map[string]interface{})["model"])
+		assert.Equal(t, true, merged["play_sound_when_agent_done"])
+		assert.Equal(t, false, merged["button"])
+	})
+
+	t.Run("non-object user agent keeps helix verbatim", func(t *testing.T) {
+		merged := mergeAgentBlock(helixAgent, "not-an-object")
+		assert.Equal(t, helixAgent, merged)
+	})
+}
+
+// TestExtractUserOverrides_AgentDiffSkipsManagedFields verifies that the daemon
+// does not upload changes to helix-managed agent.* model fields.
+func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {
+	helix := map[string]interface{}{
+		"agent": map[string]interface{}{
+			"default_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+			"auto_open_panel": true,
+		},
+	}
+
+	t.Run("does not upload claude default_model", func(t *testing.T) {
+		current := map[string]interface{}{
+			"agent": map[string]interface{}{
+				"default_model":   map[string]interface{}{"provider": "anthropic", "model": "claude-sonnet-4-6-latest"},
+				"auto_open_panel": true,
+			},
+		}
+		got := extractUserOverrides(current, helix)
+		assert.NotContains(t, got, "agent")
+	})
+
+	t.Run("uploads non-model agent diffs only", func(t *testing.T) {
+		current := map[string]interface{}{
+			"agent": map[string]interface{}{
+				"default_model":              map[string]interface{}{"provider": "anthropic", "model": "claude"},
+				"auto_open_panel":            true,
+				"play_sound_when_agent_done": true,
+			},
+		}
+		got := extractUserOverrides(current, helix)
+		agent := got["agent"].(map[string]interface{})
+		assert.Equal(t, true, agent["play_sound_when_agent_done"])
+		assert.NotContains(t, agent, "default_model")
+		assert.NotContains(t, agent, "auto_open_panel")
+	})
+}
