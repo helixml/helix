@@ -147,6 +147,7 @@ export interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   description?: string;
+  original_prompt?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
@@ -786,7 +787,7 @@ function TaskCardInner({
               <span style={{ whiteSpace: "pre-wrap" }}>
                 {(() => {
                   const created = formatCreatedAt(task.created_at);
-                  const body = task.description || task.name;
+                  const body = task.original_prompt || task.description || task.name;
                   return created ? `Created ${created}\n\n${body}` : body;
                 })()}
               </span>
