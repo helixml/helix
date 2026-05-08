@@ -21,6 +21,7 @@
 
 ## Backend: Fix missing `specs_pushed` notifications on SpecReview transition
 
-- [~] In `spec_task_orchestrator.go` `handleSpecGeneration`, emit `AttentionEventSpecsPushed` via `attentionService.EmitEvent()` after the task status is set to `SpecReview`; use task ID as idempotency qualifier
+- [x] In `spec_task_orchestrator.go` `handleSpecGeneration`, emit `AttentionEventSpecsPushed` via `attentionService.EmitEvent()` after the task status is set to `SpecReview`; use task ID as idempotency qualifier
+- [x] Update generated swagger / TS API client to include `pr_opened` enum entry (kept `swagger.json`/`swagger.yaml`/`docs.go`/`api.ts` in sync without running `./stack update_openapi` since Docker isn't available locally)
 
 > Note: the git push path in `git_http_server.go` (line ~1581) already emits `specs_pushed` correctly, and `HandleSpecGenerationComplete` in `spec_driven_task_service.go` is a separate concern (dead code unrelated to either real path) — leaving it untouched in this task.
