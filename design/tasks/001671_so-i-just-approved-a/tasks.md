@@ -1,7 +1,8 @@
 # Implementation Tasks
 
-- [ ] In `DesignReviewContent.handleSubmitReview`: add `return` after calling `onImplementationStarted()` so `onClose()` is not also called
-- [ ] In `SpecTaskReviewPage.handleApproved`: write `taskId` into sessionStorage key `"helix_auto_opened_spec_tasks"` before navigating
-- [ ] In `SpecTaskReviewPage.handleApproved`: change navigation destination from `project-specs` to `project-task-detail`
-- [ ] Test: go directly to a spec review URL (not via auto-open), approve, confirm you land on task detail and stay there
-- [ ] Build check: `cd frontend && yarn build`
+Bug already fixed on unmerged branch `feature/001920-after-approving-a-task` (commit `aa8afd883`).
+
+- [ ] Verify branch `feature/001920-after-approving-a-task` is still current vs latest main; rebase if needed
+- [ ] Find or open the PR for that branch
+- [ ] Get the PR reviewed and merged
+- [ ] After merge, manually retest the approval flow in the inner Helix to confirm the user lands on the task detail page and stays there
