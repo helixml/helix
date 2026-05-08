@@ -83,8 +83,9 @@ rollback_helm_charts() {
   if [ -z "${GCS_SERVICE_ACCOUNT_KEY:-}" ]; then
     # Fall back to ambient credentials (e.g. developer's local gcloud auth)
     if ! gsutil ls "$GCS_BUCKET" >/dev/null 2>&1; then
-      warn "No GCS credentials available, skipping helm chart cleanup"
-      return 0
+      echo "[rollback] ERROR: No GCS credentials available, cannot clean up helm charts" >&2
+      echo "[rollback] ERROR: Set the gcs_service_account_key Drone secret so failed releases don't leak orphan charts to $GCS_BUCKET" >&2
+      return 1
     fi
   else
     echo "$GCS_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/gcs-key.json
@@ -227,12 +228,17 @@ send_slack_notification() {
 log "Starting release rollback for $VERSION"
 log "============================================"
 
-rollback_github_release || warn "GitHub release cleanup encountered errors"
-rollback_git_tag        || warn "Git tag cleanup encountered errors"
-rollback_helm_charts    || warn "Helm chart cleanup encountered errors"
-rollback_r2_assets      || warn "R2 asset cleanup encountered errors"
-rollback_latest_json    || warn "latest.json revert encountered errors"
+FAILED=0
+rollback_github_release || { warn "GitHub release cleanup encountered errors"; FAILED=1; }
+rollback_git_tag        || { warn "Git tag cleanup encountered errors"; FAILED=1; }
+rollback_helm_charts    || { warn "Helm chart cleanup encountered errors"; FAILED=1; }
+rollback_r2_assets      || { warn "R2 asset cleanup encountered errors"; FAILED=1; }
+rollback_latest_json    || { warn "latest.json revert encountered errors"; FAILED=1; }
 send_slack_notification || warn "Slack notification encountered errors"
 
 log "============================================"
+if [ "$FAILED" -ne 0 ]; then
+  log "Release rollback for $VERSION FAILED - manual cleanup required"
+  exit 1
+fi
 log "Release rollback for $VERSION complete"

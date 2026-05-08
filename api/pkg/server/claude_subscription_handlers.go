@@ -66,7 +66,19 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 
 	if createReq.SetupToken != "" {
 		// Setup token flow: token from `claude setup-token`
-		credJSON, err := json.Marshal(types.ClaudeSetupTokenCredentials{SetupToken: strings.TrimSpace(createReq.SetupToken)})
+		token := strings.TrimSpace(createReq.SetupToken)
+		if strings.HasPrefix(token, "sk-ant-api") {
+			return nil, system.NewHTTPError400(
+				"This is an Anthropic API key, not a Claude Code setup token. " +
+					"Run 'claude setup-token' in your terminal to generate the correct token.")
+		}
+		if !strings.HasPrefix(token, "sk-ant-oat") {
+			return nil, system.NewHTTPError400(
+				"Invalid setup token format. " +
+					"Run 'claude setup-token' to generate a valid token.")
+		}
+
+		credJSON, err := json.Marshal(types.ClaudeSetupTokenCredentials{SetupToken: token})
 		if err != nil {
 			return nil, system.NewHTTPError500("failed to marshal credentials")
 		}

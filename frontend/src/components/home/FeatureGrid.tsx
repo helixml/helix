@@ -51,7 +51,7 @@ const CHAT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/text-inference/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -70,7 +70,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/image-inference/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -109,7 +109,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/text-finetuning/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -132,7 +132,7 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/image-finetuning/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -159,7 +159,7 @@ const JS_APP_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/getting-started/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -177,7 +177,7 @@ const API_FEATURE: IFeature = {
     title: 'Docs (coming soon)',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/apps/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -195,7 +195,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/apps/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -213,7 +213,7 @@ const DASHBOARD_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/private-deployment/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -246,7 +246,7 @@ const SETTINGS_FEATURE: IFeature = {
     title: 'Settings',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => window.open("https://docs.helixml.tech/helix/private-deployment/environment-variables/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 

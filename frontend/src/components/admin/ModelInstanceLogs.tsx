@@ -30,10 +30,10 @@ import {
   BugReport as DebugIcon,
   Download as DownloadIcon
 } from '@mui/icons-material'
-import { TypesDashboardRunner } from '../../api/api'
 import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
+import { DashboardRunner } from '../../types/dashboard'
 
-const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => {
+const ModelInstanceLogs: FC<{ runner: DashboardRunner }> = ({ runner }) => {
   const [selectedSlot, setSelectedSlot] = useState<string>('')
   const [logLevel, setLogLevel] = useState<string>('all')
   const [maxLines, setMaxLines] = useState<number>(100)

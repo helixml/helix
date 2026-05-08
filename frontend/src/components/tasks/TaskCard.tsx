@@ -54,6 +54,7 @@ import {
   ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
+import CIStatusIcon from "./CIStatusIcon";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
@@ -125,6 +126,10 @@ export interface SpecTaskWithExtras {
     pr_number?: number;
     pr_url?: string;
     pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
   }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
@@ -145,7 +150,9 @@ export interface SpecTaskWithExtras {
   // Assignee tracking
   assignee_id?: string;
   labels?: string[];
+  created_at?: string;
   updated_at?: string;
+  last_push_at?: string;
 }
 
 export interface TaskDependency {
@@ -159,6 +166,15 @@ export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
+}
+
+// Format an ISO timestamp for the title tooltip. Returns null when the input
+// is missing or unparseable so callers can omit the date line cleanly.
+function formatCreatedAt(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 interface TaskCardProps {
@@ -226,6 +242,20 @@ const formatDuration = (startedAt: string): string => {
     return `${hours}h${minutes}m`;
   }
   return `${minutes}m${seconds}s`;
+};
+
+// Status label for tasks in the "implementation" phase. We honour the agent's
+// real activity (working / idle) so the card doesn't keep claiming the agent
+// is busy while it's actually sitting waiting for review. If the sandbox is
+// down or starting, surface that instead.
+const getImplementationLabel = (task: SpecTaskWithExtras): string => {
+  if (task.sandbox_state === "absent") return "Sandbox stopped";
+  if (task.sandbox_state === "starting") {
+    return task.sandbox_status_message || "Starting…";
+  }
+  if (task.agent_work_state === "idle") return "Idle";
+  // "working", missing field, or any unexpected value → keep today's label.
+  return "In Progress";
 };
 
 const useRunningDuration = (
@@ -600,7 +630,7 @@ function TaskCardInner({
 
   const runningDuration = useRunningDuration(
     task.started_at,
-    task.status === "implementation",
+    task.agent_work_state === "working",
   );
   const taskError = task.metadata?.error?.trim();
 
@@ -737,7 +767,7 @@ function TaskCardInner({
           />
         </Tooltip>
       )}
-      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box
           sx={{
@@ -751,7 +781,11 @@ function TaskCardInner({
           <Tooltip
             title={
               <span style={{ whiteSpace: "pre-wrap" }}>
-                {task.description || task.name}
+                {(() => {
+                  const created = formatCreatedAt(task.created_at);
+                  const body = task.description || task.name;
+                  return created ? `Created ${created}\n\n${body}` : body;
+                })()}
               </span>
             }
             placement="top"
@@ -980,7 +1014,7 @@ function TaskCardInner({
                   : task.phase === "review"
                     ? "Review"
                     : task.phase === "implementation"
-                      ? "In Progress"
+                      ? getImplementationLabel(task)
                       : task.phase === "pull_request"
                         ? "Pull Request"
                         : "Merged"}
@@ -993,6 +1027,7 @@ function TaskCardInner({
                 • {runningDuration}
               </Typography>
             )}
+            <CIStatusIcon prs={task.repo_pull_requests} />
           </Box>
 
           {/* Assignee avatar */}
@@ -1064,7 +1099,7 @@ function TaskCardInner({
         )}
 
         {/* Show task error prominently and avoid desktop viewer when errored */}
-        {taskError && (
+        {taskError && task.phase !== "completed" && (
           <Box
             sx={{
               mb: 1,
@@ -1289,6 +1324,7 @@ function TaskCardInner({
               base_branch: task.base_branch,
               branch_name: task.branch_name,
               archived: task.archived,
+              last_push_at: task.last_push_at,
             }}
             variant="stacked"
             onReject={(shiftKey) => {
@@ -1579,6 +1615,15 @@ function TaskCardInner({
   );
 }
 
+// Compact signature of CI state across all PRs — picks up changes to any
+// ci_status / ci_url / ci_head_sha so the card re-renders when CI moves.
+function ciSignature(prs?: SpecTaskWithExtras["repo_pull_requests"]): string {
+  if (!prs || prs.length === 0) return "";
+  return prs
+    .map((p) => `${p.pr_id ?? ""}:${p.ci_status ?? ""}:${p.ci_head_sha ?? ""}`)
+    .join("|");
+}
+
 // Memoized TaskCard to prevent unnecessary re-renders
 const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
   // Only re-render when meaningful props change
@@ -1589,6 +1634,7 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
     prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
+    ciSignature(prevProps.task.repo_pull_requests) === ciSignature(nextProps.task.repo_pull_requests) &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning &&

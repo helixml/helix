@@ -1,0 +1,49 @@
+# Helix runner profile: any-nvidia-blackwell-4gpu
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        nvidia
+#   architectures: [blackwell]
+#   model_match:   ""
+#   min_vram:      0                    # any VRAM (Blackwell GPUs all >= 80 GiB)
+#
+# Demonstrates the architecture-pinned case: any Blackwell card (B100, B200,
+# GB200) on a 4-GPU host. No specific model_match, no VRAM floor — Blackwell
+# in itself is a strong-enough constraint. Designed for FP8 paths and
+# Flash Attention 3 kernels available on Hopper+.
+
+services:
+  qwen35-large-tp4:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen35-large
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0", "1", "2", "3"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3.5-72B-FP8
+      - --served-model-name
+      - qwen3.5-72b
+      - --tensor-parallel-size
+      - "4"
+      - --max-model-len
+      - "65536"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3

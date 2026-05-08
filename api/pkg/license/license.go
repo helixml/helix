@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -44,6 +45,28 @@ type License struct {
 	ValidUntil   time.Time `json:"valid_until"`
 	Features     Features  `json:"features"`
 	Limits       Limits    `json:"limits"`
+}
+
+// revokedLicenseIDHashes is the set of hex-encoded SHA-256 hashes of
+// license IDs that must not validate, even when their signature and
+// expiry are still good. The offline validator has no other
+// revocation channel, so entries baked into the binary are the only
+// way to block a specific license once it has been issued.
+//
+// IDs are stored hashed rather than in plaintext so that this source
+// file cannot be read to enumerate revoked license IDs. Values are
+// short opaque codes; the mapping of code to root cause is tracked
+// outside the tree.
+var revokedLicenseIDHashes = map[string]string{
+	"aa835eb0d68ead085885ebf76544dab4371e6fcd5859ce9e7827aa7e4e3820fa": "R1",
+}
+
+// isRevoked reports whether a license ID appears in the revocation
+// denylist. It returns the opaque reason code for the entry when true.
+func isRevoked(licenseID string) (code string, revoked bool) {
+	sum := sha256.Sum256([]byte(licenseID))
+	code, revoked = revokedLicenseIDHashes[hex.EncodeToString(sum[:])]
+	return
 }
 
 type Features struct {
@@ -116,6 +139,14 @@ func (v *DefaultValidator) Validate(licenseStr string) (*License, error) {
 	var license License
 	if err := json.Unmarshal([]byte(envelope.Data), &license); err != nil {
 		return nil, fmt.Errorf("invalid license data: %w", err)
+	}
+
+	// Reject revoked licenses even if the signature is valid. This
+	// check runs after signature verification so that tampered payloads
+	// still fail on signature; the denylist only fires on otherwise-
+	// valid signatures.
+	if code, revoked := isRevoked(license.ID); revoked {
+		return nil, fmt.Errorf("license %s has been revoked (%s)", license.ID, code)
 	}
 
 	return &license, nil

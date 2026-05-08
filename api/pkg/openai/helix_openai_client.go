@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -291,20 +290,11 @@ func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, embeddingReq
 		},
 	}
 
-	model, err := c.store.GetModel(context.Background(), string(embeddingRequest.Model))
-	if err != nil {
-		return resp, fmt.Errorf("embedding model '%s' not found in helix provider (local scheduler) - check if this model exists in your configured models: %w", embeddingRequest.Model, err)
-	}
-
-	// Enqueue the request for processing
-	work, err := scheduler.NewLLMWorkload(req, model)
-	if err != nil {
-		return resp, fmt.Errorf("error creating workload: %w", err)
-	}
-
-	err = c.scheduler.Enqueue(work)
-	if err != nil {
-		return resp, fmt.Errorf("error enqueuing work: %w", err)
+	// Sandbox-absorbs-runner: dispatch via the inference router (no
+	// scheduler). Returns NoRunnerError carrying the available-models
+	// list if no sandbox is currently serving the requested model.
+	if err := c.enqueueRequest(req); err != nil {
+		return resp, fmt.Errorf("dispatch embeddings: %w", err)
 	}
 
 	// Wait for the response or timeout
@@ -385,20 +375,10 @@ func (c *InternalHelixServer) CreateFlexibleEmbeddings(ctx context.Context, flex
 		},
 	}
 
-	model, err := c.store.GetModel(context.Background(), flexibleRequest.Model)
-	if err != nil {
-		return resp, fmt.Errorf("embedding model '%s' not found in helix provider (local scheduler) - check if this model exists in your configured models: %w", flexibleRequest.Model, err)
-	}
-
-	// Enqueue the request for processing
-	work, err := scheduler.NewLLMWorkload(req, model)
-	if err != nil {
-		return resp, fmt.Errorf("error creating workload: %w", err)
-	}
-
-	err = c.scheduler.Enqueue(work)
-	if err != nil {
-		return resp, fmt.Errorf("error enqueuing work: %w", err)
+	// Sandbox-absorbs-runner: dispatch via the inference router (no
+	// scheduler). NoRunnerError on no match.
+	if err := c.enqueueRequest(req); err != nil {
+		return resp, fmt.Errorf("dispatch flexible embeddings: %w", err)
 	}
 
 	// Wait for the response or timeout

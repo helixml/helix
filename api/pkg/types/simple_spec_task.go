@@ -32,6 +32,17 @@ type RepoPR struct {
 	PRNumber       int    `json:"pr_number"`
 	PRURL          string `json:"pr_url"`
 	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+
+	// CI status, populated by the spec task orchestrator's PR poll loop.
+	// CIStatus is one of: "" (not yet evaluated), "running", "passed",
+	// "failed", "none" (CI not configured for the PR's head SHA).
+	// CIHeadSHA is the head commit we last evaluated; it lets the poller
+	// detect a new push and reset CIStatus so a stale "passed" doesn't
+	// suppress a fresh notification when the next commit fails.
+	CIStatus    string    `json:"ci_status,omitempty"`
+	CIURL       string    `json:"ci_url,omitempty"`
+	CIUpdatedAt time.Time `json:"ci_updated_at,omitempty"`
+	CIHeadSHA   string    `json:"ci_head_sha,omitempty"`
 }
 
 // GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
@@ -79,7 +90,9 @@ type CreateTaskRequest struct {
 	UserEmail    string           `json:"user_email,omitempty"` // Optional: User email for audit trail
 	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
 	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool             `json:"auto_start"`           // Optional: Skip backlog and start immediately, regardless of project auto-start setting
 	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
+	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -168,6 +181,7 @@ type SpecTask struct {
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
 	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
+	RebaseRequestedAt        *time.Time `json:"rebase_requested_at,omitempty"` // Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.
 
 	// Git tracking
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch
@@ -179,6 +193,7 @@ type SpecTask struct {
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
+	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
 	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`
@@ -193,6 +208,9 @@ type SpecTask struct {
 
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
+
+	// Keep alive — prevent auto-idle-shutdown of desktop container
+	KeepAlive bool `json:"keep_alive" gorm:"default:false"`
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
@@ -272,6 +290,7 @@ type SpecTaskUpdateRequest struct {
 	HelixAppID       string           `json:"helix_app_id,omitempty"`       // Agent to use for this task
 	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
 	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
+	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
 	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
 }

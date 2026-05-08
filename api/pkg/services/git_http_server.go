@@ -31,7 +31,11 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents.
 // Returns (requestID, interactionID, error).
-type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, string, error)
+//
+// The fourth string is a notifyUserID (empty = no extra notification). interrupt=true
+// tells the agent to cancel its current turn before processing — use it for reactive
+// feedback like design-review comments; use false for system-driven instructions.
+type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
@@ -612,14 +616,28 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
-		// Resolve the acting user for push credentials: use the approver's
-		// OAuth token so the push is attributed to the user who clicked "Open PR".
+		// Resolve the acting user for push credentials: use the actor's OAuth
+		// token so the push is attributed correctly on GitHub.
+		//
+		// Walk the phase chain from most to least recent:
+		//   ImplementationApprovedBy — user clicked "Open PR"
+		//   SpecApprovedBy           — user approved specs and moved task to implementation
+		//   PlanningStartedBy        — user kicked off planning (first phase that can push to helix-specs)
+		//
+		// Using the latest actor available means agent-initiated pushes at
+		// any phase carry a real user identity rather than anonymous creds.
 		var pushUserID string
 		if restriction != nil && restriction.IsAgentKey {
 			rawKey := s.extractRawAPIKey(apiKey)
 			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
 				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
 					pushUserID = pushTask.ImplementationApprovedBy
+					if pushUserID == "" {
+						pushUserID = pushTask.SpecApprovedBy
+					}
+					if pushUserID == "" {
+						pushUserID = pushTask.PlanningStartedBy
+					}
 				}
 			}
 		}
@@ -967,6 +985,29 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
 				continue
 			}
+		case types.TaskStatusImplementationReview:
+			// A push arrived while the task was waiting on a rebase. Record the
+			// push (so the FE can see progress) and, if the user previously
+			// approved (RebaseRequestedAt set), try the FF merge again
+			// automatically. Without this, the user would have to click Accept
+			// a second time and would have no signal that the rebase landed.
+			if task.RebaseRequestedAt == nil {
+				log.Trace().Str("task_id", task.ID).Str("branch", branchName).Msg("Push to implementation_review task without prior rebase request — leaving for explicit Accept")
+				continue
+			}
+			now := time.Now()
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task last_push_at")
+				continue
+			}
+			s.wg.Add(1)
+			go func(taskID string) {
+				defer s.wg.Done()
+				s.tryAutoMergeAfterRebase(context.Background(), taskID)
+			}(task.ID)
 		case types.TaskStatusPullRequest:
 			s.wg.Add(1)
 			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
@@ -989,6 +1030,107 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			continue
 		}
 	}
+}
+
+// tryAutoMergeAfterRebase re-attempts the server-side fast-forward merge after the
+// agent has pushed a (presumably rebased) feature branch. Mirrors the merge half
+// of approveImplementation in spec_task_workflow_handlers.go. If the FF still
+// fails the task is left in implementation_review; we do not re-prompt the agent
+// here because the same flow that calls this also recorded the push, so the next
+// user-driven Accept will see LastPushAt > RebaseRequestedAt and re-issue the
+// rebase request only if needed.
+//
+// Re-fetches the task by ID rather than operating on a pointer passed from the
+// caller — between the push hook firing and this goroutine running, the row may
+// have been mutated by the orchestrator or by a user action (move-to-backlog,
+// archive, etc). Operating on a stale pointer would silently overwrite those
+// changes.
+func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID string) {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("auto-merge: get task failed")
+		return
+	}
+	// Status guard: if the user moved the task elsewhere (backlog, archived) or
+	// it already reached `done` via another path, do nothing. Without this guard
+	// the goroutine would resurrect the task as `done` and overwrite the user's
+	// deliberate intervention.
+	if task.Status != types.TaskStatusImplementationReview {
+		log.Debug().
+			Str("task_id", taskID).
+			Str("status", string(task.Status)).
+			Msg("auto-merge: task no longer in implementation_review, skipping")
+		return
+	}
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get project failed")
+		return
+	}
+	if project.DefaultRepoID == "" {
+		return
+	}
+	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get repo failed")
+		return
+	}
+	if repo.DefaultBranch == "" {
+		return
+	}
+
+	var oldDefaultBranchRef string
+	if repo.IsExternal && repo.ExternalURL != "" {
+		lock := s.gitRepoService.GetRepoLock(repo.ID)
+		lock.Lock()
+		defer lock.Unlock()
+
+		if err := s.gitRepoService.SyncAllBranches(ctx, repo.ID, true); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("auto-merge: sync failed, continuing with local state")
+		}
+		oldDefaultBranchRef, _ = GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+	}
+
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+		log.Info().
+			Err(mergeErr).
+			Str("task_id", task.ID).
+			Str("source_branch", task.BranchName).
+			Str("target_branch", repo.DefaultBranch).
+			Msg("auto-merge: FF still not possible after agent push — leaving task in implementation_review")
+		return
+	}
+
+	if repo.IsExternal && repo.ExternalURL != "" {
+		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
+			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: push to upstream failed - rolling back")
+			if oldDefaultBranchRef != "" {
+				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
+					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: rollback failed")
+				}
+			}
+			return
+		}
+	}
+
+	now := time.Now()
+	task.MergedToMain = true
+	task.MergedAt = &now
+	task.Status = types.TaskStatusDone
+	task.StatusUpdatedAt = &now
+	task.CompletedAt = &now
+	task.ImplementationApprovedAt = &now
+	task.UpdatedAt = now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: failed to mark task done after successful auto-merge")
+		return
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
 // handleMainBranchPush transitions task from implementation_review → done
@@ -1173,6 +1315,25 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
+
+	// If we already track a PR for this repo, return without pushing or
+	// re-creating. Pushing would recreate a branch that GitHub auto-deleted
+	// after merge, or re-open a branch the user closed intentionally.
+	// ListPullRequests (open-only) can't see merged/closed PRs, so without
+	// this guard we'd fall through to CreatePullRequest and duplicate.
+	// Mirrors the guard added to ensurePullRequestForRepo in PR #2225.
+	for i := range task.RepoPullRequests {
+		existing := &task.RepoPullRequests[i]
+		if existing.RepositoryID == repo.ID && existing.PRID != "" {
+			log.Info().
+				Str("pr_id", existing.PRID).
+				Str("pr_state", existing.PRState).
+				Str("repo_id", repo.ID).
+				Str("branch", branch).
+				Msg("Task already tracks a PR for this repo, skipping ensurePullRequest")
+			return nil
+		}
+	}
 
 	// Acquire repo lock for push operation to prevent race conditions.
 	// Use the approver's OAuth token when available.

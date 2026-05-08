@@ -36,13 +36,13 @@ import {
   BugReport as DebugIcon,
   VerticalAlignBottom as ScrollDownIcon
 } from '@mui/icons-material'
-import { TypesDashboardRunner } from '../../api/api'
 import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
+import { DashboardRunner } from '../../types/dashboard'
 
 interface LogViewerModalProps {
   open: boolean
   onClose: () => void
-  runner: TypesDashboardRunner
+  runner: DashboardRunner
   isFloating?: boolean
 }
 
