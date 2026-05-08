@@ -27,7 +27,6 @@ export type AttentionEventType =
   | 'spec_failed'
   | 'implementation_failed'
   | 'pr_ready'
-  | 'pr_opened'
   | 'ci_passed'
   | 'ci_failed'
 

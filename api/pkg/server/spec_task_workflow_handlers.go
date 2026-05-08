@@ -660,7 +660,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	prs, err = s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("pr_id", prID).Msg("Failed to fetch PR details after creation")
-		s.emitPROpenedEvent(task, repo, prID, "")
+		s.emitPRReadyEvent(task, prID, "")
 		// Return partial info
 		return &types.RepoPR{
 			RepositoryID:   repo.ID,
@@ -673,7 +673,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	for _, pr := range prs {
 		if pr.ID == prID {
 			log.Info().Str("pr_id", prID).Str("branch", branch).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Created pull request")
-			s.emitPROpenedEvent(task, repo, pr.ID, pr.URL)
+			s.emitPRReadyEvent(task, pr.ID, pr.URL)
 			return &types.RepoPR{
 				RepositoryID:   repo.ID,
 				RepositoryName: repo.Name,
@@ -686,7 +686,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}
 
 	// Fallback if we can't find the PR we just created
-	s.emitPROpenedEvent(task, repo, prID, "")
+	s.emitPRReadyEvent(task, prID, "")
 	return &types.RepoPR{
 		RepositoryID:   repo.ID,
 		RepositoryName: repo.Name,
@@ -695,29 +695,30 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}, nil
 }
 
-// emitPROpenedEvent fires a pr_opened attention event after Helix creates a PR.
-// Idempotent on (task, prID), so duplicate calls (e.g. from retry paths) are safe.
-func (s *HelixAPIServer) emitPROpenedEvent(task *types.SpecTask, repo *types.GitRepository, prID, prURL string) {
+// emitPRReadyEvent fires the pr_ready attention event immediately after Helix
+// creates a PR, rather than waiting for the orchestrator polling loop to detect
+// it. The orchestrator emits the same event with the same idempotency qualifier
+// (PR ID), so the later emission becomes a no-op.
+func (s *HelixAPIServer) emitPRReadyEvent(task *types.SpecTask, prID, prURL string) {
 	if s.attentionService == nil || task == nil || prID == "" {
 		return
 	}
 	go func() {
 		_, err := s.attentionService.EmitEvent(
 			context.Background(),
-			types.AttentionEventPROpened,
+			types.AttentionEventPRReady,
 			task,
 			prID,
 			map[string]interface{}{
-				"pr_id":     prID,
-				"pr_url":    prURL,
-				"repo_name": repo.Name,
+				"pr_id":  prID,
+				"pr_url": prURL,
 			},
 		)
 		if err != nil {
 			log.Warn().Err(err).
 				Str("spec_task_id", task.ID).
 				Str("pr_id", prID).
-				Msg("Failed to emit pr_opened attention event")
+				Msg("Failed to emit pr_ready attention event")
 		}
 	}()
 }

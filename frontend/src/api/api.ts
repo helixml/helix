@@ -1823,7 +1823,6 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
-  AttentionEventPROpened = "pr_opened",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
 }

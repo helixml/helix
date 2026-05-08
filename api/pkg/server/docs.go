@@ -22271,7 +22271,6 @@ const docTemplate = `{
                 "spec_failed",
                 "implementation_failed",
                 "pr_ready",
-                "pr_opened",
                 "ci_passed",
                 "ci_failed"
             ],
@@ -22281,7 +22280,6 @@ const docTemplate = `{
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
                 "AttentionEventPRReady",
-                "AttentionEventPROpened",
                 "AttentionEventCIPassed",
                 "AttentionEventCIFailed"
             ]

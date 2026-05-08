@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, GitPullRequest } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -29,7 +29,6 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
     case 'spec_failed':
     case 'implementation_failed': return <AlertCircle {...props} />
     case 'pr_ready': return <GitMerge {...props} />
-    case 'pr_opened': return <GitPullRequest {...props} />
     default: return <Bell {...props} />
   }
 }
@@ -45,13 +44,12 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'agent_interaction_completed': return '#f59e0b'
     case 'specs_pushed': return '#3b82f6'
     case 'pr_ready': return '#8b5cf6'
-    case 'pr_opened': return '#6366f1'
     default: return '#6b7280'
   }
 }
 
 // extractExternalPRURL returns the PR URL from event metadata if present.
-// Used by pr_opened (always) and pr_ready (when metadata carries pr_url).
+// pr_ready events emitted from the workflow handler / orchestrator carry pr_url.
 function extractExternalPRURL(event: AttentionEvent): string {
   const url = event.metadata?.pr_url
   return typeof url === 'string' ? url : ''
@@ -409,9 +407,9 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
-            // PR events with an external URL open in a new tab instead of
-            // navigating within Helix.
-            if (event.event_type === 'pr_opened' || event.event_type === 'pr_ready') {
+            // pr_ready carries the external URL in metadata — open it in a new
+            // tab rather than navigating to the task page within Helix.
+            if (event.event_type === 'pr_ready') {
               const prURL = extractExternalPRURL(event)
               if (prURL) {
                 window.open(prURL, '_blank', 'noopener,noreferrer')
@@ -443,9 +441,9 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     // Mark as read on explicit click
     acknowledge(event.id)
 
-    // PR-opened (and pr_ready when carrying a URL) should jump straight to the
-    // external provider rather than navigating within Helix.
-    if (event.event_type === 'pr_opened' || event.event_type === 'pr_ready') {
+    // pr_ready carries the external URL in metadata — open it in a new tab
+    // rather than navigating to the task page within Helix.
+    if (event.event_type === 'pr_ready') {
       const prURL = extractExternalPRURL(event)
       if (prURL) {
         window.open(prURL, '_blank', 'noopener,noreferrer')
