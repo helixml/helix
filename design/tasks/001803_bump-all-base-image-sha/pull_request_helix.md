@@ -14,3 +14,6 @@ Updates every `FROM` line and `ARG` default across all 14 Dockerfiles to the lat
 - nvidia/cuda:12.6.3-runtime-ubuntu24.04 confirmed multi-arch (arm64 + amd64), pinned normally
 - No version bumps — only digest refreshes at existing version tags
 - ghcr.io/helixml/runner-base:${TAG} intentionally left unpinned (uses --build-arg selection)
+- Merge from main accepted deletion of Dockerfile.runner, Dockerfile.typesense, haystack_service/Dockerfile (these were removed upstream by the sandbox-absorbs-runner pivot and Haystack/Typesense removal). My digest updates to those files are moot.
+- All ubuntu:25.04 and ubuntu:25.10 stages on main grew a `RUN sed` line that points apt at the Oxford mirror — preserved alongside my SHA digest pins.
+- All 17 digests verified via `docker buildx imagetools inspect` to be true multi-arch manifest indexes (`application/vnd.oci.image.index.v1+json`), not single-platform layer digests. This matters because a recent fix on main (commit 3fe5e2b48) removed earlier digest pins that were amd64-only and caused arm64 build failures under qemu.
