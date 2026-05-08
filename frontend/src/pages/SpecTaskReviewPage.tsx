@@ -18,6 +18,7 @@ import { useDesignReview } from '../services/designReviewService'
 import { useGetProject } from '../services'
 import useAccount from '../hooks/useAccount'
 import { cacheTaskName } from '../lib/navHistory'
+import { addAutoOpenedSpecTask } from '../lib/specTaskAutoOpen'
 
 /**
  * SpecTaskReviewPage - Standalone page for spec review
@@ -47,6 +48,13 @@ const SpecTaskReviewPage: FC = () => {
     if (taskId && task?.name) cacheTaskName(taskId, task.name)
   }, [taskId, task?.name])
 
+  // Mark this task so navigating back to the task detail page does not re-trigger
+  // the spec review auto-open useEffect in SpecTaskDetailContent. Covers any way
+  // the user reached this page (deep link, notification, breadcrumb, post-approval redirect).
+  useEffect(() => {
+    if (taskId) addAutoOpenedSpecTask(taskId)
+  }, [taskId])
+
   // Fetch review data
   const { isLoading: reviewLoading } = useDesignReview(taskId, reviewId, {
     enabled: !!taskId && !!reviewId,
@@ -58,8 +66,9 @@ const SpecTaskReviewPage: FC = () => {
   }
 
   const handleApproved = () => {
-    // After approval, navigate to the workspace so the user can see the agent working
-    account.orgNavigate('project-specs', { id: projectId, openTask: taskId })
+    // After approval the agent is implementing - jump straight to the task's
+    // chat/desktop so the user lands where the action is.
+    account.orgNavigate('project-task-detail', { id: projectId, taskId })
   }
 
   const handleOpenInWorkspace = () => {
