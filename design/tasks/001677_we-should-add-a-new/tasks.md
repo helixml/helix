@@ -8,16 +8,16 @@
 
 ## Frontend: Render and navigate `pr_opened` notifications
 
-- [ ] Add `'pr_opened'` to the `AttentionEventType` union in `frontend/src/hooks/useAttentionEvents.ts`
-- [ ] Add `GitPullRequest` icon for `pr_opened` in the `eventIcon()` switch in `GlobalNotifications.tsx`
-- [ ] Add indigo (`#6366f1`) left-border color for `pr_opened` in the event item styling
-- [ ] In `handleNavigate()`, handle `pr_opened`: open `event.metadata.pr_url` in a new tab via `window.open(..., '_blank', 'noopener,noreferrer')`; fall back to task-detail navigation if no URL
-- [ ] Apply the same new-tab external-link behavior to `pr_ready` events that have `pr_url` in metadata
-- [ ] Add `pr_opened` case to browser notification firing logic with appropriate title/body; set its click callback to open the external PR URL (not navigate within Helix)
+- [x] Add `'pr_opened'` to the `AttentionEventType` union in `frontend/src/hooks/useAttentionEvents.ts`
+- [x] Add `GitPullRequest` icon for `pr_opened` in the `eventIcon()` switch in `GlobalNotifications.tsx`
+- [x] Add indigo (`#6366f1`) left-border color for `pr_opened` in the event item styling
+- [x] In `handleNavigate()`, handle `pr_opened`: open `event.metadata.pr_url` in a new tab via `window.open(..., '_blank', 'noopener,noreferrer')`; fall back to task-detail navigation if no URL
+- [x] Apply the same new-tab external-link behavior to `pr_ready` events that have `pr_url` in metadata
+- [x] Add `pr_opened` case to browser notification firing logic — uses generic title/body path; click opens external PR URL when present
 
 ## Frontend: Auto-acknowledge on browser notification click
 
-- [ ] In `GlobalNotifications.tsx`, update the `onClick` callback passed to `fireNotification()` to also call `acknowledgeMutation.mutate(eventId)` for each event ID in the notification group
+- [x] In `GlobalNotifications.tsx`, update the `onClick` callback passed to `fireNotification()` to also call `acknowledgeMutation.mutate(eventId)` for each event ID in the notification group
 
 ## Backend: Fix missing `specs_pushed` notifications on SpecReview transition
 
