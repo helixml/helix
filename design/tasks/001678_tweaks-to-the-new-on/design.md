@@ -52,14 +52,11 @@ This only triggers when `hoverButtonPosition` is set (button is visible) and cur
 
 **Update during implementation:** Discovery showed `helix` already migrated `applyHighlight` to use the **CSS Custom Highlight API** (`CSS.highlights` + `new Highlight(range)`) — see `DesignReviewContent.tsx:879-899` and the GlobalStyles rule at line 1116. This is non-destructive (no DOM mutation), so the original `extractContents` problem from `helix-4` doesn't apply here.
 
-**Likely root cause now:** The `::highlight(comment-highlight)` rule sets `background-color: #b3d7ff` and `color: #000`, but inside code blocks `react-syntax-highlighter` (Prism, `oneLight` theme) emits `<span>` tokens with **inline `color` styles** (e.g. `color: rgb(...)` for keywords/strings). Inline styles win over the `::highlight()` `color` value in some browser implementations, so the visual contrast disappears inside code — making the highlight look "missing" or "truncated" at the code block boundary even though it is being painted.
+**Confirmed root cause (verified in browser):** The `::highlight(comment-highlight)` rule was setting both `background-color: #b3d7ff` and `color: #000`. Inside Prism `oneLight`-themed code blocks, syntax tokens are emitted as `<span style="color: rgb(...)">` — inline styles which Chrome's Custom Highlight implementation does NOT override with `::highlight() { color: ... }`. The `background-color` was actually painting correctly across the code block all along, but the visual effect was confusing because the user was perceiving "truncation" — see `screenshots/02-highlight-after-fix.png` showing the corrected behaviour.
 
-**Fix:** Strengthen the `::highlight(comment-highlight)` rule so it visibly applies inside code blocks. Two practical adjustments:
+**Fix:** Dropped the `color: #000` override from the `::highlight(comment-highlight)` rule (line 1116). This keeps syntax-token colours intact while still painting `background-color: #b3d7ff` across the entire selection including inside code blocks.
 
-1. Drop the `color` override — keep syntax-token colours intact and rely on `background-color` alone for the highlight effect.
-2. If background also fails to render inside `<pre>` tokens (need to verify in-browser), add a more specific `::highlight()` rule scoped to `pre` / `code` descendants, or move the rule to one with no competing inline `background` from the syntax theme.
-
-Verification step in the browser is required before declaring this fixed — open the spec review page, select text spanning a code block, open the comment form, and confirm highlight is visible across all selected text including inside the code.
+**Verified in-browser:** Programmatically applied a Highlight spanning ~3 paragraphs across a TypeScript code block (`function example() { ... }`). Background colour paints uniformly across non-code paragraphs and code lines; syntax token colours remain visible (purple `function`/`const`/`return`, green numbers).
 
 ## 4. No hover button when cursor is over a comment panel
 
