@@ -54,6 +54,7 @@ import {
   ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
+import CIStatusIcon from "./CIStatusIcon";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
@@ -61,6 +62,7 @@ import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
 import { TypesOrganizationMembership, TypesUser } from "../../api/api";
+import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -87,60 +89,6 @@ const spin = keyframes`
   }
 `;
 
-// Pulse animation for active agent indicator
-const activePulse = keyframes`
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.4);
-    opacity: 0.7;
-  }
-`;
-
-// Agent work state from backend (replaces timestamp-based heuristics)
-type AgentWorkState = "idle" | "working" | "done";
-
-// Hook to manage agent activity status and attention state
-// Uses backend-tracked agent_work_state instead of timestamp heuristics
-const useAgentActivityCheck = (
-  agentWorkState?: AgentWorkState,
-  enabled: boolean = true,
-): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
-  const [lastSeenState, setLastSeenState] = useState<AgentWorkState | null>(
-    null,
-  );
-
-  // Agent is active if backend reports it's working
-  const isActive = enabled && agentWorkState === "working";
-
-  // Agent needs attention if:
-  // 1. It's idle or done (not actively working)
-  // 2. User hasn't marked the current state as seen
-  // 3. There IS an agent work state (undefined means no session yet)
-  const needsAttention =
-    enabled &&
-    agentWorkState !== undefined &&
-    agentWorkState !== "working" &&
-    agentWorkState !== lastSeenState;
-
-  const markAsSeen = () => {
-    if (agentWorkState) {
-      setLastSeenState(agentWorkState);
-    }
-  };
-
-  // Reset seen state when agent becomes active again
-  // (so if it goes idle again later, attention dot reappears)
-  useEffect(() => {
-    if (isActive && lastSeenState) {
-      setLastSeenState(null);
-    }
-  }, [isActive, lastSeenState]);
-
-  return { isActive, needsAttention, markAsSeen };
-};
 
 type SpecTaskPhase =
   | "backlog"
@@ -178,6 +126,10 @@ export interface SpecTaskWithExtras {
     pr_number?: number;
     pr_url?: string;
     pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
   }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
@@ -189,6 +141,8 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  // Status tracking
+  status_updated_at?: string;
   // Task number for display
   task_number?: number;
   description?: string;
@@ -196,7 +150,9 @@ export interface SpecTaskWithExtras {
   // Assignee tracking
   assignee_id?: string;
   labels?: string[];
+  created_at?: string;
   updated_at?: string;
+  last_push_at?: string;
 }
 
 export interface TaskDependency {
@@ -210,6 +166,15 @@ export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
+}
+
+// Format an ISO timestamp for the title tooltip. Returns null when the input
+// is missing or unparseable so callers can omit the date line cleanly.
+function formatCreatedAt(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 interface TaskCardProps {
@@ -242,6 +207,8 @@ interface TaskCardProps {
   focusStartPlanning?: boolean;
   /** Whether the card is currently visible (for virtualization) */
   isVisible?: boolean;
+  /** Unread attention events for this task (agent_interaction_completed events without acknowledged_at) */
+  attentionEvents?: AttentionEvent[];
 }
 
 // Interface for checklist items from API
@@ -275,6 +242,20 @@ const formatDuration = (startedAt: string): string => {
     return `${hours}h${minutes}m`;
   }
   return `${minutes}m${seconds}s`;
+};
+
+// Status label for tasks in the "implementation" phase. We honour the agent's
+// real activity (working / idle) so the card doesn't keep claiming the agent
+// is busy while it's actually sitting waiting for review. If the sandbox is
+// down or starting, surface that instead.
+const getImplementationLabel = (task: SpecTaskWithExtras): string => {
+  if (task.sandbox_state === "absent") return "Sandbox stopped";
+  if (task.sandbox_state === "starting") {
+    return task.sandbox_status_message || "Starting…";
+  }
+  if (task.agent_work_state === "idle") return "Idle";
+  // "working", missing field, or any unexpected value → keep today's label.
+  return "In Progress";
 };
 
 const useRunningDuration = (
@@ -583,6 +564,7 @@ function TaskCardInner({
   onDependencyHoverStart,
   onDependencyHoverEnd,
   focusStartPlanning = false,
+  attentionEvents = [],
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -643,17 +625,12 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state.
-  // Enabled for ANY phase with a running session, not just planning/implementation,
-  // because every phase can have an active agent container.
-  const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
-    task.agent_work_state,
-    !!task.planning_session_id,
-  );
+  const { acknowledge } = useAttentionEvents();
+  const hasUnreadNotification = attentionEvents.length > 0;
 
   const runningDuration = useRunningDuration(
     task.started_at,
-    task.status === "implementation",
+    task.agent_work_state === "working",
   );
   const taskError = task.metadata?.error?.trim();
 
@@ -731,8 +708,7 @@ function TaskCardInner({
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
-    // Mark attention dot as seen when user clicks to view the task
-    markAsSeen();
+    attentionEvents.forEach((event) => acknowledge(event.id));
     if (onTaskClick) {
       onTaskClick(task);
     }
@@ -773,7 +749,25 @@ function TaskCardInner({
         },
       }}
     >
-      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+      {hasUnreadNotification && (
+        <Tooltip title="Agent finished - click to dismiss">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "error.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+            }}
+          />
+        </Tooltip>
+      )}
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box
           sx={{
@@ -787,7 +781,11 @@ function TaskCardInner({
           <Tooltip
             title={
               <span style={{ whiteSpace: "pre-wrap" }}>
-                {task.description || task.name}
+                {(() => {
+                  const created = formatCreatedAt(task.created_at);
+                  const body = task.description || task.name;
+                  return created ? `Created ${created}\n\n${body}` : body;
+                })()}
               </span>
             }
             placement="top"
@@ -984,50 +982,23 @@ function TaskCardInner({
         {/* Status row */}
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            {isActive &&
-            task.planning_session_id ? (
-              <Tooltip title="Agent is working">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    backgroundColor: "#22c55e",
-                    animation: `${activePulse} 1.5s ease-in-out infinite`,
-                  }}
-                />
-              </Tooltip>
-            ) : needsAttention &&
-              task.planning_session_id ? (
-              <Tooltip title="Agent finished - click card to dismiss">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    backgroundColor: "#f59e0b",
-                  }}
-                />
-              </Tooltip>
-            ) : (
-              <CircleIcon
-                sx={{
-                  fontSize: 8,
-                  color:
-                    task.phase === "planning"
-                      ? "#f59e0b"
-                      : task.phase === "review"
-                        ? "#3b82f6"
-                        : task.phase === "implementation"
-                          ? "#10b981"
-                          : task.phase === "pull_request"
-                            ? "#8b5cf6"
-                            : task.phase === "completed"
-                              ? "#6b7280"
-                              : "#9ca3af",
-                }}
-              />
-            )}
+            <CircleIcon
+              sx={{
+                fontSize: 8,
+                color:
+                  task.phase === "planning"
+                    ? "#f59e0b"
+                    : task.phase === "review"
+                      ? "#3b82f6"
+                      : task.phase === "implementation"
+                        ? "#10b981"
+                        : task.phase === "pull_request"
+                          ? "#8b5cf6"
+                          : task.phase === "completed"
+                            ? "#6b7280"
+                            : "#9ca3af",
+              }}
+            />
             <Typography
               variant="caption"
               sx={{
@@ -1043,7 +1014,7 @@ function TaskCardInner({
                   : task.phase === "review"
                     ? "Review"
                     : task.phase === "implementation"
-                      ? "In Progress"
+                      ? getImplementationLabel(task)
                       : task.phase === "pull_request"
                         ? "Pull Request"
                         : "Merged"}
@@ -1056,6 +1027,7 @@ function TaskCardInner({
                 • {runningDuration}
               </Typography>
             )}
+            <CIStatusIcon prs={task.repo_pull_requests} />
           </Box>
 
           {/* Assignee avatar */}
@@ -1127,7 +1099,7 @@ function TaskCardInner({
         )}
 
         {/* Show task error prominently and avoid desktop viewer when errored */}
-        {taskError && (
+        {taskError && task.phase !== "completed" && (
           <Box
             sx={{
               mb: 1,
@@ -1143,6 +1115,27 @@ function TaskCardInner({
               sx={{ fontWeight: 500, color: "#ef4444", fontSize: "0.7rem" }}
             >
               ⚠ {taskError}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Queued state: waiting for orchestrator to create session */}
+        {isQueued && !task.planning_session_id && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              mt: 1,
+              px: 0.5,
+            }}
+          >
+            <CircularProgress size={10} thickness={5} />
+            <Typography
+              variant="caption"
+              sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+            >
+              Starting desktop...
             </Typography>
           </Box>
         )}
@@ -1245,6 +1238,66 @@ function TaskCardInner({
           </Box>
         )}
 
+        {/* Planning phase - waiting for agent to push specs */}
+        {task.status === "spec_generation" && (
+          <Box sx={{ mt: 1.5 }}>
+            {(() => {
+              // Calculate seconds since spec generation started
+              const statusUpdatedAt = task.status_updated_at
+                ? new Date(task.status_updated_at).getTime()
+                : 0;
+              const secondsSinceStart = statusUpdatedAt
+                ? (Date.now() - statusUpdatedAt) / 1000
+                : 0;
+              const isWaitingTooLong = secondsSinceStart > 120; // 2 minutes
+
+              return isWaitingTooLong ? (
+                <Alert severity="warning" sx={{ py: 0.5 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontSize: "0.7rem", display: "block" }}
+                  >
+                    Agent hasn't pushed specs yet. Please check if the agent is
+                    having trouble.
+                  </Typography>
+                </Alert>
+              ) : (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
+                  <CircularProgress size={20} />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: "0.7rem",
+                      color: "text.secondary",
+                      fontStyle: "italic",
+                      textAlign: "center",
+                    }}
+                  >
+                    Waiting for agent to push specs...
+                  </Typography>
+                </Box>
+              );
+            })()}
+            <Box sx={{ mt: 1 }}>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "spec_generation",
+                  archived: task.archived,
+                }}
+                variant="stacked"
+              />
+            </Box>
+          </Box>
+        )}
+
         {/* Review phase - only show button if design docs have been pushed */}
         {task.phase === "review" &&
           task.design_docs_pushed_at &&
@@ -1271,6 +1324,7 @@ function TaskCardInner({
               base_branch: task.base_branch,
               branch_name: task.branch_name,
               archived: task.archived,
+              last_push_at: task.last_push_at,
             }}
             variant="stacked"
             onReject={(shiftKey) => {
@@ -1561,6 +1615,15 @@ function TaskCardInner({
   );
 }
 
+// Compact signature of CI state across all PRs — picks up changes to any
+// ci_status / ci_url / ci_head_sha so the card re-renders when CI moves.
+function ciSignature(prs?: SpecTaskWithExtras["repo_pull_requests"]): string {
+  if (!prs || prs.length === 0) return "";
+  return prs
+    .map((p) => `${p.pr_id ?? ""}:${p.ci_status ?? ""}:${p.ci_head_sha ?? ""}`)
+    .join("|");
+}
+
 // Memoized TaskCard to prevent unnecessary re-renders
 const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
   // Only re-render when meaningful props change
@@ -1571,11 +1634,13 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
     prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
+    ciSignature(prevProps.task.repo_pull_requests) === ciSignature(nextProps.task.repo_pull_requests) &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
     prevProps.usageData === nextProps.usageData &&
-    prevProps.progressData === nextProps.progressData
+    prevProps.progressData === nextProps.progressData &&
+    prevProps.attentionEvents?.length === nextProps.attentionEvents?.length
   );
 });
 

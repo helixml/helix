@@ -21,6 +21,13 @@
 # Exit on error - but trap will catch it and keep terminal open
 set -e
 
+# Auto-accept the default merge commit message for any `git pull` or `git merge`
+# in this script. Without this, a non-fast-forward pull (e.g., when the local
+# base branch has diverged from origin) launches $EDITOR for the merge commit
+# message, blocking session startup on the user typing :wq in vim.
+# Real merge conflicts still fail loudly — only the editor prompt is suppressed.
+export GIT_MERGE_AUTOEDIT=no
+
 # Trap any exit (success or failure) to show interactive menu
 # This ensures users can see errors and debug
 cleanup_and_prompt() {

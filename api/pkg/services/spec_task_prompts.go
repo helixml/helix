@@ -111,6 +111,10 @@ You have tools to explore and screenshot the application during planning:
 
 Screenshots are optional but valuable for UI tasks - save them in your task's screenshots/ folder.
 
+## Web Search
+
+You can use the ` + "`chrome-devtools`" + ` MCP server to search the web via DuckDuckGo. Navigate to ` + "`https://duckduckgo.com`" + `, type your query, and read the results. Use this to look up documentation, APIs, or solutions.
+
 ## Startup Script
 
 The project startup script (installs deps, starts dev servers) runs automatically at session start:

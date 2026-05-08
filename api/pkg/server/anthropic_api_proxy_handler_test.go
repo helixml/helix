@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -337,6 +338,49 @@ func Test_isAnthropicCompatible(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func Test_getBuiltInProviderEndpoint_envBakedNonAnthropic(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMgr := manager.NewMockProviderManager(ctrl)
+	mockMgr.EXPECT().
+		ListProviderEndpoints(gomock.Any(), "").
+		Return([]*types.ProviderEndpoint{
+			{Name: "openai", EndpointType: types.ProviderEndpointTypeGlobal},
+			{Name: "togetherai", EndpointType: types.ProviderEndpointTypeGlobal},
+		}, nil).
+		AnyTimes()
+
+	server := &HelixAPIServer{
+		Cfg:             &config.ServerConfig{},
+		providerManager: mockMgr,
+	}
+
+	// Env-baked openai now resolves through the manager so /v1/messages can
+	// reject it via isAnthropicCompatible with an actionable error instead of
+	// the cryptic "provider %q not found".
+	got, err := server.getBuiltInProviderEndpoint(context.Background(), "openai")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "openai", got.Name)
+	assert.Equal(t, types.ProviderEndpointTypeGlobal, got.EndpointType)
+	assert.False(t, isAnthropicCompatible(got),
+		"synthetic openai global must fail Anthropic-compat check so the handler emits the /v1/chat/completions hint")
+
+	// Case-insensitive: agents may store legacy mixed-case names.
+	mixed, err := server.getBuiltInProviderEndpoint(context.Background(), "OpenAI")
+	require.NoError(t, err)
+	assert.Equal(t, "openai", mixed.Name)
+
+	// Unknown provider: still surfaces the explicit error so callers can
+	// distinguish "no global by that name" from "global rejected downstream".
+	_, err = server.getBuiltInProviderEndpoint(context.Background(), "made-up")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `provider "made-up" not found`)
 }
 
 func Test_parseAnthropicRequestModel(t *testing.T) {

@@ -3,6 +3,7 @@ package azuredevops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
+	adobuild "github.com/microsoft/azure-devops-go-api/azuredevops/v7/build"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
 
@@ -273,4 +275,116 @@ func (c *AzureDevOpsClient) ListProjects(ctx context.Context) ([]string, error) 
 	}
 
 	return projects, nil
+}
+
+// CIStatusResult is the normalized verdict for an ADO commit. Status is
+// the raw build status (e.g. "succeeded", "inProgress", "failed"); the
+// caller normalises via services.NormalizeCIStatus("azure_devops", ...).
+// URL points at the build's web UI when available.
+type CIStatusResult struct {
+	Status string
+	URL    string
+}
+
+// ErrCIScopeMissing is returned when the PAT lacks the vso.build scope
+// required to read build status. Callers should treat it as "none" and
+// surface a one-time hint to the user (see design doc — no new mandatory
+// scope, gracefully degrade).
+var ErrCIScopeMissing = errors.New("azure devops: build read scope (vso.build) missing on PAT")
+
+// GetCIStatus fetches the most recent build that ran against the given
+// commit and returns its raw status/result + web URL. Returns nil result
+// with a nil error if no build is found for the commit.
+//
+// 401/403 from the Build API → ErrCIScopeMissing (PAT missing vso.build).
+//
+// project is the ADO project name; repositoryName is the Azure Repos Git
+// repository name (we resolve it to a UUID internally because the Build
+// API's RepositoryId filter requires the GUID for TfsGit).
+func (c *AzureDevOpsClient) GetCIStatus(ctx context.Context, project, repositoryName, commitID string) (*CIStatusResult, error) {
+	gitClient, err := git.NewClient(ctx, c.connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create azure devops git client: %w", err)
+	}
+	repo, err := gitClient.GetRepository(ctx, git.GetRepositoryArgs{
+		RepositoryId: &repositoryName,
+		Project:      &project,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve azure devops repository: %w", err)
+	}
+	if repo == nil || repo.Id == nil {
+		return nil, fmt.Errorf("azure devops repository %q not found in project %q", repositoryName, project)
+	}
+	repoUUID := repo.Id.String()
+
+	buildClient, err := adobuild.NewClient(ctx, c.connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create azure devops build client: %w", err)
+	}
+
+	top := 25 // walk recent builds and match by SourceVersion
+	queryOrder := adobuild.BuildQueryOrderValues.QueueTimeDescending
+	repoType := "TfsGit" // ADO Git repos
+	args := adobuild.GetBuildsArgs{
+		Project:        &project,
+		RepositoryId:   &repoUUID,
+		RepositoryType: &repoType,
+		Top:            &top,
+		QueryOrder:     &queryOrder,
+	}
+	resp, err := buildClient.GetBuilds(ctx, args)
+	if err != nil {
+		// The SDK wraps the HTTP error in azuredevops.WrappedError; check status.
+		// SDK returns WrappedError as both value and pointer in different
+		// paths; check both.
+		var sc *int
+		var wrappedVal azuredevops.WrappedError
+		if errors.As(err, &wrappedVal) {
+			sc = wrappedVal.StatusCode
+		}
+		var wrappedPtr *azuredevops.WrappedError
+		if sc == nil && errors.As(err, &wrappedPtr) && wrappedPtr != nil {
+			sc = wrappedPtr.StatusCode
+		}
+		if sc != nil && (*sc == http.StatusUnauthorized || *sc == http.StatusForbidden) {
+			return nil, ErrCIScopeMissing
+		}
+		return nil, fmt.Errorf("failed to list azure devops builds: %w", err)
+	}
+	if resp == nil || len(resp.Value) == 0 {
+		return nil, nil
+	}
+
+	// Find the most recent build that matches our commit. ADO doesn't
+	// have a direct "filter by sourceVersion" query so we check the
+	// returned set; in practice the latest 1 build per repo is the one
+	// we want when the agent has just pushed.
+	for i := range resp.Value {
+		b := &resp.Value[i]
+		if b.SourceVersion == nil || !strings.EqualFold(*b.SourceVersion, commitID) {
+			continue
+		}
+		raw := ""
+		if b.Status != nil {
+			raw = string(*b.Status)
+		}
+		// If the build completed, its Result holds the verdict; prefer
+		// that over the generic "completed" status string.
+		if b.Status != nil && *b.Status == adobuild.BuildStatusValues.Completed && b.Result != nil {
+			raw = string(*b.Result)
+		}
+		webURL := ""
+		if b.Links != nil {
+			if linkMap, ok := b.Links.(map[string]interface{}); ok {
+				if web, ok := linkMap["web"].(map[string]interface{}); ok {
+					if href, ok := web["href"].(string); ok {
+						webURL = href
+					}
+				}
+			}
+		}
+		return &CIStatusResult{Status: raw, URL: webURL}, nil
+	}
+	return nil, nil
 }

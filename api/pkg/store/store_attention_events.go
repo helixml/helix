@@ -90,14 +90,17 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 	}
 
 	result := s.gdb.WithContext(ctx).Raw(`
-		SELECT DISTINCT ON (spec_task_id) *
-		FROM attention_events
-		WHERE user_id = ?
-		  AND dismissed_at IS NULL
-		  AND (snoozed_until IS NULL OR snoozed_until < ?)
-		  `+orgFilter+`
-		  `+mineFilter+`
-		ORDER BY spec_task_id, created_at DESC
+		SELECT * FROM (
+			SELECT DISTINCT ON (spec_task_id) *
+			FROM attention_events
+			WHERE user_id = ?
+			  AND dismissed_at IS NULL
+			  AND (snoozed_until IS NULL OR snoozed_until < ?)
+			  `+orgFilter+`
+			  `+mineFilter+`
+			ORDER BY spec_task_id, created_at DESC
+		) AS deduped
+		ORDER BY created_at DESC
 	`, args...).Scan(&events)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to list attention events: %w", result.Error)

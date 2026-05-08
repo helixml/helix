@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import useApi from "../hooks/useApi";
-import { ControllerMemoryEstimationResponse } from "../api/api";
+import { MemoryEstimationResponse } from "../types/dashboard";
 
 export const memoryEstimationQueryKey = (
     modelId: string,
@@ -12,53 +11,27 @@ export function useModelMemoryEstimation(
     gpuCount?: number,
     options?: { enabled?: boolean },
 ) {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
     return useQuery({
         queryKey: memoryEstimationQueryKey(modelId, gpuCount),
         queryFn: async () => {
-            const query: {
-                model_id: string;
-                gpu_count?: number;
-                context_length?: number;
-                batch_size?: number;
-            } = {
-                model_id: modelId,
-            };
-
-            if (gpuCount !== undefined) {
-                query.gpu_count = gpuCount;
-            }
-
-            const response =
-                await apiClient.v1HelixModelsMemoryEstimateList(query);
-            return response.data;
+            return {
+                error: "Memory estimation is no longer available",
+            } satisfies MemoryEstimationResponse;
         },
         enabled: options?.enabled !== false && !!modelId,
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        refetchInterval: 30 * 1000, // Refetch every 30 seconds for real-time updates
+        staleTime: Infinity,
     });
 }
 
 export function useAllModelsMemoryEstimation(gpuCount?: number) {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
     return useQuery({
         queryKey: ["memoryEstimation", "all", gpuCount],
         queryFn: async () => {
-            const query: { model_ids?: string; gpu_count?: number } = {};
-            if (gpuCount !== undefined) {
-                query.gpu_count = gpuCount;
-            }
-
-            const response =
-                await apiClient.v1HelixModelsMemoryEstimatesList(query);
-            return response.data;
+            return {
+                error: "Memory estimation is no longer available",
+            } satisfies MemoryEstimationResponse;
         },
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        refetchInterval: 60 * 1000, // Refetch every minute for background updates
+        staleTime: Infinity,
     });
 }
 

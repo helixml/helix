@@ -45,6 +45,11 @@ const (
 	UserSessionPrefix          = "uss_"
 	ClaudeSubscriptionPrefix   = "csub_"
 	AttentionEventPrefix       = "atev_"
+	EvaluationSuitePrefix      = "evs_"
+	EvaluationRunPrefix        = "evr_"
+	SandboxPrefix              = "sbx_"
+	SandboxCommandPrefix       = "sbcmd_"
+	RunnerProfilePrefix        = "rprof_"
 )
 
 func GenerateUUID() string {
@@ -204,4 +209,24 @@ func GenerateClaudeSubscriptionID() string {
 
 func GenerateAttentionEventID() string {
 	return fmt.Sprintf("%s%s", AttentionEventPrefix, newID())
+}
+
+func GenerateEvaluationSuiteID() string {
+	return fmt.Sprintf("%s%s", EvaluationSuitePrefix, newID())
+}
+
+func GenerateEvaluationRunID() string {
+	return fmt.Sprintf("%s%s", EvaluationRunPrefix, newID())
+}
+
+func GenerateSandboxID() string {
+	return fmt.Sprintf("%s%s", SandboxPrefix, newID())
+}
+
+func GenerateSandboxCommandID() string {
+	return fmt.Sprintf("%s%s", SandboxCommandPrefix, newID())
+}
+
+func GenerateRunnerProfileID() string {
+	return fmt.Sprintf("%s%s", RunnerProfilePrefix, newID())
 }

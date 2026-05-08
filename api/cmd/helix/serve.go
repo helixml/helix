@@ -3,7 +3,6 @@ package helix
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -31,7 +30,6 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/services"
@@ -308,85 +306,19 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	log.Info().Msg("Using GPTScript-style external agent pattern (WebSocket + PubSub)")
 	var gse external_agent.Executor // nil executor - communication via WebSocket + PubSub
 
-	var extractor extract.Extractor
+	extractor := extract.NewDefaultExtractor(cfg.TextExtractor.URL)
 
-	switch cfg.TextExtractor.Provider {
-	case types.ExtractorTika:
-		extractor = extract.NewTikaExtractor(cfg.TextExtractor.Tika.URL)
-	case types.ExtractorUnstructured:
-		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
-	case types.ExtractorHaystack:
-		extractor = extract.NewHaystackExtractor(cfg.RAG.Haystack.URL)
-	default:
-		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
-	}
-
-	runnerController, err := scheduler.NewRunnerController(ctx, &scheduler.RunnerControllerConfig{
-		PubSub: ps,
-		FS:     fs,
-		Store:  postgresStore,
-	})
-	if err != nil {
-		return err
-	}
+	// Sandbox-absorbs-runner pivot: RunnerController (the NATS-pub/sub
+	// liaison to the old runner image) is gone. Sandboxes now report state
+	// via HTTP heartbeats; assignment commands flow back via HTTP polling.
+	// No NATS controller needed.
 
 	var appController *controller.Controller
 
-	// Create memory estimation service for scheduler
-	memoryEstimationService := controller.NewMemoryEstimationService(
-		runnerController, // Implements RunnerSender interface
-		controller.NewStoreModelProvider(postgresStore), // Wrapped store implementing ModelProvider interface
-	)
-	// memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
-	// memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
-
-	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
-		RunnerController:        runnerController,
-		Store:                   postgresStore,
-		MemoryEstimationService: memoryEstimationService,
-		QueueSize:               100,
-		OnSchedulingErr: func(work *scheduler.Workload, err error) {
-			if appController != nil {
-				switch work.WorkloadType {
-				case scheduler.WorkloadTypeLLMInferenceRequest:
-					request := work.LLMInferenceRequest()
-					response := types.RunnerNatsReplyResponse{
-						OwnerID:   request.OwnerID,
-						RequestID: request.RequestID,
-						Error:     err.Error(),
-						Response:  []byte{},
-					}
-					bts, err := json.Marshal(response)
-					if err != nil {
-						log.Error().Err(err).Msg("error marshalling runner response")
-					}
-					err = ps.Publish(ctx, pubsub.GetRunnerResponsesQueue(request.OwnerID, request.RequestID), bts)
-					if err != nil {
-						log.Error().Err(err).Msg("error publishing runner response")
-					}
-				case scheduler.WorkloadTypeSession:
-
-					// Get the last interaction
-					// TODO: update scheduler func to keep the interaction
-					interaction := work.Session().Interactions[len(work.Session().Interactions)-1]
-
-					appController.ErrorSession(ctx, work.Session(), interaction, err)
-				}
-			}
-		},
-		OnResponseHandler: func(_ context.Context, _ *types.RunnerLLMInferenceResponse) error {
-			return nil
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	// Set up prewarming callback now that both components exist
-	runnerController.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
-	log.Info().Msg("Prewarming enabled - new runners will be prewarmed with configured models")
-
-	helixInference := openai.NewInternalHelixServer(cfg, postgresStore, ps, scheduler)
+	// Sandbox-absorbs-runner pivot: scheduler / memory estimation /
+	// prewarming all gone. The inferencerouter (constructed inside
+	// HelixAPIServer) replaces them.
+	helixInference := openai.NewInternalHelixServer(cfg, postgresStore, ps)
 
 	var logStores []logger.LogStore
 
@@ -411,9 +343,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, dynamicInfoProvider, logStores...)
 
-	// Connect the runner controller to the provider manager
-	providerManager.SetRunnerController(runnerController)
-	log.Info().Msg("Connected runner controller to provider manager to enable hiding Helix provider when no runners are available")
+	// Sandbox-absorbs-runner pivot: provider manager's runner-availability
+	// hint is now driven by the inference router (built into apiServer).
+	// SetRunnerController is no-op'd in the provider manager; the helix
+	// provider is always listed and individual model availability flows
+	// through /v1/models from the router.
 
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
@@ -434,37 +368,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to initialize kodit: %w", err)
 	}
 
-	var ragClient rag.RAG
-
-	switch cfg.RAG.DefaultRagProvider {
-	case config.RAGProviderTypesense:
-		ragSettings := &types.RAGSettings{}
-		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
-		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
-		ragClient, err = rag.NewTypesense(ctx, ragSettings)
-		if err != nil {
-			return fmt.Errorf("failed to create typesense RAG client: %v", err)
-		}
-		log.Info().Msgf("Using Typesense for RAG")
-	case config.RAGProviderLlamaindex:
-		ragClient = rag.NewLlamaindex(&types.RAGSettings{
-			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
-			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
-			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
-		})
-		log.Info().Msgf("Using Llamaindex for RAG")
-	case config.RAGProviderHaystack:
-		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
-		log.Info().Msgf("Using Haystack for RAG")
-	case config.RAGProviderKodit:
-		if !cfg.Kodit.Enabled {
-			return fmt.Errorf("RAG provider 'kodit' requires KODIT_ENABLED=true")
-		}
-		ragClient = rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
-		log.Info().Msgf("Using Kodit for RAG")
-	default:
-		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
-	}
+	ragClient := rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
+	log.Info().Msgf("Using Kodit for RAG")
 
 	// Initialize browser pool
 	browserPool, err := browser.New(cfg)
@@ -487,8 +392,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Janitor:               janitor,
 		Notifier:              notifier,
 		ProviderManager:       providerManager,
-		Scheduler:             scheduler,
-		RunnerController:      runnerController,
 		Browser:               browserPool,
 		SearchProvider:        searchProvider,
 		GitRepositoryService:  gitRepositoryService,
@@ -572,7 +475,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		appController,
 		janitor,
 		knowledgeReconciler,
-		scheduler,
 		pingService,
 		oauthManager,
 		avatarsBucket,

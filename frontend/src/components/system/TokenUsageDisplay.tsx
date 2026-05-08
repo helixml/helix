@@ -72,6 +72,11 @@ const TokenUsageDisplay: React.FC = () => {
   const tierName = tokenUsage.is_pro_tier ? 'Pro' : 'Free'
   const shouldShowUpgrade = !tokenUsage.is_pro_tier && tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 50 // Show upgrade button when 50%+ used
   const isLimitReached = tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100
+  // The "Add my own API Keys" button navigates to org_providers, which needs an
+  // org slug. Hide it if the user has no org context at all (handler also has a
+  // safe fallback in orgNavigate, but hiding the dead button is the honest UX).
+  const hasOrg = !!account.organizationTools.organization
+    || (account.organizationTools.organizations?.length ?? 0) > 0
 
   return (    
     <Box
@@ -169,7 +174,7 @@ const TokenUsageDisplay: React.FC = () => {
           >
             Upgrade to Pro
           </Button>
-          {account.serverConfig.providers_management_enabled && (
+          {account.serverConfig.providers_management_enabled && hasOrg && (
             <Button
               onClick={handleAddProviders}
               size="small"

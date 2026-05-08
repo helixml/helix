@@ -23,7 +23,6 @@ integration-test
 charts
 operator
 runner
-haystack_service
 screenshot-server
 
 # Binary artifacts

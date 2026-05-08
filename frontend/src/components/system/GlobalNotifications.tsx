@@ -104,8 +104,7 @@ function groupEvents(events: AttentionEvent[]): EventGroup[] {
 }
 
 // After grouping, keep only the most recent group per spec_task_id.
-// Events are already sorted newest-first from the API, so the first group
-// for each task is the most recent one.
+// Groups are later sorted by timestamp, so deduplication order doesn't matter here.
 function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
   const seen = new Set<string>()
   return groups.filter(group => {
@@ -115,6 +114,16 @@ function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
     seen.add(taskId)
     return true
   })
+}
+
+function groupTimestamp(group: EventGroup): number {
+  if (group.kind === 'grouped') {
+    return Math.max(
+      new Date(group.primary.created_at).getTime(),
+      new Date(group.secondary.created_at).getTime(),
+    )
+  }
+  return new Date(group.event.created_at).getTime()
 }
 
 const RecentPageItem: React.FC<{
@@ -355,6 +364,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   useEffect(() => {
     if (!browserNotifEnabled || newEvents.length === 0) return
     const groups = deduplicateGroupsByTask(groupEvents(newEvents))
+      .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
     for (const group of groups) {
       if (group.kind === 'grouped') {
         const { primary } = group
@@ -451,6 +461,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   }, [])
 
   const groups = deduplicateGroupsByTask(groupEvents(events))
+    .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
 
   // Build recently visited list: task/review pages not already shown as active alerts
   const navHistory = useNavigationHistory()

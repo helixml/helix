@@ -832,3 +832,19 @@ func (r *Repository) ToRepositoryInfo() types.RepositoryInfo {
 		DefaultBranch: r.MainBranch,
 	}
 }
+
+// CIStatusResult is the normalized verdict for a head SHA.
+// TODO(v2): wire up Bitbucket Pipelines (Cloud) and Bitbucket build status
+// (Server). Until then, this method always reports "no CI configured" so the
+// frontend renders nothing for Bitbucket-attached repos.
+type CIStatusResult struct {
+	Status string
+	URL    string
+}
+
+// GetCIStatus is a v1 stub for Bitbucket. It returns nil (treated as
+// "none" by the caller) so we don't break the Kanban card view for
+// Bitbucket users.
+func (c *Client) GetCIStatus(_ context.Context, _, _, _ string) (*CIStatusResult, error) {
+	return nil, nil
+}

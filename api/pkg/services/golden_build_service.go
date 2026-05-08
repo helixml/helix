@@ -218,7 +218,7 @@ func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, proje
 		return fmt.Errorf("project is nil")
 	}
 
-	sandboxes, err := g.store.ListSandboxes(ctx)
+	sandboxes, err := g.store.ListSandboxInstances(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list sandboxes: %w", err)
 	}
@@ -320,7 +320,7 @@ func (g *GoldenBuildService) CancelGoldenBuilds(ctx context.Context, project *ty
 
 // fanOutBuilds lists online sandboxes and launches a golden build goroutine for each.
 func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Project) {
-	sandboxes, err := g.store.ListSandboxes(ctx)
+	sandboxes, err := g.store.ListSandboxInstances(ctx)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", project.ID).Msg("Golden build: failed to list sandboxes")
 		return
