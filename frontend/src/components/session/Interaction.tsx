@@ -7,6 +7,9 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import EditIcon from "@mui/icons-material/Edit";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
+import CollapsibleSystemPrefix, {
+  splitSystemPrefix,
+} from "./CollapsibleSystemPrefix";
 
 import useAccount from "../../hooks/useAccount";
 
@@ -151,15 +154,28 @@ export const Interaction: FC<InteractionProps> = ({
       });
     }
 
+    const split = splitSystemPrefix(userMessage);
+
     return {
       userMessage,
       assistantMessage,
       imageURLs,
       isLoading,
+      systemPrefix: split.prefix,
+      userMessageBody: split.userText,
+      systemPrefixLabel: split.label,
     };
   }, [interaction, session]);
 
-  const { userMessage, assistantMessage, imageURLs, isLoading } = displayData;
+  const {
+    userMessage,
+    assistantMessage,
+    imageURLs,
+    isLoading,
+    systemPrefix,
+    userMessageBody,
+    systemPrefixLabel,
+  } = displayData;
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedMessage, setEditedMessage] = React.useState(userMessage || "");
@@ -202,6 +218,16 @@ export const Interaction: FC<InteractionProps> = ({
             alignItems: "flex-end",
           }}
         >
+          {systemPrefix && !isEditing && (
+            <CollapsibleSystemPrefix
+              prefix={systemPrefix}
+              label={
+                systemPrefixLabel?.startsWith("Original Request")
+                  ? "Planning Instructions (cloned task)"
+                  : "Planning Instructions"
+              }
+            />
+          )}
           <InteractionContainer
             buttons={headerButtons}
             background={true}
@@ -214,7 +240,7 @@ export const Interaction: FC<InteractionProps> = ({
               session={session}
               interaction={interaction}
               imageURLs={imageURLs}
-              message={userMessage}
+              message={systemPrefix && !isEditing ? userMessageBody : userMessage}
               error={interaction?.error}
               isFromAssistant={false}
               onFilterDocument={onFilterDocument}
@@ -243,7 +269,7 @@ export const Interaction: FC<InteractionProps> = ({
               }}
             >
               <CopyButtonWithCheck
-                text={userMessage}
+                text={systemPrefix ? userMessageBody : userMessage}
                 alwaysVisible={isHovering}
               />
               <Tooltip title="Edit">
