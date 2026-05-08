@@ -10,13 +10,12 @@ This codebase has a fully built attention-event notification system; the user re
 - **API:** `api/pkg/server/attention_event_handlers.go` — REST handlers under `/api/v1/attention-events`.
 - **Frontend:** `frontend/src/hooks/useAttentionEvents.ts` polls every 10s; `frontend/src/components/tasks/TaskCard.tsx:600,723` renders the per-task red dot from `attentionEvents.length > 0`.
 
-**Done transitions** all live in two files (grep for `TaskStatusDone` / `MergedToMain = true`):
-- `api/pkg/services/git_http_server.go:1035-1049` — branch merged to main detected during a push.
-- `api/pkg/services/spec_task_orchestrator.go:778-799` — all PRs across all repos merged.
-- `api/pkg/services/spec_task_orchestrator.go:848-856` — branch-merge fallback poll.
-- `api/pkg/services/spec_task_orchestrator.go:1080,1123` — additional `handleDone` / state-machine paths.
+**Done transitions** live in three files (grep for `TaskStatusDone` / `MergedToMain = true`):
+- `api/pkg/services/git_http_server.go` — two sites: agent-rebase auto-merge, and branch merged to main detected during a push.
+- `api/pkg/services/spec_task_orchestrator.go` — four sites: all-PRs-merged, branch-merge fallback poll, per-PR merge detection, branch-merged-without-PR fallback.
+- `api/pkg/server/spec_task_workflow_handlers.go` — **discovered during impl**, missed in the original survey: the user-driven "Approve Implementation" handler does its own server-side merge and writes `TaskStatusDone` directly. Without hooking this site, manual approvals would leave notifications hanging.
 
-There is no existing per-task bulk dismissal — we add one.
+So 7 hook points total. There is no existing per-task bulk dismissal — we add one.
 
 ## Solution
 
