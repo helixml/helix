@@ -21,9 +21,9 @@ type fakeGitRepoService struct {
 	listBranchesFunc     func(ctx context.Context, repoID string) ([]string, error)
 	getPullRequestFunc   func(ctx context.Context, repoID, id string) (*types.PullRequest, error)
 	withRepoLockFunc     func(repoID string, fn func() error) error
-	pushBranchFunc       func(ctx context.Context, repoID, branch string, force bool) error
+	pushBranchFunc       func(ctx context.Context, repoID, branch string, force bool, userID ...string) error
 	listPullRequestsFunc func(ctx context.Context, repoID string) ([]*types.PullRequest, error)
-	createPRFunc         func(ctx context.Context, repoID, title, desc, src, tgt string) (string, error)
+	createPRFunc         func(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error)
 }
 
 func (f *fakeGitRepoService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
@@ -47,9 +47,9 @@ func (f *fakeGitRepoService) WithRepoLock(repoID string, fn func() error) error 
 	panic("WithRepoLock called unexpectedly")
 }
 
-func (f *fakeGitRepoService) PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool) error {
+func (f *fakeGitRepoService) PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool, userID ...string) error {
 	if f.pushBranchFunc != nil {
-		return f.pushBranchFunc(ctx, repoID, branchName, force)
+		return f.pushBranchFunc(ctx, repoID, branchName, force, userID...)
 	}
 	panic("PushBranchToRemote called unexpectedly")
 }
@@ -61,9 +61,9 @@ func (f *fakeGitRepoService) ListPullRequests(ctx context.Context, repoID string
 	panic("ListPullRequests called unexpectedly")
 }
 
-func (f *fakeGitRepoService) CreatePullRequest(ctx context.Context, repoID, title, desc, src, tgt string) (string, error) {
+func (f *fakeGitRepoService) CreatePullRequest(ctx context.Context, repoID, title, desc, src, tgt, userID string) (string, error) {
 	if f.createPRFunc != nil {
-		return f.createPRFunc(ctx, repoID, title, desc, src, tgt)
+		return f.createPRFunc(ctx, repoID, title, desc, src, tgt, userID)
 	}
 	panic("CreatePullRequest called unexpectedly")
 }
@@ -132,7 +132,7 @@ func (f *fakeGitRepoService) WithExternalRepoWrite(_ context.Context, _ *types.G
 
 // TestEnsurePullRequestForRepo_TrackedPRReturnsDirectly verifies that when a task already has a
 // tracked RepoPR for the repo, ensurePullRequestForRepo returns that PR immediately without
-// calling ListPullRequests or CreatePullRequest.
+// touching the git repository service at all (no ListBranches, ListPullRequests, or CreatePullRequest).
 func TestEnsurePullRequestForRepo_TrackedPRReturnsDirectly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -166,29 +166,15 @@ func TestEnsurePullRequestForRepo_TrackedPRReturnsDirectly(t *testing.T) {
 		},
 	}
 
-	fake := &fakeGitRepoService{
-		// ListBranches must be called first (branch existence check).
-		listBranchesFunc: func(_ context.Context, _ string) ([]string, error) {
-			return []string{branch}, nil
-		},
-		// GetPullRequest is called when a tracked PR is found.
-		getPullRequestFunc: func(_ context.Context, _ string, id string) (*types.PullRequest, error) {
-			require.Equal(t, prID, id)
-			return &types.PullRequest{
-				ID:     prID,
-				Number: prNumber,
-				URL:    prURL,
-				State:  types.PullRequestStateOpen,
-			}, nil
-		},
-		// ListPullRequests and CreatePullRequest must NOT be called — any call panics.
-	}
+	// fake has no funcs set — any method call panics.
+	// This proves the dedup short-circuit happens before any git call.
+	fake := &fakeGitRepoService{}
 
 	server := &HelixAPIServer{
 		gitRepositoryService: fake,
 	}
 
-	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, t.TempDir())
+	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, t.TempDir(), "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, repoID, result.RepositoryID)
@@ -245,7 +231,7 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 		withRepoLockFunc: func(_ string, fn func() error) error {
 			return fn()
 		},
-		pushBranchFunc: func(_ context.Context, _, _ string, _ bool) error {
+		pushBranchFunc: func(_ context.Context, _, _ string, _ bool, _ ...string) error {
 			return nil
 		},
 		listPullRequestsFunc: func(_ context.Context, _ string) ([]*types.PullRequest, error) {
@@ -257,7 +243,7 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 			// Second call (after "already exists" error): return the existing PR.
 			return []*types.PullRequest{existingPR}, nil
 		},
-		createPRFunc: func(_ context.Context, _, _, _, _, _ string) (string, error) {
+		createPRFunc: func(_ context.Context, _, _, _, _, _, _ string) (string, error) {
 			return "", errors.New("pull request already exists")
 		},
 	}
@@ -268,7 +254,7 @@ func TestEnsurePullRequestForRepo_422AlreadyExistsRecovery(t *testing.T) {
 		Cfg:                  &config.ServerConfig{},
 	}
 
-	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, t.TempDir())
+	result, err := server.ensurePullRequestForRepo(context.Background(), repo, task, t.TempDir(), "")
 	require.NoError(t, err, "should recover from 'already exists' error without propagating it")
 	require.NotNil(t, result)
 	assert.Equal(t, repoID, result.RepositoryID)

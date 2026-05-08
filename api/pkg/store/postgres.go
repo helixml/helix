@@ -183,7 +183,8 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Model{},
 		&types.DynamicModelInfo{},
 		&types.StepInfo{},
-		&types.RunnerSlot{},
+		&types.RunnerProfile{},
+		&types.RunnerAssignment{},
 		&types.SlackThread{},
 		&types.TeamsThread{},
 		&types.CrispThread{},
@@ -213,6 +214,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.QuestionSet{},
 		&types.QuestionSetExecution{},
 		&types.SandboxInstance{},
+		&types.Sandbox{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
 		&types.PromptHistoryEntry{},
@@ -220,6 +222,8 @@ func (s *PostgresStore) runMigrations() error {
 		&types.CloneGroup{},
 		&types.ClaudeSubscription{},
 		&types.AttentionEvent{},
+		&types.EvaluationSuite{},
+		&types.EvaluationRun{},
 	)
 	if err != nil {
 		return err
@@ -291,6 +295,14 @@ func (s *PostgresStore) runMigrations() error {
 	}
 
 	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.EvaluationRun{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.EvaluationSuite{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
@@ -625,9 +637,7 @@ func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, project
 	return nil
 }
 
-// AttachRepositoryToProject attaches a repository to a project.
-// This writes to BOTH the junction table (for many-to-many support) AND the legacy
-// project_id column (for backward compatibility/rollback).
+// AttachRepositoryToProject attaches a repository to a project via the junction table.
 func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
 	if projectID == "" || repoID == "" {
 		return fmt.Errorf("project id or repository id not specified")
@@ -643,13 +653,6 @@ func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID
 	err = s.CreateProjectRepository(ctx, projectID, repoID, repo.OrganizationID)
 	if err != nil {
 		return fmt.Errorf("error creating project repository junction: %w", err)
-	}
-
-	// Also write to legacy project_id column for backward compatibility
-	// This allows rollback to older code versions
-	err = s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
-	if err != nil {
-		return fmt.Errorf("error updating legacy project_id: %w", err)
 	}
 
 	return nil
@@ -669,25 +672,6 @@ func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, project
 	err := s.DeleteProjectRepository(ctx, projectID, repoID)
 	if err != nil {
 		return fmt.Errorf("error deleting project repository junction: %w", err)
-	}
-
-	// Check if this repo is still attached to other projects
-	projectIDs, err := s.GetProjectsForRepository(ctx, repoID)
-	if err != nil {
-		return fmt.Errorf("error checking remaining project attachments: %w", err)
-	}
-
-	// Update legacy project_id column:
-	// - If attached to other projects, set to the first one (for backward compat)
-	// - If not attached to any project, clear it
-	var newProjectID string
-	if len(projectIDs) > 0 {
-		newProjectID = projectIDs[0]
-	}
-
-	err = s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", newProjectID).Error
-	if err != nil {
-		return fmt.Errorf("error updating legacy project_id: %w", err)
 	}
 
 	return nil

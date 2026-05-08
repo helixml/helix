@@ -33,6 +33,15 @@ type ServerConfig struct {
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
+	Sandboxes          Sandboxes
+
+	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
+	// Inactivity is measured as the time since the last interaction was created or updated
+	// across all sessions belonging to the desktop.
+	DesktopIdleTimeout time.Duration `envconfig:"HELIX_DESKTOP_IDLE_TIMEOUT" default:"1h"`
+
+	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
+	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -46,6 +55,36 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
+}
+
+// Sandboxes configures the user-facing Sandboxes API.
+//
+// Each entry in Runtimes maps a runtime name (the value users put in
+// `runtime` on POST /sandboxes) to a container image and the command that
+// keeps the container alive. Operators can add new runtimes (e.g. node22,
+// python3.13) by extending HELIX_SANDBOX_RUNTIMES without changing code.
+//
+// AllowCustomImage controls whether end users may pass an arbitrary `image`
+// in CreateSandboxRequest, which bypasses the curated runtime list. Off by
+// default — turn on for trusted single-tenant deployments.
+type Sandboxes struct {
+	// Runtimes is a comma-separated list of runtime specs, each of the form
+	//   <name>=<image>[|<entrypoint and cmd shell expression>]
+	// Examples:
+	//   headless-ubuntu=ubuntu:22.04|sleep infinity
+	//   node22=node:22-bookworm-slim|tail -f /dev/null
+	//   python313=python:3.13-slim|tail -f /dev/null
+	// If the trailing `|...` is omitted the default keep-alive command
+	// (`tail -f /dev/null`) is used.
+	Runtimes string `envconfig:"HELIX_SANDBOX_RUNTIMES" default:"headless-ubuntu=ubuntu:22.04|sleep infinity,node22=node:22-bookworm-slim|tail -f /dev/null,python313=python:3.13-slim|tail -f /dev/null"`
+
+	// AllowCustomImage lets API callers pass an arbitrary image name in the
+	// create request. False blocks anything outside the configured runtimes.
+	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
+
+	// DefaultRuntime is the runtime applied when the create request omits
+	// both `runtime` and `image`. Must match one of the names in Runtimes.
+	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -76,6 +115,18 @@ type Kodit struct {
 	LLMBaseURL   string `envconfig:"KODIT_LLM_BASE_URL" default:""`              // OpenAI-compatible endpoint for enrichments
 	LLMAPIKey    string `envconfig:"KODIT_LLM_API_KEY" default:""`               // API key for LLM endpoint
 	LLMChatModel string `envconfig:"KODIT_LLM_CHAT_MODEL" default:"kodit-model"` // LLM model name
+	// Text embedding (proxied through Helix via the "kodit-text-embedding" special model name).
+	// When BaseURL is set (or falls back to LLMBaseURL), kodit uses an external OpenAI-compatible
+	// embedding provider instead of the local ONNX model.
+	TextEmbeddingBaseURL string `envconfig:"KODIT_TEXT_EMBEDDING_BASE_URL" default:""`                  // Defaults to LLMBaseURL
+	TextEmbeddingAPIKey  string `envconfig:"KODIT_TEXT_EMBEDDING_API_KEY" default:""`                   // Defaults to LLMAPIKey
+	TextEmbeddingModel   string `envconfig:"KODIT_TEXT_EMBEDDING_MODEL" default:"kodit-text-embedding"` // Placeholder model name sent to Helix
+	// Vision embedding (proxied through Helix via the "kodit-vision-embedding" special model name).
+	// When BaseURL is set (or falls back to LLMBaseURL), kodit uses an external vision embedding
+	// provider (e.g. Qwen3-VL-Embedding) instead of the local SigLIP2 model.
+	VisionEmbeddingBaseURL string `envconfig:"KODIT_VISION_EMBEDDING_BASE_URL" default:""`                    // Defaults to LLMBaseURL
+	VisionEmbeddingAPIKey  string `envconfig:"KODIT_VISION_EMBEDDING_API_KEY" default:""`                     // Defaults to LLMAPIKey
+	VisionEmbeddingModel   string `envconfig:"KODIT_VISION_EMBEDDING_MODEL" default:"kodit-vision-embedding"` // Placeholder model name sent to Helix
 	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
 	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
 	GitURL string `envconfig:"KODIT_GIT_URL" default:"http://api:8080"`
@@ -300,46 +351,23 @@ type DataPrepText struct {
 }
 
 type TextExtractor struct {
-	Provider types.Extractor `envconfig:"TEXT_EXTRACTION_PROVIDER" default:"tika"`
-	// the URL we post documents to so we can get the text back from them
-	Unstructured struct {
-		URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
-	}
-
-	Tika struct {
-		URL string `envconfig:"TEXT_EXTRACTION_TIKA_URL" default:"http://tika:9998" description:"The URL to extract text from a document."`
-	}
+	URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
 }
 
-type RAGProvider string
-
-const (
-	RAGProviderTypesense  RAGProvider = "typesense"
-	RAGProviderLlamaindex RAGProvider = "llamaindex"
-	RAGProviderHaystack   RAGProvider = "haystack"
-	RAGProviderKodit      RAGProvider = "kodit"
-)
+// RAGProviderName is the string stamped into KnowledgeVersion records to
+// identify which backend indexed them. Kodit is the only RAG backend.
+const RAGProviderName = "kodit"
 
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
-	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
-
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
-	// Typesense is used to store RAG records in a Typesense index
-	Typesense struct {
-		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://typesense:8108" description:"The URL to the Typesense server."`
-		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
-	}
-
-	PGVector struct {
-		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
-		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
-		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
-		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
-	}
+	// EmbeddingsProvider is the default provider used by the /v1/embeddings
+	// proxy when the caller sends a raw model name (not a placeholder like
+	// "kodit-text-embedding" or "kodit-vision-embedding"). Placeholder-model
+	// requests resolve the provider from SystemSettings instead.
+	EmbeddingsProvider string `envconfig:"RAG_EMBEDDINGS_PROVIDER" default:"openai" description:"Default provider for direct /v1/embeddings calls with raw model names. One of openai, togetherai, vllm, helix."`
 
 	Llamaindex struct {
 		// the URL we can post a chunk of text to for RAG indexing
@@ -349,11 +377,6 @@ type RAG struct {
 		// the URL we can post a delete request to for RAG records,
 		// this is a prefix, full path is http://llamaindex:5000/api/v1/rag/<data_entity_id>
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
-	}
-
-	Haystack struct {
-		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
-		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {

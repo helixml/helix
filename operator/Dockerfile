@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.25 AS builder
+FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532

@@ -21,6 +21,13 @@
 # Exit on error - but trap will catch it and keep terminal open
 set -e
 
+# Auto-accept the default merge commit message for any `git pull` or `git merge`
+# in this script. Without this, a non-fast-forward pull (e.g., when the local
+# base branch has diverged from origin) launches $EDITOR for the merge commit
+# message, blocking session startup on the user typing :wq in vim.
+# Real merge conflicts still fail loudly — only the editor prompt is suppressed.
+export GIT_MERGE_AUTOEDIT=no
+
 # Trap any exit (success or failure) to show interactive menu
 # This ensures users can see errors and debug
 cleanup_and_prompt() {
@@ -829,6 +836,73 @@ if [ -f "$STARTUP_SCRIPT" ]; then
         echo "You can debug this in the terminal."
     fi
     echo ""
+elif [ -n "$HELIX_STARTUP_SCRIPT" ]; then
+    # Fallback: run startup script from database (set via project YAML)
+    # This is used when no .helix/startup.sh exists in the helix-specs branch
+    echo ""
+    echo "========================================="
+    echo "Running startup script from project YAML (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    # Write script to temp file and execute it
+    TEMP_SCRIPT=$(mktemp /tmp/helix-startup-XXXXXX.sh)
+    echo "$HELIX_STARTUP_SCRIPT" > "$TEMP_SCRIPT"
+    chmod +x "$TEMP_SCRIPT"
+
+    # Run the script
+    if bash -i "$TEMP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log; then
+        echo ""
+        echo "✅ Startup script completed successfully"
+    else
+        STARTUP_EXIT="${PIPESTATUS[0]}"
+        echo ""
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
+        echo ""
+        echo "You can debug this in the terminal."
+    fi
+    rm -f "$TEMP_SCRIPT"
+    echo ""
+elif [ -n "$HELIX_STARTUP_INSTALL" ] || [ -n "$HELIX_STARTUP_START" ]; then
+    # Legacy fallback: run declarative startup commands from project YAML
+    # (deprecated - use startup.script instead)
+    echo ""
+    echo "========================================="
+    echo "Running declarative startup commands (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    if [ -n "$HELIX_STARTUP_INSTALL" ]; then
+        echo "▶ Install: $HELIX_STARTUP_INSTALL"
+        if bash -i -c "$HELIX_STARTUP_INSTALL"; then
+            echo "✅ Install completed"
+        else
+            echo "❌ Install failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
+
+    if [ -n "$HELIX_STARTUP_START" ]; then
+        echo "▶ Start: $HELIX_STARTUP_START"
+        if bash -i -c "$HELIX_STARTUP_START"; then
+            echo "✅ Start completed"
+        else
+            echo "❌ Start failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
 fi
 
 echo "========================================="

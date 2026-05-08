@@ -7,24 +7,24 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-27).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
 # Update digests when intentionally upgrading base images.
-# - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
+# - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+# - golang:1.25-bookworm -> sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
-# amd64 (default): uses nvidia/cuda to extract CUDA runtime libs
+# amd64 (default): pinned nvidia/cuda digest — cache-stable, no silent updates
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
-ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d638d35015c6353053121bd299d25943b875763321653884ba924
 
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.25 as of 2026-01-27)
+# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25@sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2 AS go-build-env
+FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -44,7 +44,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# Copy Go source AFTER dependencies are downloaded for better caching
+# Copy Go source AFTER dependencies are downloaded for better caching.
+# Note: any Go file change invalidates this layer, but the go build cache
+# mount below ensures only changed packages are recompiled.
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -72,6 +74,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
 FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 ARG TARGETARCH
 WORKDIR /build
 
@@ -113,7 +116,9 @@ COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 # Build plugins conditionally based on architecture.
 # On amd64: build pipewirezerocopysrc with CUDA linkage, create vsockenc placeholder
 # On arm64: build vsockenc + pipewirezerocopysrc without CUDA
-RUN <<_BUILD_PLUGINS
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target <<_BUILD_PLUGINS
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Building ARM64 plugins ==="
@@ -140,7 +145,6 @@ else
 
     # Build pipewirezerocopysrc with CUDA support
     cd /build/gst-pipewire-zerocopy && \
-        cargo clean && \
         cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
@@ -156,6 +160,7 @@ _BUILD_PLUGINS
 # amd64: uses nvidia/cuda image (default) to get real CUDA runtime libs
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
 #        which creates empty placeholders (no CUDA on ARM, encoding on macOS host)
+# Both variants are SHA-pinned: amd64 via the ARG default, arm64 via --build-arg.
 ARG CUDA_BASE_IMAGE
 FROM ${CUDA_BASE_IMAGE} AS cuda-libs
 # On amd64 (nvidia/cuda base): libnvrtc is in /usr/local/cuda/lib64/
@@ -178,6 +183,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
 FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -191,6 +197,12 @@ ENV \
     NEEDRESTART_SUSPEND=1
 
 ARG TARGETARCH TARGETVARIANT
+
+# Disable AppStream (DEP-11) metadata downloads — not needed in Docker containers,
+# and questing-security/restricted doesn't publish icons indices (404 errors)
+RUN echo 'Acquire::IndexTargets::deb::DEP-11 "false";' > /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons "false";' >> /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons-hidpi "false";' >> /etc/apt/apt.conf.d/99no-appstream
 
 # Install GOW base requirements + GNOME packages
 ARG GOSU_VERSION=1.14
@@ -266,7 +278,29 @@ RUN <<_INSTALL_BASE
   gosu nobody true && echo "gosu working!"
 
   echo "**** Setup Firefox PPA ****"
-  add-apt-repository -y ppa:mozillateam/ppa
+  # Launchpad is intermittently unavailable; both `add-apt-repository`
+  # (which hits launchpad.net for the GPG key) and the subsequent
+  # `apt-get update` (which fetches the InRelease file from
+  # ppa.launchpadcontent.net) fail with timeouts during outages.
+  # Three consecutive CI failures on 2026-05-02 prompted this retry
+  # wrapper. Backoff: 5s, 15s, 30s, 60s.
+  # POSIX-compatible (no `local`) so it works under dash, the default
+  # `RUN` shell.
+  retry_apt() {
+    n=0
+    until "$@"; do
+      n=$((n+1))
+      if [ $n -ge 5 ]; then
+        echo "FATAL: apt operation failed after $n attempts: $*"
+        return 1
+      fi
+      sleep_for=$((n*15))
+      [ $n -eq 1 ] && sleep_for=5
+      echo "apt operation failed (attempt $n), retrying in ${sleep_for}s: $*"
+      sleep $sleep_for
+    done
+  }
+  retry_apt add-apt-repository -y ppa:mozillateam/ppa
 
   echo "**** Configure APT pins ****"
   cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
@@ -275,7 +309,7 @@ Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 PINEOF
 
-  apt-get update
+  retry_apt apt-get update
 
   echo "**** Install GNOME Desktop (Wayland session) ****"
   apt-get install -y $DE_PACKAGES firefox libavcodec-extra
@@ -455,7 +489,11 @@ echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
 echo "Setting umask to ${UMASK}"
 umask "${UMASK}"
 echo "Ensure ${UNAME} home directory is writable"
-chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+# Non-recursive: image is built with retro:retro and the persistent home volume is
+# initialized with retro:retro. A recursive chown over a populated home dir at every
+# container start was producing huge metadata-write storms through the ext4-on-zvol +
+# dedup'd ZFS workspace stack (PSI io.full ~67% during cold starts).
+chown "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
 echo "Ensure XDG_RUNTIME_DIR is writable"
 mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
 chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
@@ -677,17 +715,40 @@ RUN apt-get update && \
 # Google Chrome doesn't provide arm64 Linux packages
 RUN <<_INSTALL_CHROME
 set -e
-apt-get update
+
+# Launchpad is intermittently unavailable; both `add-apt-repository`
+# (which hits launchpad.net for the PPA's GPG key) and `apt-get update`
+# (which fetches InRelease from ppa.launchpadcontent.net) fail with
+# timeouts during outages. Three consecutive CI failures on 2026-05-02
+# prompted this retry wrapper. Backoff: 5s, 15s, 30s, 60s.
+# POSIX-compatible (no `local`) so it works under dash, the default
+# `RUN` shell.
+retry_apt() {
+    n=0
+    until "$@"; do
+        n=$((n+1))
+        if [ $n -ge 5 ]; then
+            echo "FATAL: apt operation failed after $n attempts: $*"
+            return 1
+        fi
+        sleep_for=$((n*15))
+        [ $n -eq 1 ] && sleep_for=5
+        echo "apt operation failed (attempt $n), retrying in ${sleep_for}s: $*"
+        sleep $sleep_for
+    done
+}
+
+retry_apt apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
     # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
-    apt-get install -y software-properties-common
-    add-apt-repository -y ppa:xtradeb/apps
-    apt-get update
+    retry_apt apt-get install -y software-properties-common
+    retry_apt add-apt-repository -y ppa:xtradeb/apps
+    retry_apt apt-get update
     # Install the real chromium package from XtraDeb + chromedriver
-    apt-get install -y chromium chromium-driver
+    retry_apt apt-get install -y chromium chromium-driver
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
@@ -936,11 +997,14 @@ RUN mkdir -p /home/retro/.gemini && \
 
 
 
+# Pre-create managed settings dir so the settings-sync-daemon (running as retro) can write to it
+RUN mkdir -p /etc/claude-code && chown retro:retro /etc/claude-code
+
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
 RUN mkdir -p /home/retro/.config/zed/themes && \
-    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false},"agent_servers":{"claude-acp":{"type":"registry"}}}' > /home/retro/.config/zed/settings.json
 
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
@@ -983,10 +1047,12 @@ echo "=== Installing Ghostty terminal for ${TARGETARCH} ==="
 
 # Ghostty packages are available for both amd64 and arm64
 # Tag format: 1.2.3-0-ppa1, Package naming: ghostty_1.2.3-0.ppa1_{arch}_25.10.deb
-GHOSTTY_TAG="1.2.3-0-ppa1"
-GHOSTTY_DEB="ghostty_1.2.3-0.ppa1_${TARGETARCH}_25.10.deb"
+GHOSTTY_TAG="1.3.1-0-ppa1"
+GHOSTTY_DEB="ghostty_1.3.1-0.ppa1_${TARGETARCH}_25.10.deb"
 wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
-apt-get install -y /tmp/ghostty.deb
+# Install dependencies first (the .deb may need libs not in the base image)
+apt-get install -y --no-install-recommends libfreetype6 libfontconfig1 || true
+dpkg -i /tmp/ghostty.deb || apt-get install -f -y
 rm /tmp/ghostty.deb
 echo "=== Ghostty ${GHOSTTY_TAG} installed for ${TARGETARCH} ==="
 

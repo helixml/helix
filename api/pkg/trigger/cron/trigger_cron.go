@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -27,13 +28,19 @@ type SpecTaskCreator interface {
 	CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
 }
 
+// ExternalAgentStarter creates external agent (Zed) sessions. Implemented by the API server.
+type ExternalAgentStarter interface {
+	StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error)
+}
+
 type Cron struct {
-	cfg             *config.ServerConfig
-	store           store.Store
-	notifier        notification.Notifier
-	controller      *controller.Controller
-	specTaskCreator SpecTaskCreator
-	cron            gocron.Scheduler
+	cfg                   *config.ServerConfig
+	store                 store.Store
+	notifier              notification.Notifier
+	controller            *controller.Controller
+	specTaskCreator       SpecTaskCreator
+	externalAgentStarter  ExternalAgentStarter
+	cron                  gocron.Scheduler
 }
 
 func NextRun(cron *types.CronTrigger) time.Time {
@@ -92,19 +99,20 @@ func extractTimezoneFromCron(schedule string) string {
 	return ""
 }
 
-func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller, specTaskCreator SpecTaskCreator) (*Cron, error) {
+func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
 	return &Cron{
-		cfg:             cfg,
-		store:           store,
-		notifier:        notifier,
-		controller:      controller,
-		specTaskCreator: specTaskCreator,
-		cron:            s,
+		cfg:                  cfg,
+		store:                store,
+		notifier:             notifier,
+		controller:           controller,
+		specTaskCreator:      specTaskCreator,
+		externalAgentStarter: externalAgentStarter,
+		cron:                 s,
 	}, nil
 }
 
@@ -369,7 +377,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task
 			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator, c.externalAgentStarter, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to execute cron task")
 			return
@@ -421,10 +429,26 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
 	// Handle spec_task action: create a spec task instead of running a session
 	if trigger.Action == "spec_task" {
 		return executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+	}
+
+	// Resolve prompt: use InputFile from helix-specs worktree if set, otherwise Input
+	promptText := trigger.Input
+	if trigger.InputFile != "" {
+		fileContent, err := readInputFile(ctx, str, trigger)
+		if err != nil {
+			log.Warn().Err(err).Str("input_file", trigger.InputFile).Msg("failed to read input file, falling back to Input field")
+		} else {
+			promptText = fileContent
+		}
+	}
+
+	// Handle external agent sessions (non-blocking)
+	if trigger.AgentType == "zed_external" {
+		return executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
 	}
 
 	// Default action: run a blocking session (existing behavior)
@@ -506,7 +530,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		App:            app,
 		Session:        session,
 		User:           user,
-		PromptMessage:  types.MessageContent{Parts: []any{trigger.Input}},
+		PromptMessage:  types.MessageContent{Parts: []any{promptText}},
 	})
 	if err != nil {
 		log.Error().
@@ -516,10 +540,11 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 
 		// Send failure notification
 		notifyErr := notifier.Notify(ctx, &types.Notification{
-			Event:   types.EventCronTriggerFailed,
-			Session: session,
-			Message: err.Error(),
-			Emails:  trigger.Emails,
+			Event:       types.EventCronTriggerFailed,
+			Session:     session,
+			Message:     err.Error(),
+			Emails:      trigger.Emails,
+			CallbackURL: trigger.CallbackURL,
 		})
 		if notifyErr != nil {
 			log.Error().
@@ -555,6 +580,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Message:        responseText,
 		RenderMarkdown: true,
 		Emails:         trigger.Emails,
+		CallbackURL:    trigger.CallbackURL,
 	})
 	if err != nil {
 		log.Error().
@@ -584,6 +610,99 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Msg("app cron job completed")
 
 	return responseText, nil
+}
+
+func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string) (string, error) {
+	if starter == nil {
+		return "", fmt.Errorf("external agent starter not configured, cannot create zed_external cron session")
+	}
+
+	projectID := trigger.ProjectID
+	if projectID == "" {
+		return "", fmt.Errorf("project_id is required for zed_external cron triggers")
+	}
+
+	session, err := starter.StartExternalAgentSession(ctx, &types.SessionChatRequest{
+		ProjectID:   projectID,
+		AgentType:   "zed_external",
+		SessionRole: "job",
+		CallbackURL: trigger.CallbackURL,
+		Messages: []*types.Message{
+			{
+				Role:    "user",
+				Content: types.MessageContent{Parts: []any{promptText}},
+			},
+		},
+	}, userID)
+	if err != nil {
+		log.Error().Err(err).Str("app_id", a.ID).Msg("failed to start external agent cron session")
+
+		notifyErr := notifier.Notify(ctx, &types.Notification{
+			Event:       types.EventCronTriggerFailed,
+			Message:     err.Error(),
+			Emails:      trigger.Emails,
+			CallbackURL: trigger.CallbackURL,
+		})
+		if notifyErr != nil {
+			log.Error().Err(notifyErr).Msg("failed to send failure notification")
+		}
+		return "", err
+	}
+
+	// Create execution record
+	execution := &types.TriggerExecution{
+		ID:                     system.GenerateUUID(),
+		Name:                   sessionName,
+		TriggerConfigurationID: triggerID,
+		Created:                time.Now(),
+		Updated:                time.Now(),
+		Status:                 types.TriggerExecutionStatusRunning,
+		SessionID:              session.ID,
+	}
+	_, err = str.CreateTriggerExecution(ctx, execution)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create trigger execution for external agent")
+	}
+
+	log.Info().
+		Str("app_id", a.ID).
+		Str("session_id", session.ID).
+		Msg("external agent cron session started")
+
+	return session.ID, nil
+}
+
+func readInputFile(ctx context.Context, str store.Store, trigger *types.CronTrigger) (string, error) {
+	if trigger.ProjectID == "" {
+		return "", fmt.Errorf("project_id required to read input_file")
+	}
+
+	project, err := str.GetProject(ctx, trigger.ProjectID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get project: %w", err)
+	}
+
+	if project.DefaultRepoID == "" {
+		return "", fmt.Errorf("project has no primary repository")
+	}
+
+	repo, err := str.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	gitRepo, err := services.OpenGitRepo(repo.LocalPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+	defer gitRepo.Close()
+
+	content, err := gitRepo.ReadFileFromBranch("helix-specs", trigger.InputFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s from helix-specs branch: %w", trigger.InputFile, err)
+	}
+
+	return string(content), nil
 }
 
 func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator SpecTaskCreator, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {

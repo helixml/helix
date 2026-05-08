@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type Meta struct {
@@ -24,7 +25,7 @@ type Session struct {
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 
-	inUserChannel  chan string
+	inUserChannel  chan *openai.ChatCompletionMessage
 	outUserChannel chan Response
 
 	llm             *LLM
@@ -50,7 +51,7 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 		cancel:    cancel,
 		closeOnce: sync.Once{},
 
-		inUserChannel:  make(chan string),
+		inUserChannel:  make(chan *openai.ChatCompletionMessage),
 		outUserChannel: make(chan Response),
 
 		llm:             llm,
@@ -66,9 +67,22 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 	return s
 }
 
-// In processes incoming user messages. Could queue or immediately handle them.
+// In processes a plain-text user message. Convenience wrapper around InMessage.
 func (s *Session) In(userMessage string) {
-	s.inUserChannel <- userMessage
+	s.inUserChannel <- UserMessage(userMessage)
+}
+
+// InMessage processes a full chat-completion message, preserving any non-text
+// parts (images, audio, etc.) on MultiContent so the LLM can reason about
+// attachments alongside the text.
+func (s *Session) InMessage(msg *openai.ChatCompletionMessage) {
+	if msg == nil {
+		return
+	}
+	if msg.Role == "" {
+		msg.Role = openai.ChatMessageRoleUser
+	}
+	s.inUserChannel <- msg
 }
 
 // Out retrieves the next message from the output channel, blocking until a message is available.
@@ -111,8 +125,10 @@ func (s *Session) run() {
 			return
 		}
 
-		// Append user message to message history
-		s.messageHistory.Add(UserMessage(userMessage))
+		// Append user message to message history. The message preserves any
+		// non-text parts (images/etc.) on MultiContent so the LLM can reason
+		// about attachments alongside the prompt.
+		s.messageHistory.Add(userMessage)
 
 		memoryBlock, err := s.memory.Retrieve(&s.meta)
 		if err != nil {

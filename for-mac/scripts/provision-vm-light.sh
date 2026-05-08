@@ -511,7 +511,7 @@ run_ssh() { $SSH_CMD "$@"; }
 # =============================================================================
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.0 from arter97 PPA..."
+    log "Installing ZFS 2.4.1+ from arter97 PPA..."
     run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
         log "ZFS install may need a reboot for DKMS. Continuing..."
     }
@@ -577,7 +577,8 @@ if ! step_done "run_install_sh"; then
     if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
         log "docker-compose.yaml is missing or empty — copying from local repo checkout..."
         scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/opt/HelixML/docker-compose.yaml"
+            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/tmp/docker-compose.yaml"
+        run_ssh "sudo cp /tmp/docker-compose.yaml /opt/HelixML/docker-compose.yaml && rm /tmp/docker-compose.yaml"
         # Replace ${HELIX_VERSION:-latest} with the actual version (same as release-backend does)
         run_ssh "cd /opt/HelixML && sed -i 's/\${HELIX_VERSION:-latest}/${HELIX_VERSION}/g' docker-compose.yaml"
         COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")
@@ -690,8 +691,6 @@ if ! step_done "fix_arm64_images"; then
     if [ -z "$COMPOSE_IMAGES" ]; then
         # Fallback: known images
         COMPOSE_IMAGES="ghcr.io/helixml/controlplane:${HELIX_VERSION}
-ghcr.io/helixml/typesense:${HELIX_VERSION}
-ghcr.io/helixml/haystack:${HELIX_VERSION}
 ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}"
     fi
 
@@ -739,8 +738,8 @@ if ! step_done "prime_stack"; then
     run_ssh "sudo systemctl start docker" || true
 
     # Pull compose images individually to work around multi-arch manifest failures.
-    # docker compose pull aborts ALL pulls if any single image fails (e.g. typesense
-    # missing multi-arch manifest), so we pull each service separately.
+    # docker compose pull aborts ALL pulls if any single image fails, so we pull
+    # each service separately.
     log "Pulling compose images..."
     COMPOSE_SERVICES=$(run_ssh "cd ~/helix && docker compose config --services 2>/dev/null" 2>/dev/null || echo "")
     for svc in $COMPOSE_SERVICES; do

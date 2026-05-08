@@ -87,6 +87,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 	}
 
 	// Configure TLS skip verify if enabled
+	var baseTransport http.RoundTripper = http.DefaultTransport
 	if cfg.Tools.TLSSkipVerify {
 		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
 		// then add InsecureSkipVerify
@@ -94,7 +95,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 		transport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
-		p.anthropicReverseProxy.Transport = transport
+		baseTransport = transport
 		log.Info().
 			Bool("tls_skip_verify", true).
 			Msg("Anthropic proxy configured with TLS skip verify (TOOLS_TLS_SKIP_VERIFY=true) - will accept any TLS certificate")
@@ -103,6 +104,11 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 			Bool("tls_skip_verify", false).
 			Msg("Anthropic proxy using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
 	}
+
+	// Wrap with thinking-type retry: Vertex AI's global LB fronts inconsistent
+	// backends — some accept thinking.type=adaptive, others require =enabled.
+	// On a 400 that matches either schema-mismatch error, swap the type and retry.
+	p.anthropicReverseProxy.Transport = &thinkingRetryTransport{base: baseTransport}
 
 	p.anthropicReverseProxy.ModifyResponse = p.anthropicAPIProxyModifyResponse
 	p.anthropicReverseProxy.Director = p.anthropicAPIProxyDirector
@@ -153,6 +159,13 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	r.Header.Del("Authorization")
 	r.Header.Del("x-api-key")
 	r.Header.Del("api-key")
+
+	// Remove Accept-Encoding so the Go transport handles compression transparently.
+	// If the client (e.g. Zed agent) sends Accept-Encoding: gzip, the transport
+	// passes compressed responses through without decompressing. Our SSE parser
+	// and response logger then get raw gzip bytes instead of text, breaking both
+	// streaming event parsing and LLM call logging.
+	r.Header.Del("Accept-Encoding")
 
 	// Vertex AI mode: if the endpoint has a VertexProjectID, transform the request
 	// for Vertex's rawPredict/streamRawPredict API format.
@@ -421,7 +434,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		return
 	}
 
-	log.Debug().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
+	log.Trace().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
 
 	usage := respMessage.Usage
 	modelName := string(respMessage.Model)
@@ -429,33 +442,41 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
 		// Session data will be missing for Discord, Slack, etc.
-		log.Debug().Msg("failed to get context values")
+		log.Trace().Msg("failed to get context values")
 		vals = &oai.ContextValues{}
 	}
 
 	orgID, _ := oai.GetContextOrganizationID(ctx)
 
-	var (
-		promptCost     float64
-		completionCost float64
-		totalCost      float64
-	)
+	var cost pricing.TokenCost
+
+	// Anthropic reports cache_creation_input_tokens and cache_read_input_tokens
+	// alongside (NOT inside) input_tokens. We fold them into PromptTokens so downstream
+	// reporting is comparable with OpenAI/Gemini, and pass the split to the pricer.
+	cacheReadTokens := usage.CacheReadInputTokens
+	cacheWriteTokens := usage.CacheCreationInputTokens
+	totalPromptTokens := usage.InputTokens + cacheReadTokens + cacheWriteTokens
 
 	// Get pricing info for the model
 	modelInfo, err := s.getModelInfo(ctx, provider.BaseURL, provider.Name, modelName)
 	if err == nil {
-		// Calculate the cost for the call and persist it
-		promptCost, completionCost, err = pricing.CalculateTokenPrice(modelInfo, usage.InputTokens, usage.OutputTokens)
+		cost, err = pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+			// Anthropic's input_tokens excludes cache; pricer expects cache folded in.
+			PromptTokens:     totalPromptTokens,
+			CompletionTokens: usage.OutputTokens,
+			CacheReadTokens:  cacheReadTokens,
+			CacheWriteTokens: cacheWriteTokens,
+		})
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", vals.OwnerID).
 				Str("model", modelName).
 				Str("provider", provider.Name).
-				Err(err).Msg("failed to calculate token price")
+				Msg("failed to calculate token price")
 		}
-		totalCost = promptCost + completionCost
 	}
+	totalCost := cost.Total()
 
 	log.Info().
 		Str("owner_id", vals.OwnerID).
@@ -464,11 +485,15 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		Str("spec_task_id", vals.SpecTaskID).
 		Str("model", modelName).
 		Str("provider", provider.Name).
-		Int("prompt_tokens", int(usage.InputTokens)).
-		Int("completion_tokens", int(usage.OutputTokens)).
-		Int("total_tokens", int(usage.InputTokens+usage.OutputTokens)).
-		Float64("prompt_cost", promptCost).
-		Float64("completion_cost", completionCost).
+		Int64("prompt_tokens", totalPromptTokens).
+		Int64("completion_tokens", usage.OutputTokens).
+		Int64("total_tokens", totalPromptTokens+usage.OutputTokens).
+		Int64("cache_read_tokens", cacheReadTokens).
+		Int64("cache_write_tokens", cacheWriteTokens).
+		Float64("prompt_cost", cost.PromptCost).
+		Float64("completion_cost", cost.CompletionCost).
+		Float64("cache_read_cost", cost.CacheReadCost).
+		Float64("cache_write_cost", cost.CacheWriteCost).
 		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
@@ -485,11 +510,15 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		Response:         resp,
 		Provider:         provider.ID,
 		DurationMs:       durationMs,
-		PromptTokens:     usage.InputTokens,
+		PromptTokens:     totalPromptTokens,
 		CompletionTokens: usage.OutputTokens,
-		TotalTokens:      usage.InputTokens + usage.OutputTokens,
-		PromptCost:       promptCost,
-		CompletionCost:   completionCost,
+		TotalTokens:      totalPromptTokens + usage.OutputTokens,
+		CacheReadTokens:  cacheReadTokens,
+		CacheWriteTokens: cacheWriteTokens,
+		PromptCost:       cost.PromptCost,
+		CompletionCost:   cost.CompletionCost,
+		CacheReadCost:    cost.CacheReadCost,
+		CacheWriteCost:   cost.CacheWriteCost,
 		TotalCost:        totalCost,
 		UserID:           vals.OwnerID,
 		Stream:           stream,

@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/project"
 	"github.com/helixml/helix/api/pkg/cli/provider"
 	"github.com/helixml/helix/api/pkg/cli/roles"
+	"github.com/helixml/helix/api/pkg/cli/sandbox"
 	"github.com/helixml/helix/api/pkg/cli/secret"
 	"github.com/helixml/helix/api/pkg/cli/spectask"
 	"github.com/helixml/helix/api/pkg/cli/system"
@@ -47,6 +48,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(fs.NewUploadCmd()) // Shortcut for upload
 	RootCmd.AddCommand(secret.New())
 	RootCmd.AddCommand(project.New())
+	RootCmd.AddCommand(sandbox.New())
 	RootCmd.AddCommand(spectask.New())
 	RootCmd.AddCommand(mcp.New())
 	RootCmd.AddCommand(model.New())

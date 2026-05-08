@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine3.22
+FROM golang:1.25-alpine3.22@sha256:2c16ac01b3d038ca2ed421d66cea489e3cb670c251b4f8bbcfad2ebfb75f884c
 WORKDIR /app
 RUN apk add --no-cache bash openssh
 COPY go.mod go.sum ./

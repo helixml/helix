@@ -9,7 +9,9 @@
 # Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
 # Note: revdial-client is built into Hydra daemon
 # ====================================================================
-FROM golang:1.25 AS go-builder
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Go version.
+FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS go-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -23,11 +25,24 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+# Build compose-manager (sandbox-absorbs-runner pivot: applies operator-assigned
+# runner profiles by running `docker compose` against the inner dockerd).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /compose-manager ./api/cmd/compose-manager
+# Build inference-proxy (body-aware reverse proxy: model name -> container in
+# inner dockerd via Docker DNS).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /inference-proxy ./api/cmd/inference-proxy
 
 # ====================================================================
 # Stage 2: Final sandbox image (based on GOW base pattern)
 # ====================================================================
-FROM ubuntu:25.04 AS sandbox
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Ubuntu version.
+FROM ubuntu:25.04@sha256:27771fb7b40a58237c98e8d3e6b9ecdd9289cec69a857fccfb85ff36294dac20 AS sandbox
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base)
 ENV \
@@ -190,7 +205,16 @@ RUN chmod +x /entrypoint.sh \
 # ====================================================================
 COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
-RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
+COPY --from=go-builder /compose-manager /usr/local/bin/compose-manager
+COPY --from=go-builder /inference-proxy /usr/local/bin/inference-proxy
+RUN chmod +x /usr/local/bin/hydra \
+    /usr/local/bin/sandbox-heartbeat \
+    /usr/local/bin/compose-manager \
+    /usr/local/bin/inference-proxy
+
+# Sandbox-absorbs-runner: directory for the active compose YAML that
+# compose-manager writes and inference-proxy reads.
+RUN mkdir -p /etc/helix
 
 # ====================================================================
 # Copy Helix sandbox init scripts (run after GOW base scripts)
@@ -212,6 +236,12 @@ RUN chmod +x /etc/cont-init.d/60-setup-telemetry-firewall.sh
 # Start Hydra multi-Docker isolation daemon
 COPY sandbox/10-start-hydra.sh /etc/cont-init.d/70-start-hydra.sh
 RUN chmod +x /etc/cont-init.d/70-start-hydra.sh
+
+# Sandbox-absorbs-runner: compose-manager + inference-proxy startup hooks.
+COPY sandbox/12-start-compose-manager.sh /etc/cont-init.d/80-start-compose-manager.sh
+RUN chmod +x /etc/cont-init.d/80-start-compose-manager.sh
+COPY sandbox/14-start-inference-proxy.sh /etc/cont-init.d/85-start-inference-proxy.sh
+RUN chmod +x /etc/cont-init.d/85-start-inference-proxy.sh
 
 # ====================================================================
 # Main startup script

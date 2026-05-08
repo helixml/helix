@@ -15,13 +15,20 @@ import (
 
 //go:generate mockgen -source $GOFILE -destination spec_task_orchestrator_mocks.go -package $GOPACKAGE
 
+// isDeletedProjectError returns true for GORM "record not found" errors that
+// indicate a task references a deleted project. Used to suppress expected noise
+// in orchestrator loops. Must NOT match domain errors like "spec approval not found".
+func isDeletedProjectError(err error) bool {
+	return strings.Contains(err.Error(), "record not found")
+}
+
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
 // EnsurePRsFunc is a callback that creates PRs for all project repos that have
 // the task's feature branch. Set by the server so the orchestrator can retry
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
-type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string) error
+type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
 type SpecTaskOrchestrator struct {
 	store                 store.Store
@@ -30,6 +37,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ciNotifier            CINotifier    // Delivers ci_passed / ci_failed messages to running agents
 	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -84,6 +92,13 @@ func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
 	o.attentionService = svc
+}
+
+// SetCINotifier sets the notifier used to deliver CI result messages to a
+// running agent. When nil, the orchestrator still tracks CI status on the
+// task but skips agent-side messaging (human attention events still fire).
+func (o *SpecTaskOrchestrator) SetCINotifier(n CINotifier) {
+	o.ciNotifier = n
 }
 
 // Start begins the orchestration loop
@@ -248,7 +263,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		err := o.processTask(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -628,16 +643,60 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 	return nil
 }
 
+// taskHasPRsForAllRepos returns true if the task already has a PR tracked for
+// every external repo in the project. When true, we can skip the expensive
+// ensurePRs call (which pushes branches + lists PRs from GitHub on every poll).
+func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *types.SpecTask) bool {
+	if len(task.RepoPullRequests) == 0 {
+		return false
+	}
+
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return false
+	}
+
+	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: project.ID,
+	})
+	if err != nil {
+		return false
+	}
+
+	// Build set of repo IDs that already have PRs
+	hasPR := make(map[string]bool, len(task.RepoPullRequests))
+	for _, rp := range task.RepoPullRequests {
+		hasPR[rp.RepositoryID] = true
+	}
+
+	// Check every external repo has a PR tracked
+	for _, repo := range repos {
+		if !repo.IsExternal || repo.ExternalURL == "" {
+			continue
+		}
+		if !hasPR[repo.ID] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
 	// Try to create PRs for repos that didn't have the branch ready when the
 	// user first clicked "Open PR". This covers the case where the agent pushes
 	// to a secondary repo after the initial PR creation.
-	if o.ensurePRs != nil {
+	//
+	// Skip if the task already has PRs for all external repos — no need to
+	// push + list PRs from GitHub on every 30s poll cycle. This is the main
+	// source of GitHub API rate limit exhaustion.
+	if o.ensurePRs != nil && !o.taskHasPRsForAllRepos(ctx, task) {
 		project, err := o.store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
-			if err := o.ensurePRs(ctx, task, project.DefaultRepoID); err != nil {
+			// Use the approver's identity so push+PR use their OAuth token
+			if err := o.ensurePRs(ctx, task, project.DefaultRepoID, task.ImplementationApprovedBy); err != nil {
 				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
 			}
 		}
@@ -647,6 +706,20 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		log.Warn().
 			Str("task_id", task.ID).
 			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
+
+		// If the task has been in pull_request status for over 5 minutes with no
+		// PRs, the agent likely failed to push the branch. Surface an error.
+		if task.StatusUpdatedAt != nil && time.Since(*task.StatusUpdatedAt) > 5*time.Minute {
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			if _, hasErr := task.Metadata["error"]; !hasErr {
+				task.Metadata["error"] = "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
+				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to save PR timeout error to task metadata")
+				}
+			}
+		}
 	}
 
 	// Always call processExternalPullRequestStatus even with no tracked PRs —
@@ -685,12 +758,18 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			updated = true
 		}
 
+		// CI status: poll the provider for the PR's head SHA, fire
+		// transition notifications, persist if anything changed.
+		if o.pollCIStatusForPR(ctx, task, &task.RepoPullRequests[i], pr) {
+			updated = true
+		}
+
 		switch pr.State {
 		case types.PullRequestStateOpen:
 			anyOpen = true
 			allMerged = false
 			allClosed = false
-			log.Debug().
+			log.Trace().
 				Str("task_id", task.ID).
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
@@ -837,7 +916,7 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 		err := o.handlePullRequest(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -900,7 +979,7 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 		err := o.checkTaskForExternalPRActivity(ctx, task)
 		if err != nil {
 			// Don't spam logs for deleted projects
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -922,40 +1001,42 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		return fmt.Errorf("failed to get project: %w", err)
 	}
 
-	if project.DefaultRepoID == "" {
-		return nil // No repo to check
-	}
-
-	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
+	// Check ALL project repos for PR activity, not just the default.
+	// Tasks may only have PRs in secondary repos (e.g., Zed repo).
+	allRepos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: project.ID,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get repository: %w", err)
+		return fmt.Errorf("failed to list project repositories: %w", err)
 	}
 
-	// Only check external repos - internal repos use git hooks for merge detection
-	if !repo.IsExternal {
-		return nil
-	}
+	branchRef := "refs/heads/" + task.BranchName
 
-	// First: check for open PRs on this branch
-	prs, err := o.gitService.ListPullRequests(ctx, project.DefaultRepoID)
-	if err != nil {
-		log.Debug().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs, skipping")
-		// Don't return error - PR listing might fail for various reasons
-	} else {
-		branchRef := "refs/heads/" + task.BranchName
+	for _, repo := range allRepos {
+		if !repo.IsExternal || repo.ExternalURL == "" {
+			continue
+		}
+
+		// Check for open or merged PRs on this branch
+		prs, err := o.gitService.ListPullRequests(ctx, repo.ID)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
+			continue
+		}
+
 		for _, pr := range prs {
+			branchMatches := pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName
+
 			// Check if PR is open and matches our branch
-			if pr.State == types.PullRequestStateOpen &&
-				(pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName) {
-				// Found an open PR - link it and transition to pull_request status
+			if pr.State == types.PullRequestStateOpen && branchMatches {
 				log.Info().
 					Str("task_id", task.ID).
 					Str("pr_id", pr.ID).
 					Str("pr_title", pr.Title).
 					Str("branch", task.BranchName).
+					Str("repo_name", repo.Name).
 					Msg("Detected externally-opened PR, moving task to pull_request status")
 
-				// Add to RepoPullRequests
 				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
 					RepositoryID:   repo.ID,
 					RepositoryName: repo.Name,
@@ -970,7 +1051,6 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					return err
 				}
 
-				// Emit pr_ready attention event
 				if o.attentionService != nil {
 					go func(t *types.SpecTask, prID string, prURL string) {
 						_, emitErr := o.attentionService.EmitEvent(
@@ -994,17 +1074,15 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 			}
 
 			// Check if PR is already merged
-			if pr.State == types.PullRequestStateMerged &&
-				(pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName) {
-				// PR was merged - transition to done
+			if pr.State == types.PullRequestStateMerged && branchMatches {
 				log.Info().
 					Str("task_id", task.ID).
 					Str("pr_id", pr.ID).
 					Str("branch", task.BranchName).
+					Str("repo_name", repo.Name).
 					Msg("Detected merged PR, moving task to done status")
 
 				now := time.Now()
-				// Add to RepoPullRequests
 				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
 					RepositoryID:   repo.ID,
 					RepositoryName: repo.Name,
@@ -1023,35 +1101,29 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		}
 	}
 
-	// Second: check if branch has been merged to main (handles cases where PR was
-	// squash-merged or branch was deleted after merge)
-	// First try using the branch name
-	log.Info().
-		Str("task_id", task.ID).
-		Str("branch", task.BranchName).
-		Str("target", repo.DefaultBranch).
-		Str("repo_id", project.DefaultRepoID).
-		Msg("Checking if branch is merged into main")
+	// Fallback: check if branch has been merged to main in the primary repo
+	// (handles squash-merges or branch deletion after merge)
+	if project.DefaultRepoID == "" {
+		return nil
+	}
+	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return fmt.Errorf("failed to get default repository: %w", err)
+	}
+	if !repo.IsExternal {
+		return nil
+	}
+
 	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
 	if err != nil {
-		// Branch might not exist locally - try using LastPushCommitHash if available
 		if task.LastPushCommitHash != "" {
 			merged, err = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
 			if err != nil {
-				log.Debug().
-					Err(err).
-					Str("task_id", task.ID).
-					Str("commit", task.LastPushCommitHash).
-					Msg("Failed to check if commit is in main branch")
-				return nil // Don't break polling
+				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to check if commit is in main branch")
+				return nil
 			}
 		} else {
-			log.Debug().
-				Err(err).
-				Str("task_id", task.ID).
-				Str("branch", task.BranchName).
-				Msg("Failed to check if branch is merged and no LastPushCommitHash available")
-			return nil // Don't break polling
+			return nil
 		}
 	}
 
@@ -1152,7 +1224,13 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 }
 
 func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecTask) error {
-	// Terminate the desktop
+	if task.KeepAlive {
+		log.Info().
+			Str("task_id", task.ID).
+			Msg("Task in done status but keep_alive is set - leaving desktop running")
+		return nil
+	}
+
 	err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID)
 	if err != nil {
 		return fmt.Errorf("failed to stop desktop: %w", err)

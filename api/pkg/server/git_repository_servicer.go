@@ -27,12 +27,12 @@ type gitRepositoryServicer interface {
 	GetCloneCommand(repoID, targetDir string) string
 	BuildAuthenticatedCloneURL(repoID, apiKey string) string
 	ListCommits(ctx context.Context, req *types.ListCommitsRequest) (*types.ListCommitsResponse, error)
-	CreatePullRequest(ctx context.Context, repoID, title, description, sourceBranch, targetBranch string) (string, error)
+	CreatePullRequest(ctx context.Context, repoID, title, description, sourceBranch, targetBranch, userID string) (string, error)
 	GetPullRequest(ctx context.Context, repoID, id string) (*types.PullRequest, error)
 	ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error)
 	PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error
 	PullFromRemote(ctx context.Context, repoID, branchName string, force bool) error
-	PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool) error
+	PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool, userID ...string) error
 	SyncAllBranches(ctx context.Context, repoID string, force bool) error
 	GetExternalRepoStatus(ctx context.Context, repoID, branchName string) (*types.ExternalStatus, error)
 	GetRepoLock(repoID string) *sync.Mutex

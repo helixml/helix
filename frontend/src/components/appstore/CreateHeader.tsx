@@ -5,6 +5,8 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import { Edit } from 'lucide-react'
 
+import useLightTheme from '../../hooks/useLightTheme'
+
 import {
   IApp,
 } from '../../types'
@@ -26,6 +28,8 @@ const CreateHeader: FC<{
   showEditButton = false,
   onEditClick,
 }) => {
+  const lightTheme = useLightTheme()
+  const isLight = lightTheme.isLight
   const avatar = getAppAvatarUrl(app)
   const name = getAppName(app)
   const description = getAppDescription(app)
@@ -66,12 +70,16 @@ const CreateHeader: FC<{
               cursor: showEditButton && onEditClick ? 'pointer' : 'default',
               padding: showEditButton ? '4px 12px 4px 4px' : 0,
               borderRadius: showEditButton ? '24px' : 0,
-              backgroundColor: showEditButton ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-              border: showEditButton ? '1px solid rgba(255, 255, 255, 0.2)' : 'none',
+              backgroundColor: showEditButton
+                ? (isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.1)')
+                : 'transparent',
+              border: showEditButton
+                ? `1px solid ${isLight ? 'rgba(0, 0, 0, 0.25)' : 'rgba(255, 255, 255, 0.2)'}`
+                : 'none',
               transition: 'all 0.2s ease',
               '&:hover': showEditButton ? {
-                backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                borderColor: 'rgba(255, 255, 255, 0.4)',
+                backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.2)',
+                borderColor: isLight ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.4)',
               } : {},
             }}
             onClick={showEditButton && onEditClick ? onEditClick : undefined}
@@ -81,7 +89,7 @@ const CreateHeader: FC<{
               sx={{
                 width: 32,
                 height: 32,
-                border: '1px solid rgba(255, 255, 255, 0.5)',
+                border: `1px solid ${isLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.5)'}`,
                 ...avatarSx,
               }}
             />
@@ -91,7 +99,7 @@ const CreateHeader: FC<{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 0.5,
-                  color: 'rgba(255, 255, 255, 0.9)',
+                  color: isLight ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)',
                   fontSize: '0.8rem',
                   fontWeight: 500,
                 }}

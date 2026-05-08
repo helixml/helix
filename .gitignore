@@ -1,3 +1,4 @@
+.playwright-mcp/
 api/pkg/skills/test_results/
 .hydra-resolved*.yaml
 .env
@@ -13,14 +14,30 @@ dist
 api/runs
 kubeconfig
 .vscode
+.claude
 integration-test/frontend/screenshots
 instructions.txt
 build-errors.log
 .DS_Store
+
+# Built Go binaries that may land in repo root from local builds
+/compose-manager
+/inference-proxy
+/helix-runner
+/hydra
+/sandbox-heartbeat
+
 vendor
 */**/out.md
 charts/helix-controlplane/charts/*.tgz
-helix-runner
+# Chart.yaml is rendered from Chart.yaml.tmpl by scripts/render-charts.sh.
+# Source-of-truth is the .tmpl file; the rendered Chart.yaml is build output.
+charts/*/Chart.yaml
+# Anchor helix-runner to repo root so it does not shadow charts/helix-runner/.
+# Other unanchored patterns below (helix, zed-build, tmp) are left as-is to
+# avoid regressing the ignoring of build artifacts in subdirectories such as
+# api/cmd/helix/helix or runner-cmd/helix-runner/helix-runner.
+/helix-runner
 zed-build
 helix
 tmp
@@ -117,3 +134,4 @@ api/settings-sync-daemon
 /scanout-stream-test
 core.*
 nohup.out
+# CI validation Mon Mar 30 17:38:01 BST 2026

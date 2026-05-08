@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -81,9 +80,14 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 		}
 	}
 
+	usageUserID := user.ID
+	if orgID != "" {
+		usageUserID = ""
+	}
+
 	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
 		AggregationLevel: aggregationLevel,
-		UserID:           user.ID,
+		UserID:           usageUserID,
 		OrganizationID:   orgID,
 		ProjectID:        projectID,
 		SpecTaskID:       specTaskID,
@@ -93,8 +97,42 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	if orgID != "" && projectID == "" && specTaskID == "" {
+		sandboxMetrics, err := s.Store.GetSandboxUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
+			AggregationLevel: aggregationLevel,
+			OrganizationID:   orgID,
+			From:             from,
+			To:               to,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		mergeSandboxUsageCosts(metrics, sandboxMetrics)
+	}
 
 	return metrics, nil
+}
+
+func mergeSandboxUsageCosts(metrics []*types.AggregatedUsageMetric, sandboxMetrics []*types.AggregatedUsageMetric) {
+	byDate := make(map[time.Time]*types.AggregatedUsageMetric, len(metrics))
+	for _, metric := range metrics {
+		if metric == nil {
+			continue
+		}
+		byDate[metric.Date] = metric
+	}
+	for _, sandboxMetric := range sandboxMetrics {
+		if sandboxMetric == nil || sandboxMetric.SandboxCost == 0 {
+			continue
+		}
+		metric, ok := byDate[sandboxMetric.Date]
+		if !ok {
+			continue
+		}
+		metric.SandboxCost += sandboxMetric.SandboxCost
+		metric.TotalCost += sandboxMetric.SandboxCost
+		metric.TotalRequests += sandboxMetric.TotalRequests
+	}
 }
 
 // getSpecTaskUsage godoc
@@ -210,9 +248,16 @@ func selectAggregationLevel(from, to time.Time) store.AggregationLevel {
 }
 
 // BatchTaskUsageResponse contains usage metrics for all tasks in a project
+// BatchTaskUsageMetric is a slim version of AggregatedUsageMetric for the batch
+// endpoint — the Kanban sparkline charts only need date + total_tokens.
+type BatchTaskUsageMetric struct {
+	Date        time.Time `json:"date"`
+	TotalTokens int       `json:"total_tokens"`
+}
+
 type BatchTaskUsageResponse struct {
-	ProjectID string                                    `json:"project_id"`
-	Tasks     map[string][]*types.AggregatedUsageMetric `json:"tasks"` // keyed by task_id
+	ProjectID string                            `json:"project_id"`
+	Tasks     map[string][]BatchTaskUsageMetric `json:"tasks"` // keyed by task_id
 }
 
 // getBatchTaskUsage godoc
@@ -258,10 +303,12 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Build response with usage for each task
+	// Build response with usage for each task.
+	// Use daily aggregation and return only date + total_tokens — the Kanban
+	// sparkline charts don't need finer granularity or other metric fields.
 	response := BatchTaskUsageResponse{
 		ProjectID: projectID,
-		Tasks:     make(map[string][]*types.AggregatedUsageMetric, len(tasks)),
+		Tasks:     make(map[string][]BatchTaskUsageMetric, len(tasks)),
 	}
 
 	// Fetch usage in parallel with concurrency limit
@@ -296,10 +343,9 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 			}
 
 			to := time.Now()
-			aggregationLevel := selectAggregationLevel(from, to)
 
 			metrics, err := s.Store.GetAggregatedUsageMetrics(ctx, &store.GetAggregatedUsageMetricsQuery{
-				AggregationLevel: aggregationLevel,
+				AggregationLevel: store.AggregationLevelHourly,
 				UserID:           user.ID,
 				ProjectID:        projectID,
 				SpecTaskID:       t.ID,
@@ -311,14 +357,35 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
-			mu.Lock()
-			response.Tasks[t.ID] = metrics
-			mu.Unlock()
+			// Only include the last 7 days of daily data — sparkline charts
+			// don't need months of history. This also naturally limits the
+			// payload since most tasks have zero usage outside their active period.
+			sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+			slim := make([]BatchTaskUsageMetric, 0, 7)
+			for _, m := range metrics {
+				if m.Date.Before(sevenDaysAgo) {
+					continue
+				}
+				slim = append(slim, BatchTaskUsageMetric{Date: m.Date, TotalTokens: m.TotalTokens})
+			}
+
+			// Only include tasks that have non-zero usage in the window
+			hasUsage := false
+			for _, m := range slim {
+				if m.TotalTokens > 0 {
+					hasUsage = true
+					break
+				}
+			}
+			if hasUsage {
+				mu.Lock()
+				response.Tasks[t.ID] = slim
+				mu.Unlock()
+			}
 		}(task)
 	}
 
 	wg.Wait()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponseWithETag(w, r, response)
 }

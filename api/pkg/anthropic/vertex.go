@@ -226,6 +226,11 @@ func vertexTransformRequest(r *http.Request, projectID, region string, tokenSour
 			projectID, region)
 	}
 
+	// Strip fields that Vertex AI doesn't support (returns 400 "Extra inputs
+	// are not permitted"). These are newer Anthropic API features that haven't
+	// been added to Vertex's streamRawPredict endpoint yet.
+	delete(bodyMap, "context_management")
+
 	// Re-serialize the modified body
 	newBody, err := json.Marshal(bodyMap)
 	if err != nil {
