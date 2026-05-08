@@ -63,3 +63,10 @@ The check must be server-side because:
 
 - **Race condition:** User message arrives slightly after `message_completed` is processed. Acceptable — the window is very small and the occasional unnecessary notification is harmless.
 - **Error state:** If the store query fails, emit the notification as normal (safe default).
+
+## Implementation Notes
+
+- The suppression check sits inside the existing `if helixSession.Metadata.SpecTaskID != ""` block at line ~2558 of `websocket_external_agent_sync.go` — only spectask sessions ever emit attention events, so non-spectask sessions are unaffected.
+- `ListInteractions` is called with `PerPage: 1` since we only need the most recent interaction. The mock `ListInteractions` is also called by the final session publish (line ~2677) with `PerPage: 1000` — both paths are independent and the queries don't interact.
+- Used `services.AttentionService` directly (not an interface) — to test the goroutine actually fires, the test creates a real `AttentionService` with the mock store, then verifies whether `GetSpecTask` is called (since that's the first store call inside the goroutine). Returning an error from `GetSpecTask` short-circuits before `EmitEvent` runs, keeping the test simple.
+- The skip path uses `log.Debug()` (not Info or Warn) — this is normal expected behavior, not an error.
