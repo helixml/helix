@@ -21,6 +21,6 @@
 
 ## Backend: Fix missing `specs_pushed` notifications on SpecReview transition
 
-- [ ] In `spec_task_orchestrator.go` `handleSpecGeneration`, emit `AttentionEventSpecsPushed` via `attentionService.EmitEvent()` after the task status is set to `SpecReview` (~line 557); use task ID as idempotency qualifier
-- [ ] In `git_http_server.go`, emit `AttentionEventSpecsPushed` after the task status is set to `SpecReview` on git push (~line 1361); use task ID as idempotency qualifier
-- [ ] Delete (or wire up) the dead `HandleSpecGenerationComplete` function in `spec_driven_task_service.go`
+- [~] In `spec_task_orchestrator.go` `handleSpecGeneration`, emit `AttentionEventSpecsPushed` via `attentionService.EmitEvent()` after the task status is set to `SpecReview`; use task ID as idempotency qualifier
+
+> Note: the git push path in `git_http_server.go` (line ~1581) already emits `specs_pushed` correctly, and `HandleSpecGenerationComplete` in `spec_driven_task_service.go` is a separate concern (dead code unrelated to either real path) — leaving it untouched in this task.
