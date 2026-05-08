@@ -224,7 +224,7 @@ const SettingsTab: FC<SettingsTabProps> = ({
                     helperText={
                       repository.azure_devops?.personal_access_token
                         ? "Leave blank to keep current token"
-                        : "Personal Access Token for Azure DevOps. Get yours from https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
+                        : "Personal Access Token for Azure DevOps. Required scopes: Code (Read & Write) and Build (Read) — Build is needed to display CI status on Kanban cards. Get yours from https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
                     }
                     InputProps={{
                       endAdornment: (

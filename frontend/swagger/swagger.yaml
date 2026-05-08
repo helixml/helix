@@ -3040,6 +3040,8 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - ci_passed
+    - ci_failed
     type: string
     x-enum-varnames:
     - AttentionEventSpecsPushed
@@ -3047,6 +3049,8 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventCIPassed
+    - AttentionEventCIFailed
   types.AttentionEventUpdateRequest:
     properties:
       acknowledge:
@@ -3871,6 +3875,10 @@ definitions:
       assignee_id:
         description: 'Optional: team member assigned to the task'
         type: string
+      auto_start:
+        description: 'Optional: Skip backlog and start immediately, regardless of
+          project auto-start setting'
+        type: boolean
       base_branch:
         description: 'For new mode: branch to create from (defaults to repo default)'
         type: string
@@ -6715,6 +6723,13 @@ definitions:
         type: string
       description:
         type: string
+      head_sha:
+        description: |-
+          HeadSHA is the commit SHA at the tip of the PR's source branch.
+          Used by the CI status poller to detect new pushes and to query the
+          provider's CI/build APIs for the right commit. Empty if the
+          provider response did not include it.
+        type: string
       id:
         type: string
       number:
@@ -6956,6 +6971,21 @@ definitions:
     type: object
   types.RepoPR:
     properties:
+      ci_head_sha:
+        type: string
+      ci_status:
+        description: |-
+          CI status, populated by the spec task orchestrator's PR poll loop.
+          CIStatus is one of: "" (not yet evaluated), "running", "passed",
+          "failed", "none" (CI not configured for the PR's head SHA).
+          CIHeadSHA is the head commit we last evaluated; it lets the poller
+          detect a new push and reset CIStatus so a stale "passed" doesn't
+          suppress a fresh notification when the next commit fails.
+        type: string
+      ci_updated_at:
+        type: string
+      ci_url:
+        type: string
       pr_id:
         type: string
       pr_number:

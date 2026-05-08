@@ -544,6 +544,7 @@ func NewServer(
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
 	apiServer.specTaskOrchestrator.SetEnsurePRsFunc(apiServer.ensurePullRequestsForAllRepos)
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
+	apiServer.specTaskOrchestrator.SetCINotifier(services.NewMessageSenderCINotifier(apiServer.sendMessageToSpecTaskAgent))
 
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
