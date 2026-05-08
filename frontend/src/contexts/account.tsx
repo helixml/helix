@@ -363,12 +363,26 @@ export const useAccountContext = (): IAccountContext => {
       targetRouteName = `org_${routeName}`
     }
 
-    // Prefer explicit param → loaded org name → org slug already in the current URL.
-    // The URL fallback handles the race where orgNavigate is called before the org
-    // data has loaded (e.g. during component initialization on mobile), which would
-    // otherwise produce org_id=undefined and a "missing parameter" router error.
+    // Prefer explicit param → loaded org name → org slug already in the current URL
+    // → first org from the loaded list. Each fallback covers a race the previous one
+    // misses (e.g. clicking from /files where the URL has no org slug, before the
+    // current-org context resolves). Without all four, a missing org_id surfaces as
+    // a router5 "Cannot build path … requires missing parameters { org_id }" crash.
     const currentUrlOrgId = window.location.pathname.match(/^\/orgs\/([^/]+)/)?.[1]
-    const useOrgID = params.org_id || organizationToolsRef.current.organization?.name || currentUrlOrgId
+    const firstOrgSlug = organizationToolsRef.current.organizations?.[0]?.name
+    const useOrgID = params.org_id
+      || organizationToolsRef.current.organization?.name
+      || currentUrlOrgId
+      || firstOrgSlug
+
+    if (!useOrgID) {
+      // No org context anywhere — send the user to the org picker rather than
+      // throwing a router5 "missing parameter" error that crashes the page.
+      console.warn('orgNavigate: no org_id resolvable, redirecting to /orgs', { routeName, params })
+      router.navigate('orgs', {})
+      return
+    }
+
     const targetParams = {
       ...params,
       org_id: useOrgID,

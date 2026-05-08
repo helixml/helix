@@ -1,6 +1,5 @@
 import React, {
   useEffect,
-  useLayoutEffect,
   useRef,
   useMemo,
   useCallback,
@@ -12,14 +11,28 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import VerticalAlignBottomIcon from "@mui/icons-material/VerticalAlignBottom";
+import KeyboardDoubleArrowDownIcon from "@mui/icons-material/KeyboardDoubleArrowDown";
+import PauseIcon from "@mui/icons-material/Pause";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  useAutoScrollPreference,
+  AUTO_SCROLL_NEAR_BOTTOM_PX,
+  USER_SCROLL_UNLOCK_PX,
+} from "../../hooks/useAutoScrollPreference";
 
-// DEBUG: Set to true to show scroll debug overlay
-const DEBUG_SCROLL = false;
+// Timeout (ms) after which a fresh wheel event is treated as a new gesture
+// and the upward-scroll accumulator resets. Stops "scroll up 60px, read,
+// then scroll up another 60px" from cumulatively crossing the threshold.
+const USER_SCROLL_GESTURE_TIMEOUT_MS = 500;
 
-// Number of interactions to render initially (and per "load more" click)
-const INTERACTIONS_TO_RENDER = 20;
+// Number of interactions to render initially (and per "load more" click).
+// Keep this low — long-running agent sessions can have interactions with
+// hundreds of entries, each rendered as a Markdown component.
+const INTERACTIONS_TO_RENDER = 5;
 
 import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
@@ -48,12 +61,27 @@ export interface EmbeddedSessionViewHandle {
 }
 
 /**
- * EmbeddedSessionView - A lightweight session message thread viewer
+ * EmbeddedSessionView - session message thread viewer.
  *
- * Simple sticky-scroll behavior:
- * - If you're at the bottom, stay at the bottom as content grows
- * - If you scroll up, stay where you are
- * - If you scroll back to bottom, resume auto-scroll
+ * Auto-scroll model (deliberately simple — see commit history for prior
+ * sticky-scroll attempts that were too race-prone to be reliable):
+ *
+ *   - A single global preference (`helix.autoScroll`, default ON) controls
+ *     whether new content auto-scrolls the chat to the bottom.
+ *   - When ON: every content-height *growth* (driven by ResizeObserver on
+ *     contentRef) is followed by a scroll to bottom. Renders that don't
+ *     grow content (3s polls, WS keepalives, identical re-renders) do
+ *     no scroll work — `scrollToBottom()` is a no-op when
+ *     `container.scrollHeight === lastScrolledHeightRef.current`.
+ *   - When OFF: no auto-scroll. If new content lands below the viewport,
+ *     a "Jump to latest" pill appears; clicking it scrolls to bottom and
+ *     re-enables the preference.
+ *   - Auto-scroll flips OFF in two ways: (a) the toggle button (bottom
+ *     right), and (b) explicit user scroll-up — if the user wheels or
+ *     finger-drags upward by a cumulative ≥ USER_SCROLL_UNLOCK_PX (100px)
+ *     within a single gesture. We listen to `wheel` and `touchmove`
+ *     directly (not `scrollTop` deltas) so programmatic scrolls and
+ *     content reflow above the viewport cannot trip the unlock.
  */
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
@@ -64,11 +92,35 @@ const EmbeddedSessionView = forwardRef<
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { NewInference, wsConnected } = useStreaming();
+  const { NewInference } = useStreaming();
 
-  // Simple scroll state: are we currently at the bottom?
-  // This is the ONLY state we need for sticky scroll behavior
-  const isAtBottomRef = useRef(true);
+  // Global on/off preference for auto-scroll. Default ON.
+  const [autoScroll, setAutoScroll] = useAutoScrollPreference();
+  const autoScrollRef = useRef(autoScroll);
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+  }, [autoScroll]);
+
+  // True when auto-scroll is OFF and new content has landed below the viewport.
+  // Drives the "Jump to latest" pill.
+  const [hasNewBelow, setHasNewBelow] = useState(false);
+
+  // Last scrollHeight we wrote scrollTop to. Used to short-circuit
+  // scrollToBottom() when nothing has actually grown since the last write —
+  // otherwise InteractionLiveStream's onMessageUpdate (which fires on every
+  // message/responseEntries reference change, throttled but ungated) would
+  // trigger a redundant scroll write per polling interval and per WS update.
+  const lastScrolledHeightRef = useRef(0);
+
+  // Cumulative upward user-scroll distance (px) within the current gesture.
+  // Flipped to autoScroll=OFF when this crosses USER_SCROLL_UNLOCK_PX.
+  const upwardAccumRef = useRef(0);
+  // Timestamp of the last wheel event, used to detect a fresh gesture and
+  // reset the accumulator after a quiet gap.
+  const lastWheelTsRef = useRef(0);
+  // Touch state for tracking finger-drag direction.
+  const touchStartYRef = useRef<number | null>(null);
+  const lastTouchYRef = useRef<number | null>(null);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -76,170 +128,48 @@ const EmbeddedSessionView = forwardRef<
   const [olderInteractions, setOlderInteractions] = useState<TypesInteraction[]>([]);
   // Loading state for fetching older interactions
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  // Guard: when true, scroll events are from programmatic scrollTo, not user interaction.
-  // Prevents the scroll handler from unsetting isAtBottom during auto-scroll.
-  const isProgrammaticScrollRef = useRef(false);
-  const SCROLL_THRESHOLD = 50;
 
-  // DEBUG: State for debug overlay
-  const [debugInfo, setDebugInfo] = useState({
-    isAtBottom: true,
-    scrollTop: 0,
-    scrollHeight: 0,
-    clientHeight: 0,
-    lastEvent: "init",
-    mutationCount: 0,
-    scrollCount: 0,
-  });
-
-  // Check if currently at bottom
-  const checkIsAtBottom = useCallback(() => {
+  // Returns true if the viewport is "near enough" the bottom that we treat
+  // it as caught up (used to hide the jump-to-latest pill).
+  const isNearBottom = useCallback(() => {
     const container = containerRef.current;
     if (!container) return true;
     const { scrollTop, scrollHeight, clientHeight } = container;
-    return scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD;
+    return scrollTop + clientHeight >= scrollHeight - AUTO_SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
-  // Update isAtBottom on every scroll event
+  // Only used to clear the pill when the user scrolls back to the bottom.
+  // We deliberately do NOT track "is the user at the bottom" for auto-scroll
+  // decisions — auto-scroll is purely driven by the preference toggle.
   const handleScroll = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (autoScrollRef.current) return;
+    if (isNearBottom()) setHasNewBelow(false);
+  }, [isNearBottom]);
 
-    // Skip if this scroll was triggered by our own programmatic scrollTo
-    if (isProgrammaticScrollRef.current) return;
-
-    isAtBottomRef.current = checkIsAtBottom();
-
-    if (DEBUG_SCROLL) {
-      setDebugInfo((prev) => ({
-        ...prev,
-        isAtBottom: isAtBottomRef.current,
-        scrollTop: Math.round(container.scrollTop),
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-        lastEvent: "scroll",
-        scrollCount: prev.scrollCount + 1,
-      }));
-    }
-  }, [checkIsAtBottom]);
-
-  // iOS Safari fix: Also track via native scroll event listener
-  // React's onScroll might not fire correctly on iOS
-  // Depends on session so it re-runs after the container is rendered
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
-      if (DEBUG_SCROLL) {
-        setDebugInfo((prev) => ({ ...prev, lastEvent: "NO CONTAINER REF" }));
-      }
-      return;
-    }
-
-    // Debug: mark that we attached the listener
-    if (DEBUG_SCROLL) {
-      setDebugInfo((prev) => ({ ...prev, lastEvent: "listener-attached" }));
-    }
-
-    const onNativeScroll = () => {
-      if (isProgrammaticScrollRef.current) return;
-      isAtBottomRef.current = checkIsAtBottom();
-
-      if (DEBUG_SCROLL) {
-        setDebugInfo((prev) => ({
-          ...prev,
-          isAtBottom: isAtBottomRef.current,
-          scrollTop: Math.round(container.scrollTop),
-          scrollHeight: container.scrollHeight,
-          clientHeight: container.clientHeight,
-          lastEvent: "native-scroll",
-          scrollCount: prev.scrollCount + 1,
-        }));
-      }
-    };
-
-    // Also listen for wheel events directly (Magic Keyboard trackpad)
-    const onWheel = () => {
-      // Small delay to let scroll position update
-      requestAnimationFrame(() => {
-        isAtBottomRef.current = checkIsAtBottom();
-        if (DEBUG_SCROLL) {
-          setDebugInfo((prev) => ({
-            ...prev,
-            isAtBottom: isAtBottomRef.current,
-            scrollTop: Math.round(container.scrollTop),
-            lastEvent: "wheel",
-            scrollCount: prev.scrollCount + 1,
-          }));
-        }
-      });
-    };
-
-    // Touch events for iOS - check if container is even receiving touch input
-    const onTouchMove = () => {
-      requestAnimationFrame(() => {
-        isAtBottomRef.current = checkIsAtBottom();
-        if (DEBUG_SCROLL) {
-          setDebugInfo((prev) => ({
-            ...prev,
-            isAtBottom: isAtBottomRef.current,
-            scrollTop: Math.round(container.scrollTop),
-            lastEvent: `touch(h=${container.scrollHeight},st=${Math.round(container.scrollTop)})`,
-            scrollCount: prev.scrollCount + 1,
-          }));
-        }
-      });
-    };
-
-    // Use passive: true for better scroll performance
-    container.addEventListener("scroll", onNativeScroll, { passive: true });
-    container.addEventListener("wheel", onWheel, { passive: true });
-    container.addEventListener("touchmove", onTouchMove, { passive: true });
-
-    return () => {
-      container.removeEventListener("scroll", onNativeScroll);
-      container.removeEventListener("wheel", onWheel);
-      container.removeEventListener("touchmove", onTouchMove);
-    };
-  }, [checkIsAtBottom]);
-
-  // Scroll to bottom - only scrolls if we're already at the bottom (sticky scroll)
-  // Pass force=true to scroll regardless of current position
+  // Scroll to bottom. Respects the auto-scroll preference unless `force` is set
+  // (force is only used for initial mount, session change, and the
+  // jump-to-latest pill click). Non-force calls also short-circuit when
+  // scrollHeight hasn't changed since the last write — see lastScrolledHeightRef.
   const scrollToBottom = useCallback(
     (force = false) => {
       const container = containerRef.current;
       if (!container) return;
-
-      // Only scroll if we're already at the bottom (or forced)
-      // This implements "sticky scroll" - stay at bottom if you were there
-      if (!force && !isAtBottomRef.current) {
-        if (DEBUG_SCROLL) {
-          setDebugInfo((prev) => ({
-            ...prev,
-            lastEvent: `SCROLL_BLOCKED (not at bottom)`,
-          }));
-        }
-        return;
-      }
-
-      // DEBUG: Show what triggered the scroll
-      if (DEBUG_SCROLL) {
-        setDebugInfo((prev) => ({
-          ...prev,
-          lastEvent: `SCROLL_TO_BOTTOM (${force ? "forced" : "sticky"})`,
-        }));
-      }
-
-      isProgrammaticScrollRef.current = true;
+      if (!force && !autoScrollRef.current) return;
+      if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
       container.scrollTop = container.scrollHeight;
-      isAtBottomRef.current = true;
-      // Clear the guard after the scroll event has fired
-      requestAnimationFrame(() => {
-        isProgrammaticScrollRef.current = false;
-      });
+      lastScrolledHeightRef.current = container.scrollHeight;
+      setHasNewBelow(false);
       onScrollToBottom?.();
     },
     [onScrollToBottom],
   );
+
+  // Click handler for the jump-to-latest pill: jump and re-enable auto-scroll.
+  const handleJumpToLatest = useCallback(() => {
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    scrollToBottom(true);
+  }, [scrollToBottom, setAutoScroll]);
 
   // Expose scrollToBottom via ref for parent components
   useImperativeHandle(
@@ -251,15 +181,28 @@ const EmbeddedSessionView = forwardRef<
   );
 
   // Fetch session data with auto-refresh.
-  // When the WebSocket is connected it is the authoritative real-time source,
-  // so we suppress the poll to prevent stale HTTP responses from racing with
-  // and overwriting fresh WebSocket-delivered data. Polling resumes automatically
-  // whenever the WebSocket drops (network hiccup, server restart, etc.).
+  // Always poll session metadata at 3s, regardless of WS state.
+  //
+  // Earlier this was gated on `!wsConnected` to avoid HTTP polls racing
+  // with WS-delivered data — but the WS only delivers interaction-related
+  // events. The session's own metadata (in particular
+  // `config.external_agent_status`) is never broadcast over the WS, so
+  // suppressing polling left that field stale, breaking the
+  // `useSandboxState` hook used by `ExternalAgentDesktopViewer` to render
+  // the "Starting Desktop..." spinner during boot. See incident
+  // 2026-04-25 with ses_01kq0ba2708rawbsfqv2hyyxp2.
+  //
+  // We've also confirmed the original race concern is mitigated by
+  // `streaming.tsx:296-308`, which explicitly preserves the existing
+  // `config` when applying WS-delivered session updates. So polling can't
+  // overwrite a fresher WS value because the WS never updates `config` in
+  // the first place.
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: wsConnected ? false : 3000,
+      refetchInterval: 3000,
+      skipInteractions: true,
     },
   );
 
@@ -281,37 +224,33 @@ const EmbeddedSessionView = forwardRef<
     enabled: !!sessionId,
   });
 
-  // Track if we're streaming (last interaction is in waiting state)
-  // Use paginatedData for the most recent interaction state
-  const isStreaming = useMemo(() => {
-    const interactions = paginatedData?.interactions;
-    if (!interactions || interactions.length === 0) return false;
-    // paginatedData.interactions is newest-first, so [0] is the most recent
-    const lastInteraction = interactions[0];
-    return (
-      lastInteraction.state === TypesInteractionState.InteractionStateWaiting
-    );
-  }, [paginatedData?.interactions]);
-
-  // Scroll to bottom on initial load
+  // Ref to the inner content Box; observed by ResizeObserver so we only
+  // react to *actual* content size changes, not every React re-render.
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Last observed content height. 0 until the first ResizeObserver callback.
+  const lastContentHeightRef = useRef(0);
+  // True once we've forced an initial scroll-to-bottom for this session.
+  // Reset on session change.
   const hasInitiallyScrolled = useRef(false);
 
-  // Reset scroll state and clear stale cache when sessionId changes
+  // Reset state and clear stale cache when sessionId changes.
   const prevSessionIdRef = useRef(sessionId);
   useEffect(() => {
     if (sessionId !== prevSessionIdRef.current) {
       const oldSessionId = prevSessionIdRef.current;
       prevSessionIdRef.current = sessionId;
 
-      // Reset scroll tracking so the new session scrolls to bottom on load
       hasInitiallyScrolled.current = false;
-      isAtBottomRef.current = true;
-      prevScrollHeightRef.current = 0;
-      // Reset pagination state for new session
+      lastContentHeightRef.current = 0;
+      lastScrolledHeightRef.current = 0;
+      upwardAccumRef.current = 0;
+      lastWheelTsRef.current = 0;
+      touchStartYRef.current = null;
+      lastTouchYRef.current = null;
+      setHasNewBelow(false);
       setOldestPageLoaded(0);
       setOlderInteractions([]);
 
-      // Remove old session's React Query cache to prevent flash of stale content
       if (oldSessionId) {
         queryClient.removeQueries({
           queryKey: GET_SESSION_QUERY_KEY(oldSessionId),
@@ -323,6 +262,9 @@ const EmbeddedSessionView = forwardRef<
     }
   }, [sessionId, queryClient]);
 
+  // Force-scroll to the bottom on first content render for a session, even if
+  // auto-scroll is OFF — opening a session should land you on the latest
+  // message.
   useEffect(() => {
     if (
       paginatedData?.interactions &&
@@ -330,67 +272,132 @@ const EmbeddedSessionView = forwardRef<
       !hasInitiallyScrolled.current
     ) {
       hasInitiallyScrolled.current = true;
-      // Use setTimeout to ensure content is fully rendered (RAF may be too early)
-      setTimeout(() => {
-        scrollToBottom(true); // Force scroll on initial load
-      }, 100);
-    }
-  }, [paginatedData?.interactions?.length, scrollToBottom]);
-
-  // Track previous streaming state to detect when streaming ends
-  const prevIsStreamingRef = useRef(isStreaming);
-
-  // Scroll to bottom when streaming ends - critical for reliable scroll behavior
-  useEffect(() => {
-    const wasStreaming = prevIsStreamingRef.current;
-    prevIsStreamingRef.current = isStreaming;
-
-    // When streaming transitions from true to false, scroll to show final content
-    if (wasStreaming && !isStreaming) {
-      // Wait for final content to render before scrolling
+      // setTimeout (vs RAF) gives markdown / code highlighting time to render
+      // so the scroll lands on truly-final content.
       setTimeout(() => {
         scrollToBottom(true);
       }, 100);
     }
-  }, [isStreaming, scrollToBottom]);
+  }, [paginatedData?.interactions?.length, scrollToBottom]);
 
-  // Maintain sticky scroll when session data updates (e.g., from polling or WebSocket)
-  // Use useLayoutEffect to run synchronously after DOM mutations but before browser paint
-  // This ensures we scroll before any scroll events could fire from layout reflow
-  const prevScrollHeightRef = useRef(0);
-
-  useLayoutEffect(() => {
+  // ResizeObserver-driven auto-scroll: only fires when the content's actual
+  // size changes. Renders that don't grow content (e.g., the 3s React Query
+  // poll returning identical data) do no scroll work at all.
+  useEffect(() => {
     const container = containerRef.current;
-    if (!container || !session) return;
+    const content = contentRef.current;
+    if (!container || !content) return;
 
-    const prevScrollHeight = prevScrollHeightRef.current;
-    const currentScrollHeight = container.scrollHeight;
+    const observer = new ResizeObserver((entries) => {
+      const newHeight = entries[0]?.contentRect.height ?? 0;
+      const prevHeight = lastContentHeightRef.current;
+      lastContentHeightRef.current = newHeight;
 
-    // If content height changed and we were at bottom, scroll to bottom
-    if (currentScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
-      // Check isAtBottomRef BEFORE the scroll - this is the value from before the DOM update
-      if (isAtBottomRef.current) {
-        isProgrammaticScrollRef.current = true;
-        container.scrollTop = currentScrollHeight;
-        requestAnimationFrame(() => {
-          isProgrammaticScrollRef.current = false;
-        });
+      // First measurement after mount/session-reset: just record it. The
+      // initial-scroll effect handles getting us to the bottom.
+      if (prevHeight === 0) return;
+      // Only react to growth; shrinking (e.g., a tool call collapsing) shouldn't
+      // yank the viewport.
+      if (newHeight <= prevHeight) return;
+
+      if (autoScrollRef.current) {
+        container.scrollTop = container.scrollHeight;
+        lastScrolledHeightRef.current = container.scrollHeight;
+        setHasNewBelow(false);
+      } else if (!isNearBottom()) {
+        setHasNewBelow(true);
       }
-    }
+    });
 
-    prevScrollHeightRef.current = currentScrollHeight;
-  });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [isNearBottom]);
 
-  // DISABLED: MutationObserver was causing constant scroll jumps
-  // because scroll events weren't being detected on iOS Safari,
-  // so isAtBottomRef stayed true and every mutation scrolled to bottom.
+  // Detect explicit user scroll-up and flip auto-scroll OFF when the user
+  // accumulates >= USER_SCROLL_UNLOCK_PX upward within a single gesture.
   //
-  // Instead, we only scroll on:
-  // 1. Initial load
-  // 2. When interaction count increases (new message)
-  // 3. When InteractionLiveStream calls onMessageUpdate during streaming
-  //
-  // This is less "smooth" for streaming but more reliable.
+  // We listen to wheel and touch input events directly — NOT to scrollTop
+  // deltas — because:
+  //   * wheel/touchmove only fire from real user input; programmatic
+  //     scrollTop writes don't synthesize them.
+  //   * content reflow above the viewport (image loads, syntax highlight)
+  //     shifts scrollTop without any input event.
+  // This sidesteps the three race surfaces that killed the previous
+  // sticky-scroll attempt (see commit 42c3a5112 for the autopsy).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const triggerUnlock = () => {
+      setAutoScroll(false);
+      autoScrollRef.current = false;
+      upwardAccumRef.current = 0;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!autoScrollRef.current) return;
+      const now = performance.now();
+      // New gesture if the previous wheel event was long enough ago.
+      if (now - lastWheelTsRef.current > USER_SCROLL_GESTURE_TIMEOUT_MS) {
+        upwardAccumRef.current = 0;
+      }
+      lastWheelTsRef.current = now;
+      if (e.deltaY < 0) {
+        upwardAccumRef.current += -e.deltaY;
+        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
+      } else if (e.deltaY > 0) {
+        // Direction change resets the accumulator — scrolling down clearly
+        // signals the user does NOT want to disengage auto-scroll.
+        upwardAccumRef.current = 0;
+      }
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!autoScrollRef.current) return;
+      const t = e.touches[0];
+      if (!t) return;
+      touchStartYRef.current = t.clientY;
+      lastTouchYRef.current = t.clientY;
+      upwardAccumRef.current = 0;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!autoScrollRef.current) return;
+      const t = e.touches[0];
+      if (!t || lastTouchYRef.current === null) return;
+      // Finger moving DOWN the screen (clientY increases) scrolls the
+      // content UP — that's the gesture we treat as "user wants to read
+      // history."
+      const dy = t.clientY - lastTouchYRef.current;
+      lastTouchYRef.current = t.clientY;
+      if (dy > 0) {
+        upwardAccumRef.current += dy;
+        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
+      } else if (dy < 0) {
+        upwardAccumRef.current = 0;
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchStartYRef.current = null;
+      lastTouchYRef.current = null;
+      upwardAccumRef.current = 0;
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    container.addEventListener("touchend", onTouchEnd, { passive: true });
+    container.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [setAutoScroll]);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -518,122 +525,183 @@ const EmbeddedSessionView = forwardRef<
 
   return (
     <Box
-      ref={containerRef}
-      onScroll={handleScroll}
       sx={{
-        // Use height: 0 + flex: 1 to force this to be the scrollable container
-        // Without height: 0, the container may expand to fit content on iOS
-        height: 0,
         flex: 1,
-        overflow: "auto",
-        display: "flex",
-        flexDirection: "column",
         minHeight: 0,
         position: "relative",
-        // Enable momentum scrolling on iOS
-        WebkitOverflowScrolling: "touch",
-        ...lightTheme.scrollbar,
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      {/* DEBUG OVERLAY */}
-      {DEBUG_SCROLL && (
-        <Box
-          sx={{
-            position: "sticky",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 9999,
-            backgroundColor: "rgba(0, 0, 0, 0.85)",
-            color: "#0f0",
-            fontFamily: "monospace",
-            fontSize: "11px",
-            padding: "4px 8px",
-            pointerEvents: "none",
-          }}
-        >
-          <div>
-            atBottom: {debugInfo.isAtBottom ? "YES" : "NO"} | scrollTop:{" "}
-            {debugInfo.scrollTop}
-          </div>
-          <div>
-            scrollH: {debugInfo.scrollHeight} | clientH:{" "}
-            {debugInfo.clientHeight}
-          </div>
-          <div>last: {debugInfo.lastEvent}</div>
-          <div>
-            mutations: {debugInfo.mutationCount} | scrolls:{" "}
-            {debugInfo.scrollCount}
-          </div>
-        </Box>
-      )}
       <Box
+        ref={containerRef}
+        onScroll={handleScroll}
         sx={{
-          width: "100%",
-          maxWidth: 700,
-          mx: "auto",
-          px: 2,
-          py: 2,
+          // Use height: 0 + flex: 1 to force this to be the scrollable container
+          // Without height: 0, the container may expand to fit content on iOS
+          height: 0,
+          flex: 1,
+          overflow: "auto",
           display: "flex",
           flexDirection: "column",
-          gap: 2,
-          // Ensure content can shrink on narrow screens
-          minWidth: 0,
-          boxSizing: "border-box",
+          minHeight: 0,
+          position: "relative",
+          // Enable momentum scrolling on iOS
+          WebkitOverflowScrolling: "touch",
+          ...lightTheme.scrollbar,
         }}
       >
-        {/* Show "Load older" button when there are more interactions */}
-        {hasOlderInteractions && (
-          <Button
-            variant="text"
-            size="small"
-            startIcon={isLoadingOlder ? <CircularProgress size={16} /> : <ExpandLessIcon />}
-            onClick={handleLoadOlder}
-            disabled={isLoadingOlder}
-            sx={{
-              alignSelf: "center",
-              color: "text.secondary",
-              textTransform: "none",
-              mb: 1,
-            }}
-          >
-            {isLoadingOlder ? 'Loading...' : `Show ${remainingOlderCount} older messages`}
-          </Button>
-        )}
-        {visibleInteractions.map((interaction, index) => {
-          const isLastInteraction = index === totalInteractions - 1;
-          const isLive =
-            isLastInteraction &&
-            interaction.state === TypesInteractionState.InteractionStateWaiting;
-          return (
-            <Interaction
-              key={interaction.id}
-              serverConfig={account.serverConfig}
-              interaction={interaction}
-              session={session}
-              highlightAllFiles={false}
-              onReloadSession={handleReloadSession}
-              onRegenerate={handleRegenerate}
-              isLastInteraction={isLastInteraction}
-              isOwner={isOwner}
-              isAdmin={account.admin}
-              scrollToBottom={scrollToBottom}
-              session_id={sessionId}
-              sessionSteps={sessionSteps?.data || []}
+        <Box
+          ref={contentRef}
+          sx={{
+            width: "100%",
+            maxWidth: 700,
+            mx: "auto",
+            px: 2,
+            py: 2,
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            // Ensure content can shrink on narrow screens
+            minWidth: 0,
+            boxSizing: "border-box",
+          }}
+        >
+          {hasOlderInteractions && (
+            <Button
+              variant="text"
+              size="small"
+              startIcon={isLoadingOlder ? <CircularProgress size={16} /> : <ExpandLessIcon />}
+              onClick={handleLoadOlder}
+              disabled={isLoadingOlder}
+              sx={{
+                alignSelf: "center",
+                color: "text.secondary",
+                textTransform: "none",
+                mb: 1,
+              }}
             >
-              {isLive && (isOwner || account.admin) && (
-                <InteractionLiveStream
-                  session_id={sessionId}
-                  interaction={interaction}
-                  session={session}
-                  serverConfig={account.serverConfig}
-                  onMessageUpdate={scrollToBottom}
-                />
-              )}
-            </Interaction>
-          );
-        })}
+              {isLoadingOlder ? "Loading..." : `Show ${remainingOlderCount} older messages`}
+            </Button>
+          )}
+          {visibleInteractions.map((interaction, index) => {
+            const isLastInteraction = index === totalInteractions - 1;
+            const isLive =
+              isLastInteraction &&
+              interaction.state === TypesInteractionState.InteractionStateWaiting;
+            return (
+              <Interaction
+                key={interaction.id}
+                serverConfig={account.serverConfig}
+                interaction={interaction}
+                session={session}
+                highlightAllFiles={false}
+                onReloadSession={handleReloadSession}
+                onRegenerate={handleRegenerate}
+                isLastInteraction={isLastInteraction}
+                isOwner={isOwner}
+                isAdmin={account.admin}
+                scrollToBottom={scrollToBottom}
+                session_id={sessionId}
+                sessionSteps={sessionSteps?.data || []}
+              >
+                {isLive && (isOwner || account.admin) && (
+                  <InteractionLiveStream
+                    session_id={sessionId}
+                    interaction={interaction}
+                    session={session}
+                    serverConfig={account.serverConfig}
+                    onMessageUpdate={scrollToBottom}
+                  />
+                )}
+              </Interaction>
+            );
+          })}
+        </Box>
       </Box>
+
+      {/* Auto-scroll toggle (bottom-right) — stark filled/outlined treatment
+          so the on/off state is visible at a glance. */}
+      <Tooltip
+        title={
+          autoScroll
+            ? "Auto-scroll is on. Click to pause."
+            : "Auto-scroll is paused. Click to resume."
+        }
+        placement="left"
+      >
+        <IconButton
+          size="small"
+          onClick={() => {
+            const next = !autoScroll;
+            setAutoScroll(next);
+            autoScrollRef.current = next;
+            if (next) scrollToBottom(true);
+          }}
+          aria-label={autoScroll ? "Pause auto-scroll" : "Resume auto-scroll"}
+          aria-pressed={autoScroll}
+          sx={{
+            position: "absolute",
+            bottom: 8,
+            right: 12,
+            zIndex: 2,
+            transition: "background-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s",
+            ...(autoScroll
+              ? {
+                  // ON: filled, primary, prominent
+                  backgroundColor: "primary.main",
+                  color: "primary.contrastText",
+                  boxShadow: 2,
+                  border: "none",
+                  "&:hover": {
+                    backgroundColor: "primary.dark",
+                  },
+                }
+              : {
+                  // OFF: outlined ghost, dimmed
+                  backgroundColor: "background.paper",
+                  color: "text.secondary",
+                  border: 1,
+                  borderColor: "divider",
+                  boxShadow: "none",
+                  opacity: 0.65,
+                  "&:hover": {
+                    backgroundColor: "action.hover",
+                    opacity: 1,
+                  },
+                }),
+          }}
+        >
+          {autoScroll ? (
+            <VerticalAlignBottomIcon fontSize="small" />
+          ) : (
+            <PauseIcon fontSize="small" />
+          )}
+        </IconButton>
+      </Tooltip>
+
+      {/* Jump-to-latest pill (bottom-center, only when auto-scroll OFF and
+          new content has arrived below the viewport) */}
+      {!autoScroll && hasNewBelow && (
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={<KeyboardDoubleArrowDownIcon />}
+          onClick={handleJumpToLatest}
+          sx={{
+            position: "absolute",
+            bottom: 12,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 3,
+            textTransform: "none",
+            borderRadius: 999,
+            boxShadow: 3,
+          }}
+        >
+          Jump to latest
+        </Button>
+      )}
     </Box>
   );
 });

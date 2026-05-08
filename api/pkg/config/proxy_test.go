@@ -16,7 +16,6 @@ func TestEnsureNoProxyForInternalHosts(t *testing.T) {
 		chromeURL       string
 		launcherURL     string
 		searxngURL      string
-		tikaURL         string
 		expectedNoProxy string
 		expectChange    bool
 	}{
@@ -37,18 +36,16 @@ func TestEnsureNoProxyForInternalHosts(t *testing.T) {
 			chromeURL:       "http://chrome:9222",
 			launcherURL:     "http://chrome:7317",
 			searxngURL:      "http://searxng:8080",
-			tikaURL:         "http://tika:9998",
 			expectChange:    true,
 		},
 		{
 			name:            "proxy configured, hosts already in NO_PROXY",
 			httpProxy:       "http://proxy:8080",
-			existingNoProxy: "localhost,127.0.0.1,chrome,searxng,tika",
+			existingNoProxy: "localhost,127.0.0.1,chrome,searxng",
 			chromeURL:       "http://chrome:9222",
 			launcherURL:     "http://chrome:7317",
 			searxngURL:      "http://searxng:8080",
-			tikaURL:         "http://tika:9998",
-			expectedNoProxy: "localhost,127.0.0.1,chrome,searxng,tika",
+			expectedNoProxy: "localhost,127.0.0.1,chrome,searxng",
 			expectChange:    false,
 		},
 		{
@@ -107,9 +104,6 @@ func TestEnsureNoProxyForInternalHosts(t *testing.T) {
 			cfg.RAG.Crawler.LauncherURL = tt.launcherURL
 			if tt.searxngURL != "" {
 				cfg.Search.SearXNGBaseURL = tt.searxngURL
-			}
-			if tt.tikaURL != "" {
-				cfg.TextExtractor.Tika.URL = tt.tikaURL
 			}
 			// Simulate production: FRONTEND_URL is a filesystem path
 			cfg.WebServer.FrontendURL = "/www"

@@ -50,6 +50,8 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
+import LockIcon from "@mui/icons-material/Lock";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -61,6 +63,9 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
 import { useStreaming } from "../../contexts/streaming";
@@ -85,11 +90,13 @@ import {
   useGetProjectRepositories,
 } from "../../services/projectService";
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
+import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import RobustPromptInput from "../common/RobustPromptInput";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
@@ -150,6 +157,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
+
+  // OAuth flow is needed when a user without GitHub OAuth tries to start
+  // planning — the backend returns 422 with error=oauth_required, and we
+  // drop them into the GitHub connect flow before they retry.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
 
@@ -163,6 +178,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  const { data: taskAuthor } = getUserById(task?.created_by || "", !!task?.created_by);
+  const authorDisplay =
+    taskAuthor?.full_name ||
+    taskAuthor?.username ||
+    taskAuthor?.email ||
+    task?.created_by;
 
   // Label state
   const { data: projectLabels = [] } = useProjectLabels(
@@ -530,6 +552,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [activeSessionId, isChatVisible]);
 
+  // Optimistic UI hook fired the moment the user hits Send: flips the cached
+  // session config to external_agent_status="starting" so a paused desktop
+  // shows the spinner immediately instead of waiting up to 3s for the next
+  // session poll. Polling reconciles to the authoritative backend value.
+  const handleWillSend = useCallback(() => {
+    if (!activeSessionId) return;
+    optimisticallyMarkSessionStarting(queryClient, activeSessionId);
+  }, [queryClient, activeSessionId]);
+
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
     if (activeSessionId && currentView === "details") {
@@ -624,6 +655,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // Backend returns 422 + oauth_required when the planner has no
+        // GitHub OAuth connection. Drop into the connect flow so the user
+        // can retry without hitting a dead-end error.
+        if (
+          response.status === 422 &&
+          errorData?.error === "oauth_required"
+        ) {
+          if (gitHubProvider?.id) {
+            snackbar.info("Connect GitHub to start planning this task.");
+            startOAuthFlow({
+              providerId: gitHubProvider.id,
+              scopes: ["repo"],
+              onSuccess: () => {
+                snackbar.success(
+                  "GitHub connected. Click Start Planning again to continue.",
+                );
+              },
+              onError: (oauthError) => {
+                snackbar.error(`GitHub connection failed: ${oauthError}`);
+              },
+            });
+          } else {
+            // No GitHub provider is configured system-wide. The backend's
+            // error message is PR-centric and actionless for this user, so
+            // override it with admin-direction guidance.
+            snackbar.error(
+              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+            );
+          }
+          return;
+        }
         throw new Error(
           errorData.error ||
             errorData.message ||
@@ -714,6 +776,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsStarting(false);
     }
   }, [activeSessionId, isStarting, api, snackbar, queryClient]);
+
+  // Toggle keep alive (prevent auto-idle-shutdown)
+  const handleToggleKeepAlive = useCallback(async () => {
+    if (!task?.id) return;
+
+    const newValue = !task.keep_alive;
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { keep_alive: newValue },
+      });
+      snackbar.success(
+        newValue
+          ? "Keep Alive enabled — container won't auto-sleep"
+          : "Keep Alive disabled — container will auto-sleep when idle",
+      );
+    } catch (err) {
+      console.error("Failed to toggle Keep Alive:", err);
+      snackbar.error("Failed to toggle Keep Alive");
+    }
+  }, [task?.id, task?.keep_alive, updateSpecTask, snackbar]);
 
   // Toggle Just Do It mode
   const handleToggleJustDoIt = useCallback(async () => {
@@ -1309,7 +1392,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <Box sx={{ mt: 3 }}>
         {task?.created_by && (
           <Typography variant="caption" color="text.secondary" display="block">
-            Author: {task.created_by}
+            Author: {authorDisplay}
           </Typography>
         )}
         <Typography variant="caption" color="text.secondary" display="block">
@@ -1875,6 +1958,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         interrupt: interrupt ?? true,
                       });
                     }}
+                    onWillSend={handleWillSend}
                     onHeightChange={() =>
                       sessionViewRef.current?.scrollToBottom()
                     }
@@ -2007,6 +2091,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       just_do_it_mode: justDoItMode,
                       planning_session_id: task.planning_session_id,
                       metadata: task.metadata as { error?: string },
+                      last_push_at: task.last_push_at,
                     }}
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
@@ -2134,6 +2219,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                                 <CircularProgress size={16} />
                               ) : (
                                 <RestartAltIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {/* Show Keep Alive toggle when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip
+                            title={
+                              task.keep_alive
+                                ? "Keep Alive ON — won't auto-sleep"
+                                : "Keep Alive OFF — will auto-sleep when idle"
+                            }
+                          >
+                            <IconButton
+                              size="small"
+                              onClick={handleToggleKeepAlive}
+                              disabled={updateSpecTask.isPending}
+                              sx={{
+                                color: task.keep_alive
+                                  ? "success.main"
+                                  : "text.secondary",
+                              }}
+                            >
+                              {task.keep_alive ? (
+                                <LockIcon sx={{ fontSize: 18 }} />
+                              ) : (
+                                <LockOpenIcon sx={{ fontSize: 18 }} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2390,6 +2502,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   just_do_it_mode: justDoItMode,
                   planning_session_id: task.planning_session_id,
                   metadata: task.metadata as { error?: string },
+                  last_push_at: task.last_push_at,
                 }}
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
@@ -2644,6 +2757,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           interrupt: interrupt ?? true,
                         });
                       }}
+                      onWillSend={handleWillSend}
                       onHeightChange={() =>
                         sessionViewRef.current?.scrollToBottom()
                       }

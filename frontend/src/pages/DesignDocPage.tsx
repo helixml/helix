@@ -220,6 +220,16 @@ export default function DesignDocPage() {
             '& th': {
               backgroundColor: 'action.hover',
             },
+            '& a': {
+              color: '#00d5ff',
+              textDecoration: 'none',
+              '&:hover': {
+                textDecoration: 'underline',
+              },
+              '&:visited': {
+                color: '#00d5ff',
+              },
+            },
           }}
         >
           <ReactMarkdown

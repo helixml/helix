@@ -20,9 +20,13 @@ export function useApproveImplementation(specTaskId: string) {
         // Internal repo - merge succeeded
         snackbar.success("Implementation approved and merged!");
       } else if (response.status === "implementation_review") {
-        // Merge failed - agent needs to rebase
-        snackbar.warning(
-          "Branch has diverged - agent is rebasing. Click Accept again after rebase completes.",
+        // Merge failed - agent needs to rebase. The server records
+        // rebase_requested_at on the first divergence and short-circuits
+        // subsequent clicks, so this snackbar fires at most once per
+        // divergence event. The auto-retry on agent push then transitions
+        // the task to done without further user action.
+        snackbar.info(
+          "Branch has diverged from main. Agent is rebasing — the merge will complete automatically once it finishes.",
         );
       } else if (response.repo_pull_requests && response.repo_pull_requests.length > 0) {
         // External repo - show link to first PR
@@ -132,13 +136,13 @@ export function useSkipSpec(specTaskId: string) {
       return response.data;
     },
     onSuccess: () => {
-      snackbar.success("Skipped spec - task moved to implementation");
+      snackbar.success("Skipped planning - task moved to implementation");
       queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },
     onError: (error: any) => {
       snackbar.error(
-        error?.response?.data?.message || "Failed to skip spec",
+        error?.response?.data?.message || "Failed to skip planning",
       );
     },
   });

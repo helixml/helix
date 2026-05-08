@@ -39,7 +39,6 @@ import IconButton from "@mui/material/IconButton";
 import CloseIcon from "@mui/icons-material/Close";
 import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
 
-import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import FloatingModal from "../components/admin/FloatingModal";
 import { useFloatingModal } from "../contexts/floatingModal";
 import UserOrgSelector from "../components/orgs/UserOrgSelector";
@@ -256,7 +255,6 @@ const Layout: FC<{
   const router = useRouter();
   const account = useAccount();
   const apps = useApps();
-  const floatingRunnerState = useFloatingRunnerState();
   const floatingModal = useFloatingModal();
   const [showVersionBanner, setShowVersionBanner] = useState(true);
   const [licenseGracePeriodExpired, setLicenseGracePeriodExpired] =
@@ -452,10 +450,14 @@ const Layout: FC<{
     }
   }
 
-  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners)
+  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners).
+  // Still include CssBaseline so MUI's typography + body styles apply — without it,
+  // embed pages get browser defaults (Times New Roman, undefined text color → black
+  // on whatever bg the page paints).
   if (router.meta.fullscreen) {
     return (
       <>
+        <CssBaseline />
         {children}
         <Snackbar />
         <GlobalLoading />

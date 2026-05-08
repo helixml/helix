@@ -21,13 +21,33 @@ import {
   IconButton,
   Box,
   Divider,
+  Link,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
 import { useCreateProviderEndpoint } from '../../services/providersService';
+import { PROVIDERS, Provider } from '../providers/types';
+
+const CUSTOM_PROVIDER_ID = 'user/custom';
+
+const renderProviderLogo = (provider: Provider) => {
+  const logo = provider.logo;
+  if (typeof logo === 'string') {
+    return (
+      <img
+        src={logo}
+        alt=""
+        style={{ width: 20, height: 20, objectFit: 'contain' }}
+      />
+    );
+  }
+  const LogoComponent = logo as React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  return <LogoComponent width={20} height={20} />;
+};
 
 interface CreateProviderEndpointDialogProps {
   open: boolean;
@@ -49,6 +69,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   const [loading, setLoading] = useState(false);
   // When providers management is disabled, default to global (only admins can use this dialog)
   const defaultEndpointType = providersManagementEnabled ? 'user' : 'global';
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(CUSTOM_PROVIDER_ID);
   const [formData, setFormData] = useState({
     name: '',
     base_url: '',
@@ -60,6 +81,26 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
     billing_enabled: false,
     headers: [] as Array<{ key: string; value: string }>,
   });
+
+  const selectedProvider = PROVIDERS.find((p) => p.id === selectedProviderId);
+
+  const handleProviderPresetChange = (e: React.ChangeEvent<{ value: unknown }> | { target: { value: unknown } }) => {
+    const newId = e.target.value as string;
+    setSelectedProviderId(newId);
+    setError('');
+    const provider = PROVIDERS.find((p) => p.id === newId);
+    if (!provider || provider.is_custom) {
+      // Custom: leave the user's existing input alone.
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      base_url: provider.base_url,
+      // Only suggest a name when the user hasn't typed one yet.
+      name: prev.name.trim() === '' ? provider.name : prev.name,
+      auth_type: 'api_key',
+    }));
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>) => {
     const { name, value } = e.target;
@@ -189,6 +230,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       billing_enabled: false,
       headers: [],
     });
+    setSelectedProviderId(CUSTOM_PROVIDER_ID);
     setError('');
     onClose();
   };
@@ -199,7 +241,55 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 2 }}>
           {error && <Alert severity="error">{error}</Alert>}
-          
+
+          <FormControl fullWidth>
+            <InputLabel id="provider-preset-label">Provider</InputLabel>
+            <Select
+              labelId="provider-preset-label"
+              label="Provider"
+              value={selectedProviderId}
+              onChange={(e) => handleProviderPresetChange(e as React.ChangeEvent<{ value: unknown }>)}
+              renderValue={(value) => {
+                const p = PROVIDERS.find((x) => x.id === value);
+                if (!p) return null;
+                return (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', width: 20, height: 20 }}>
+                      {renderProviderLogo(p)}
+                    </Box>
+                    <span>{p.name}</span>
+                  </Box>
+                );
+              }}
+            >
+              {PROVIDERS.map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', width: 20, height: 20 }}>
+                      {renderProviderLogo(p)}
+                    </Box>
+                    <span>{p.name}</span>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {selectedProvider && !selectedProvider.is_custom && selectedProvider.api_key_url && (
+            <Typography variant="body2" sx={{ mt: -1 }}>
+              <Link
+                href={selectedProvider.api_key_url}
+                target="_blank"
+                rel="noopener"
+                underline="hover"
+                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+              >
+                Get API key for {selectedProvider.name}
+                <OpenInNewIcon sx={{ fontSize: 14 }} />
+              </Link>
+            </Typography>
+          )}
+
           <TextField
             name="name"
             label="Provider name"
@@ -218,7 +308,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             required
             autoComplete="off"
             placeholder="https://api.openai.com/v1"
-            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
+            helperText="OpenAI-compatible base URL"
           />
 
           <FormControl component="fieldset">

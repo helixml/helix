@@ -4,7 +4,7 @@
 # Removes:
 #   1. ALL random-named CI images (16-char alphanumeric names from e2e tests)
 #   2. Registry images older than 7 days (helix-ubuntu, helix-sway, helix-sandbox,
-#      controlplane, haystack, typesense, demos)
+#      controlplane, demos)
 #   3. Old local helix-sandbox builds (> 7 days)
 #   4. Dangling (untagged, unreferenced) images
 #   5. Build cache exceeding 10 GB
@@ -12,7 +12,7 @@
 # NEVER removes:
 #   - Runner images (base layers can't be rebuilt - R2 5GB layer limit)
 #   - Images in use by containers
-#   - CI tool images (golang, node, alpine, drone, rod, tika, etc.)
+#   - CI tool images (golang, node, alpine, drone, rod, etc.)
 #
 # Usage:
 #   ./docker-image-cleanup.sh              # actually delete
@@ -79,8 +79,6 @@ CLEANUP_REPOS=(
     "registry.helixml.tech/helix/helix-sway"
     "registry.helixml.tech/helix/helix-sandbox"
     "registry.helixml.tech/helix/controlplane"
-    "registry.helixml.tech/helix/haystack"
-    "registry.helixml.tech/helix/typesense"
     "registry.helixml.tech/helix/demos"
 )
 
