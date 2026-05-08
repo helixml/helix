@@ -16,11 +16,16 @@ import {
   CheckCircle as ApproveIcon,
   Close as CloseIcon,
   RocketLaunch as LaunchIcon,
+  SkipNext as SkipIcon,
+  Replay as ReopenIcon,
 } from "@mui/icons-material";
 import {
   useApproveImplementation,
   useStopAgent,
+  useSkipSpec,
+  useReopenTask,
 } from "../../services/specTaskWorkflowService";
+import { useUpdateSpecTask } from "../../services/specTaskService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
@@ -45,6 +50,8 @@ export interface SpecTaskForActions {
   planning_session_id?: string;
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
+  last_push_at?: string;
+  rebase_requested_at?: string;
 }
 
 interface SpecTaskActionButtonsProps {
@@ -178,6 +185,9 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
+  const skipSpecMutation = useSkipSpec(task.id);
+  const reopenTaskMutation = useReopenTask(task.id);
+  const updateSpecTaskMutation = useUpdateSpecTask();
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
   const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
@@ -231,6 +241,18 @@ export default function SpecTaskActionButtons({
   const isDirectPush =
     !hasExternalRepo || task.base_branch === task.branch_name;
 
+  const hasPushed = !!task.last_push_at;
+
+  // Rebase-pending: backend asked the agent to rebase and the agent hasn't
+  // pushed since. Disable Accept and tell the user so they don't sit clicking.
+  // The auto-retry on agent push transitions the task to done, so manual
+  // re-clicking is unnecessary in this state.
+  const rebasePending =
+    task.status === "implementation_review" &&
+    !!task.rebase_requested_at &&
+    (!task.last_push_at ||
+      new Date(task.last_push_at).getTime() <= new Date(task.rebase_requested_at).getTime());
+
   // Button size based on variant
   const buttonSize = "small";
   const buttonSx = isInline
@@ -257,18 +279,52 @@ export default function SpecTaskActionButtons({
           ? "Queue Planning"
           : task.metadata?.error
             ? task.just_do_it_mode
-              ? "Retry"
+              ? "Retry Implementation"
               : "Retry Planning"
             : task.just_do_it_mode
-              ? "Just Do It"
+              ? "Start Implementation"
               : "Start Planning";
+
+    const skipLabel = "or skip to implementation";
+
+    const handleSkipToImplementation = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      await updateSpecTaskMutation.mutateAsync({
+        taskId: task.id,
+        updates: { just_do_it_mode: true },
+      });
+      onStartPlanning?.();
+    };
+
+    const skipDisabled =
+      isStartDisabled || updateSpecTaskMutation.isPending || !!task.just_do_it_mode;
+
+    const skipLink = (
+      <Typography
+        variant="caption"
+        onClick={skipDisabled ? undefined : handleSkipToImplementation}
+        sx={{
+          whiteSpace: "nowrap",
+          cursor: skipDisabled ? "default" : "pointer",
+          color: skipDisabled ? "text.disabled" : "text.secondary",
+          "&:hover": skipDisabled
+            ? {}
+            : {
+                color: "primary.main",
+                textDecoration: "underline",
+              },
+        }}
+      >
+        {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
+      </Typography>
+    );
 
     if (isInline) {
       return (
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
           <CompactActionButton
             tooltip={startTooltip}
-            color={task.just_do_it_mode ? "success" : "warning"}
+            color="warning"
             icon={
               isQueued || isStartingPlanning ? (
                 <CircularProgress size={18} color="inherit" />
@@ -283,19 +339,20 @@ export default function SpecTaskActionButtons({
             }}
             disabled={isStartDisabled}
           />
+          {!task.just_do_it_mode && skipLink}
         </Box>
       );
     }
 
     return (
-      <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+      <Box sx={{ mt: 1.5 }}>
         <Tooltip title={startTooltip} placement="top">
-          <span style={{ width: isInline ? "auto" : "100%" }}>
+          <span style={{ width: "100%" }}>
             <Button
               ref={startPlanningButtonRef}
               size={buttonSize}
               variant="contained"
-              color={task.just_do_it_mode ? "success" : "warning"}
+              color="warning"
               startIcon={
                 isQueued || isStartingPlanning ? (
                   <CircularProgress size={16} color="inherit" />
@@ -308,10 +365,52 @@ export default function SpecTaskActionButtons({
                 onStartPlanning?.();
               }}
               disabled={isStartDisabled}
-              fullWidth={!isInline}
+              fullWidth
               sx={buttonSx}
             >
               {startLabel}
+            </Button>
+          </span>
+        </Tooltip>
+        {!task.just_do_it_mode && (
+          <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
+            {skipLink}
+          </Box>
+        )}
+      </Box>
+    );
+  }
+
+  // Spec generation phase: recovery Skip Planning button for stuck tasks.
+  // Only shown in the detail page (inline variant) to keep kanban cards uncluttered.
+  if (task.status === "spec_generation" && isInline) {
+    const isSkipping = skipSpecMutation.isPending;
+    return (
+      <Box sx={{ display: "flex", gap: 1 }}>
+        <Tooltip
+          title={isArchived ? "Task is archived" : "Skip planning and start implementation"}
+          placement="top"
+        >
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              startIcon={
+                isSkipping ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <SkipIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                skipSpecMutation.mutate();
+              }}
+              disabled={isArchived || isSkipping}
+              sx={buttonSx}
+            >
+              {isSkipping ? "Skipping..." : "Skip Planning"}
             </Button>
           </span>
         </Tooltip>
@@ -447,10 +546,10 @@ export default function SpecTaskActionButtons({
       return (
         <Box sx={{ display: "flex", gap: 1 }}>
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
+            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
             variant="outlined"
             color="error"
-            disabled={isArchived || isArchiving}
+            disabled={isArchived || isArchiving || !hasPushed}
             icon={
               isArchiving ? (
                 <CircularProgress size={16} color="inherit" />
@@ -465,12 +564,20 @@ export default function SpecTaskActionButtons({
             }}
           />
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
+            tooltip={
+              isArchived
+                ? "Task is archived"
+                : rebasePending
+                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                  : !hasPushed
+                    ? "Waiting for agent to push code..."
+                    : ""
+            }
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending}
+            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
             icon={
-              approveImplementationMutation.isPending ? (
+              approveImplementationMutation.isPending || rebasePending ? (
                 <CircularProgress size={16} color="inherit" />
               ) : (
                 <ApproveIcon sx={{ fontSize: 18 }} />
@@ -481,9 +588,11 @@ export default function SpecTaskActionButtons({
                 ? isDirectPush
                   ? "Merging..."
                   : "Opening PR..."
-                : isDirectPush
-                  ? "Accept"
-                  : "Open PR"
+                : rebasePending
+                  ? "Rebasing..."
+                  : isDirectPush
+                    ? "Accept"
+                    : "Open PR"
             }
             onClick={handleOpenPR}
           />
@@ -515,13 +624,13 @@ export default function SpecTaskActionButtons({
         }
       >
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
                 variant="outlined"
                 color="error"
-                disabled={isArchived || isArchiving}
+                disabled={isArchived || isArchiving || !hasPushed}
                 startIcon={
                   isArchiving ? (
                     <CircularProgress size={14} color="inherit" />
@@ -541,21 +650,32 @@ export default function SpecTaskActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+          <Tooltip
+            title={
+              isArchived
+                ? "Task is archived"
+                : rebasePending
+                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                  : !hasPushed
+                    ? "Waiting for agent to push code..."
+                    : ""
+            }
+            placement="top"
+          >
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
                 variant="contained"
                 color="success"
                 startIcon={
-                  approveImplementationMutation.isPending ? (
+                  approveImplementationMutation.isPending || rebasePending ? (
                     <CircularProgress size={14} color="inherit" />
                   ) : (
                     <ApproveIcon />
                   )
                 }
                 onClick={handleOpenPR}
-                disabled={isArchived || approveImplementationMutation.isPending}
+                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
                 fullWidth
                 sx={buttonSx}
               >
@@ -563,9 +683,11 @@ export default function SpecTaskActionButtons({
                   ? isDirectPush
                     ? "Merging..."
                     : "Opening PR..."
-                  : isDirectPush
-                    ? "Accept"
-                    : "Open PR"}
+                  : rebasePending
+                    ? "Rebasing..."
+                    : isDirectPush
+                      ? "Accept"
+                      : "Open PR"}
               </Button>
             </span>
           </Tooltip>
@@ -752,6 +874,47 @@ export default function SpecTaskActionButtons({
         </Box>
       );
     }
+  }
+
+  // Done phase: Reopen button (for prematurely finished tasks)
+  if (task.status === "done") {
+    const isReopening = reopenTaskMutation.isPending;
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: isInline ? "row" : "column",
+          gap: 1,
+          width: isInline ? "auto" : "100%",
+        }}
+      >
+        <Tooltip title={isArchived ? "Task is archived" : "Reopen task and move back to in progress"}>
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="info"
+              startIcon={
+                isReopening ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <ReopenIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                reopenTaskMutation.mutate();
+              }}
+              disabled={isArchived || isReopening}
+              fullWidth={!isInline}
+              sx={buttonSx}
+            >
+              {isReopening ? "Reopening..." : "Reopen"}
+            </Button>
+          </span>
+        </Tooltip>
+      </Box>
+    );
   }
 
   // No action buttons for other statuses

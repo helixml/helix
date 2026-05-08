@@ -65,7 +65,7 @@ func (s *GoldenBuildServiceSuite) TestFanOutQueuesPendingWhenBuildRunning() {
 	s.service.mu.Unlock()
 
 	// Trigger while build is running
-	s.store.EXPECT().ListSandboxes(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
 	s.service.TriggerGoldenBuild(context.Background(), project)
 
 	// Should have queued a pending rebuild
@@ -99,7 +99,7 @@ func (s *GoldenBuildServiceSuite) TestMultipleTriggersCoalesceToOnePending() {
 	s.service.mu.Unlock()
 
 	// Trigger 3 times with different project states
-	s.store.EXPECT().ListSandboxes(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil).Times(3)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil).Times(3)
 	s.service.TriggerGoldenBuild(context.Background(), project1)
 	s.service.TriggerGoldenBuild(context.Background(), project1)
 	s.service.TriggerGoldenBuild(context.Background(), project2) // latest
@@ -124,7 +124,7 @@ func (s *GoldenBuildServiceSuite) TestManualTriggerAlsoQueuesPending() {
 	s.service.building[key] = time.Now()
 	s.service.mu.Unlock()
 
-	s.store.EXPECT().ListSandboxes(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
 	err := s.service.TriggerManualGoldenBuild(context.Background(), project)
 	// Returns error because no new builds started (all queued)
 	assert.Error(s.T(), err)
@@ -165,7 +165,7 @@ func (s *GoldenBuildServiceSuite) TestPendingRebuildTriggersAfterCompletion() {
 	// The defer will call fanOutBuilds which calls ListSandboxes.
 	// This proves the pending rebuild was triggered.
 	fanOutCalled := make(chan struct{})
-	s.store.EXPECT().ListSandboxes(gomock.Any()).DoAndReturn(
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).DoAndReturn(
 		func(_ context.Context) ([]*types.SandboxInstance, error) {
 			close(fanOutCalled)
 			return []*types.SandboxInstance{sandbox}, nil
@@ -256,7 +256,7 @@ func (s *GoldenBuildServiceSuite) TestNewBuildClearsPending() {
 	// Verify the pending is cleared when fanOutBuilds starts a new build.
 	// fanOutBuilds calls delete(g.pendingRebuild, key) synchronously before
 	// spawning the goroutine.
-	s.store.EXPECT().ListSandboxes(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{sandbox}, nil)
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{
 		{ID: "repo_1"},
 	}, nil).AnyTimes()

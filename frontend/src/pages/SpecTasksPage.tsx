@@ -24,6 +24,8 @@ import {
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
+  PushPin as PushPinIcon,
+  PushPinOutlined as PushPinOutlinedIcon,
 } from "@mui/icons-material";
 import {
   Plus,
@@ -65,6 +67,11 @@ import {
   useResumeProjectExploratorySession,
   useGetStartupScriptHistory,
 } from "../services";
+import {
+  usePinnedProjectIds,
+  usePinProject,
+  useUnpinProject,
+} from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
 import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
@@ -125,6 +132,12 @@ const SpecTasksPage: FC = () => {
   const deleteAccessGrantMutation = useDeleteProjectAccessGrant(
     projectId || "",
   );
+
+  // Pin/unpin project
+  const { data: pinnedProjectIds = [] } = usePinnedProjectIds(!!account.user);
+  const pinProjectMutation = usePinProject();
+  const unpinProjectMutation = useUnpinProject();
+  const isPinned = pinnedProjectIds.includes(projectId || "");
 
   // Startup script history - used to detect if user has modified the default script
   // Only fetch when we have a project with a default repo
@@ -833,6 +846,28 @@ const SpecTasksPage: FC = () => {
             />
           </Box>
 
+          {/* Pin/unpin project */}
+          <Tooltip title={isPinned ? "Unpin project" : "Pin project"}>
+            <IconButton
+              size="small"
+              onClick={() => {
+                if (!projectId) return;
+                if (isPinned) {
+                  unpinProjectMutation.mutate(projectId);
+                } else {
+                  pinProjectMutation.mutate(projectId);
+                }
+              }}
+              sx={{
+                display: { xs: "none", md: "flex" },
+                flexShrink: 0,
+                color: isPinned ? "#a78bfa" : "text.secondary",
+              }}
+            >
+              {isPinned ? <PushPinIcon /> : <PushPinOutlinedIcon />}
+            </IconButton>
+          </Tooltip>
+
           {/* Hide these buttons on mobile - they'll be in the floating menu */}
           <Box
             sx={{
@@ -929,13 +964,33 @@ const SpecTasksPage: FC = () => {
             </Tooltip>
           </Box>
           {/* Hide menu button on mobile - it will be in the bottom nav */}
-          <Box sx={{ display: { xs: "none", md: "block" } }}>
-            <IconButton
-              size="small"
-              onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
-            >
-              <MoreHorizontal size={18} />
-            </IconButton>
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              alignItems: "center",
+              gap: 0.5,
+            }}
+          >
+            {projectId && (
+              <Tooltip title="Project settings">
+                <IconButton
+                  size="small"
+                  onClick={() => openDialog("project-settings", { projectId })}
+                  aria-label="Project settings"
+                >
+                  <Settings size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title="More options">
+              <IconButton
+                size="small"
+                onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+                aria-label="More options"
+              >
+                <MoreHorizontal size={18} />
+              </IconButton>
+            </Tooltip>
           </Box>
           <Menu
             anchorEl={viewMenuAnchorEl}
@@ -965,17 +1020,6 @@ const SpecTasksPage: FC = () => {
                   style={{ marginRight: 12, width: 20, height: 20 }}
                 />
                 Files
-              </MenuItem>
-            )}
-            {projectId && (
-              <MenuItem
-                onClick={() => {
-                  openDialog('project-settings', { projectId });
-                  setViewMenuAnchorEl(null);
-                }}
-              >
-                <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
-                Settings
               </MenuItem>
             )}
             <MenuItem

@@ -579,7 +579,26 @@ func (s *GoldenZvolSuite) TestCleanupSessionZvol_Success() {
 	require.NoError(s.T(), err)
 
 	assert.True(s.T(), s.mock.hasCommand("umount /container-docker/zvol-mounts/ses_001"))
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_001"))
+	assert.False(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_001"])
+}
+
+// TestCleanupSessionZvol_WithChildSnapshot covers the bug from spec task 001911:
+// an operator manually ran `zfs snapshot ses-XXX@pre-repo-cleanup-...`, which
+// blocked GC because plain `zfs destroy` refuses datasets that have children.
+// The fix is to pass `-r` so descendant snapshots are torn down with the zvol.
+func (s *GoldenZvolSuite) TestCleanupSessionZvol_WithChildSnapshot() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/ses-ses_001")
+	s.mock.addSnapshot("prod/helix-zvols/ses-ses_001", "pre-repo-cleanup-2026-03-31")
+	s.mock.setMounted("/container-docker/zvol-mounts/ses_001")
+
+	err := CleanupSessionZvol("ses_001")
+	require.NoError(s.T(), err)
+
+	// Must use -r so the descendant snapshot doesn't block the destroy.
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_001"),
+		"expected `zfs destroy -r` so the manually-created child snapshot is taken down with the zvol")
 	assert.False(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_001"])
 }
 
@@ -604,8 +623,8 @@ func (s *GoldenZvolSuite) TestCleanupSessionZvol_NotMounted() {
 
 	// Should NOT have tried to unmount
 	assert.False(s.T(), s.mock.hasCommand("umount"))
-	// Should still destroy
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
+	// Should still destroy (recursive — see CleanupSessionZvol doc-comment)
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_001"))
 }
 
 func (s *GoldenZvolSuite) TestCleanupSessionZvol_LazyUnmount() {
@@ -836,10 +855,10 @@ func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansOrphans() {
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), 1, cleaned)
 
-	// Orphan should be destroyed
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_orphan"))
+	// Orphan should be destroyed (recursive — see CleanupSessionZvol doc-comment)
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_orphan"))
 	// Active should NOT be destroyed
-	assert.False(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_active"))
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_active"))
 	// Golden should NOT be destroyed
 	assert.False(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/golden-prj_abc"))
 }
@@ -868,6 +887,26 @@ func (s *GoldenZvolSuite) TestGCOrphanedZvols_KeepsRecentInactive() {
 	cleaned, err := GCOrphanedZvols(active)
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), 0, cleaned, "should keep active zvol")
+}
+
+func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansNoMarker() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	// Override sessionsBaseDir to use temp dir (no markers will exist)
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
+
+	// Session with no marker and no running container — should be GC'd
+	s.mock.addDataset("prod/helix-zvols/ses-ses_no_marker")
+
+	active := map[string]bool{} // nothing running
+
+	cleaned, err := GCOrphanedZvols(active)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 1, cleaned)
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_no_marker"))
 }
 
 // -----------------------------------------------------------------------
@@ -1384,7 +1423,7 @@ func (s *GoldenZvolSuite) TestCleanup_ZvolSessionUsesZvolCleanup() {
 	err := CleanupSessionZvol("ses_001")
 	require.NoError(s.T(), err)
 
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_001"))
 }
 
 func (s *GoldenZvolSuite) TestCleanup_NonZvolSessionSkipsZvolCleanup() {

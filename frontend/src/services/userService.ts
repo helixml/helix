@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
+import { TypesUserChatSettings } from '../api/api';
+
+export const userChatSettingsQueryKey = () => ["user", "chat-settings"];
 
 export const userQueryKey = (id: string) => [
   "user",
@@ -146,6 +149,33 @@ export function useUpdatePassword() {
     mutationFn: async (newPassword: string) => {
       await apiClient.v1AuthPasswordUpdateCreate({ new_password: newPassword })
       return newPassword
+    },
+  })
+}
+
+export function useGetUserChatSettings() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: userChatSettingsQueryKey(),
+    queryFn: async () => {
+      const response = await apiClient.v1UsersMeChatSettingsList()
+      return response.data
+    },
+  })
+}
+
+export function useUpdateUserChatSettings() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: TypesUserChatSettings) => {
+      const response = await apiClient.v1UsersMeChatSettingsUpdate(data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userChatSettingsQueryKey() })
     },
   })
 }

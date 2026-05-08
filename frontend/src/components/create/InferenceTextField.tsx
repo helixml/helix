@@ -120,19 +120,58 @@ const InferenceTextField: FC<{
       }
     }
 
+    const attachImageFile = (file: File) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(file.name)
+        if (onAttachedImagesChange) {
+          onAttachedImagesChange([...attachedImages, file])
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+
     const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       if (file) {
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          setSelectedImage(reader.result as string)
-          setSelectedImageName(file.name)
-          if (onAttachedImagesChange) {
-            onAttachedImagesChange([...attachedImages, file])
-          }
-        }
-        reader.readAsDataURL(file)
+        attachImageFile(file)
       }
+    }
+
+    // Intercept Cmd+V / Ctrl+V image pastes from the clipboard (e.g. screenshot
+    // copies on macOS, "Copy image" from another browser tab) and attach them
+    // the same way the file picker does. We only swallow the paste when the
+    // clipboard actually contains an image — text pastes still fall through.
+    const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!onAttachedImagesChange) return
+      const items = event.clipboardData?.items
+      if (!items || items.length === 0) return
+
+      const imageFiles: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        if (item.kind !== 'file') continue
+        if (!item.type.startsWith('image/')) continue
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+
+      if (imageFiles.length === 0) return
+
+      event.preventDefault()
+      const next = [...attachedImages, ...imageFiles]
+      onAttachedImagesChange(next)
+
+      // Update the preview to show the most recently pasted image so the user
+      // gets immediate feedback that the paste landed.
+      const last = imageFiles[imageFiles.length - 1]
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(last.name || `pasted-image-${Date.now()}.png`)
+      }
+      reader.readAsDataURL(last)
     }
 
     const usePromptLabel = promptLabel || PROMPT_LABELS[type]
@@ -163,9 +202,9 @@ const InferenceTextField: FC<{
           sx={{
             width: '95%',
             margin: '0 auto',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.2)'}`,
             borderRadius: '12px',
-            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            backgroundColor: lightTheme.isLight ? '#fff' : 'rgba(255, 255, 255, 0.05)',
             p: 2,
             display: 'flex',
             flexDirection: 'column',
@@ -180,12 +219,13 @@ const InferenceTextField: FC<{
               value={value}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown as any}
+              onPaste={handlePaste}
               rows={1}
               style={{
                 width: '100%',
                 backgroundColor: 'transparent',
                 border: 'none',
-                color: '#fff',
+                color: lightTheme.textColor,
                 opacity: 0.7,
                 resize: 'none',
                 outline: 'none',
@@ -210,24 +250,76 @@ const InferenceTextField: FC<{
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    border: '2px solid rgba(255, 255, 255, 0.7)',
+                    border: `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                     borderRadius: '50%',
                     '&:hover': {
-                      borderColor: 'rgba(255, 255, 255, 0.9)',
-                      '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                      borderColor: lightTheme.textColor,
+                      '& svg': { color: lightTheme.textColor }
                     }
                   }}
                   onClick={() => {
                     if (imageInputRef.current) imageInputRef.current.click();
                   }}
                 >
-                  <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                  <AttachFileIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                 </Box>
               </Tooltip>
-              {selectedImageName && (
-                <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {selectedImageName}
-                </Typography>
+              {selectedImage && (
+                <Box
+                  sx={{
+                    position: 'relative',
+                    ml: 0.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                  }}
+                >
+                  <Tooltip title={selectedImageName || 'Attached image'} placement="top">
+                    <Box
+                      component="img"
+                      src={selectedImage}
+                      alt={selectedImageName || 'Attached image'}
+                      sx={{
+                        width: 36,
+                        height: 36,
+                        objectFit: 'cover',
+                        borderRadius: '6px',
+                        border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
+                      }}
+                    />
+                  </Tooltip>
+                  <Typography sx={{ color: lightTheme.textColorFaded, fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {selectedImageName}
+                  </Typography>
+                  <Box
+                    role="button"
+                    aria-label="Remove attached image"
+                    onClick={() => {
+                      setSelectedImage(null)
+                      setSelectedImageName(null)
+                      if (imageInputRef.current) imageInputRef.current.value = ''
+                      if (onAttachedImagesChange) onAttachedImagesChange([])
+                    }}
+                    sx={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: lightTheme.textColorFaded,
+                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)'}`,
+                      '&:hover': {
+                        color: lightTheme.textColor,
+                        borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.6)',
+                      },
+                    }}
+                  >
+                    ×
+                  </Box>
+                </Box>
               )}
               <input
                 type="file"
@@ -247,19 +339,19 @@ const InferenceTextField: FC<{
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: loading || disabled ? 'default' : 'pointer',
-                  border: '1px solid rgba(255, 255, 255, 0.7)',
+                  border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                   borderRadius: '8px',
                   opacity: loading || disabled ? 0.5 : 1,
                   '&:hover': loading || disabled ? {} : {
-                    borderColor: 'rgba(255, 255, 255, 0.9)',
-                    '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                    borderColor: lightTheme.textColor,
+                    '& svg': { color: lightTheme.textColor }
                   }
                 }}
               >
                 {loading ? (
                   <LoadingSpinner />
                 ) : (
-                  <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                  <ArrowUpwardIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                 )}
               </Box>
             </Tooltip>

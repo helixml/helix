@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography'
 import Backdrop from '@mui/material/Backdrop'
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 
 interface JsonWindowProps {
@@ -30,6 +31,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
   const snackbar = useSnackbar()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
 
   const handleCopy = () => {
     const textToCopy = typeof(data) === 'string' ? data : JSON.stringify(data, null, 4)
@@ -52,7 +54,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
           zIndex: theme.zIndex.drawer + 1,
           opacity: 1,
           color: '#fff',
-          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          backgroundColor: lightTheme.backgroundColor,
         }}
       >
       </Backdrop>
@@ -73,7 +75,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
             display: 'flex',
             justifyContent: 'flex-end',
             p: 1,
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.deepBlue,
+            backgroundColor: lightTheme.isLight ? themeConfig.lightBackgroundColor : themeConfig.deepBlue,
           }}
         >
           <Typography
@@ -100,7 +102,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
             overflowY: 'auto',
             flexGrow: 1,
             maxWidth: '100vw',
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkPanel,
+            backgroundColor: lightTheme.panelColor,
           }}
         >
           <JsonView
@@ -115,7 +117,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
             p: 1,
             display: 'flex',
             justifyContent: 'flex-start',
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+            backgroundColor: lightTheme.backgroundColor,
           }}
         >
           <Button
@@ -125,7 +127,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
             onClick={handleCopy}
             sx={{
               fontSize: '1.2em',
-              color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText,
+              color: lightTheme.textColor,
             }}
           >
             Copy to clipboard

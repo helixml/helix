@@ -153,24 +153,30 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 			continue
 		}
 
-		// Load interactions for this session (GetSession doesn't load them)
+		// Load the MOST RECENT interaction so we can check if the session is busy.
+		// CRITICAL: ListInteractions defaults to "id ASC" (oldest first). With
+		// PerPage=100 and 165 interactions, we'd get interactions 1-100 and
+		// interactions[len-1] would be the 100th — almost always Complete from
+		// hours ago — so the busy check would always say "idle" and the queue
+		// would dispatch on top of an actively-streaming Zed turn.
+		// Order DESC + PerPage 1 returns just the newest interaction.
 		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
-			PerPage:      100,
+			PerPage:      1,
+			Order:        "id DESC",
 		})
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
 			continue
 		}
 
-		// Check if session is idle (no interactions, or last interaction is complete)
+		// Session is idle iff there is no interaction, or the latest one is
+		// not still Waiting for Zed. interactions[0] is the newest because of
+		// the DESC order above.
 		isIdle := true
-		if len(interactions) > 0 {
-			lastInteraction := interactions[len(interactions)-1]
-			if lastInteraction.State == types.InteractionStateWaiting {
-				isIdle = false
-			}
+		if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
+			isIdle = false
 		}
 
 		if isIdle {
@@ -245,7 +251,7 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
 			Msg("Failed to create interaction for interrupt prompt - reverting to failed")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
 			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return

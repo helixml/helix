@@ -82,8 +82,6 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
           onClose={handleClose}
           PaperProps={{
             sx: {
-              backgroundColor: '#181A20',
-              border: '1px solid #23262F',
               mt: 1,
             }
           }}
@@ -94,12 +92,9 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
               onClick={() => handleAgentSelect(app)}
               selected={selectedAgent?.id === app.id}
               sx={{
-                color: '#F1F1F1',
-                '&:hover': {
-                  backgroundColor: '#23262F',
-                },
                 '&.Mui-selected': {
                   backgroundColor: '#3182CE',
+                  color: '#fff',
                   '&:hover': {
                     backgroundColor: '#2B6CB0',
                   },
@@ -110,7 +105,7 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
                   {app.config.helix.name}
                 </Typography>
-                <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {app.config.helix.description}
                 </Typography>
               </Box>

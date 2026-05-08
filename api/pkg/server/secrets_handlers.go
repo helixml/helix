@@ -30,8 +30,9 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 	}
 
 	query := &store.ListSecretsQuery{
-		Owner:     user.ID,
-		OwnerType: types.OwnerTypeUser,
+		Owner:         user.ID,
+		OwnerType:     types.OwnerTypeUser,
+		UserLevelOnly: true,
 	}
 
 	secrets, err := s.Store.ListSecrets(ctx, query)

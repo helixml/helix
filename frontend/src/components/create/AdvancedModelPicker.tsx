@@ -37,6 +37,7 @@ import helixLogo from '../../../assets/img/logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
 import fireworksLogo from '../../../assets/img/providers/fireworks.png'
+import XaiLogo from '../providers/logos/xai';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 
@@ -79,6 +80,14 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
     return <Avatar src={fireworksLogo} sx={{ width: 32, height: 32 }} variant="square" />;
   }
 
+  if (provider.name === 'xai' || provider.base_url?.startsWith('https://api.x.ai/')) {
+    return (
+      <Avatar sx={{ width: 32, height: 32, bgcolor: 'transparent', color: '#fff' }} variant="square">
+        <XaiLogo width={24} height={24} />
+      </Avatar>
+    );
+  }
+
   // Check provider models, if it has more than 1 and "owned_by" = "vllm", then show vllm logo
   if (provider.available_models && provider.available_models.length > 0 && provider.available_models[0].owned_by === "vllm") {
     return <Avatar src={vllmLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
@@ -101,6 +110,40 @@ interface ModelWithProvider extends TypesOpenAIModel {
   provider: TypesProviderEndpoint;
   provider_base_url: string;
 }
+
+// Returns true if the provider has a real DB-row ID. Env-baked globals
+// surface as the sentinel id "-" (or empty); DB-backed providers (whether
+// user-private, org-, team- or globally-shared) all have a "pe_..." id.
+// We deliberately do NOT key off endpoint_type because a user-created
+// provider that the owner has marked as "global" to share across the
+// instance still has a stable DB id and must be referenced by id, not by
+// its mutable name. The presence of a real id is the only reliable signal
+// for "this is a DB row that survives a rename."
+const hasRealID = (provider: TypesProviderEndpoint | undefined): boolean => {
+  if (!provider) return false;
+  const id = provider.id || '';
+  return id !== '' && id !== '-';
+};
+
+// Returns the stable reference we persist on the agent record for a given
+// provider: env-baked globals have no DB row, so we use their canonical
+// name (itself immutable). DB-backed providers use their ID, so admin
+// renames are a no-op for the agent.
+const providerRef = (provider: TypesProviderEndpoint | undefined): string => {
+  if (!provider) return '';
+  if (hasRealID(provider)) return provider.id || '';
+  return provider.name || '';
+};
+
+// Matches a stored agent reference against a provider. Tries ID first
+// (current scheme) then falls back to a case-insensitive name match
+// (globals + legacy agents stored before the switch to ID-based references).
+const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
+  if (!provider || !storedRef) return false;
+  if (hasRealID(provider) && provider.id === storedRef) return true;
+  if (provider.name && provider.name.toLowerCase() === storedRef.toLowerCase()) return true;
+  return false;
+};
 
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
   return models.filter((model) => {    
@@ -226,29 +269,28 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
         }
         if (firstModel && firstModel.id) {
-          onSelectModel(firstModel.provider?.name || '', firstModel.id);
+          onSelectModel(providerRef(firstModel.provider), firstModel.id);
         }
-      } 
+      }
       // If a model is selected, check if its type matches current type
       else {
-        // console.log('selected model, finding it from our list', selectedProvider, selectedModelId)
         const currentModel = allModels.find(model => model.id === selectedModelId);
 
         // If current model doesn't match the expected type, select a new one
-        if (currentModel && currentModel.type && currentModel.type !== effectiveType) {          
+        if (currentModel && currentModel.type && currentModel.type !== effectiveType) {
           // Try to find a model of the right type from the same provider first
-          let newModel = allModels.find(model => 
-            model.type === effectiveType && 
-            model.provider?.name === selectedProvider
+          let newModel = allModels.find(model =>
+            model.type === effectiveType &&
+            matchesStoredRef(model.provider, selectedProvider)
           );
-          
+
           // If no model found from the same provider, fall back to any provider
           if (!newModel) {
             newModel = allModels.find(model => model.type === effectiveType);
           }
-          
+
           if (newModel && newModel.id) {
-            onSelectModel(newModel.provider?.name || '', newModel.id);
+            onSelectModel(providerRef(newModel.provider), newModel.id);
           }
         }
       }
@@ -265,16 +307,22 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return friendlyName || "Select Model";
   }, [selectedModelId, allModels]);
   
-  // Determine tooltip title based on disabled state - include provider name
+  // Determine tooltip title based on disabled state - include provider name.
+  // Resolve the stored ref (ID or legacy name) against the live providers
+  // list so the tooltip shows the current canonical name even after a rename.
   const tooltipTitle = useMemo(() => {
     if (disabled) return "Model selection is disabled";
     const selectedModel = allModels.find(model => model.id === selectedModelId);
-    const providerName = selectedModel?.provider?.name || selectedProvider;
+    let providerName = selectedModel?.provider?.name;
+    if (!providerName && selectedProvider) {
+      const matched = providers?.find((p: TypesProviderEndpoint) => matchesStoredRef(p, selectedProvider));
+      providerName = matched?.name || selectedProvider;
+    }
     if (providerName) {
       return `${displayModelName} (${providerName})`;
     }
     return displayModelName;
-  }, [disabled, displayModelName, allModels, selectedModelId, selectedProvider]);
+  }, [disabled, displayModelName, allModels, selectedModelId, selectedProvider, providers]);
 
   // Check if monthly token limit is reached
   const isMonthlyLimitReached = useMemo(() => {
@@ -364,7 +412,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               endIcon={<ArrowDropDownIcon />}
               sx={{
                 borderRadius: '8px',
-                color: '#F1F1F1',
+                color: lightTheme.textColor,
                 textTransform: 'none',
                 fontSize: '0.875rem',
                 padding: '4px 8px',
@@ -373,9 +421,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 maxWidth: '200px',
                 display: 'flex',
                 alignItems: 'center',
-                border: buttonVariant === 'outlined' ? '1px solid #353945' : 'none',
+                border: buttonVariant === 'outlined'
+                  ? `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.2)' : '#353945'}`
+                  : 'none',
                 '&:hover': {
-                  backgroundColor: '#23262F',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.04)' : '#23262F',
                   borderColor: '#6366F1',
                 },
                 // More explicit styling for disabled state if needed
@@ -419,11 +469,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         }}
       >
         <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6" component="div" sx={{ color: '#F8FAFC' }}>Select Model</Typography>
+          <Typography variant="h6" component="div" sx={{ color: lightTheme.textColor }}>Select Model</Typography>
           <IconButton
             aria-label="close"
             onClick={handleCloseDialog}
-            sx={{ color: '#A0AEC0' }}
+            sx={{ color: lightTheme.textColorFaded }}
           >
             <CloseIcon />
           </IconButton>
@@ -440,9 +490,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           }}
         >
           {hint && (
-            <Typography 
-              variant="body2" 
-              sx={{ mb: 2, fontStyle: 'italic', color: '#A0AEC0' }}
+            <Typography
+              variant="body2"
+              sx={{ mb: 2, fontStyle: 'italic', color: lightTheme.textColorFaded }}
             >
               {hint}
             </Typography>
@@ -509,16 +559,18 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
               const listItemContent = (
                 <ListItem
-                  onClick={() => !isModelDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
+                  onClick={() => !isModelDisabled && model.id && handleSelectModel(providerRef(model.provider), model.id)}
                   disabled={isModelDisabled}
                   sx={{
                     '&:hover': {
-                      backgroundColor: isModelDisabled ? 'transparent' : '#23262F',
+                      backgroundColor: isModelDisabled
+                        ? 'transparent'
+                        : (lightTheme.isLight ? 'rgba(0,0,0,0.04)' : '#23262F'),
                     },
                     borderRadius: 1,
                     mb: 0.5,
                     ...(model.id === selectedModelId && !isModelDisabled && {
-                      backgroundColor: '#353945',
+                      backgroundColor: lightTheme.isLight ? 'rgba(14,116,144,0.10)' : '#353945',
                     }),
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -530,7 +582,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56, mr: 1 }}>
                       <ProviderIcon provider={model.provider} />
-                      <Typography variant="caption" sx={{ color: '#A0AEC0', fontSize: '0.6rem', mt: 0.5, textAlign: 'center', lineHeight: 1.1 }}>
+                      <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.6rem', mt: 0.5, textAlign: 'center', lineHeight: 1.1 }}>
                         {model.provider.name}
                       </Typography>
                     </Box>
@@ -561,7 +613,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                               variant="caption"
                               component="span"
                               sx={{
-                                color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
+                                color: lightTheme.textColorFaded,
                                 fontSize: '0.75rem',
                                 lineHeight: 1.2,
                               }}
@@ -569,13 +621,20 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                               {model.description}
                             </Typography>
                           )}
-                          {!isModelDisabled && model.provider.billing_enabled && model.model_info?.pricing && (
-                            <Typography variant="body2" component="span" sx={{ color: '#A0AEC0', fontSize: '0.75rem' }}>
-                              {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input`}
-                              {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
-                              {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output`}
-                            </Typography>
-                          )}
+                          {!isModelDisabled && model.provider.billing_enabled && model.model_info?.pricing && (() => {
+                            const p = model.model_info.pricing;
+                            const parts: string[] = [];
+                            if (p.prompt) parts.push(`$${(parseFloat(p.prompt) * 1000000).toFixed(2)}/M input`);
+                            if (p.completion) parts.push(`$${(parseFloat(p.completion) * 1000000).toFixed(2)}/M output`);
+                            if (p.input_cache_read) parts.push(`$${(parseFloat(p.input_cache_read) * 1000000).toFixed(2)}/M cache read`);
+                            if (p.input_cache_write) parts.push(`$${(parseFloat(p.input_cache_write) * 1000000).toFixed(2)}/M cache write`);
+                            if (parts.length === 0) return null;
+                            return (
+                              <Typography variant="body2" component="span" sx={{ color: lightTheme.textColorFaded, fontSize: '0.75rem' }}>
+                                {parts.join(' | ')}
+                              </Typography>
+                            );
+                          })()}
                         </Box>
                       }
                       primaryTypographyProps={{
@@ -583,7 +642,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         sx: {
                           fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
+                          color: isModelDisabled ? lightTheme.textColorFaded : lightTheme.textColor,
                         }
                       }}
                       secondaryTypographyProps={{ component: 'div' }}
@@ -597,7 +656,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         size="small"
                         variant="outlined"
                         sx={{
-                          color: '#A0AEC0',
+                          color: lightTheme.textColorFaded,
                           borderColor: 'transparent',
                           backgroundColor: 'transparent',
                           mr: 1,
@@ -620,7 +679,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         size="small"
                         variant="outlined"
                         sx={{
-                          color: '#A0AEC0',
+                          color: lightTheme.textColorFaded,
                           borderColor: 'transparent',
                           backgroundColor: 'transparent',
                           mr: 1,
@@ -644,7 +703,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         size="small"
                         variant="outlined"
                         sx={{
-                          color: '#A0AEC0',
+                          color: lightTheme.textColorFaded,
                           borderColor: 'transparent',
                           backgroundColor: 'transparent',
                           '& .MuiChip-icon': {
@@ -687,14 +746,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             })}
             {!isLoading && filteredModels.length === 0 && searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography sx={{ color: '#A0AEC0' }}>
+                <Typography sx={{ color: lightTheme.textColorFaded }}>
                   No models found matching "{searchQuery}"
                 </Typography>
               </Box>
             )}
              {!isLoading && filteredModels.length === 0 && !searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography sx={{ color: '#A0AEC0' }}>
+                <Typography sx={{ color: lightTheme.textColorFaded }}>
                   No {showOnlyEnabled ? 'enabled ' : ''}chat models available or still loading.
                 </Typography>
               </Box>

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -56,11 +55,6 @@ func setDefaultKnowledgeRAGSettings(knowledge *types.Knowledge) {
 	}
 	if knowledge.RAGSettings.Threshold == 0 {
 		knowledge.RAGSettings.Threshold = DefaultKnowledgeThreshold
-	}
-	// Only disable chunking if Haystack is the RAG provider
-	// XXX factor this properly into the config (or set it from somewhere else)
-	if os.Getenv("RAG_DEFAULT_PROVIDER") == "haystack" {
-		knowledge.RAGSettings.DisableChunking = true
 	}
 }
 
