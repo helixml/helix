@@ -1453,8 +1453,9 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 }
 
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
-// It handles: finding connected session, generating request ID, setting up response routing, and sending
-// If no session is connected, it auto-starts the dev container and waits up to 90s for the agent to connect.
+// It handles: finding connected session, generating request ID, setting up response routing, and sending.
+// If no session is connected, sendChatMessageToExternalAgent persists the interaction; the no-WS path
+// triggers autoStartDevContainerForSession and pickupWaitingInteraction delivers on reconnect.
 // Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
 //
 // interrupt=true tells the agent to cancel its current turn before processing this message. Use it for
@@ -1483,10 +1484,27 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		sessionID = specTask.PlanningSessionID
 	}
 
-	// Generate request ID for tracking
+	return s.sendMessageToSession(ctx, sessionID, message, notifyUserID, interrupt)
+}
+
+// sendMessageToSession is the session-scoped helper for delivering a message to an external agent.
+// It generates a request ID, optionally registers a notify-user mapping for response routing, and
+// calls sendChatMessageToExternalAgent — which persists a Waiting interaction even when no agent
+// WebSocket is connected. If the WS is absent, ErrNoExternalAgentWS is returned wrapped: callers
+// should treat that as "queued, will deliver on reconnect" via pickupWaitingInteraction, not a
+// hard failure. The interactionID is returned even in that case so the caller can correlate
+// responses on /api/v1/ws/user.
+func (s *HelixAPIServer) sendMessageToSession(
+	ctx context.Context,
+	sessionID string,
+	message string,
+	notifyUserID string,
+	interrupt bool,
+) (string, string, error) {
+	_ = ctx // session lookup is delegated to sendChatMessageToExternalAgent
+
 	requestID := "req_" + system.GenerateUUID()
 
-	// If a notifyUserID is provided, store it for response notification
 	if notifyUserID != "" {
 		s.contextMappingsMutex.Lock()
 		if s.requestToCommenterMapping == nil {
@@ -1500,10 +1518,20 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		s.contextMappingsMutex.Unlock()
 	}
 
-	// Send the message via the canonical path which creates an interaction,
-	// enqueues it, and sends the WebSocket command.
 	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
 	if err != nil {
+		// ErrNoExternalAgentWS means the interaction was persisted but no WS was connected.
+		// pickupWaitingInteraction will deliver it on reconnect — surface as success to
+		// the caller, who already has the interactionID for response correlation.
+		if errors.Is(err, ErrNoExternalAgentWS) {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", interactionID).
+				Str("request_id", requestID).
+				Msg("✉️  Queued message for session — no WS connected, will deliver on reconnect")
+			return requestID, interactionID, nil
+		}
+
 		if notifyUserID != "" {
 			s.contextMappingsMutex.Lock()
 			delete(s.requestToCommenterMapping, requestID)
@@ -1513,11 +1541,10 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	}
 
 	log.Info().
-		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
 		Str("interaction_id", interactionID).
 		Str("request_id", requestID).
-		Msg("✅ Sent message to spec task agent via WebSocket")
+		Msg("✅ Sent message to session agent via WebSocket")
 
 	return requestID, interactionID, nil
 }

@@ -106,6 +106,7 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
+import useLightTheme from "../../hooks/useLightTheme";
 import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
@@ -167,6 +168,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
+  const lightTheme = useLightTheme();
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -1515,10 +1517,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Debug Info */}
       <Divider sx={{ my: 2 }} />
-      <Box sx={{ mt: 2, p: 2, bgcolor: "grey.900", borderRadius: 1 }}>
+      <Box sx={{ mt: 2, p: 2, bgcolor: lightTheme.isLight ? "grey.100" : "grey.900", borderRadius: 1 }}>
         <Typography
           variant="caption"
-          color="grey.400"
+          color={lightTheme.isLight ? "grey.700" : "grey.400"}
           display="block"
           gutterBottom
         >
@@ -1526,14 +1528,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Typography>
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Task ID: {task?.id || "N/A"}
         </Typography>
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Task #:{" "}
@@ -1545,7 +1547,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Tooltip title="Spectask branches push changes to upstream repository">
             <Typography
               variant="caption"
-              color="grey.300"
+              color={lightTheme.isLight ? "grey.800" : "grey.300"}
               sx={{ fontFamily: "monospace", display: "block" }}
             >
               Branch: {task.branch_name}{" "}
@@ -1559,7 +1561,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Tooltip title="Base branch pulls updates from upstream repository">
             <Typography
               variant="caption"
-              color="grey.300"
+              color={lightTheme.isLight ? "grey.800" : "grey.300"}
               sx={{ fontFamily: "monospace", display: "block" }}
             >
               Base: {task.base_branch}{" "}
@@ -1571,7 +1573,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Specs Folder: {task?.design_doc_path || "N/A"}
@@ -1579,7 +1581,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {activeSessionId && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Session ID: {activeSessionId}
@@ -1588,7 +1590,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.sway_version && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Desktop: {sessionData.config.sway_version}
@@ -1597,7 +1599,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.gpu_vendor && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             GPU: {sessionData.config.gpu_vendor.toUpperCase()}
@@ -1606,7 +1608,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.render_node && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Render: {sessionData.config.render_node}
@@ -1972,7 +1974,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <PanelResizeHandle
               style={{
                 width: 6,
-                background: "rgba(255, 255, 255, 0.08)",
+                background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
                 cursor: "col-resize",
                 transition: "background 0.15s",
               }}
@@ -1982,7 +1984,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   width: 2,
                   height: "100%",
                   margin: "0 auto",
-                  background: "rgba(255, 255, 255, 0.12)",
+                  background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
                   borderRadius: 1,
                 }}
               />

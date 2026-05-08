@@ -18,6 +18,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 
 import TasksTableExecutionsChart from './TasksTableExecutionsChart'
 import useAccount from '../../hooks/useAccount'
+import useLightTheme from '../../hooks/useLightTheme'
 import { TypesTriggerConfiguration } from '../../api/api'
 import { generateCronShortSummary } from '../../utils/cronUtils'
 import { IApp } from '../../types'
@@ -32,6 +33,7 @@ interface CronTaskCardProps {
 
 const CronTaskCard: FC<CronTaskCardProps> = ({ task, app, onEdit, onDelete, onToggleStatus }) => {
   const theme = useTheme()
+  const lightTheme = useLightTheme()
   const account = useAccount()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
 
@@ -148,9 +150,11 @@ const CronTaskCard: FC<CronTaskCardProps> = ({ task, app, onEdit, onDelete, onTo
         )}
 
         <Box sx={{
-          background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+          background: lightTheme.isLight
+            ? 'linear-gradient(145deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.01) 100%)'
+            : 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
           borderRadius: 2,
-          border: '1px solid rgba(255,255,255,0.06)',
+          border: lightTheme.isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)',
           p: 1.5,
           mt: 'auto',
         }}>

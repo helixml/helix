@@ -318,6 +318,16 @@ type UserConfig struct {
 	StripeCustomerID         string   `json:"stripe_customer_id"`
 	StripeSubscriptionID     string   `json:"stripe_subscription_id"`
 	PinnedProjectIDs         []string `json:"pinned_project_ids,omitempty"`
+	// ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+	// Empty string means follow OS preference. Propagated to the GNOME desktop
+	// (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+	// by this user.
+	ColorScheme string `json:"color_scheme,omitempty"`
+}
+
+// UpdateUserColorSchemeRequest is the request body for setting a user's color scheme.
+type UpdateUserColorSchemeRequest struct {
+	ColorScheme string `json:"color_scheme"` // "light", "dark", or "" (follow OS)
 }
 
 func (u UserConfig) Value() (driver.Value, error) {

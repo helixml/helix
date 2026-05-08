@@ -9,7 +9,7 @@
 #   packages/     — workspace packages (if present)
 #   package.json, package-lock.json
 
-FROM node:20-slim AS builder
+FROM node:20-slim@sha256:f93745c153377ee2fbbdd6e24efcd03cd2e86d6ab1d8aa9916a3790c40313a55 AS builder
 
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 

@@ -2186,6 +2186,7 @@ type ZedConfigResponse struct {
 	ExternalSync                map[string]interface{} `json:"external_sync,omitempty"`
 	Agent                       map[string]interface{} `json:"agent,omitempty"`
 	Theme                       string                 `json:"theme,omitempty"`
+	ColorScheme                 string                 `json:"color_scheme,omitempty"`                  // Session owner's UI color scheme: "light", "dark", or "" (follow OS). Daemon applies via gsettings to GNOME.
 	Version                     int64                  `json:"version"`                                 // Unix timestamp of app config update
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config,omitempty"`             // Code agent configuration for Zed agentic coding
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"` // True if user has an active Claude subscription for credential sync
