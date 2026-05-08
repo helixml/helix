@@ -409,7 +409,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
           <Accordion
             key={`tool-${index}`}
             sx={{
-              background: '#23262F',
+              background: lightTheme.highlightColor,
               mb: 1,
               '&:before': { display: 'none' },
               boxShadow: 'none',
@@ -786,7 +786,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                     <Typography variant="subtitle2" sx={{ color: '#A0AEC0', mb: 1 }}>
                       MCP Server URL:
                     </Typography>
-                    <Typography variant="body1" sx={{ color: '#F1F1F1', fontFamily: 'monospace', bgcolor: '#23262F', p: 1, borderRadius: 1 }}>
+                    <Typography variant="body1" sx={{ color: '#F1F1F1', fontFamily: 'monospace', bgcolor: lightTheme.highlightColor, p: 1, borderRadius: 1 }}>
                       {skill.url}
                     </Typography>
                   </Box>
@@ -826,7 +826,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                       overflow: 'hidden'
                     }}>
                       <Box sx={{
-                        bgcolor: '#23262F',
+                        bgcolor: lightTheme.highlightColor,
                         p: 2,
                         borderBottom: '1px solid #353945',
                         display: 'flex',
@@ -846,7 +846,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                           <Accordion
                             key={`tool-${index}`}
                             sx={{
-                              background: '#23262F',
+                              background: lightTheme.highlightColor,
                               mb: 1,
                               '&:before': { display: 'none' },
                               boxShadow: 'none',
@@ -918,7 +918,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
           </Box>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+      <DialogActions sx={{ background: lightTheme.panelColor, borderTop: lightTheme.border, flexDirection: 'column', alignItems: 'stretch' }}>
         {error && (
           <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
             <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>

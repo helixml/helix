@@ -20,6 +20,7 @@ const Snackbar: React.FC = () => {
       autoHideDuration={ 5000 }
       anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       onClose={ handleClose }
+      sx={{ zIndex: (theme) => theme.zIndex.tooltip + 100 }}
     >
       <Alert
         severity={ snackbarContext.snackbar.severity }

@@ -28,18 +28,21 @@ export type AttentionEventType =
   | 'implementation_failed'
   | 'pr_ready'
 
-const QUERY_KEY = ['attention-events']
-
-export function useAttentionEvents(enabled: boolean = true) {
+export function useAttentionEvents(enabled: boolean = true, filterMine: boolean = false) {
   const api = useApi()
   const queryClient = useQueryClient()
   // Track previous event IDs so consumers can detect genuinely new arrivals
   const prevEventIdsRef = useRef<Set<string>>(new Set())
 
+  const queryKey = ['attention-events', filterMine]
+
   const query = useQuery<AttentionEvent[]>({
-    queryKey: QUERY_KEY,
+    queryKey,
     queryFn: async () => {
-      const events = await api.get<AttentionEvent[]>('/api/v1/attention-events?active=true', undefined, {
+      const url = filterMine
+        ? '/api/v1/attention-events?active=true&filter=mine'
+        : '/api/v1/attention-events?active=true'
+      const events = await api.get<AttentionEvent[]>(url, undefined, {
         snackbar: false,
       })
       return events || []
@@ -62,8 +65,8 @@ export function useAttentionEvents(enabled: boolean = true) {
   }
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: QUERY_KEY })
-  }, [queryClient])
+    queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, filterMine])
 
   const acknowledgeMutation = useMutation({
     mutationFn: async (eventId: string) => {

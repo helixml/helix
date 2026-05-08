@@ -8,7 +8,7 @@ import {
   CircularProgress,
   Button,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { MessageWithToolCalls, ResponseEntry } from "../session/InteractionInference";
@@ -24,6 +24,7 @@ interface InlineCommentBubbleProps {
   commentRef?: (el: HTMLDivElement | null) => void;
   streamingResponse?: string; // Live streaming response content
   streamingEntries?: ResponseEntry[]; // Structured entries for streaming
+  isStreamingComplete?: boolean; // true = stream done, show content without spinner
   isNarrowViewport?: boolean;
 }
 
@@ -37,6 +38,7 @@ export default function InlineCommentBubble({
   commentRef,
   streamingResponse,
   streamingEntries,
+  isStreamingComplete = false,
   isNarrowViewport = false,
 }: InlineCommentBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -45,7 +47,8 @@ export default function InlineCommentBubble({
 
   // Use streaming response if available, otherwise fall back to persisted response
   const displayResponse = streamingResponse || comment.agent_response;
-  const isStreaming = !!streamingResponse && !comment.agent_response;
+  // isStreamingComplete: stream finished but cache not yet refreshed — show content, hide spinner
+  const isStreaming = !!streamingResponse && !comment.agent_response && !isStreamingComplete;
 
   // Get the last N lines for collapsed view
   const { truncatedResponse, isTruncated, lineCount } = useMemo(() => {
@@ -95,7 +98,7 @@ export default function InlineCommentBubble({
 
   const wideStyles = {
     position: "absolute" as const,
-    left: "670px",
+    left: "820px",
     top: `${yPos}px`,
     width: "300px",
     mt: 0,
@@ -123,8 +126,8 @@ export default function InlineCommentBubble({
         mb={1}
       >
         <Chip label="Comment" size="small" color="primary" />
-        <IconButton size="small" onClick={() => onResolve(comment.id!)}>
-          <CloseIcon fontSize="small" />
+        <IconButton size="small" onClick={() => onResolve(comment.id!)} sx={{ color: "success.main" }}>
+          <CheckCircleIcon fontSize="small" />
         </IconButton>
       </Box>
 

@@ -7,9 +7,12 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import Page from '../components/system/Page'
 import TaskDialog from '../components/tasks/TaskDialog'
-import TasksTable from '../components/tasks/TasksTable'
+import TasksView from '../components/tasks/TasksView'
 import EmptyTasksState from '../components/tasks/EmptyTasksState'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import ViewModeToggle from '../components/widgets/ViewModeToggle'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
 
 import { useListUserCronTriggers, useDeleteAppTrigger } from '../services/appService'
 import useAccount from '../hooks/useAccount'
@@ -18,6 +21,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import useViewMode from '../hooks/useViewMode'
 import Paywall from '../components/subscription/Paywall'
 
 import { TypesTriggerConfiguration } from '../api/api'
@@ -39,6 +43,7 @@ const Tasks: FC = () => {
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
   const [prepopulatedTaskData, setPrepopulatedTaskData] = useState<TaskData | undefined>()
+  const [viewMode, setViewMode] = useViewMode('tasks-view-mode', 'table')
 
   const isLoggedIn = !!account.user
 
@@ -195,14 +200,20 @@ const Tasks: FC = () => {
     }
 
     return (
-      <TasksTable
-        authenticated={ !!account.user }
-        data={triggers.data}
-        apps={apps.apps}
-        onEdit={handleEditTask}
-        onDelete={handleDeleteTask}
-        onToggleStatus={handleToggleStatus}
-      />
+      <>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+          <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+        </Box>
+        <TasksView
+          mode={viewMode}
+          authenticated={ !!account.user }
+          data={triggers.data}
+          apps={apps.apps}
+          onEdit={handleEditTask}
+          onDelete={handleDeleteTask}
+          onToggleStatus={handleToggleStatus}
+        />
+      </>
     )
   }
 
@@ -211,23 +222,30 @@ const Tasks: FC = () => {
       breadcrumbTitle="Tasks"
       orgBreadcrumbs={true}
       topbarContent={(
-        <div>
-          <Button
-            id="new-task-button"
-            variant="contained"
-            color="secondary"
-            endIcon={<AddIcon />}
-            onClick={() => handleCreateTask()}
-          >
-            New
-          </Button>
-        </div>
+        <Button
+          id="new-task-button"
+          variant="contained"
+          color="secondary"
+          endIcon={<AddIcon />}
+          onClick={() => handleCreateTask()}
+        >
+          New
+        </Button>
       )}
     >
-      <Container maxWidth="xl" sx={{ mb: 4 }}>
-        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
-          {renderContent()}
-        </Paywall>
+      <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h5" sx={{ mb: 1 }}>Tasks</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Recurring agent tasks that run on a cron schedule. Each task triggers an agent
+              with a defined input on its schedule and tracks recent executions.
+            </Typography>
+          </Box>
+          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+            {renderContent()}
+          </Paywall>
+        </Stack>
       </Container>
 
       {/* Task Dialog */}

@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -86,6 +88,7 @@ type helixConfigResponse struct {
 	ExternalSync                map[string]interface{} `json:"external_sync"`
 	Agent                       map[string]interface{} `json:"agent"`
 	Theme                       string                 `json:"theme"`
+	ColorScheme                 string                 `json:"color_scheme"`
 	Version                     int64                  `json:"version"`
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
@@ -143,15 +146,16 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "claude_code":
-		// Claude Code: Uses Zed's built-in Claude Code ACP (@zed-industries/claude-code-acp).
-		// We only set env vars — Zed handles installing and launching the ACP wrapper.
+		// Claude Code: Uses Zed's built-in claude-agent-acp npm package.
+		// We configure it via /etc/claude-code/managed-settings.json (read by the
+		// package at startup) rather than agent_servers.claude in Zed settings.
+		// Writing to agent_servers.claude suppresses the model selector and
+		// bypass-permissions toggle in Zed's UI; using managed settings avoids this.
+		//
 		// Two modes based on whether baseURL is set:
 		// 1. API key mode (baseURL set): Claude Code uses Helix API proxy
 		// 2. Subscription mode (no baseURL): Claude Code uses OAuth credentials
-		env := map[string]interface{}{
-			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-			"DISABLE_TELEMETRY":                        "1",
-		}
+		env := map[string]string{}
 
 		if d.codeAgentConfig.BaseURL != "" {
 			// API key mode: route through Helix API proxy
@@ -185,12 +189,24 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// also triggers refresh_if_stale() earlier via has_registry_agents().
 		// Helix sends agent_name="claude" over WebSocket; thread_service.rs
 		// maps it to "claude-acp" before calling server.connect().
+		// Write the model to managed-settings.json so the ACP agent picks it up at
+		// session initialization. The SettingsManager reads this file and passes
+		// settings.model to getAvailableModels(), which calls resolveModelPreference()
+		// to set the correct currentModelId in the new_session response.
+		// This drives the ConfigOptionsView model selector (config_options.current_value),
+		// which is separate from session.models.current_model_id.
+		d.writeClaudeManagedSettings()
+
+		claudeACPConfig := map[string]interface{}{
+			"type":         "registry",
+			"default_mode": "bypassPermissions",
+			"env":          env,
+		}
+		if d.codeAgentConfig.Model != "" {
+			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
+		}
 		return map[string]interface{}{
-			"claude-acp": map[string]interface{}{
-				"type":         "registry",
-				"default_mode": "bypassPermissions",
-				"env":          env,
-			},
+			"claude-acp": claudeACPConfig,
 		}
 
 	default: // "zed_agent" or empty (default)
@@ -231,15 +247,6 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 	rewritten := origParsed.String()
 	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
 	return rewritten
-}
-
-// rewriteLocalhostURLsInExternalSync rewrites any localhost URLs in the external_sync config
-func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[string]interface{}) {
-	if wsSync, ok := externalSync["websocket_sync"].(map[string]interface{}); ok {
-		if extURL, ok := wsSync["external_url"].(string); ok {
-			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
-		}
-	}
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
@@ -359,7 +366,34 @@ func (d *SettingsDaemon) injectKoditAuth() {
 const (
 	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
+	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
 )
+
+// writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json so the
+// claude-agent-acp SettingsManager picks up the model preference at session init.
+// resolveModelPreference() handles substring matching so "claude-opus-4-6" correctly
+// resolves to the model's canonical value ID (e.g. "claude-opus-4-6-latest").
+func (d *SettingsDaemon) writeClaudeManagedSettings() {
+	settings := map[string]interface{}{}
+	if d.codeAgentConfig != nil && d.codeAgentConfig.Model != "" {
+		settings["model"] = d.codeAgentConfig.Model
+	}
+
+	data, err := json.Marshal(settings)
+	if err != nil {
+		log.Printf("Failed to marshal claude managed settings: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(ClaudeManagedSettingsPath), 0755); err != nil {
+		log.Printf("Failed to create claude managed settings dir: %v", err)
+		return
+	}
+	if err := os.WriteFile(ClaudeManagedSettingsPath, data, 0644); err != nil {
+		log.Printf("Failed to write claude managed settings: %v", err)
+		return
+	}
+	log.Printf("Wrote claude managed settings: model=%s", d.codeAgentConfig.Model)
+}
 
 // syncClaudeCredentials fetches Claude credentials from the Helix API.
 // For OAuth credentials: writes ~/.claude/.credentials.json (Claude Code reads this).
@@ -681,8 +715,13 @@ func main() {
 		log.Fatalf("Failed to start file watcher: %v", err)
 	}
 
-	// Start polling loop for Helix changes
+	// Start polling loop for Helix changes (slow safety net, 30s)
 	go daemon.pollHelixChanges()
+
+	// Start a websocket subscriber for instant config-change notifications.
+	// The API publishes a "config_changed" event to session-updates.<owner>.<session>
+	// when the user toggles their color scheme; we re-sync immediately.
+	go daemon.subscribeConfigEvents()
 
 	// HTTP server for health checks and manual triggers
 	http.HandleFunc("/health", daemon.healthCheck)
@@ -777,7 +816,118 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		d.helixSettings["agent_servers"] = agentServers
 	}
 
+	// Mirror the session owner's color scheme to the GNOME desktop. This is best-effort:
+	// gsettings may fail if dconf is not available (e.g. not yet inside dbus-run-session)
+	// or if the setting is unsupported on this distro — we just log and move on.
+	d.applyGNOMEColorScheme(config.ColorScheme)
+
 	return d.writeSettings(d.helixSettings)
+}
+
+// subscribeConfigEvents connects to the API's user websocket for this session and
+// triggers an immediate re-sync whenever a config_changed event arrives. Reconnects
+// forever on failure with a 5s backoff. Falls back to the 30s poll loop if the WS
+// is unreachable.
+func (d *SettingsDaemon) subscribeConfigEvents() {
+	for {
+		if err := d.runConfigEventLoop(); err != nil {
+			log.Printf("config event WS disconnected: %v (reconnecting in 5s)", err)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (d *SettingsDaemon) runConfigEventLoop() error {
+	wsURL, err := url.Parse(d.apiURL)
+	if err != nil {
+		return fmt.Errorf("bad api url: %w", err)
+	}
+	switch wsURL.Scheme {
+	case "https":
+		wsURL.Scheme = "wss"
+	default:
+		wsURL.Scheme = "ws"
+	}
+	wsURL.Path = "/api/v1/ws/user"
+	q := wsURL.Query()
+	q.Set("session_id", d.sessionID)
+	wsURL.RawQuery = q.Encode()
+
+	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dialer.HandshakeTimeout = 10 * time.Second
+
+	header := http.Header{}
+	if d.apiToken != "" {
+		header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	conn, _, err := dialer.Dial(wsURL.String(), header)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+	log.Printf("config event WS connected (%s)", wsURL.String())
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return fmt.Errorf("read: %w", err)
+		}
+		var evt struct {
+			Type        string `json:"type"`
+			Field       string `json:"field"`
+			ColorScheme string `json:"color_scheme"`
+		}
+		if err := json.Unmarshal(msg, &evt); err != nil {
+			continue // not all session-updates events are config_changed; ignore noise
+		}
+		if evt.Type != "config_changed" {
+			continue
+		}
+		log.Printf("config_changed event: field=%s color_scheme=%s", evt.Field, evt.ColorScheme)
+		if err := d.syncFromHelix(); err != nil {
+			log.Printf("re-sync after config_changed failed: %v", err)
+		}
+	}
+}
+
+// applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty
+// string is treated as dark for now (matches the default Yaru Dark loaded by
+// startup-app.sh).
+//
+// We have to set:
+//   - color-scheme (the modern preference signal libadwaita / GNOME 42+ apps
+//     respect)
+//   - gtk-theme (the actual rendered theme — without this, GTK3 apps + the
+//     shell stay on whatever was loaded at startup, so the desktop looks
+//     unchanged even when color-scheme says prefer-light)
+//   - desktop wallpaper (helix-logo is dark; swap to a Yaru light wallpaper
+//     in light mode so the desktop reads as actually light, not just
+//     "dark wallpaper with light app chrome")
+func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
+	colorScheme := "prefer-dark"
+	gtkTheme := "Yaru-dark"
+	wallpaper := "file:///usr/share/backgrounds/helix-logo.png"
+	if scheme == "light" {
+		colorScheme = "prefer-light"
+		gtkTheme = "Yaru"
+		wallpaper = "file:///usr/share/backgrounds/Questing_Quokka_Full_Light_3840x2160.png"
+	}
+
+	cmds := [][]string{
+		{"gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme},
+		{"gsettings", "set", "org.gnome.desktop.interface", "gtk-theme", gtkTheme},
+		{"gsettings", "set", "org.gnome.desktop.background", "picture-uri", wallpaper},
+		{"gsettings", "set", "org.gnome.desktop.background", "picture-uri-dark", wallpaper},
+	}
+	for _, c := range cmds {
+		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
+		if err != nil {
+			log.Printf("gsettings %v failed: %v (%s)", c[1:], err, strings.TrimSpace(string(out)))
+		}
+	}
+	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s wallpaper=%s", colorScheme, gtkTheme, wallpaper)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
@@ -796,6 +946,22 @@ var USER_PREFERENCE_FIELDS = map[string]bool{
 	"theme": true,
 }
 
+// HELIX_MANAGED_AGENT_FIELDS lists keys under "agent" that Helix owns and that
+// user-side overrides (i.e. whatever Zed wrote to settings.json) must never
+// clobber. When Zed boots and writes a different default_model — either because
+// the user picked one in the model picker or because Zed's built-in agent
+// profile fell back to its hardcoded Claude default — the daemon used to
+// faithfully sync that back to disk on the next poll, even though Helix had
+// the authoritative value.
+//
+// See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+var HELIX_MANAGED_AGENT_FIELDS = map[string]bool{
+	"default_model":          true,
+	"inline_assistant_model": true,
+	"commit_message_model":   true,
+	"thread_summary_model":   true,
+}
+
 // helixDefaults returns the static Helix-owned settings that must be present
 // in every settings.json. Both syncFromHelix() and checkHelixUpdates() use
 // this as the base, then layer on API response fields.
@@ -809,6 +975,21 @@ func helixDefaults() map[string]interface{} {
 		// Disable auto-formatting globally - it mangles JS/TS/TSX in our codebases.
 		// Go keeps format_on_save via per-language override (gofmt is expected).
 		"format_on_save": "off",
+		// Bump context-server initialize timeout from upstream's 60s default to 180s.
+		// Several MCPs in our spec-task containers (chrome-devtools, github via
+		// `npx <pkg>@latest`, helixos via http to a still-warming-up api:8080) all
+		// fire their JSON-RPC `initialize` at the same moment Zed boots on a cold
+		// container, racing for CPU against settings-sync-daemon and language
+		// servers. The first npm download routinely overruns 60s and Zed marks the
+		// servers as failed; tools never appear (most visibly
+		// `mcp__chrome-devtools__*` go missing).
+		// helixml/zed#47 tried to fix this by bumping DEFAULT_REQUEST_TIMEOUT in
+		// crates/context_server/src/client.rs, but that constant is dead code in
+		// our path: project_settings.rs defaults context_server_timeout to 60 and
+		// passes Some(60) all the way to client.rs:370, where the .or(DEFAULT)
+		// fallback never fires. Fixing it here in settings.json works regardless
+		// of upstream changes and survives Zed rebases.
+		"context_server_timeout": 180,
 		"languages": map[string]interface{}{
 			"Go": map[string]interface{}{
 				"format_on_save": "on",
@@ -873,9 +1054,14 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 	}
 
 	for k, v := range user {
-		if k != "context_servers" && k != "languages" {
-			merged[k] = v
+		if k == "context_servers" || k == "languages" {
+			continue
 		}
+		if k == "agent" {
+			merged["agent"] = mergeAgentBlock(merged["agent"], v)
+			continue
+		}
+		merged[k] = v
 	}
 
 	// Preserve security-protected and user-preference fields from on-disk config.
@@ -900,6 +1086,37 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 	agentServers := d.generateAgentServerConfig()
 	if agentServers != nil {
 		merged["agent_servers"] = agentServers
+	}
+
+	return merged
+}
+
+// mergeAgentBlock deep-merges Zed's user-side "agent" block onto the helix-managed
+// one, dropping any user-side values for keys in HELIX_MANAGED_AGENT_FIELDS so
+// helix's model selections always win.
+func mergeAgentBlock(helixAgent, userAgent interface{}) interface{} {
+	userMap, ok := userAgent.(map[string]interface{})
+	if !ok {
+		// User override is not an object — keep helix's agent verbatim.
+		if helixAgent != nil {
+			return helixAgent
+		}
+		return userAgent
+	}
+
+	merged := make(map[string]interface{})
+	if helixMap, ok := helixAgent.(map[string]interface{}); ok {
+		for k, v := range helixMap {
+			merged[k] = v
+		}
+	}
+
+	for k, v := range userMap {
+		if HELIX_MANAGED_AGENT_FIELDS[k] {
+			log.Printf("dropping user override for helix-managed agent field: %s", k)
+			continue
+		}
+		merged[k] = v
 	}
 
 	return merged
@@ -949,12 +1166,46 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 		if k == "context_servers" || k == "languages" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
 			continue
 		}
+		if k == "agent" {
+			// Diff the agent block per-field, dropping helix-managed model fields so
+			// they never get uploaded back to the API. Defense-in-depth alongside
+			// the merge guard above.
+			if agentDiff := diffAgentBlock(v, helix["agent"]); agentDiff != nil {
+				overrides["agent"] = agentDiff
+			}
+			continue
+		}
 		if helixVal, inHelix := helix[k]; !inHelix || !deepEqual(v, helixVal) {
 			overrides[k] = v
 		}
 	}
 
 	return overrides
+}
+
+// diffAgentBlock returns the user-side keys under "agent" that differ from the
+// helix-managed value, with helix-managed model fields excluded. Returns nil if
+// there is nothing to upload.
+func diffAgentBlock(current, helix interface{}) map[string]interface{} {
+	currentMap, ok := current.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	helixMap, _ := helix.(map[string]interface{})
+
+	diff := make(map[string]interface{})
+	for k, v := range currentMap {
+		if HELIX_MANAGED_AGENT_FIELDS[k] {
+			continue
+		}
+		if helixVal, inHelix := helixMap[k]; !inHelix || !deepEqual(v, helixVal) {
+			diff[k] = v
+		}
+	}
+	if len(diff) == 0 {
+		return nil
+	}
+	return diff
 }
 
 // startWatcher monitors settings.json for Zed UI changes and

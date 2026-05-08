@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net/http"
@@ -18,6 +19,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// validateAssigneeIsOrgMember returns nil if assigneeID is empty (unassigned is valid)
+// or if the assignee is a member of the given organization. Returns the underlying
+// store error otherwise — callers are responsible for logging context (task_id /
+// project_id) and translating to an HTTP response.
+func (s *HelixAPIServer) validateAssigneeIsOrgMember(ctx context.Context, orgID, assigneeID string) error {
+	if assigneeID == "" {
+		return nil
+	}
+	_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         assigneeID,
+	})
+	return err
+}
+
 // createTaskFromPrompt godoc
 // @Summary Create spec-driven task from simple prompt
 // @Description Create a new task from a simple description and start spec generation
@@ -30,6 +46,11 @@ import (
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
+	addCorsHeaders(w)
+	if r.Method == http.MethodOptions {
+		return
+	}
+
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -53,9 +74,32 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Validate assignee (if provided) is a member of the project's organization
+	if req.AssigneeID != "" {
+		project, err := s.Store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", req.ProjectID).Msg("Failed to load project for assignee validation")
+			http.Error(w, "failed to load project", http.StatusInternalServerError)
+			return
+		}
+		if err := s.validateAssigneeIsOrgMember(ctx, project.OrganizationID, req.AssigneeID); err != nil {
+			log.Warn().
+				Str("project_id", req.ProjectID).
+				Str("assignee_id", req.AssigneeID).
+				Str("org_id", project.OrganizationID).
+				Err(err).
+				Msg("Assignee is not an organization member")
+			http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Set user ID and email from context
 	req.UserID = user.ID
 	req.UserEmail = user.Email
+
+	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
+	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
 
 	// Validate request
 	if req.Prompt == "" {
@@ -270,13 +314,19 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					task.SessionUpdatedAt = &session.Updated
 
 					// Live-check container status against the executor, overriding stale DB values.
+					// Only flip "running" → "stopped" when the executor says the container is gone.
+					// Never upgrade "starting" to "running" — the container may be up in Docker
+					// but RevDial hasn't connected yet, causing ScreenshotViewer 503 errors.
 					cfg := session.Metadata
 					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
-						_, err := s.externalAgentExecutor.GetSession(session.ID)
-						if err != nil {
-							cfg.ExternalAgentStatus = "stopped"
-						} else {
-							cfg.ExternalAgentStatus = "running"
+						// Live-check the executor for "running" and "" (stopped-but-not-yet-labelled)
+						// sessions. Skip "starting" (RevDial not yet connected — upgrading it to
+						// "running" causes ScreenshotViewer 503s) and "stopped" (already terminal).
+						if cfg.ExternalAgentStatus == "running" || cfg.ExternalAgentStatus == "" {
+							_, err := s.externalAgentExecutor.GetSession(session.ID)
+							if err != nil {
+								cfg.ExternalAgentStatus = "stopped"
+							}
 						}
 					} else if cfg.ContainerName != "" {
 						cfg.ExternalAgentStatus = "stopped"
@@ -285,18 +335,33 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
-					case status == "stopped":
+					case status == "stopped" || status == "terminated_idle":
 						task.SandboxState = "absent"
+					case status == "starting":
+						task.SandboxState = "starting"
 					case status == "running":
 						task.SandboxState = "running"
 					case hasContainer:
 						task.SandboxState = "running"
-					case status == "starting":
-						task.SandboxState = "starting"
 					default:
 						task.SandboxState = "absent"
 					}
 					task.SandboxStatusMessage = cfg.StatusMessage
+				}
+			}
+
+			// Derive AgentWorkState from sandbox state + latest interaction state.
+			// This drives the per-card "In Progress vs Idle" indicator so the timer
+			// only ticks when the agent is actually streaming a response.
+			// On query error: leave AgentWorkState empty so the UI falls back to the
+			// existing "In Progress" label rather than mass-flipping every running
+			// card to "Idle".
+			latestInteractions, err := s.Store.GetLatestInteractionsForSessions(ctx, sessionIDs)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to fetch latest interactions for agent_work_state derivation")
+			} else {
+				for _, task := range tasks {
+					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
 				}
 			}
 		}
@@ -378,6 +443,51 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When approving specs, validate the approver has GitHub OAuth so their
+	// credentials can be used for commits and push during implementation.
+	if req.Approved {
+		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get project: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+				var oauthErr *services.OAuthRequiredError
+				if errors.As(err, &oauthErr) {
+					writeResponse(w, map[string]interface{}{
+						"error":         "oauth_required",
+						"message":       oauthErr.Error(),
+						"provider_type": oauthErr.ProviderType,
+					}, http.StatusUnprocessableEntity)
+					return
+				}
+				// Non-OAuthRequired error (usually transient store error).
+				// Don't block approval on infra hiccups; the downstream push
+				// will surface any real auth failure to the user.
+				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
+			}
+		}
+
+		// Refuse to queue implementation if the agent's provider/model
+		// snapshot is stale or empty — same backstop as start-planning, so
+		// post-spec approval can't sneak past with a broken config.
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
+		} else if reason != "" {
+			writeResponse(w, map[string]interface{}{
+				"error":   "agent_misconfigured",
+				"message": reason,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
+	}
+
 	now := time.Now()
 	existingTask.SpecApproval = &req
 	existingTask.StatusUpdatedAt = &now
@@ -400,6 +510,23 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	// Log audit event for spec approval
 	if req.Approved && s.auditLogService != nil {
 		s.auditLogService.LogTaskApproved(ctx, existingTask, user.ID, user.Email)
+	}
+
+	// Keep DesignReview record in sync — callers of this endpoint bypass
+	// submitDesignReview, so the review record would otherwise stay "pending"
+	// while the task advances to implementation.
+	if req.Approved {
+		reviews, listErr := s.Store.ListSpecTaskDesignReviews(ctx, taskID)
+		if listErr == nil && len(reviews) > 0 {
+			latest := &reviews[len(reviews)-1]
+			if latest.Status != types.SpecTaskDesignReviewStatusApproved {
+				latest.Status = types.SpecTaskDesignReviewStatusApproved
+				latest.ApprovedAt = existingTask.SpecApprovedAt
+				if updateErr := s.Store.UpdateSpecTaskDesignReview(ctx, latest); updateErr != nil {
+					log.Warn().Err(updateErr).Str("review_id", latest.ID).Msg("Failed to sync design review status (continuing)")
+				}
+			}
+		}
 	}
 
 	// Process approval immediately in goroutine (don't wait for orchestrator polling)
@@ -757,6 +884,42 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The user who starts planning becomes the actor for planning-phase
+	// commits/pushes, so their GitHub OAuth must be connected up front.
+	// Otherwise the agent would push specs using either no credentials or
+	// the task creator's token — both are wrong.
+	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
+		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
+			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+				var oauthErr *services.OAuthRequiredError
+				if errors.As(err, &oauthErr) {
+					writeResponse(w, map[string]interface{}{
+						"error":         "oauth_required",
+						"message":       oauthErr.Error(),
+						"provider_type": oauthErr.ProviderType,
+					}, http.StatusUnprocessableEntity)
+					return
+				}
+				log.Warn().Err(err).Str("task_id", taskID).
+					Msg("Non-OAuthRequired error validating planner OAuth; proceeding with planning")
+			}
+		}
+	}
+
+	// Refuse to queue if the agent's provider/model snapshot is stale or
+	// empty — otherwise the orchestrator would spawn a desktop that boots
+	// fine but can't reach a routable model, and the user has to dig
+	// through API logs to find the cause.
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
+	} else if reason != "" {
+		writeResponse(w, map[string]interface{}{
+			"error":   "agent_misconfigured",
+			"message": reason,
+		}, http.StatusUnprocessableEntity)
+		return
+	}
+
 	task.PlanningOptions = opts
 	task.UpdatedAt = time.Now()
 
@@ -769,6 +932,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
 	task.StatusUpdatedAt = &now
+	// Record who kicked off planning so downstream push-credential and
+	// container git-identity resolution can attribute to them.
+	task.PlanningStartedBy = user.ID
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
@@ -870,6 +1036,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergedAt = nil
 			task.MergeCommitHash = ""
 			task.RepoPullRequests = nil
+			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
+			task.KeepAlive = false
 		}
 	}
 	if updateReq.Priority != "" {
@@ -912,26 +1080,23 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.PublicDesignDocs != nil {
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
 	}
+	// Update keep alive setting (pointer allows explicit false)
+	previousKeepAlive := task.KeepAlive
+	if updateReq.KeepAlive != nil {
+		task.KeepAlive = *updateReq.KeepAlive
+	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AssigneeID != nil {
 		newAssigneeID := *updateReq.AssigneeID
-		// Only validate if assigning (not when clearing)
-		if newAssigneeID != "" {
-			// Validate that assignee is an organization member
-			_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-				OrganizationID: task.OrganizationID,
-				UserID:         newAssigneeID,
-			})
-			if err != nil {
-				log.Warn().
-					Str("task_id", taskID).
-					Str("assignee_id", newAssigneeID).
-					Str("org_id", task.OrganizationID).
-					Err(err).
-					Msg("Assignee is not an organization member")
-				http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
-				return
-			}
+		if err := s.validateAssigneeIsOrgMember(ctx, task.OrganizationID, newAssigneeID); err != nil {
+			log.Warn().
+				Str("task_id", taskID).
+				Str("assignee_id", newAssigneeID).
+				Str("org_id", task.OrganizationID).
+				Err(err).
+				Msg("Assignee is not an organization member")
+			http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+			return
 		}
 		task.AssigneeID = newAssigneeID
 	}
@@ -963,6 +1128,26 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// If the user just turned KeepAlive off on a task that already reached Done,
+	// the orchestrator's handleDone() has already exited without stopping the
+	// desktop (because KeepAlive was true at the time). Release the desktop now
+	// so the user has an explicit way to free the resources after merge.
+	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.PlanningSessionID != "" {
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+		if stopErr != nil {
+			log.Warn().
+				Err(stopErr).
+				Str("task_id", taskID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Failed to stop desktop after KeepAlive turned off on Done task (continuing)")
+		} else {
+			log.Info().
+				Str("task_id", taskID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopped desktop after KeepAlive turned off on Done task")
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1414,4 +1599,26 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(settings)
+}
+
+// deriveAgentWorkState maps the SandboxState + latest-interaction state to a
+// coarse work-state used by the project board card UI.
+//
+//	sandbox=absent/starting → ""        (UI falls back to sandbox status hint)
+//	sandbox=running, latest=Waiting     → "working"
+//	sandbox=running, anything else      → "idle"
+//
+// Only InteractionStateWaiting counts as "working". Editing/None/Complete/Error
+// and a missing interaction all collapse to "idle" — the brief gap between row
+// insert (state="") and the worker setting state="waiting" can flicker a card
+// to "Idle" at poll time, which is acceptable at 30s polling.
+func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types.AgentWorkState {
+	if task.SandboxState != "running" {
+		return ""
+	}
+
+	if latest != nil && latest.State == types.InteractionStateWaiting {
+		return types.AgentWorkStateWorking
+	}
+	return types.AgentWorkStateIdle
 }

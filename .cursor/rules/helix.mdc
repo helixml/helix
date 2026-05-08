@@ -5,7 +5,7 @@ alwaysApply: false
 ---
 Act as expert senior Golang/Python engineer
 
-**Stack:** Go API, Docker, Postgres, PGVector/Typesense (RAG), NATS (embedded)
+**Stack:** Go API, Docker, Postgres, PGVector/Kodit (RAG), NATS (embedded)
 
 **Code Style:**
 - No unrelated changes

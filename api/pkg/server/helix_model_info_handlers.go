@@ -103,6 +103,20 @@ func (apiServer *HelixAPIServer) createDynamicModelInfo(rw http.ResponseWriter, 
 		}
 	}
 
+	if modelInfo.ModelInfo.Pricing.InputCacheRead != "" {
+		if _, err := strconv.ParseFloat(modelInfo.ModelInfo.Pricing.InputCacheRead, 64); err != nil {
+			http.Error(rw, "Invalid input_cache_read price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfo.ModelInfo.Pricing.InputCacheWrite != "" {
+		if _, err := strconv.ParseFloat(modelInfo.ModelInfo.Pricing.InputCacheWrite, 64); err != nil {
+			http.Error(rw, "Invalid input_cache_write price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	createdModelInfo, err := apiServer.Store.CreateDynamicModelInfo(r.Context(), &modelInfo)
 	if err != nil {
 		log.Error().Err(err).Msg("error creating dynamic model info")
@@ -216,6 +230,20 @@ func (apiServer *HelixAPIServer) updateDynamicModelInfo(rw http.ResponseWriter, 
 		_, err := strconv.ParseFloat(modelInfoUpdates.ModelInfo.Pricing.Request, 64)
 		if err != nil {
 			http.Error(rw, "Invalid request price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfoUpdates.ModelInfo.Pricing.InputCacheRead != "" {
+		if _, err := strconv.ParseFloat(modelInfoUpdates.ModelInfo.Pricing.InputCacheRead, 64); err != nil {
+			http.Error(rw, "Invalid input_cache_read price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfoUpdates.ModelInfo.Pricing.InputCacheWrite != "" {
+		if _, err := strconv.ParseFloat(modelInfoUpdates.ModelInfo.Pricing.InputCacheWrite, 64); err != nil {
+			http.Error(rw, "Invalid input_cache_write price: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 	}

@@ -216,6 +216,14 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 		resp.Usage.PromptTokens += chunk.Usage.PromptTokens
 		resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
 		resp.Usage.TotalTokens += chunk.Usage.TotalTokens
+
+		if chunk.Usage.PromptTokensDetails != nil {
+			if resp.Usage.PromptTokensDetails == nil {
+				resp.Usage.PromptTokensDetails = &openai.PromptTokensDetails{}
+			}
+			resp.Usage.PromptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
+			resp.Usage.PromptTokensDetails.AudioTokens += chunk.Usage.PromptTokensDetails.AudioTokens
+		}
 	}
 }
 
@@ -263,7 +271,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 	}
 
 	// Initialize token counts to 0 in case resp is nil
-	var promptTokens, completionTokens, totalTokens int
+	var promptTokens, completionTokens, totalTokens, cachedPromptTokens int
 
 	if resp != nil {
 		if resp.Usage.PromptTokens == 0 && resp.Usage.CompletionTokens == 0 {
@@ -277,13 +285,15 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 			completionTokens = resp.Usage.CompletionTokens
 			totalTokens = resp.Usage.TotalTokens
 		}
+		// OpenAI reports cached input tokens inside prompt_tokens via prompt_tokens_details.cached_tokens.
+		// Gemini / Anthropic via the OpenAI-compatible endpoint use the same shape.
+		// Implicit caching means there is no separate "cache write" charge — only reads.
+		if resp.Usage.PromptTokensDetails != nil {
+			cachedPromptTokens = resp.Usage.PromptTokensDetails.CachedTokens
+		}
 	}
 
-	var (
-		promptCost     float64
-		completionCost float64
-		totalCost      float64
-	)
+	var cost pricing.TokenCost
 
 	// Get pricing info for the model
 	modelInfo, err := m.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
@@ -297,20 +307,23 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 			Str("user_id", vals.OwnerID).
 			Str("model", req.Model).
 			Str("provider", string(m.provider)).
-			Err(err).Msg("failed to get model info")
+			Msg("failed to get model info")
 	} else {
-		// Calculate the cost for the call and persist it
-		promptCost, completionCost, err = pricing.CalculateTokenPrice(modelInfo, int64(promptTokens), int64(completionTokens))
+		cost, err = pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+			PromptTokens:     int64(promptTokens), // OpenAI: includes cached
+			CompletionTokens: int64(completionTokens),
+			CacheReadTokens:  int64(cachedPromptTokens),
+		})
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", vals.OwnerID).
 				Str("model", req.Model).
 				Str("provider", string(m.provider)).
-				Err(err).Msg("failed to calculate token price")
+				Msg("failed to calculate token price")
 		}
-		totalCost = promptCost + completionCost
 	}
+	totalCost := cost.Total()
 
 	log.Debug().
 		Str("owner_id", vals.OwnerID).
@@ -322,8 +335,10 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).
-		Float64("prompt_cost", promptCost).
-		Float64("completion_cost", completionCost).
+		Int("cache_read_tokens", cachedPromptTokens).
+		Float64("prompt_cost", cost.PromptCost).
+		Float64("completion_cost", cost.CompletionCost).
+		Float64("cache_read_cost", cost.CacheReadCost).
 		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
@@ -343,8 +358,10 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		PromptTokens:     int64(promptTokens),
 		CompletionTokens: int64(completionTokens),
 		TotalTokens:      int64(totalTokens),
-		PromptCost:       promptCost,
-		CompletionCost:   completionCost,
+		CacheReadTokens:  int64(cachedPromptTokens),
+		PromptCost:       cost.PromptCost,
+		CompletionCost:   cost.CompletionCost,
+		CacheReadCost:    cost.CacheReadCost,
 		TotalCost:        totalCost,
 		UserID:           vals.OwnerID,
 		Stream:           stream,
@@ -456,7 +473,7 @@ func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai
 	startTime := time.Now()
 
 	// Log the request
-	log.Info().
+	log.Trace().
 		Str("component", "openai_logger").
 		Str("provider", string(m.provider)).
 		Str("operation", "embedding").
@@ -482,7 +499,7 @@ func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai
 			Msg("❌ Embedding failed")
 	} else {
 		// Build the log entry
-		logEntry := log.Info().
+		logEntry := log.Trace().
 			Str("component", "openai_logger").
 			Str("provider", string(m.provider)).
 			Str("operation", "embedding").
@@ -507,7 +524,7 @@ func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, reques
 	startTime := time.Now()
 
 	// Log the request
-	logEntry := log.Info().
+	logEntry := log.Trace().
 		Str("component", "openai_logger").
 		Str("provider", string(m.provider)).
 		Str("operation", "flexible_embedding").
@@ -541,7 +558,7 @@ func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, reques
 			Msg("❌ Flexible embedding failed")
 	} else {
 		// Build the log entry
-		logEntry := log.Info().
+		logEntry := log.Trace().
 			Str("component", "openai_logger").
 			Str("provider", string(m.provider)).
 			Str("operation", "flexible_embedding").

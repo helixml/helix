@@ -39,7 +39,17 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
+	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
 )
+
+// AttentionEventFilters controls optional filtering when listing attention events.
+type AttentionEventFilters struct {
+	// MineOnly restricts results to events whose associated spec task is owned by
+	// the requesting user. Ownership is determined by assignee_id first (when set),
+	// falling back to created_by.
+	MineOnly bool
+}
 
 // AttentionEventUpdateRequest is the request body for updating an attention event
 // (acknowledge, dismiss, or snooze).

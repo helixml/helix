@@ -274,15 +274,36 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
 
+  const attachImageFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setSelectedImage(reader.result as string)
+      setSelectedImageName(file.name || `pasted-image-${Date.now()}.png`)
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string)
-        setSelectedImageName(file.name)
-      }
-      reader.readAsDataURL(file)
+      attachImageFile(file)
+    }
+  }
+
+  // Cmd+V / Ctrl+V image paste — attach the clipboard image directly. Text
+  // pastes fall through (we only preventDefault when an image is attached).
+  const handleSessionPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items
+    if (!items || items.length === 0) return
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind !== 'file') continue
+      if (!item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (!file) continue
+      event.preventDefault()
+      attachImageFile(file)
+      return
     }
   }
 
@@ -1217,11 +1238,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     highlightAllFiles,
     safeReloadSession,
     onAddDocuments,
-    theme.palette.mode,
-    themeConfig.lightIcon,
-    themeConfig.darkIcon,
-    themeConfig.lightIconHover,
-    themeConfig.darkIconHover,
+    lightTheme.icon,
+    lightTheme.iconHover,
     getBlockKey,
     isLoadingBlock,
     scrollToBottom,
@@ -1382,7 +1400,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           sx={{
             width: '100%',
             flexShrink: 0,
-            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
+            borderBottom: lightTheme.border,
           }}
         >
           {(!previewMode && (isOwner || account.admin)) && (
@@ -1443,9 +1461,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                         sx={{
                           width: '95%',
                           margin: '0 auto',
-                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.2)'}`,
                           borderRadius: '12px',
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          backgroundColor: lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)',
                           p: 2,
                           display: 'flex',
                           flexDirection: 'column',
@@ -1460,12 +1478,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                             value={inputValue}
                             onChange={handleTextareaChange}
                             onKeyDown={handleKeyDown as any}
+                            onPaste={handleSessionPaste}
                             rows={1}
                             style={{
                               width: '100%',
                               backgroundColor: 'transparent',
                               border: 'none',
-                              color: '#fff',
+                              color: lightTheme.textColor,
                               opacity: 0.7,
                               resize: 'none',
                               outline: 'none',
@@ -1496,24 +1515,75 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 cursor: 'pointer',
-                                border: '2px solid rgba(255, 255, 255, 0.7)',
+                                border: `2px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)'}`,
                                 borderRadius: '50%',
                                 '&:hover': {
-                                  borderColor: 'rgba(255, 255, 255, 0.9)',
-                                  '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                                  borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
+                                  '& svg': { color: lightTheme.textColor }
                                 }
                               }}
                               onClick={() => {
                                 if (imageInputRef.current) imageInputRef.current.click();
                               }}
                             >
-                              <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                              <AttachFileIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                             </Box>
                           </Tooltip>
-                          {selectedImageName && (
-                            <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {selectedImageName}
-                            </Typography>
+                          {selectedImage && (
+                            <Box
+                              sx={{
+                                position: 'relative',
+                                ml: 0.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                              }}
+                            >
+                              <Tooltip title={selectedImageName || 'Attached image'} placement="top">
+                                <Box
+                                  component="img"
+                                  src={selectedImage}
+                                  alt={selectedImageName || 'Attached image'}
+                                  sx={{
+                                    width: 36,
+                                    height: 36,
+                                    objectFit: 'cover',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`,
+                                  }}
+                                />
+                              </Tooltip>
+                              <Typography sx={{ color: lightTheme.textColorFaded, fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {selectedImageName}
+                              </Typography>
+                              <Box
+                                role="button"
+                                aria-label="Remove attached image"
+                                onClick={() => {
+                                  setSelectedImage(null)
+                                  setSelectedImageName(null)
+                                  if (imageInputRef.current) imageInputRef.current.value = ''
+                                }}
+                                sx={{
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: '50%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                  color: lightTheme.textColorFaded,
+                                  border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.3)'}`,
+                                  '&:hover': {
+                                    color: lightTheme.textColor,
+                                    borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.6)',
+                                  },
+                                }}
+                              >
+                                ×
+                              </Box>
+                            </Box>
                           )}
                           <input
                             type="file"
@@ -1545,12 +1615,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 cursor: loading ? 'default' : 'pointer',
-                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                                border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)'}`,
                                 borderRadius: '8px',
                                 opacity: loading ? 0.5 : 1,
                                 '&:hover': loading ? {} : {
-                                  borderColor: 'rgba(255, 255, 255, 0.9)',
-                                  '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                                  borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
+                                  '& svg': { color: lightTheme.textColor }
                                 }
                               }}
                             >
@@ -1568,7 +1638,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                                   <LoadingSpinner />
                                 </Box>
                               ) : (
-                                <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                                <ArrowUpwardIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                               )}
                             </Box>
                           </Tooltip>

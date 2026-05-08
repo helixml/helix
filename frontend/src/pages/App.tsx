@@ -28,6 +28,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import AppUsage from '../components/app/AppUsage'
+import EvaluationTab from '../components/app/EvaluationTab'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
@@ -106,7 +107,7 @@ const App: FC = () => {
           <Grid container>
             {/* Tab Content - Full Width */}
             <Grid item xs={12} sx={{
-              backgroundColor: themeConfig.darkPanel,
+              backgroundColor: lightTheme.panelColor,
               p: 0,
               mt: 2,
               mb: 2,
@@ -143,6 +144,12 @@ const App: FC = () => {
                             appId={appTools.id}
                           />
                         )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'evaluation' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        <EvaluationTab appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'memories' ? (
@@ -211,8 +218,8 @@ const App: FC = () => {
                         ...lightTheme.scrollbar
                       }}>
                         <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
-                          {tabValue === 'appearance' && appTools.flatApp && (
-                            <Box sx={{ height: '100%', overflow: 'auto' }}>
+                          {appTools.flatApp && (
+                            <Box sx={{ display: tabValue === 'appearance' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
                               <AppearanceSettings
                                 app={appTools.flatApp}
                                 onUpdate={appTools.saveFlatApp}
@@ -223,10 +230,11 @@ const App: FC = () => {
                             </Box>
                           )}
 
-                          {tabValue === 'settings' && appTools.flatApp && (
-                            <Box sx={{ 
-                              height: 'calc(100vh - 200px)', 
-                              overflow: 'auto', 
+                          {appTools.flatApp && (
+                            <Box sx={{
+                              display: tabValue === 'settings' ? 'block' : 'none',
+                              height: 'calc(100vh - 200px)',
+                              overflow: 'auto',
                               ...lightTheme.scrollbar,
                               pb: 4
                             }}>
@@ -241,27 +249,25 @@ const App: FC = () => {
                             </Box>
                           )}
 
-                          {tabValue === 'knowledge' && (
-                            <Box sx={{ height: '100%', overflow: 'auto', mr: 2 }}>
-                              <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
-                                Knowledge Sources
-                              </Typography>
-                              <KnowledgeEditor
-                                appId={appTools.id}
-                                disabled={isReadOnly}
-                                saveKnowledgeToApp={async (knowledge) => {
-                                  await appTools.saveFlatApp({ knowledge })
-                                  await appTools.loadServerKnowledge()
-                                }}
-                                onSaveApp={async () => {
-                                  if (!appTools.app) return;
-                                  return await appTools.saveApp(appTools.app);
-                                }}
-                              />
-                            </Box>
-                          )}                     
+                          <Box sx={{ display: tabValue === 'knowledge' ? 'block' : 'none', height: '100%', overflow: 'auto', mr: 2 }}>
+                            <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
+                              Knowledge Sources
+                            </Typography>
+                            <KnowledgeEditor
+                              appId={appTools.id}
+                              disabled={isReadOnly}
+                              saveKnowledgeToApp={async (knowledge) => {
+                                await appTools.saveFlatApp({ knowledge })
+                                await appTools.loadServerKnowledge()
+                              }}
+                              onSaveApp={async () => {
+                                if (!appTools.app) return;
+                                return await appTools.saveApp(appTools.app);
+                              }}
+                            />
+                          </Box>
 
-                          {tabValue === 'apikeys' && (
+                          <Box sx={{ display: tabValue === 'apikeys' ? 'block' : 'none' }}>
                             <APIKeysSection
                               apiKeys={account.appApiKeys}
                               onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
@@ -270,7 +276,7 @@ const App: FC = () => {
                               setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
                               isReadOnly={isReadOnly}
                             />
-                          )}
+                          </Box>
                         </Box>
                       </Grid>
                       {/* For API keys section show  */}

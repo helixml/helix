@@ -717,59 +717,6 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromHelixSpecs(codeRepoPath 
 	return versions, nil
 }
 
-// Helper functions
-
-func splitLines(s string) []string {
-	var lines []string
-	for _, line := range splitByNewline(s) {
-		if line = trimString(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	return lines
-}
-
-func splitByNewline(s string) []string {
-	var result []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			result = append(result, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		result = append(result, s[start:])
-	}
-	return result
-}
-
-func splitN(s, sep string, n int) []string {
-	var result []string
-	remaining := s
-	for i := 0; i < n-1 && len(remaining) > 0; i++ {
-		idx := indexOf(remaining, sep)
-		if idx < 0 {
-			break
-		}
-		result = append(result, remaining[:idx])
-		remaining = remaining[idx+len(sep):]
-	}
-	if len(remaining) > 0 {
-		result = append(result, remaining)
-	}
-	return result
-}
-
-func indexOf(s, substr string) int {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
 // Backward compatibility aliases - these will be removed in a future release
 // They are kept temporarily for any code that hasn't been updated yet
 

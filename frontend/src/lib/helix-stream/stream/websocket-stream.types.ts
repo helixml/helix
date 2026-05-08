@@ -96,7 +96,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "error"; message: string }
   | { type: "connecting" }
   | { type: "connected" }
-  | { type: "disconnected" }
+  | { type: "disconnected"; code?: number }
   | { type: "reconnecting"; attempt: number }
   | { type: "streamInit"; width: number; height: number; fps: number }
   | { type: "connectionComplete"; capabilities: StreamCapabilities }

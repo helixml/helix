@@ -54,9 +54,22 @@ func (c *HelixClient) UpdateSecret(ctx context.Context, id string, secret *types
 
 // DeleteSecret deletes a secret by ID
 func (c *HelixClient) DeleteSecret(ctx context.Context, id string) error {
-	err := c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/secrets/%s", id), nil, nil)
+	return c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/secrets/%s", id), nil, nil)
+}
+
+// CreateProjectSecret creates a secret scoped to a specific project.
+func (c *HelixClient) CreateProjectSecret(ctx context.Context, projectID string, secret *types.CreateSecretRequest) (*types.Secret, error) {
+	secret.ProjectID = projectID
+
+	bts, err := json.Marshal(secret)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to marshal secret: %w", err)
 	}
-	return nil
+
+	var created types.Secret
+	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/projects/%s/secrets", projectID), bytes.NewBuffer(bts), &created)
+	if err != nil {
+		return nil, err
+	}
+	return &created, nil
 }

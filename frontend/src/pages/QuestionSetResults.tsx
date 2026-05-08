@@ -177,7 +177,7 @@ const QuestionSetResults: FC = () => {
           sx={{
             width: '100%',
             flexShrink: 0,
-            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
+            borderBottom: lightTheme.border,
             py: 2,
             px: 3,
           }}
@@ -318,7 +318,7 @@ const QuestionSetResults: FC = () => {
                                   let sessionUrl = `/session/${sessionId}`
                                   const org = account.organizationTools.organization
                                   if (org) {
-                                    sessionUrl = `/org/${org.name}${sessionUrl}`
+                                    sessionUrl = `/orgs/${org.name}/session/${sessionId}`
                                   }
                                   window.open(sessionUrl, '_blank')
                                 }}

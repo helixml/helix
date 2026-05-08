@@ -12,35 +12,32 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (c *HelixClient) ListSessions(ctx context.Context, f *SessionFilter) (*types.SessionsList, error) {
-	var sessions types.SessionsList
+func (c *HelixClient) ListSessions(ctx context.Context, f *SessionFilter) (*types.PaginatedSessionsList, error) {
+	var sessions types.PaginatedSessionsList
 
 	path := "/sessions"
 
-	// Add query parameters if provided
 	if f != nil {
 		queryParams := []string{}
 
 		if f.OrganizationID != "" {
-			queryParams = append(queryParams, "organization_id="+f.OrganizationID)
+			queryParams = append(queryParams, "org_id="+f.OrganizationID)
 		}
 
-		if f.Offset > 0 {
-			queryParams = append(queryParams, "offset="+strconv.Itoa(f.Offset))
+		if f.ProjectID != "" {
+			queryParams = append(queryParams, "project_id="+f.ProjectID)
 		}
 
-		if f.Limit > 0 {
-			queryParams = append(queryParams, "limit="+strconv.Itoa(f.Limit))
+		if f.Page > 0 {
+			queryParams = append(queryParams, "page="+strconv.Itoa(f.Page))
+		}
+
+		if f.PageSize > 0 {
+			queryParams = append(queryParams, "page_size="+strconv.Itoa(f.PageSize))
 		}
 
 		if len(queryParams) > 0 {
-			path += "?"
-			for i, param := range queryParams {
-				if i > 0 {
-					path += "&"
-				}
-				path += param
-			}
+			path += "?" + strings.Join(queryParams, "&")
 		}
 	}
 
@@ -52,14 +49,28 @@ func (c *HelixClient) ListSessions(ctx context.Context, f *SessionFilter) (*type
 	return &sessions, nil
 }
 
-// ChatSession sends a chat message to start or continue a session
+func (c *HelixClient) GetSession(ctx context.Context, sessionID string) (*types.Session, error) {
+	var session types.Session
+	err := c.makeRequest(ctx, http.MethodGet, "/sessions/"+sessionID, nil, &session)
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (c *HelixClient) StopExternalAgent(ctx context.Context, sessionID string) error {
+	return c.makeRequest(ctx, http.MethodDelete, "/sessions/"+sessionID+"/stop-external-agent", nil, nil)
+}
+
+// ChatSession sends a chat message to start or continue a session.
+// Returns the raw response body. For external agent sessions, the response
+// is the created Session JSON. For streaming sessions, it's the SSE stream.
 func (c *HelixClient) ChatSession(ctx context.Context, req *types.SessionChatRequest) (string, error) {
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Use the raw HTTP client to handle the response properly
 	fullURL := c.url + "/sessions/chat"
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, strings.NewReader(string(reqBody)))
@@ -81,7 +92,6 @@ func (c *HelixClient) ChatSession(ctx context.Context, req *types.SessionChatReq
 		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Read the response body
 	var buf strings.Builder
 	_, err = io.Copy(&buf, resp.Body)
 	if err != nil {

@@ -32,12 +32,14 @@ type koditServiceMock struct {
 	deleteRepositoryFn     func(ctx context.Context, koditRepoID int64) error
 	rescanCommitFn         func(ctx context.Context, koditRepoID int64, commitSHA string) error
 	getRepositoryCommitsFn func(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
+	renderPageImageFn      func(ctx context.Context, koditRepoID int64, filePath string, page int) ([]byte, error)
 }
 
 var _ services.KoditServicer = (*koditServiceMock)(nil)
 
 func (m *koditServiceMock) IsEnabled() bool                                { return true }
 func (m *koditServiceMock) MCPDocumentation() string                       { return "" }
+func (m *koditServiceMock) RescanAllRepositories(_ context.Context) error  { return nil }
 func (m *koditServiceMock) RescanCommit(ctx context.Context, id int64, sha string) error {
 	if m.rescanCommitFn != nil {
 		return m.rescanCommitFn(ctx, id, sha)
@@ -54,6 +56,10 @@ func (m *koditServiceMock) RegisterRepository(ctx context.Context, params *servi
 		return m.registerRepositoryFn(ctx, params)
 	}
 	return 0, false, nil
+}
+
+func (m *koditServiceMock) VisualSearch(context.Context, int64, string, int) ([]services.KoditFileResult, error) {
+	return nil, nil
 }
 
 func (m *koditServiceMock) SemanticSearch(ctx context.Context, id int64, query string, limit int, lang string) ([]services.KoditFileResult, error) {
@@ -126,6 +132,12 @@ func (m *koditServiceMock) ActiveTasks(context.Context) ([]services.KoditActiveT
 }
 func (m *koditServiceMock) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
 	return nil
+}
+func (m *koditServiceMock) RenderPageImage(ctx context.Context, id int64, filePath string, page int) ([]byte, error) {
+	if m.renderPageImageFn != nil {
+		return m.renderPageImageFn(ctx, id, filePath, page)
+	}
+	return nil, nil
 }
 
 // KoditRAGSuite tests the KoditRAG implementation.
@@ -260,6 +272,118 @@ func (s *KoditRAGSuite) TestQuery_UsesStoredRepoID() {
 	s.Equal("some content", results[0].Content)
 }
 
+// TestQuery_SourceIncludesRegisteredDir asserts that Source carries the path
+// of the kodit-registered directory relative to the filestore root, joined
+// with the file path kodit returned. The session controller relies on this
+// to build the citation viewer URL — if Source is just the basename, the
+// knowledge subfolder gets dropped and the viewer 404s.
+func (s *KoditRAGSuite) TestQuery_SourceIncludesRegisteredDir() {
+	repoID := int64(11)
+	entity := &types.DataEntity{
+		ID:                "de_q2",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			// Absolute on-disk path of the registered directory. LocalFSPath
+			// in SetupTest is "/tmp/helix/filestore", so the filestore-root
+			// relative portion is "dev/apps/app_xyz/docs".
+			FilestorePath: "/tmp/helix/filestore/dev/apps/app_xyz/docs",
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_q2").
+		Return(entity, nil)
+
+	s.mockSvc.semanticSearchFn = func(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+		return []services.KoditFileResult{
+			{Path: "report.pdf", Content: "snippet", Score: 0.8},
+		}, nil
+	}
+
+	results, err := s.rag.Query(context.Background(), &types.SessionRAGQuery{
+		DataEntityID: "de_q2",
+		Prompt:       "any",
+		MaxResults:   5,
+	})
+	s.NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("dev/apps/app_xyz/docs/report.pdf", results[0].Source)
+	s.Equal("report.pdf", results[0].Filename)
+}
+
+// TestQuery_FilenameStripsSubpath asserts that when kodit returns a path with
+// a subdirectory (e.g. when the registered directory contains nested folders),
+// Source preserves the full path while Filename is just the basename.
+func (s *KoditRAGSuite) TestQuery_FilenameStripsSubpath() {
+	repoID := int64(12)
+	entity := &types.DataEntity{
+		ID:                "de_q3",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			FilestorePath: "/tmp/helix/filestore/dev/apps/app_abc/files",
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_q3").
+		Return(entity, nil)
+
+	s.mockSvc.semanticSearchFn = func(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+		return []services.KoditFileResult{
+			{Path: "subdir/nested.pdf", Content: "snippet", Score: 0.7},
+		}, nil
+	}
+
+	results, err := s.rag.Query(context.Background(), &types.SessionRAGQuery{
+		DataEntityID: "de_q3",
+		Prompt:       "any",
+		MaxResults:   5,
+	})
+	s.NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("dev/apps/app_abc/files/subdir/nested.pdf", results[0].Source)
+	s.Equal("nested.pdf", results[0].Filename)
+}
+
+// TestRenderPageImage_StripsRegisteredDir asserts that RenderPageImage strips
+// the registered-directory prefix from the caller's filestore-relative path
+// before delegating to kodit, since kodit's Blobs.DiskPath expects the path
+// relative to the registered directory.
+func (s *KoditRAGSuite) TestRenderPageImage_StripsRegisteredDir() {
+	repoID := int64(13)
+	entity := &types.DataEntity{
+		ID:                "de_render",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			FilestorePath: "/tmp/helix/filestore/dev/apps/app_xyz/docs",
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_render").
+		Return(entity, nil)
+
+	var capturedPath string
+	s.mockSvc.renderPageImageFn = func(_ context.Context, id int64, filePath string, page int) ([]byte, error) {
+		s.Equal(repoID, id)
+		s.Equal(3, page)
+		capturedPath = filePath
+		return []byte("png"), nil
+	}
+
+	// Caller passes the same filestore-root-relative path that mergeAndConvert
+	// puts on result.Source.
+	bytes, err := s.rag.RenderPageImage(
+		context.Background(),
+		"de_render",
+		"dev/apps/app_xyz/docs/report.pdf",
+		3,
+	)
+	s.NoError(err)
+	s.Equal([]byte("png"), bytes)
+	s.Equal("report.pdf", capturedPath)
+}
+
 func (s *KoditRAGSuite) TestQuery_ErrorWhenNoRepoID() {
 	entity := &types.DataEntity{ID: "de_norepo", KoditRepositoryID: nil}
 
@@ -275,13 +399,20 @@ func (s *KoditRAGSuite) TestQuery_ErrorWhenNoRepoID() {
 	s.Contains(err.Error(), "no kodit repository ID")
 }
 
-func (s *KoditRAGSuite) TestDelete_CallsDeleteRepository() {
+func (s *KoditRAGSuite) TestDelete_CallsDeleteRepositoryWhenLastReference() {
 	repoID := int64(55)
 	entity := &types.DataEntity{ID: "de_del", KoditRepositoryID: &repoID}
 
 	s.mockStore.EXPECT().
 		GetDataEntity(gomock.Any(), "de_del").
 		Return(entity, nil)
+	s.mockStore.EXPECT().
+		DeleteDataEntity(gomock.Any(), "de_del").
+		Return(nil)
+	// No siblings: this was the last reference, so kodit repo gets deleted.
+	s.mockStore.EXPECT().
+		ListDataEntitiesByKoditRepositoryID(gomock.Any(), repoID).
+		Return([]*types.DataEntity{}, nil)
 
 	deleted := false
 	s.mockSvc.deleteRepositoryFn = func(_ context.Context, id int64) error {
@@ -295,12 +426,47 @@ func (s *KoditRAGSuite) TestDelete_CallsDeleteRepository() {
 	s.True(deleted)
 }
 
+func (s *KoditRAGSuite) TestDelete_SkipsKoditWhenSiblingsExist() {
+	// Knowledge versions share a kodit repo. Deleting one version's data_entity
+	// must not tear down the kodit repo while siblings still reference it —
+	// otherwise newer versions get orphaned and (in older kodit) the on-disk
+	// filestore gets wiped.
+	repoID := int64(99)
+	entity := &types.DataEntity{ID: "de_v1", KoditRepositoryID: &repoID}
+	siblings := []*types.DataEntity{
+		{ID: "de_v2", KoditRepositoryID: &repoID},
+		{ID: "de_v3", KoditRepositoryID: &repoID},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_v1").
+		Return(entity, nil)
+	s.mockStore.EXPECT().
+		DeleteDataEntity(gomock.Any(), "de_v1").
+		Return(nil)
+	s.mockStore.EXPECT().
+		ListDataEntitiesByKoditRepositoryID(gomock.Any(), repoID).
+		Return(siblings, nil)
+
+	// DeleteRepository must NOT be called.
+	s.mockSvc.deleteRepositoryFn = func(_ context.Context, _ int64) error {
+		s.FailNow("kodit DeleteRepository should not be called when siblings exist")
+		return nil
+	}
+
+	err := s.rag.Delete(context.Background(), &types.DeleteIndexRequest{DataEntityID: "de_v1"})
+	s.NoError(err)
+}
+
 func (s *KoditRAGSuite) TestDelete_NoopWhenNoRepoID() {
 	entity := &types.DataEntity{ID: "de_nodel", KoditRepositoryID: nil}
 
 	s.mockStore.EXPECT().
 		GetDataEntity(gomock.Any(), "de_nodel").
 		Return(entity, nil)
+	s.mockStore.EXPECT().
+		DeleteDataEntity(gomock.Any(), "de_nodel").
+		Return(nil)
 
 	err := s.rag.Delete(context.Background(), &types.DeleteIndexRequest{DataEntityID: "de_nodel"})
 	s.NoError(err)
