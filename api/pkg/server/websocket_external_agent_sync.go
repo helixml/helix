@@ -2683,8 +2683,36 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if helixSession.Metadata.SpecTaskID != "" {
 		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
 
-		// Emit attention event: agent interaction completed
-		if apiServer.attentionService != nil {
+		// Emit attention event: agent interaction completed.
+		//
+		// Skip the notification when the user is clearly already active in the
+		// session — either they interrupted the agent (sent a new message that
+		// caused this completion) or they sent a quick follow-up. In both cases
+		// a newer interaction with state=waiting already exists, and notifying
+		// is just noise because the user is looking right at the UI.
+		skipAttention := false
+		latestInteractions, _, listErr := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1,
+		})
+		if listErr != nil {
+			log.Warn().Err(listErr).
+				Str("session_id", helixSessionID).
+				Msg("Failed to list interactions for attention-event suppression check; emitting event as default")
+		} else if len(latestInteractions) > 0 {
+			latest := latestInteractions[len(latestInteractions)-1]
+			if latest.State == types.InteractionStateWaiting && latest.Created.After(targetInteraction.Created) {
+				log.Debug().
+					Str("session_id", helixSessionID).
+					Str("completed_interaction_id", targetInteraction.ID).
+					Str("newer_waiting_interaction_id", latest.ID).
+					Msg("Skipping agent_interaction_completed attention event: user already active in session")
+				skipAttention = true
+			}
+		}
+
+		if !skipAttention && apiServer.attentionService != nil {
 			go func() {
 				task, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
 				if err != nil {
