@@ -100,21 +100,33 @@ if (isMobileOrTablet()) {
     })
   }
 
+  // Errors we've observed in the wild that don't originate from our code and
+  // shouldn't be promoted to a full-screen overlay. Add new patterns here only
+  // when you've actually seen them — don't speculate.
+  //   - runtime.sendMessage / Tab not found: iPad Safari, no extensions
+  //     installed; appears to come from a WebKit-internal extension shim.
+  const NOISE_PATTERNS: RegExp[] = [
+    /runtime\.sendMessage.*Tab not found/i,
+  ]
+
+  function isNoise(message: string): boolean {
+    return NOISE_PATTERNS.some(p => p.test(message))
+  }
+
   window.onerror = (message, _source, _lineno, _colno, error) => {
-    renderErrorOverlay(
-      String(message),
-      error?.stack
-    )
+    const msg = String(message)
+    if (!isNoise(msg)) {
+      renderErrorOverlay(msg, error?.stack)
+    }
     // Return true to prevent default browser error handling (which causes the white page)
     return true
   }
 
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason
-    renderErrorOverlay(
-      reason?.message || String(reason) || 'Unhandled promise rejection',
-      reason?.stack
-    )
+    const msg = reason?.message || String(reason) || 'Unhandled promise rejection'
+    if (isNoise(msg)) return
+    renderErrorOverlay(msg, reason?.stack)
   })
 
   // On page load, check for previous errors from a WebKit process crash.
