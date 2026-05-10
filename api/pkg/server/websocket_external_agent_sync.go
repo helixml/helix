@@ -3215,10 +3215,17 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	return nil
 }
 
-// autoStartDevContainerForSession checks if a session belongs to a spec task and,
-// if so, auto-starts its dev container. This is fire-and-forget — the caller's
-// message is already persisted and will be picked up by pickupWaitingInteraction
-// when the agent reconnects.
+// autoStartDevContainerForSession auto-starts the dev container for a session
+// whose external agent isn't currently WebSocket-connected. Fire-and-forget —
+// the caller's message is already persisted; pickupWaitingInteraction delivers
+// it when the agent reconnects.
+//
+// Spec-task sessions delegate to startDevContainerForSpecTask (which derives
+// the project from the spec task). Exploratory zed_external sessions delegate
+// to startDevContainerForSession (which derives it from the session itself).
+// Without the exploratory branch, fresh zed_external sessions whose agent
+// never WebSocket-connected sit in `state=waiting` forever — pickupWaiting-
+// Interaction has no peer to deliver to. See helixml/helix#2397.
 func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
 	ctx := context.Background()
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
@@ -3230,21 +3237,38 @@ func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID strin
 		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
 		return
 	}
-	if session.Metadata.SpecTaskID == "" {
-		log.Debug().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: no spec task ID on session, skipping")
+
+	if session.Metadata.SpecTaskID != "" {
+		specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil {
+			log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for dev container auto-start")
+			return
+		}
+		log.Info().
+			Str("session_id", sessionID).
+			Str("spec_task_id", specTask.ID).
+			Msg("Auto-starting dev container for spec-task session with no WebSocket connection")
+		if startErr := apiServer.startDevContainerForSpecTask(ctx, specTask); startErr != nil {
+			log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start dev container")
+		}
 		return
 	}
-	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-	if err != nil {
-		log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for dev container auto-start")
+
+	// Non-spec-task fallback. Only zed_external sessions have a desktop
+	// container to wake — anything else (helix-agent text sessions, etc.)
+	// has no analogue.
+	if session.Metadata.AgentType != "zed_external" {
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("autoStartDevContainerForSession: non-zed_external session, skipping")
 		return
 	}
 	log.Info().
 		Str("session_id", sessionID).
-		Str("spec_task_id", specTask.ID).
-		Msg("Auto-starting dev container for session with no WebSocket connection")
-	if startErr := apiServer.startDevContainerForSpecTask(ctx, specTask); startErr != nil {
-		log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start dev container")
+		Msg("Auto-starting dev container for exploratory zed_external session with no WebSocket connection")
+	if startErr := apiServer.startDevContainerForSession(ctx, session); startErr != nil {
+		log.Error().Err(startErr).Str("session_id", sessionID).Msg("Failed to auto-start dev container for exploratory session")
 	}
 }
 

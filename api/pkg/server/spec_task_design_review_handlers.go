@@ -1006,6 +1006,105 @@ func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specT
 	return nil
 }
 
+// startDevContainerForSession is the non-spec-task counterpart to
+// startDevContainerForSpecTask. It rebuilds a DesktopAgent from the session
+// itself (project, repos, display) and idempotently re-runs StartDesktop —
+// triggering the dev container to come up if it isn't already, so the Zed
+// agent inside dials home via /ws/external-agent-runner. Used by
+// autoStartDevContainerForSession when a fresh zed_external session has a
+// queued message but no live WebSocket. See helixml/helix#2397.
+func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, session *types.Session) error {
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+	if s.externalAgentExecutor == nil {
+		return fmt.Errorf("external agent executor not available")
+	}
+
+	agent := &types.DesktopAgent{
+		SessionID:      session.ID,
+		UserID:         session.Owner,
+		Input:          "Resume session",
+		ProjectPath:    "workspace",
+		OrganizationID: session.OrganizationID,
+	}
+
+	// ProjectID can sit on either Session.ProjectID (canonical) or
+	// Session.Metadata.ProjectID (older code paths) — prefer the former.
+	projectID := session.ProjectID
+	if projectID == "" {
+		projectID = session.Metadata.ProjectID
+	}
+	agent.ProjectID = projectID
+
+	if agent.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: agent.ProjectID,
+		})
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+				}
+			}
+			project, err := s.Store.GetProject(ctx, agent.ProjectID)
+			if err == nil && project != nil && project.DefaultRepoID != "" {
+				agent.PrimaryRepositoryID = project.DefaultRepoID
+			} else if len(projectRepos) > 0 {
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
+		}
+	}
+
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+	}
+
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("project_id", agent.ProjectID).
+		Msg("Auto-starting dev container for session (backend-initiated resume)")
+
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("failed to start dev container: %w", err)
+	}
+
+	refreshed, err := s.Store.GetSession(ctx, session.ID)
+	if err == nil && refreshed != nil {
+		if response.DevContainerID != "" {
+			refreshed.Metadata.DevContainerID = response.DevContainerID
+		}
+		refreshed.Metadata.PausedScreenshotPath = ""
+		if _, err := s.Store.UpdateSession(ctx, *refreshed); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session metadata after auto-start")
+		}
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Msg("✅ Dev container auto-started for session, agent will reconnect via WebSocket")
+
+	return nil
+}
+
 // sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
 func (s *HelixAPIServer) sendCommentToAgentNow(
 	ctx context.Context,
