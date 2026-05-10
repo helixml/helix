@@ -9,9 +9,9 @@
 - [x] Add INFO logging in `autoStartDevContainerForSession`: one line on entry (`session_id`, `agent_type`, `has_spec_task`), one on success, one on no-op (no project context), and an ERROR line on failure with the underlying error.
 - [x] Extend `SessionMessagesHandlerSuite.TestQueuesWhenNoWS` (`session_messages_handler_test.go:90`) to assert the mocked `externalAgentExecutor.StartDesktop` is invoked exactly once when no WS is connected. Will require wiring a mock executor into the suite's `SetupTest`.
 - [x] Add a unit test for `startDevContainerForSession` that covers all three session shapes (spec-task, exploratory `Metadata.ProjectID`, legacy `session.ProjectID`) and the no-project-no-spec-task no-op case.
-- [~] Add a unit test for the auto-wake worker's new no-WS branch: stuck interaction + no WS triggers `autoStartDevContainerForSession` once, increments `AutoWakeCount`, and after `autoWakeMaxRetries` marks the interaction `state=error`.
-- [ ] Verify `cd api && CGO_ENABLED=1 go test -run TestSessionMessagesHandlerSuite ./pkg/server/ -count=1` passes locally (CGo required for tree-sitter — see CLAUDE.md "Go Local Tests").
-- [ ] Run `cd api && go build ./pkg/server/` to confirm clean compile.
+- [x] Add a unit test for the auto-wake worker's new no-WS branch: stuck interaction + no WS triggers `autoStartDevContainerForSession` once, increments `AutoWakeCount`, and after `autoWakeMaxRetries` marks the interaction `state=error`.
+- [x] Verify `cd api && CGO_ENABLED=1 go test -run TestSessionMessagesHandlerSuite ./pkg/server/ -count=1` passes locally (CGo required for tree-sitter — see CLAUDE.md "Go Local Tests"). **Also ran full `go test ./api/pkg/server/` — all tests pass.**
+- [x] Run `cd api && go build ./pkg/server/` to confirm clean compile.
 - [ ] End-to-end test against the inner Helix at `http://localhost:8080` using the issue's reproducer: register `test@helix.ml`, create project, POST /sessions/chat (zed_external, no spec task), then POST /sessions/{id}/messages — confirm the queued message is delivered within ~30s without opening the desktop URL.
 - [ ] Confirm an existing spec-task session still auto-starts correctly (no regression in the spec-task flow).
 - [ ] Tail `docker compose -f docker-compose.dev.yaml logs api` and check the new auto-start INFO logs are visible.
