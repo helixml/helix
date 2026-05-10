@@ -904,54 +904,85 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
 }
 
-// startDevContainerForSpecTask auto-starts the dev container for a spec task's planning session.
-// This is the backend equivalent of the frontend auto-start logic in DesignReviewContent.tsx.
-// It extracts the core logic from resumeSession without requiring an HTTP request context.
-func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
-	if specTask.PlanningSessionID == "" {
-		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+// startDevContainerForSession boots the dev container for any zed_external session,
+// whether it belongs to a spec task or is an exploratory project session. It is the
+// shared body behind resumeSession, startDevContainerForSpecTask, and the auto-wake
+// path (autoStartDevContainerForSession). Project context is resolved in priority order:
+//
+//  1. session.Metadata.SpecTaskID — load the spec task, take ProjectID/OrganizationID from it.
+//  2. session.Metadata.ProjectID  — exploratory zed_external session.
+//  3. session.ProjectID           — legacy session row.
+//
+// Returns an error only on real start failures. If no project context is available
+// (no spec task AND no project ID anywhere), returns nil after logging — the caller's
+// persisted Waiting interaction will simply remain queued; we cannot invent project config.
+func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, session *types.Session) error {
+	if session == nil {
+		return fmt.Errorf("startDevContainerForSession: session is nil")
 	}
 	if s.externalAgentExecutor == nil {
 		return fmt.Errorf("external agent executor not available")
 	}
 
-	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
-	}
-
 	agent := &types.DesktopAgent{
-		SessionID:      session.ID,
-		UserID:         session.Owner,
-		Input:          "Resume session",
-		ProjectPath:    "workspace",
-		SpecTaskID:     specTask.ID,
-		ProjectID:      specTask.ProjectID,
-		OrganizationID: specTask.OrganizationID,
+		SessionID:   session.ID,
+		UserID:      session.Owner,
+		Input:       "Resume session",
+		ProjectPath: "workspace",
 	}
 
-	// Load project repositories
-	if agent.ProjectID != "" {
-		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: agent.ProjectID,
-		})
-		if err == nil && len(projectRepos) > 0 {
-			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-			for _, repo := range projectRepos {
-				if repo.ID != "" {
-					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-				}
+	// Resolve project context. Priority: spec task → session.Metadata.ProjectID → session.ProjectID.
+	specTaskID := session.Metadata.SpecTaskID
+	if specTaskID != "" {
+		specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("spec_task_id", specTaskID).
+				Str("session_id", session.ID).
+				Msg("startDevContainerForSession: failed to load spec task, falling back to session metadata")
+		} else if specTask != nil {
+			agent.SpecTaskID = specTask.ID
+			agent.ProjectID = specTask.ProjectID
+			agent.OrganizationID = specTask.OrganizationID
+		}
+	}
+	if agent.ProjectID == "" && session.Metadata.ProjectID != "" {
+		agent.ProjectID = session.Metadata.ProjectID
+		agent.OrganizationID = session.OrganizationID
+	}
+	if agent.ProjectID == "" && session.ProjectID != "" {
+		agent.ProjectID = session.ProjectID
+		agent.OrganizationID = session.OrganizationID
+	}
+
+	if agent.ProjectID == "" {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("startDevContainerForSession: no project context (no spec task, no project ID) — cannot auto-start")
+		return nil
+	}
+
+	// Load project repositories.
+	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: agent.ProjectID,
+	})
+	if err == nil && len(projectRepos) > 0 {
+		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+		for _, repo := range projectRepos {
+			if repo.ID != "" {
+				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
 			}
-			project, err := s.Store.GetProject(ctx, agent.ProjectID)
-			if err == nil && project != nil && project.DefaultRepoID != "" {
-				agent.PrimaryRepositoryID = project.DefaultRepoID
-			} else if len(projectRepos) > 0 {
-				agent.PrimaryRepositoryID = projectRepos[0].ID
-			}
+		}
+		project, err := s.Store.GetProject(ctx, agent.ProjectID)
+		if err == nil && project != nil && project.DefaultRepoID != "" {
+			agent.PrimaryRepositoryID = project.DefaultRepoID
+		} else if len(projectRepos) > 0 {
+			agent.PrimaryRepositoryID = projectRepos[0].ID
 		}
 	}
 
-	// Get display settings from app config
+	// Get display settings from app config.
 	if session.ParentApp != "" {
 		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -977,33 +1008,48 @@ func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specT
 	}
 
 	log.Info().
-		Str("spec_task_id", specTask.ID).
 		Str("session_id", session.ID).
-		Msg("Auto-starting dev container for spec task (backend-initiated resume)")
+		Str("spec_task_id", agent.SpecTaskID).
+		Str("project_id", agent.ProjectID).
+		Msg("Auto-starting dev container for session (backend-initiated resume)")
 
 	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		return fmt.Errorf("failed to start dev container: %w", err)
 	}
 
-	// Re-fetch session and update metadata (same as resumeSession does)
-	session, err = s.Store.GetSession(ctx, specTask.PlanningSessionID)
-	if err == nil {
+	// Re-fetch session and update metadata.
+	refetched, err := s.Store.GetSession(ctx, session.ID)
+	if err == nil && refetched != nil {
 		if response.DevContainerID != "" {
-			session.Metadata.DevContainerID = response.DevContainerID
+			refetched.Metadata.DevContainerID = response.DevContainerID
 		}
-		session.Metadata.PausedScreenshotPath = ""
-		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
-			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session metadata after auto-start")
+		refetched.Metadata.PausedScreenshotPath = ""
+		if _, err := s.Store.UpdateSession(ctx, *refetched); err != nil {
+			log.Warn().Err(err).Str("session_id", refetched.ID).Msg("Failed to update session metadata after auto-start")
 		}
 	}
 
 	log.Info().
-		Str("spec_task_id", specTask.ID).
-		Str("session_id", specTask.PlanningSessionID).
-		Msg("✅ Dev container auto-started for spec task, agent will reconnect via WebSocket")
+		Str("session_id", session.ID).
+		Str("spec_task_id", agent.SpecTaskID).
+		Msg("✅ Dev container auto-started, agent will reconnect via WebSocket")
 
 	return nil
+}
+
+// startDevContainerForSpecTask is a thin wrapper that loads the spec task's planning
+// session, then delegates to startDevContainerForSession. Kept for callers that have
+// a SpecTask in hand but not the session.
+func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
+	if specTask.PlanningSessionID == "" {
+		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+	}
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
+	}
+	return s.startDevContainerForSession(ctx, session)
 }
 
 // sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
