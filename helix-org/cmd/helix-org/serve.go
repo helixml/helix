@@ -292,6 +292,13 @@ func buildSpawner(
 		if err != nil {
 			return nil, nil, fmt.Errorf("helix client: %w", err)
 		}
+		// Fail-fast validation: a typo in chat.provider / chat.model
+		// would otherwise surface much later as a 422 from
+		// /sessions/{id}/zed-config when the desktop boots, with no
+		// obvious link back to the bad config key. Catch it here.
+		if err := helixclient.ValidateProviderModel(ctx, client, provider, model); err != nil {
+			return nil, nil, fmt.Errorf("invalid chat.provider / chat.model (run `helix-org config set chat.provider <name>` and `helix-org config set chat.model <name>`): %w", err)
+		}
 		workspace := agenthelix.NewWorkspace(client, st, "helix-specs", "helix-org", "helix-org@local")
 		logger.Info("spawner: helix",
 			"helix-url", baseURL,
@@ -381,6 +388,10 @@ func buildChatBackend(
 		client, err := helixclient.New(helixclient.Config{BaseURL: baseURL, APIKey: apiKey})
 		if err != nil {
 			return nil, fmt.Errorf("helix client: %w", err)
+		}
+		// Fail-fast validation — see buildSpawner for rationale.
+		if err := helixclient.ValidateProviderModel(ctx, client, provider, model); err != nil {
+			return nil, fmt.Errorf("invalid chat.provider / chat.model (run `helix-org config set chat.provider <name>` and `helix-org config set chat.model <name>`): %w", err)
 		}
 		// Chat backend uses the same per-Worker project flow and the
 		// same fixed runtime / agent_type as the AI Worker spawner —

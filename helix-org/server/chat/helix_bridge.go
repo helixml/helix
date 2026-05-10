@@ -261,21 +261,39 @@ func (b *HelixBridge) SendHandler() http.Handler {
 // session. Resolves the per-Worker project (and its auto-provisioned
 // Agent App carrying our MCP wiring) via Ensure on every call —
 // idempotent, so the cost is one DB lookup once the Worker has a
-// project. First turn opens a fresh chat session; subsequent turns
-// continue the same session via SessionID.
+// project.
+//
+// Two paths:
+//   - **Follow-up** (sessionID already attached): POST
+//     /api/v1/sessions/{id}/messages — Helix queues the message and
+//     pickupWaitingInteraction delivers it on agent reconnect.
+//   - **First turn** (no session): POST /sessions/chat to create the
+//     session. If the desktop's WS hasn't connected yet (hadWSError)
+//     we immediately re-queue the same prompt via the /messages
+//     endpoint so it lands once the agent dials home.
 func (b *HelixBridge) send(ctx context.Context, msg string) error {
 	projectID, agentAppID, _, err := b.ensure.Ensure(ctx, b.ownerID)
 	if err != nil {
 		return fmt.Errorf("ensure owner project: %w", err)
 	}
-	orgID, err := b.resolveProjectOrg(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("resolve project org: %w", err)
-	}
 
 	b.mu.Lock()
 	sid := b.sessionID
 	b.mu.Unlock()
+
+	// Follow-up: just queue. No StartChat dance, no warmup retry.
+	if sid != "" {
+		if _, err := b.client.SendSessionMessage(ctx, sid, msg, helixclient.SendMessageOptions{}); err != nil {
+			return fmt.Errorf("helix followup: %w", err)
+		}
+		b.logger.Info("chat helix followup", "sid", sid, "project", projectID)
+		return nil
+	}
+
+	orgID, err := b.resolveProjectOrg(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("resolve project org: %w", err)
+	}
 
 	// AppID MUST be set — it becomes session.ParentApp, and Helix's
 	// external MCP proxy at /api/v1/mcp/external/{name} bails with
@@ -283,13 +301,8 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 	// (mcp_backend_external.go:272). Without that, the org-graph MCP
 	// we attached to the project's auto-provisioned Agent App never
 	// shows up in the desktop's Zed config — the agent then has only
-	// Helix's bundled MCPs (helix-desktop, helix-session, kodit) and
-	// flounders when asked to call create_role / hire_worker.
-	//
-	// We previously removed AppID because it forks Helix into the
-	// app-config override path (getAgentTypeFromApp etc.). That path
-	// is fine NOW because the auto-provisioned app already carries
-	// the agent_type / provider / model we want.
+	// Helix's bundled MCPs and flounders when asked to call
+	// create_role / hire_worker.
 	req := helixclient.StartChatRequest{
 		ProjectID:           projectID,
 		OrganizationID:      orgID,
@@ -302,102 +315,29 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
 		Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
 	}
-	if sid != "" {
-		req.SessionID = sid
-		b.logger.Info("chat helix followup", "sid", sid, "project", projectID)
-	}
 	session, hadWSError, err := b.client.StartChatWithStatus(ctx, req)
 	if err != nil {
-		if sid == "" {
-			return fmt.Errorf("start helix chat: %w", err)
-		}
-		return fmt.Errorf("helix followup: %w", err)
+		return fmt.Errorf("start helix chat: %w", err)
 	}
-	if sid == "" {
-		b.attachSession(session.ID)
-		b.logger.Info("chat helix session opened", "sid", session.ID, "project", projectID)
-	}
+	b.attachSession(session.ID)
+	b.logger.Info("chat helix session opened", "sid", session.ID, "project", projectID)
+
 	// Synchronous (helix_basic) sessions return the assistant reply
 	// inline; render it immediately. Streaming sessions populate
 	// Interactions later via the WS bridge.
 	b.broadcastInteractions(session.Interactions)
 
-	// If Helix's first dispatch raced the desktop's WS connect (the
-	// helix-org → Helix readiness check is global, not per-session, so
-	// it returns success the moment any other user has a desktop up;
-	// then the per-session sendCommand fails fast), the user's prompt
-	// is now sitting in state=error on the new session. Helix's
-	// auto-wake retry only picks up state=waiting interactions, so the
-	// prompt won't be delivered automatically. Kick off a background
-	// retry that re-sends the same message once the WS finally
-	// connects — each retry creates a fresh interaction, and the
-	// successful one produces a real response via WS subscribe.
-	if hadWSError && session.ID != "" {
+	// Cold-start race: Helix's first /sessions/chat raced the desktop's
+	// WS connect, so the prompt is sitting in state=error. Re-queue the
+	// same message via the durable /messages endpoint — it'll be
+	// delivered on reconnect.
+	if hadWSError {
 		b.broadcast(renderAssistantText("_Warming up the Zed desktop. This usually takes a minute or two on a cold session..._"))
-		// Background context is intentional: warmupAndRetry must outlive
-		// the /ui/chat/send request (which returns 200 the moment we
-		// have a session ID). Tying it to the request ctx would kill
-		// the retry loop the second the user's HTTP request closes.
-		go b.warmupAndRetry(session.ID, projectID, orgID, agentAppID, msg) //nolint:gosec // see comment above — detached lifetime is the whole point of the goroutine
+		if _, err := b.client.SendSessionMessage(ctx, session.ID, msg, helixclient.SendMessageOptions{}); err != nil {
+			b.logger.Warn("chat helix queue cold-start retry", "sid", session.ID, "err", err)
+		}
 	}
 	return nil
-}
-
-// warmupAndRetry re-POSTs /sessions/chat with the same prompt every
-// few seconds until the SSE stream stops surfacing the WS-not-ready
-// error, which means the desktop's Zed agent has connected and the
-// dispatch landed on the agent instead of bouncing. We cap retries at
-// ~5 minutes — desktops that haven't booted by then aren't going to.
-//
-// Multiple retries leave dead state=error interactions in the session;
-// we suppress their error chips in renderEvent so the user only sees
-// the warm-up notice and the eventual real response.
-func (b *HelixBridge) warmupAndRetry(sessionID, projectID, orgID, agentAppID, msg string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	delay := 8 * time.Second
-	for attempt := 1; attempt <= 30; attempt++ {
-		select {
-		case <-ctx.Done():
-			b.broadcast(renderTurnError("Desktop didn't come up in time. Try again or check the Helix console."))
-			return
-		case <-time.After(delay):
-		}
-		req := helixclient.StartChatRequest{
-			ProjectID:           projectID,
-			OrganizationID:      orgID,
-			AppID:               agentAppID,
-			SessionID:           sessionID,
-			SessionRole:         b.sessionRole,
-			AgentType:           agenthelix.AgentType,
-			Type:                "text",
-			Provider:            b.provider,
-			Model:               b.model,
-			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
-			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
-		}
-		_, hadWSError, err := b.client.StartChatWithStatus(ctx, req)
-		if err != nil {
-			b.logger.Warn("chat helix warmup retry: HTTP error",
-				"attempt", attempt,
-				"sid", sessionID,
-				"err", err,
-			)
-			continue
-		}
-		if !hadWSError {
-			b.logger.Info("chat helix warmup succeeded", "attempt", attempt, "sid", sessionID)
-			return
-		}
-		b.logger.Info("chat helix warmup retry: still no WS",
-			"attempt", attempt,
-			"sid", sessionID,
-		)
-		if delay < 20*time.Second {
-			delay = delay * 5 / 4
-		}
-	}
-	b.broadcast(renderTurnError("Gave up waiting for the Zed desktop after 5 minutes."))
 }
 
 // broadcastInteractions handles the *synchronous* response shape

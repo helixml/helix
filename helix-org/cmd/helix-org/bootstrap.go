@@ -71,6 +71,23 @@ func runBootstrapHelixRuntime(args []string) error {
 		return fmt.Errorf("helix unreachable: %w", err)
 	}
 	logf("  ok (user=%s slug=%s admin=%v)", user.User, user.Slug, user.Admin)
+
+	// Validate chat.provider / chat.model exist on this Helix instance.
+	// We hit this gate now, at bootstrap, so a typo doesn't surface as a
+	// confusing 422 from /sessions/{id}/zed-config when the desktop tries
+	// to fetch its Zed config three minutes later.
+	provider, _ := r.GetString(ctx, "chat.provider")
+	model, _ := r.GetString(ctx, "chat.model")
+	if provider != "" && model != "" {
+		logf("→ checking provider %q + model %q exist on Helix", provider, model)
+		if err := helixclient.ValidateProviderModel(ctx, c, provider, model); err != nil {
+			return fmt.Errorf("invalid chat.provider / chat.model: %w", err)
+		}
+		logf("  ok")
+	} else {
+		logf("  (skipping provider/model check — chat.provider or chat.model unset)")
+	}
+
 	logf("✓ bootstrap complete")
 	logf("")
 	logf("note: the per-Worker-project model means each AI Worker hire creates its own")

@@ -31,8 +31,18 @@ func (f *fakeEnsurer) Ensure(_ context.Context, _ domain.WorkerID) (string, stri
 type fakeChatClient struct {
 	helixclient.Client
 	startCalls     int
+	sendCalls      int
 	lastStartReq   helixclient.StartChatRequest
+	lastSendSID    string
+	lastSendBody   string
 	startSessionID string
+}
+
+func (f *fakeChatClient) SendSessionMessage(_ context.Context, sid, content string, _ helixclient.SendMessageOptions) (helixclient.SendMessageResponse, error) {
+	f.sendCalls++
+	f.lastSendSID = sid
+	f.lastSendBody = content
+	return helixclient.SendMessageResponse{RequestID: "req_x", InteractionID: "ix_x"}, nil
 }
 
 func (f *fakeChatClient) StartChat(_ context.Context, req helixclient.StartChatRequest) (helixclient.Session, error) {
@@ -89,9 +99,8 @@ func newTestHelixBridge(t *testing.T, fc *fakeChatClient) *HelixBridge {
 }
 
 // TestHelixBridgeStartsThenFollowsUp verifies the core invariant: the
-// first Send opens a fresh Helix session, subsequent Sends continue
-// the same session_id. (The bridge issues both via StartChat — the
-// followup path sets SessionID — so provider/model ride along.)
+// first Send opens a fresh Helix session via /sessions/chat, subsequent
+// Sends queue messages on the same session via SendSessionMessage.
 func TestHelixBridgeStartsThenFollowsUp(t *testing.T) {
 	t.Parallel()
 	fc := &fakeChatClient{startSessionID: "ses_42"}
@@ -122,14 +131,17 @@ func TestHelixBridgeStartsThenFollowsUp(t *testing.T) {
 
 	resp2 := post("again")
 	resp2.Body.Close() //nolint:errcheck,gosec // test cleanup
-	if fc.startCalls != 2 {
-		t.Errorf("second turn StartChat calls: %d (want 2)", fc.startCalls)
+	if fc.startCalls != 1 {
+		t.Errorf("followup must NOT call StartChat: %d (want 1)", fc.startCalls)
 	}
-	if fc.lastStartReq.SessionID != "ses_42" {
-		t.Errorf("followup SessionID: %q (want ses_42)", fc.lastStartReq.SessionID)
+	if fc.sendCalls != 1 {
+		t.Errorf("followup SendSessionMessage calls: %d (want 1)", fc.sendCalls)
 	}
-	if got, want := fc.lastStartReq.Messages[0].Content.Parts[0], "again"; got != want {
-		t.Errorf("followup msg: got %v want %v", got, want)
+	if fc.lastSendSID != "ses_42" {
+		t.Errorf("followup target session: %q (want ses_42)", fc.lastSendSID)
+	}
+	if fc.lastSendBody != "again" {
+		t.Errorf("followup body: %q (want again)", fc.lastSendBody)
 	}
 }
 
