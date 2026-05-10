@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Extract a new `startDevContainerForSession(ctx, *types.Session) error` helper in `api/pkg/server/spec_task_design_review_handlers.go` that builds a `DesktopAgent` from the session (handling spec-task, exploratory `Metadata.ProjectID`, and legacy `session.ProjectID` shapes) and calls `externalAgentExecutor.StartDesktop`.
-- [ ] Refactor `startDevContainerForSpecTask` (`spec_task_design_review_handlers.go:910`) into a thin wrapper over the new helper — load the spec task, then delegate.
+- [x] Extract a new `startDevContainerForSession(ctx, *types.Session) error` helper in `api/pkg/server/spec_task_design_review_handlers.go` that builds a `DesktopAgent` from the session (handling spec-task, exploratory `Metadata.ProjectID`, and legacy `session.ProjectID` shapes) and calls `externalAgentExecutor.StartDesktop`.
+- [x] Refactor `startDevContainerForSpecTask` (`spec_task_design_review_handlers.go:910`) into a thin wrapper over the new helper — load the spec task, then delegate.
 - [ ] Refactor the agent-build + `StartDesktop` block of `resumeSession` (`session_handlers.go:~1923-2070`) to delegate to the new helper. Keep HTTP concerns (auth, response writing, post-StartDesktop metadata refresh) in the handler.
 - [ ] Rewrite `autoStartDevContainerForSession` (`websocket_external_agent_sync.go:3222`) to call the new helper for any `zed_external` session — remove the `if SpecTaskID == "" { return }` early-out.
 - [ ] Extend Gate 1 in `auto_wake_stuck_interactions.go:237` so that when no WS exists, the worker calls `autoStartDevContainerForSession` (bounded by `autoWakeMaxRetries` via the existing `AutoWakeCount` column) instead of returning silently. Add a targeted column update to bump `AutoWakeCount` for the no-WS branch — do not use `Save` (see file header comment at lines 75-86).
