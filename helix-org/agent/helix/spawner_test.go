@@ -91,6 +91,9 @@ func (f *fakeHelixClient) SubscribeUpdates(_ context.Context, _ string) (<-chan 
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
+func (f *fakeHelixClient) ServerStatus(_ context.Context) (helixclient.ServerStatus, error) {
+	return helixclient.ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
+}
 func (f *fakeHelixClient) ListProviders(_ context.Context) ([]string, error) {
 	return []string{"openai", "anthropic"}, nil
 }
@@ -269,6 +272,43 @@ func TestSpawnerFollowUpUsesSendSessionMessage(t *testing.T) {
 	}
 }
 
+// TestSpawnerRefusesWhenDesktopQuotaExceeded asserts the spawner fails
+// fast with a useful error when Helix's `max_concurrent_desktops`
+// would be exceeded by spinning up a new session. Important: only
+// fires when there's no existing session — follow-ups reuse the warm
+// container and must skip the check (covered by
+// TestSpawnerFollowUpUsesSendSessionMessage).
+func TestSpawnerRefusesWhenDesktopQuotaExceeded(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &quotaFullFakeClient{
+		fakeHelixClient: fakeHelixClient{startSessionID: "ses_x"},
+	}
+	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
+	cfg.Client = fc
+	sp := Spawner(cfg)
+	err := sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerHire}})
+	if err == nil {
+		t.Fatal("expected error when quota exhausted")
+	}
+	if !strings.Contains(err.Error(), "quota reached") {
+		t.Errorf("error %q does not mention quota", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartChat must NOT be called when quota is full; got %d", got)
+	}
+}
+
+// quotaFullFakeClient overrides ServerStatus to report no available
+// desktop slots, simulating Helix's `max_concurrent_desktops` cap.
+type quotaFullFakeClient struct {
+	fakeHelixClient
+}
+
+func (f *quotaFullFakeClient) ServerStatus(_ context.Context) (helixclient.ServerStatus, error) {
+	return helixclient.ServerStatus{MaxConcurrentDesktops: 2, ActiveConcurrentDesktops: 2}, nil
+}
+
 // TestSpawnerColdStartReQueues verifies that when StartChatWithStatus
 // reports hadWSError=true on a fresh session, the spawner immediately
 // re-queues the same prompt via SendSessionMessage so the durable
@@ -391,6 +431,9 @@ func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req helixcl
 }
 func (c *concurrencyClient) SendSessionMessage(ctx context.Context, sid, content string, opts helixclient.SendMessageOptions) (helixclient.SendMessageResponse, error) {
 	return c.inner.SendSessionMessage(ctx, sid, content, opts)
+}
+func (c *concurrencyClient) ServerStatus(ctx context.Context) (helixclient.ServerStatus, error) {
+	return c.inner.ServerStatus(ctx)
 }
 func (c *concurrencyClient) ListProviders(ctx context.Context) ([]string, error) {
 	return c.inner.ListProviders(ctx)

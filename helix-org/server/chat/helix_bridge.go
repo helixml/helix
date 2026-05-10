@@ -290,6 +290,15 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		return nil
 	}
 
+	// Pre-flight desktop quota — fail fast with a clear message
+	// instead of letting Helix's StartDesktop bail with a 500 after
+	// project apply / agent-app provisioning has already run. Soft
+	// check: a parallel caller could still race us for the last slot,
+	// in which case Helix's own quota error wins.
+	if err := helixclient.CheckDesktopQuota(ctx, b.client); err != nil {
+		return err
+	}
+
 	orgID, err := b.resolveProjectOrg(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("resolve project org: %w", err)

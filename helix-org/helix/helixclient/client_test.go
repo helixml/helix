@@ -360,6 +360,44 @@ func TestValidateProviderModel(t *testing.T) {
 	}
 }
 
+// TestCheckDesktopQuota covers the three branches: room (active < max),
+// no room (active >= max), and unlimited (max == 0). The point of the
+// helper is to fail fast with a clear error instead of letting
+// helix-org spin up project plumbing only to bail at StartDesktop.
+func TestCheckDesktopQuota(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		body       string
+		wantSubstr string // empty = expect nil error
+	}{
+		{name: "room", body: `{"max_concurrent_desktops":2,"active_concurrent_desktops":1}`},
+		{name: "exact-limit", body: `{"max_concurrent_desktops":2,"active_concurrent_desktops":2}`, wantSubstr: "2/2 active"},
+		{name: "over-limit", body: `{"max_concurrent_desktops":2,"active_concurrent_desktops":3}`, wantSubstr: "3/2 active"},
+		{name: "unlimited", body: `{"max_concurrent_desktops":0,"active_concurrent_desktops":99}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/config" {
+					t.Errorf("unexpected path: %s", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			err := CheckDesktopQuota(context.Background(), c)
+			if tc.wantSubstr == "" {
+				if err != nil {
+					t.Fatalf("expected nil, got: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("error %q does not contain %q", err, tc.wantSubstr)
+			}
+		})
+	}
+}
+
 func TestSendSessionMessageRejectsEmptySID(t *testing.T) {
 	t.Parallel()
 	c := newTestClient(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {

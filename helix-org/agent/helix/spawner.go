@@ -241,11 +241,21 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.Worker
 		}
 	}
 
-	// First activation (or stale session): create one. We post the
-	// activation prompt through StartChat so Helix has *something* to
-	// dispatch — but if the desktop's WS hasn't connected yet
-	// (hadWSError) the interaction is in error state, so we re-queue
-	// the same prompt durably.
+	// First activation (or stale session): create one. Refuse early if
+	// the operator's desktop quota is already exhausted — Helix would
+	// otherwise spin up the project's plumbing (apply secrets, create
+	// the agent app) and fail at the StartDesktop step with a generic
+	// "desktop limit reached" 500 minutes later. We can't reserve a
+	// slot atomically (Helix doesn't expose that) so this is a soft
+	// pre-flight; a parallel caller could still beat us to the last
+	// slot, in which case Helix will return its own error.
+	if err := helixclient.CheckDesktopQuota(ctx, c.Client); err != nil {
+		return "", err
+	}
+	// We post the activation prompt through StartChat so Helix has
+	// *something* to dispatch — but if the desktop's WS hasn't
+	// connected yet (hadWSError) the interaction is in error state,
+	// so we re-queue the same prompt durably.
 	req := helixclient.StartChatRequest{
 		ProjectID:           state.ProjectID,
 		AppID:               state.AgentAppID,

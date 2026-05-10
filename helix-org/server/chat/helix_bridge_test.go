@@ -45,6 +45,10 @@ func (f *fakeChatClient) SendSessionMessage(_ context.Context, sid, content stri
 	return helixclient.SendMessageResponse{RequestID: "req_x", InteractionID: "ix_x"}, nil
 }
 
+func (f *fakeChatClient) ServerStatus(_ context.Context) (helixclient.ServerStatus, error) {
+	return helixclient.ServerStatus{MaxConcurrentDesktops: 0}, nil // 0 = unlimited
+}
+
 func (f *fakeChatClient) StartChat(_ context.Context, req helixclient.StartChatRequest) (helixclient.Session, error) {
 	f.startCalls++
 	f.lastStartReq = req

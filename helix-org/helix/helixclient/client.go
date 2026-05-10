@@ -38,6 +38,12 @@ type Client interface {
 	// Connectivity probe. Returns the authenticated user.
 	WhoAmI(ctx context.Context) (UserStatus, error)
 
+	// ServerStatus returns the operator-facing /api/v1/config snapshot.
+	// helix-org only consumes the desktop-quota fields today (see
+	// CheckDesktopQuota); the rest are surfaced for forward
+	// compatibility.
+	ServerStatus(ctx context.Context) (ServerStatus, error)
+
 	// ListProviders returns the slug list Helix exposes at
 	// /api/v1/providers (e.g. ["openai","anthropic","helix",…]). Used
 	// to validate `chat.provider` at startup so a typo doesn't surface
@@ -139,6 +145,25 @@ type SendMessageOptions struct {
 type SendMessageResponse struct {
 	RequestID     string `json:"request_id"`
 	InteractionID string `json:"interaction_id"`
+}
+
+// ServerStatus mirrors the slice of /api/v1/config helix-org reads.
+// Today only the desktop-quota fields are consumed, surfaced as a
+// pre-flight gate before opening a new zed_external session.
+type ServerStatus struct {
+	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
+	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
+}
+
+// HasDesktopRoom reports whether at least one desktop slot is free
+// against the operator-configured cap. Returns true if the server has
+// no quota configured (Max == 0) — Helix uses 0 to mean "unlimited"
+// at the server level.
+func (s ServerStatus) HasDesktopRoom() bool {
+	if s.MaxConcurrentDesktops <= 0 {
+		return true
+	}
+	return s.ActiveConcurrentDesktops < s.MaxConcurrentDesktops
 }
 
 // Model is one entry from /v1/models. Helix ships an OpenAI-compatible
@@ -502,6 +527,37 @@ func (c *realClient) WhoAmI(ctx context.Context) (UserStatus, error) {
 		return UserStatus{}, err
 	}
 	return us, nil
+}
+
+// ServerStatus calls GET /api/v1/config.
+func (c *realClient) ServerStatus(ctx context.Context) (ServerStatus, error) {
+	var st ServerStatus
+	if err := c.do(ctx, http.MethodGet, "/api/v1/config", nil, &st); err != nil {
+		return ServerStatus{}, err
+	}
+	return st, nil
+}
+
+// CheckDesktopQuota refuses the call when the operator-configured
+// `max_concurrent_desktops` would be exceeded by spinning up one more
+// session. Returns nil on success; on a real network/API error
+// transports the failure verbatim. Used as a pre-flight before any
+// helix-org code path opens a *new* zed_external session — follow-ups
+// reuse an already-running container and don't need this check.
+//
+// The error message names every active session helix-org knows about
+// so the operator can decide which one to stop. We can't enumerate
+// other users' sessions from here — they show up in the count, not
+// the list.
+func CheckDesktopQuota(ctx context.Context, c Client) error {
+	st, err := c.ServerStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("read server status: %w", err)
+	}
+	if st.HasDesktopRoom() {
+		return nil
+	}
+	return fmt.Errorf("desktop quota reached on Helix (%d/%d active) — stop one of the existing sessions before opening a new one (`helix-org config get helix.url` then visit /sessions to manage)", st.ActiveConcurrentDesktops, st.MaxConcurrentDesktops)
 }
 
 // ListProviders calls GET /api/v1/providers. Returns the list of
