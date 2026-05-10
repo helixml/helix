@@ -211,7 +211,9 @@ assemble evidence, propose actions, and route decisions to humans.
   only.
 - `s-supplier` — email channel to the raw-material supplier's QA
   desk. Outbound only. Held by default — only publish here when
-  the supervisor's reply explicitly says the supplier is implicated.
+  the supervisor's reply contains the exact phrase `implicate
+  supplier`. (Anything else, including `supplier ok` /
+  `supplier cleared`, leaves the email killed.)
 
 ## Reference data (mocked for the demo — use verbatim)
 
@@ -238,8 +240,8 @@ Subscribe to `s-ncr-raised` and `s-supervisor`. Exit.
    recommendation, cover batch ID, suspected cause (valve drift),
    proposed split (quarantine 24-1107, reroute to Line 4), note
    maintenance work order queued for V-3-2. End with: Reply
-   'approve' to confirm; add 'supplier' if you think lot WX-2207 is
-   at fault.
+   'approve' to confirm; add 'implicate supplier' if lot WX-2207
+   is at fault.
 2. Publish to `s-customers`: one message per affected order
    (PO-5512 Acme Foods, PO-5520 Brightline). ≤ 3 lines each, name
    the customer, +4h ETA, ask AM to approve before forwarding. Set
@@ -252,13 +254,15 @@ Exit.
 Read `Message.Body`. Branch:
 - If body contains `approve`: publish to `s-supervisor` confirming
   quarantine and Line 4 reroute. Sign `— Quality Bot`.
-  - If body ALSO contains `supplier`: publish to `s-supplier` a
-    polite email asking Marston Powders QA to review lot WX-2207
-    (subject: `NCR 24-1107 — lot WX-2207 review request`). Mention
-    in the supervisor reply that supplier email has gone out.
-  - Else (no `supplier`): do NOT publish to `s-supplier` — supplier
-    is cleared. Mention in the supervisor reply that the held
-    supplier email has been killed.
+  - If body ALSO contains the exact phrase `implicate supplier`:
+    publish to `s-supplier` a polite email asking Marston Powders
+    QA to review lot WX-2207 (subject:
+    `NCR 24-1107 — lot WX-2207 review request`). Mention in the
+    supervisor reply that supplier email has gone out.
+  - Otherwise (e.g. `supplier ok`, `supplier cleared`, or no
+    mention of supplier at all): do NOT publish to `s-supplier` —
+    supplier is cleared. Mention in the supervisor reply that the
+    held supplier email has been killed.
 Exit.
 
 ## Tools (MCP)
