@@ -70,6 +70,11 @@ type GitRepositoryService struct {
 	// commits between receive-pack and upstream push.
 	repoLocks map[string]*sync.Mutex
 	locksMu   sync.Mutex // protects repoLocks map
+
+	// prListCache absorbs duplicate ListPullRequests calls (orchestrator polls,
+	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
+	// rate limit. Set on construction; safe for concurrent use.
+	prListCache *prListCache
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -97,6 +102,7 @@ func NewGitRepositoryService(
 		enableGitServer: true,
 		testMode:        false,
 		repoLocks:       make(map[string]*sync.Mutex),
+		prListCache:     newPRListCache(defaultPRListCacheTTL),
 	}
 }
 
@@ -288,9 +294,16 @@ func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPa
 		AddDynamicArguments(branch).
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
 	if fetchErr != nil {
-		// Can't reach remote (no network, no auth, etc.) — skip rather than
-		// incorrectly concluding the branch is ahead.
-		log.Debug().Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
+		// "couldn't find remote ref" is the common case for branches that
+		// exist locally but not on the remote (deleted PR branches, branches
+		// renamed upstream). Drop these to Trace so the ordinary recovery
+		// pass doesn't drown the log; reserve Debug for genuine remote/auth
+		// failures that an operator might want to investigate.
+		ev := log.Debug()
+		if strings.Contains(fetchErr.Error(), "couldn't find remote ref") {
+			ev = log.Trace()
+		}
+		ev.Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
 			Msg("Failed to fetch remote before ahead check, skipping branch")
 		return false, nil
 	}
