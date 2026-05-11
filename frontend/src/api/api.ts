@@ -720,19 +720,6 @@ export interface ServerExposedPort {
   url?: string;
 }
 
-export interface ServerForkSampleProjectRequest {
-  description?: string;
-  private?: boolean;
-  project_name?: string;
-  sample_project_id?: string;
-}
-
-export interface ServerForkSampleProjectResponse {
-  github_repo_url?: string;
-  message?: string;
-  project_id?: string;
-}
-
 export interface ServerInitializeSampleRepositoriesRequest {
   organization_id?: string;
   owner_id?: string;
@@ -1157,38 +1144,6 @@ export interface ServerRequiredGitHubRepo {
   sub_path?: string;
 }
 
-export interface ServerSampleProject {
-  /** "web", "api", "mobile", "data", "ai" */
-  category?: string;
-  default_branch?: string;
-  demo_url?: string;
-  description?: string;
-  /** "beginner", "intermediate", "advanced" */
-  difficulty?: string;
-  github_repo?: string;
-  id?: string;
-  name?: string;
-  readme_url?: string;
-  sample_tasks?: ServerSampleProjectTask[];
-  technologies?: string[];
-}
-
-export interface ServerSampleProjectTask {
-  acceptance_criteria?: string[];
-  description?: string;
-  estimated_hours?: number;
-  files_to_modify?: string[];
-  labels?: string[];
-  /** "low", "medium", "high", "critical" */
-  priority?: string;
-  /** "backlog", "ready", "in_progress", "review", "done" */
-  status?: string;
-  technical_notes?: string;
-  title?: string;
-  /** "feature", "bug", "task", "epic" */
-  type?: string;
-}
-
 export interface ServerSampleTaskPrompt {
   /** Tags for organization */
   labels?: string[];
@@ -1251,6 +1206,17 @@ export interface ServerSessionClaudeCredentialsResponse {
   credential_type?: string;
   oauth_credentials?: TypesClaudeOAuthCredentials;
   setup_token?: string;
+}
+
+export interface ServerSessionMessageRequest {
+  content?: string;
+  interrupt?: boolean;
+  notify_user_id?: string;
+}
+
+export interface ServerSessionMessageResponse {
+  interaction_id?: string;
+  request_id?: string;
 }
 
 export interface ServerSessionSandboxStateResponse {
@@ -1396,21 +1362,6 @@ export interface ServerRunnerProfileSaveRequest {
   model_match?: string;
   name?: string;
   vendor?: TypesGPUVendor;
-}
-
-export interface ServicesSampleProjectCode {
-  description?: string;
-  /** filepath -> content */
-  files?: Record<string, string>;
-  github_repo?: string;
-  gitignore?: string;
-  id?: string;
-  language?: string;
-  name?: string;
-  readme_url?: string;
-  /** Custom startup script for this project */
-  startup_script?: string;
-  technologies?: string[];
 }
 
 export interface ServicesStartupScriptVersion {
@@ -1872,6 +1823,8 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventCIPassed = "ci_passed",
+  AttentionEventCIFailed = "ci_failed",
 }
 
 export interface TypesAttentionEventUpdateRequest {
@@ -2377,6 +2330,8 @@ export interface TypesCreateTaskRequest {
   app_id?: string;
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
+  auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
   base_branch?: string;
   /** Branch configuration */
@@ -3072,6 +3027,7 @@ export enum TypesInteractionState {
   InteractionStateEditing = "editing",
   InteractionStateComplete = "complete",
   InteractionStateError = "error",
+  InteractionStateInterrupted = "interrupted",
 }
 
 export interface TypesItem {
@@ -4126,6 +4082,13 @@ export interface TypesPullRequest {
   author?: string;
   created_at?: string;
   description?: string;
+  /**
+   * HeadSHA is the commit SHA at the tip of the PR's source branch.
+   * Used by the CI status poller to detect new pushes and to query the
+   * provider's CI/build APIs for the right commit. Empty if the
+   * provider response did not include it.
+   */
+  head_sha?: string;
   id?: string;
   number?: number;
   source_branch?: string;
@@ -4272,6 +4235,18 @@ export interface TypesRegisterRequest {
 }
 
 export interface TypesRepoPR {
+  ci_head_sha?: string;
+  /**
+   * CI status, populated by the spec task orchestrator's PR poll loop.
+   * CIStatus is one of: "" (not yet evaluated), "running", "passed",
+   * "failed", "none" (CI not configured for the PR's head SHA).
+   * CIHeadSHA is the head commit we last evaluated; it lets the poller
+   * detect a new push and reset CIStatus so a stale "passed" doesn't
+   * suppress a fresh notification when the next commit fails.
+   */
+  ci_status?: string;
+  ci_updated_at?: string;
+  ci_url?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
@@ -5193,6 +5168,8 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -5558,6 +5535,8 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -6150,6 +6129,11 @@ export interface TypesUpdateTeamRequest {
   name?: string;
 }
 
+export interface TypesUpdateUserColorSchemeRequest {
+  /** "light", "dark", or "" (follow OS) */
+  color_scheme?: string;
+}
+
 export interface TypesUpdateUserGuidelinesRequest {
   guidelines?: string;
 }
@@ -6346,6 +6330,8 @@ export interface TypesZedConfigResponse {
   claude_subscription_available?: boolean;
   /** Code agent configuration for Zed agentic coding */
   code_agent_config?: TypesCodeAgentConfig;
+  /** Session owner's UI color scheme: "light", "dark", or "" (follow OS). Daemon applies via gsettings to GNOME. */
+  color_scheme?: string;
   context_servers?: Record<string, any>;
   external_sync?: Record<string, any>;
   language_models?: Record<string, any>;
@@ -12256,91 +12242,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get a list of all available sample projects that users can fork and use
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsList
-     * @summary List available sample projects
-     * @request GET:/api/v1/sample-projects
-     * @secure
-     */
-    v1SampleProjectsList: (params: RequestParams = {}) =>
-      this.request<ServerSampleProject[], any>({
-        path: `/api/v1/sample-projects`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific sample project by ID
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsDetail
-     * @summary Get a specific sample project
-     * @request GET:/api/v1/sample-projects/{project_id}
-     * @secure
-     */
-    v1SampleProjectsDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<ServerSampleProject, any>({
-        path: `/api/v1/sample-projects/${projectId}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get all files for a sample project as a flat map (for container initialization)
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsArchiveDetail
-     * @summary Get sample project code as archive
-     * @request GET:/api/v1/sample-projects/{projectId}/archive
-     */
-    v1SampleProjectsArchiveDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/sample-projects/${projectId}/archive`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the starter code and file structure for a sample project
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsCodeDetail
-     * @summary Get sample project starter code
-     * @request GET:/api/v1/sample-projects/{projectId}/code
-     */
-    v1SampleProjectsCodeDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<ServicesSampleProjectCode, TypesAPIError>({
-        path: `/api/v1/sample-projects/${projectId}/code`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Fork a sample project to the user's GitHub account and create a new Helix project
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsForkCreate
-     * @summary Fork a sample project
-     * @request POST:/api/v1/sample-projects/fork
-     * @secure
-     */
-    v1SampleProjectsForkCreate: (request: ServerForkSampleProjectRequest, params: RequestParams = {}) =>
-      this.request<ServerForkSampleProjectResponse, any>({
-        path: `/api/v1/sample-projects/fork`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
      * @description Get sample projects with natural language task prompts (Kiro-style)
      *
      * @tags sample-projects
@@ -13067,6 +12968,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/interactions/${interactionId}/feedback`,
         method: "POST",
         body: feedback,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Persists a Waiting interaction and dispatches it via the external-agent WebSocket. If no agent is connected the interaction is held until the agent reconnects, at which point pickupWaitingInteraction delivers it — callers do not need to manage WebSocket readiness or retries. Distinct from POST /sessions/chat (synchronous SSE chat); use this endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+     *
+     * @tags Sessions
+     * @name V1SessionsMessagesCreate
+     * @summary Queue a message to a session's external agent
+     * @request POST:/api/v1/sessions/{id}/messages
+     * @secure
+     */
+    v1SessionsMessagesCreate: (id: string, request: ServerSessionMessageRequest, params: RequestParams = {}) =>
+      this.request<ServerSessionMessageResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/messages`,
+        method: "POST",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -14476,6 +14397,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1UsersMeChatSettingsUpdate: (request: TypesUserChatSettings, params: RequestParams = {}) =>
       this.request<TypesUserChatSettings, SystemHTTPError>({
         path: `/api/v1/users/me/chat-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the user's UI color scheme. Propagates instantly to GNOME and Zed in any spec-task sessions owned by this user.
+     *
+     * @tags Users
+     * @name V1UsersMeColorSchemeUpdate
+     * @summary Update user color scheme preference
+     * @request PUT:/api/v1/users/me/color-scheme
+     * @secure
+     */
+    v1UsersMeColorSchemeUpdate: (request: TypesUpdateUserColorSchemeRequest, params: RequestParams = {}) =>
+      this.request<TypesUpdateUserColorSchemeRequest, SystemHTTPError>({
+        path: `/api/v1/users/me/color-scheme`,
         method: "PUT",
         body: request,
         secure: true,

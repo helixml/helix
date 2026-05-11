@@ -16,6 +16,8 @@ import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Check, Copy } from 'lucide-react'
 
+import useLightTheme from '../../hooks/useLightTheme'
+
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>
 
 interface SandboxApiExamplesProps {
@@ -245,6 +247,7 @@ with open("${localPath}", "wb") as f:
 }
 
 const CodeBlock: FC<{ code: string; lang: Lang }> = ({ code, lang }) => {
+  const lightTheme = useLightTheme()
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
     try {
@@ -294,7 +297,7 @@ const CodeBlock: FC<{ code: string; lang: Lang }> = ({ code, lang }) => {
             right: 4,
             opacity: 0.6,
             transition: 'opacity 0.15s ease',
-            color: '#e5e5e5',
+            color: lightTheme.textColorFaded,
             bgcolor: 'rgba(0, 0, 0, 0.3)',
             '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.5)' },
           }}

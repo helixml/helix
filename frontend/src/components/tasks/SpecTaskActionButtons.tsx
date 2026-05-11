@@ -51,6 +51,7 @@ export interface SpecTaskForActions {
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
   last_push_at?: string;
+  rebase_requested_at?: string;
 }
 
 interface SpecTaskActionButtonsProps {
@@ -241,6 +242,16 @@ export default function SpecTaskActionButtons({
     !hasExternalRepo || task.base_branch === task.branch_name;
 
   const hasPushed = !!task.last_push_at;
+
+  // Rebase-pending: backend asked the agent to rebase and the agent hasn't
+  // pushed since. Disable Accept and tell the user so they don't sit clicking.
+  // The auto-retry on agent push transitions the task to done, so manual
+  // re-clicking is unnecessary in this state.
+  const rebasePending =
+    task.status === "implementation_review" &&
+    !!task.rebase_requested_at &&
+    (!task.last_push_at ||
+      new Date(task.last_push_at).getTime() <= new Date(task.rebase_requested_at).getTime());
 
   // Button size based on variant
   const buttonSize = "small";
@@ -553,12 +564,20 @@ export default function SpecTaskActionButtons({
             }}
           />
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
+            tooltip={
+              isArchived
+                ? "Task is archived"
+                : rebasePending
+                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                  : !hasPushed
+                    ? "Waiting for agent to push code..."
+                    : ""
+            }
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
+            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
             icon={
-              approveImplementationMutation.isPending ? (
+              approveImplementationMutation.isPending || rebasePending ? (
                 <CircularProgress size={16} color="inherit" />
               ) : (
                 <ApproveIcon sx={{ fontSize: 18 }} />
@@ -569,9 +588,11 @@ export default function SpecTaskActionButtons({
                 ? isDirectPush
                   ? "Merging..."
                   : "Opening PR..."
-                : isDirectPush
-                  ? "Accept"
-                  : "Open PR"
+                : rebasePending
+                  ? "Rebasing..."
+                  : isDirectPush
+                    ? "Accept"
+                    : "Open PR"
             }
             onClick={handleOpenPR}
           />
@@ -629,21 +650,32 @@ export default function SpecTaskActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
+          <Tooltip
+            title={
+              isArchived
+                ? "Task is archived"
+                : rebasePending
+                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                  : !hasPushed
+                    ? "Waiting for agent to push code..."
+                    : ""
+            }
+            placement="top"
+          >
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
                 variant="contained"
                 color="success"
                 startIcon={
-                  approveImplementationMutation.isPending ? (
+                  approveImplementationMutation.isPending || rebasePending ? (
                     <CircularProgress size={14} color="inherit" />
                   ) : (
                     <ApproveIcon />
                   )
                 }
                 onClick={handleOpenPR}
-                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
+                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
                 fullWidth
                 sx={buttonSx}
               >
@@ -651,9 +683,11 @@ export default function SpecTaskActionButtons({
                   ? isDirectPush
                     ? "Merging..."
                     : "Opening PR..."
-                  : isDirectPush
-                    ? "Accept"
-                    : "Open PR"}
+                  : rebasePending
+                    ? "Rebasing..."
+                    : isDirectPush
+                      ? "Accept"
+                      : "Open PR"}
               </Button>
             </span>
           </Tooltip>
@@ -701,7 +735,7 @@ export default function SpecTaskActionButtons({
     );
   }
 
-  if (task.status === "pull_request" && hasAnyPR) {
+  if ((task.status === "pull_request" || task.status === "done") && hasAnyPR) {
     // Single PR case
     if (pullRequests.length === 1) {
       const prUrl = pullRequests[0].pr_url;

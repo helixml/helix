@@ -220,13 +220,24 @@ func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Co
 // maybeAutoWake fires an in-place retry for a single stuck interaction
 // if all gates pass. See the file header for the design rationale.
 func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types.Interaction) {
+	threshold := autoWakeStuckThreshold()
+
 	// Gate 1 — WebSocket connection AND grace period since connect.
 	//
 	// If the agent isn't connected yet (desktop still booting after a
 	// fresh session start, or after a reconnect) or has dropped,
-	// sending a wake-up is pointless. The downstream
-	// sendCommandToExternalAgent would either trigger a redundant
-	// auto-start of the dev container or fail outright.
+	// sending a chat_message wake-up is pointless — there's no peer to
+	// receive it.
+	//
+	// Special case (helixml/helix#2397): some sessions enter this state
+	// because nothing ever woke the dev container in the first place —
+	// e.g. a session created via POST /sessions/chat that errored on
+	// first dispatch, leaving the container running but Zed inside
+	// never connected the WebSocket. For these, sending a wake-up
+	// message is hopeless; what we need is to (re)kick the container
+	// auto-start so Zed dials home. Bound by autoWakeMaxRetries via the
+	// existing AutoWakeCount column so a permanently-broken session
+	// doesn't churn forever.
 	//
 	// Also: even when the connection has just come up, the agent may
 	// be processing a prompt that was queued during boot — give it the
@@ -236,9 +247,15 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	// because the WS reconnect just completed.
 	conn, connected := apiServer.externalAgentWSManager.getConnection(stuck.SessionID)
 	if !connected || conn == nil {
+		// Only consider a re-kick once the interaction is genuinely old.
+		// `created < now - threshold` was already enforced at the SQL
+		// level by ListStuckWaitingInteractions, but recheck defensively.
+		if time.Since(stuck.Created) < threshold {
+			return
+		}
+		apiServer.maybeKickColdStart(ctx, stuck)
 		return
 	}
-	threshold := autoWakeStuckThreshold()
 
 	// The "stuck enough to wake" clock should anchor on the most
 	// recent of:
@@ -409,4 +426,56 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		Str("stuck_interaction_id", stuck.ID).
 		Int("attempt", newCount).
 		Msg("✅ [AUTO_WAKE] Wake-up sent in-place")
+}
+
+// maybeKickColdStart handles stuck interactions on sessions with no live
+// WebSocket. Re-running the dev container auto-start is the only thing that
+// can make Zed dial home — sending a chat_message has no peer to deliver to.
+// Bounded by autoWakeMaxRetries via the AutoWakeCount column so a session
+// that genuinely cannot start doesn't churn forever; after exhaustion the
+// stuck interaction is marked state=error.
+//
+// Why a column UPDATE instead of a Save: the streaming path concurrently
+// calls UpdateInteraction (which uses GORM Save and so writes every column
+// from its in-memory copy). A Save here would race-clobber AutoWakeCount
+// back to a stale value, and the cap would never engage. See the file
+// header at lines 75-86 for the original incident on spt_01kq2308n428ss3wrm67ta6mjd.
+func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
+	if stuck.AutoWakeCount >= autoWakeMaxRetries {
+		stuck.State = types.InteractionStateError
+		stuck.Error = "Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"
+		stuck.Updated = time.Now()
+		stuck.Completed = time.Now()
+		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {
+			log.Warn().Err(err).
+				Str("interaction_id", stuck.ID).
+				Msg("[AUTO_WAKE] Failed to mark cold-start-exhausted interaction as error")
+			return
+		}
+		log.Warn().
+			Str("interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Int("retries_attempted", stuck.AutoWakeCount).
+			Msg("⚠️ [AUTO_WAKE] Exhausted cold-start retries — marked stuck interaction as error")
+		return
+	}
+
+	// Bump first via a targeted column UPDATE so the cap engages even
+	// if the auto-start fails. Same pattern as the in-place wake-up.
+	newCount, err := apiServer.Store.IncrementInteractionAutoWakeCount(ctx, stuck.ID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to increment auto_wake_count for cold-start; skipping kick")
+		return
+	}
+
+	log.Info().
+		Str("stuck_interaction_id", stuck.ID).
+		Str("session_id", stuck.SessionID).
+		Int("attempt", newCount).
+		Time("stuck_created_at", stuck.Created).
+		Msg("🔌 [AUTO_WAKE] No WS for stuck interaction — kicking dev container auto-start (helixml/helix#2397)")
+
+	go apiServer.autoStartDevContainerForSession(stuck.SessionID)
 }

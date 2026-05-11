@@ -13,7 +13,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -905,54 +904,85 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		specTask.ID, specTask.AgentSessionID, len(connectedSessions))
 }
 
-// startDevContainerForSpecTask auto-starts the dev container for a spec task's planning session.
-// This is the backend equivalent of the frontend auto-start logic in DesignReviewContent.tsx.
-// It extracts the core logic from resumeSession without requiring an HTTP request context.
-func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
-	if specTask.AgentSessionID == "" {
-		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+// startDevContainerForSession boots the dev container for any zed_external session,
+// whether it belongs to a spec task or is an exploratory project session. It is the
+// shared body behind resumeSession, startDevContainerForSpecTask, and the auto-wake
+// path (autoStartDevContainerForSession). Project context is resolved in priority order:
+//
+//  1. session.Metadata.SpecTaskID — load the spec task, take ProjectID/OrganizationID from it.
+//  2. session.Metadata.ProjectID  — exploratory zed_external session.
+//  3. session.ProjectID           — legacy session row.
+//
+// Returns an error only on real start failures. If no project context is available
+// (no spec task AND no project ID anywhere), returns nil after logging — the caller's
+// persisted Waiting interaction will simply remain queued; we cannot invent project config.
+func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, session *types.Session) error {
+	if session == nil {
+		return fmt.Errorf("startDevContainerForSession: session is nil")
 	}
 	if s.externalAgentExecutor == nil {
 		return fmt.Errorf("external agent executor not available")
 	}
 
-	session, err := s.Store.GetSession(ctx, specTask.AgentSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get planning session %s: %w", specTask.AgentSessionID, err)
-	}
-
 	agent := &types.DesktopAgent{
-		SessionID:      session.ID,
-		UserID:         session.Owner,
-		Input:          "Resume session",
-		ProjectPath:    "workspace",
-		SpecTaskID:     specTask.ID,
-		ProjectID:      specTask.ProjectID,
-		OrganizationID: specTask.OrganizationID,
+		SessionID:   session.ID,
+		UserID:      session.Owner,
+		Input:       "Resume session",
+		ProjectPath: "workspace",
 	}
 
-	// Load project repositories
-	if agent.ProjectID != "" {
-		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: agent.ProjectID,
-		})
-		if err == nil && len(projectRepos) > 0 {
-			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-			for _, repo := range projectRepos {
-				if repo.ID != "" {
-					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-				}
+	// Resolve project context. Priority: spec task → session.Metadata.ProjectID → session.ProjectID.
+	specTaskID := session.Metadata.SpecTaskID
+	if specTaskID != "" {
+		specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("spec_task_id", specTaskID).
+				Str("session_id", session.ID).
+				Msg("startDevContainerForSession: failed to load spec task, falling back to session metadata")
+		} else if specTask != nil {
+			agent.SpecTaskID = specTask.ID
+			agent.ProjectID = specTask.ProjectID
+			agent.OrganizationID = specTask.OrganizationID
+		}
+	}
+	if agent.ProjectID == "" && session.Metadata.ProjectID != "" {
+		agent.ProjectID = session.Metadata.ProjectID
+		agent.OrganizationID = session.OrganizationID
+	}
+	if agent.ProjectID == "" && session.ProjectID != "" {
+		agent.ProjectID = session.ProjectID
+		agent.OrganizationID = session.OrganizationID
+	}
+
+	if agent.ProjectID == "" {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("startDevContainerForSession: no project context (no spec task, no project ID) — cannot auto-start")
+		return nil
+	}
+
+	// Load project repositories.
+	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: agent.ProjectID,
+	})
+	if err == nil && len(projectRepos) > 0 {
+		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+		for _, repo := range projectRepos {
+			if repo.ID != "" {
+				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
 			}
-			project, err := s.Store.GetProject(ctx, agent.ProjectID)
-			if err == nil && project != nil && project.DefaultRepoID != "" {
-				agent.PrimaryRepositoryID = project.DefaultRepoID
-			} else if len(projectRepos) > 0 {
-				agent.PrimaryRepositoryID = projectRepos[0].ID
-			}
+		}
+		project, err := s.Store.GetProject(ctx, agent.ProjectID)
+		if err == nil && project != nil && project.DefaultRepoID != "" {
+			agent.PrimaryRepositoryID = project.DefaultRepoID
+		} else if len(projectRepos) > 0 {
+			agent.PrimaryRepositoryID = projectRepos[0].ID
 		}
 	}
 
-	// Get display settings from app config
+	// Get display settings from app config.
 	if session.ParentApp != "" {
 		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -978,33 +1008,48 @@ func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specT
 	}
 
 	log.Info().
-		Str("spec_task_id", specTask.ID).
 		Str("session_id", session.ID).
-		Msg("Auto-starting dev container for spec task (backend-initiated resume)")
+		Str("spec_task_id", agent.SpecTaskID).
+		Str("project_id", agent.ProjectID).
+		Msg("Auto-starting dev container for session (backend-initiated resume)")
 
 	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		return fmt.Errorf("failed to start dev container: %w", err)
 	}
 
-	// Re-fetch session and update metadata (same as resumeSession does)
-	session, err = s.Store.GetSession(ctx, specTask.AgentSessionID)
-	if err == nil {
+	// Re-fetch session and update metadata.
+	refetched, err := s.Store.GetSession(ctx, session.ID)
+	if err == nil && refetched != nil {
 		if response.DevContainerID != "" {
-			session.Metadata.DevContainerID = response.DevContainerID
+			refetched.Metadata.DevContainerID = response.DevContainerID
 		}
-		session.Metadata.PausedScreenshotPath = ""
-		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
-			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session metadata after auto-start")
+		refetched.Metadata.PausedScreenshotPath = ""
+		if _, err := s.Store.UpdateSession(ctx, *refetched); err != nil {
+			log.Warn().Err(err).Str("session_id", refetched.ID).Msg("Failed to update session metadata after auto-start")
 		}
 	}
 
 	log.Info().
-		Str("spec_task_id", specTask.ID).
-		Str("session_id", specTask.AgentSessionID).
-		Msg("✅ Dev container auto-started for spec task, agent will reconnect via WebSocket")
+		Str("session_id", session.ID).
+		Str("spec_task_id", agent.SpecTaskID).
+		Msg("✅ Dev container auto-started, agent will reconnect via WebSocket")
 
 	return nil
+}
+
+// startDevContainerForSpecTask is a thin wrapper that loads the spec task's planning
+// session, then delegates to startDevContainerForSession. Kept for callers that have
+// a SpecTask in hand but not the session.
+func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
+	if specTask.AgentSessionID == "" {
+		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+	}
+	session, err := s.Store.GetSession(ctx, specTask.AgentSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.AgentSessionID, err)
+	}
+	return s.startDevContainerForSession(ctx, session)
 }
 
 // sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
@@ -1453,23 +1498,10 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		Msg("✅ Design review backfilled successfully from git")
 }
 
-// sanitizeBranchName sanitizes a string to be used as a git branch name
-func sanitizeBranchName(name string) string {
-	// Replace spaces with hyphens
-	name = strings.ReplaceAll(name, " ", "-")
-	// Remove special characters except hyphens and underscores
-	result := strings.Builder{}
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
-}
-
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
-// It handles: finding connected session, generating request ID, setting up response routing, and sending
-// If no session is connected, it auto-starts the dev container and waits up to 90s for the agent to connect.
+// It handles: finding connected session, generating request ID, setting up response routing, and sending.
+// If no session is connected, sendChatMessageToExternalAgent persists the interaction; the no-WS path
+// triggers autoStartDevContainerForSession and pickupWaitingInteraction delivers on reconnect.
 // Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
 //
 // interrupt=true tells the agent to cancel its current turn before processing this message. Use it for
@@ -1498,10 +1530,27 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		sessionID = specTask.AgentSessionID
 	}
 
-	// Generate request ID for tracking
+	return s.sendMessageToSession(ctx, sessionID, message, notifyUserID, interrupt)
+}
+
+// sendMessageToSession is the session-scoped helper for delivering a message to an external agent.
+// It generates a request ID, optionally registers a notify-user mapping for response routing, and
+// calls sendChatMessageToExternalAgent — which persists a Waiting interaction even when no agent
+// WebSocket is connected. If the WS is absent, ErrNoExternalAgentWS is returned wrapped: callers
+// should treat that as "queued, will deliver on reconnect" via pickupWaitingInteraction, not a
+// hard failure. The interactionID is returned even in that case so the caller can correlate
+// responses on /api/v1/ws/user.
+func (s *HelixAPIServer) sendMessageToSession(
+	ctx context.Context,
+	sessionID string,
+	message string,
+	notifyUserID string,
+	interrupt bool,
+) (string, string, error) {
+	_ = ctx // session lookup is delegated to sendChatMessageToExternalAgent
+
 	requestID := "req_" + system.GenerateUUID()
 
-	// If a notifyUserID is provided, store it for response notification
 	if notifyUserID != "" {
 		s.contextMappingsMutex.Lock()
 		if s.requestToCommenterMapping == nil {
@@ -1515,10 +1564,20 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		s.contextMappingsMutex.Unlock()
 	}
 
-	// Send the message via the canonical path which creates an interaction,
-	// enqueues it, and sends the WebSocket command.
 	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
 	if err != nil {
+		// ErrNoExternalAgentWS means the interaction was persisted but no WS was connected.
+		// pickupWaitingInteraction will deliver it on reconnect — surface as success to
+		// the caller, who already has the interactionID for response correlation.
+		if errors.Is(err, ErrNoExternalAgentWS) {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", interactionID).
+				Str("request_id", requestID).
+				Msg("✉️  Queued message for session — no WS connected, will deliver on reconnect")
+			return requestID, interactionID, nil
+		}
+
 		if notifyUserID != "" {
 			s.contextMappingsMutex.Lock()
 			delete(s.requestToCommenterMapping, requestID)
@@ -1528,135 +1587,11 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	}
 
 	log.Info().
-		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
 		Str("interaction_id", interactionID).
 		Str("request_id", requestID).
-		Msg("✅ Sent message to spec task agent via WebSocket")
+		Msg("✅ Sent message to session agent via WebSocket")
 
 	return requestID, interactionID, nil
 }
 
-// sendApprovalInstructionToAgent sends the detailed implementation instruction to the agent via WebSocket
-// This is called when a design review is approved
-func (s *HelixAPIServer) sendApprovalInstructionToAgent(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	branchName string,
-	baseBranch string,
-	primaryRepoName string,
-) error {
-	// Fetch guidelines from project and organization
-	guidelines, project := s.getGuidelinesForSpecTask(ctx, specTask)
-	koditDoc := ""
-	if project != nil && project.KoditEnabled {
-		koditDoc = s.koditService.MCPDocumentation()
-	}
-
-	// Build repository section listing local + Kodit repos for the agent
-	repoSection := s.buildRepositorySectionForSpecTask(ctx, specTask, project)
-
-	// Gather non-primary repo names and find primary repo for screenshot URLs
-	var nonPrimaryRepoNames []string
-	var screenshotBaseURL string
-	taskDirName := services.GetTaskDirName(specTask)
-	if specTask.ProjectID != "" {
-		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: specTask.ProjectID,
-		})
-		if err == nil {
-			for _, repo := range projectRepos {
-				if repo.Name == primaryRepoName && repo.ExternalURL != "" {
-					screenshotBaseURL = services.GetRawScreenshotBaseURL(repo, taskDirName)
-				} else if repo.Name != primaryRepoName && repo.ExternalURL != "" {
-					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
-				}
-			}
-		}
-	}
-
-	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames, screenshotBaseURL)
-
-	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
-	_, _, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "", false)
-	if err != nil {
-		return err
-	}
-
-	log.Info().
-		Str("spec_task_id", specTask.ID).
-		Str("branch_name", branchName).
-		Msg("✅ Sent approval instruction to agent via WebSocket")
-
-	return nil
-}
-
-// getGuidelinesForSpecTask fetches concatenated organization + project guidelines
-func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
-	if task.ProjectID == "" {
-		return "", nil
-	}
-
-	project, err := s.Store.GetProject(ctx, task.ProjectID)
-	if err != nil || project == nil {
-		return "", nil
-	}
-
-	guidelines := ""
-
-	// Get organization guidelines
-	if project.OrganizationID != "" {
-		org, err := s.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
-		if err == nil && org != nil && org.Guidelines != "" {
-			guidelines = org.Guidelines
-		}
-	}
-
-	// Append project guidelines
-	if project.Guidelines != "" {
-		if guidelines != "" {
-			guidelines += "\n\n---\n\n"
-		}
-		guidelines += project.Guidelines
-	}
-
-	return guidelines, project
-}
-
-// buildRepositorySectionForSpecTask fetches project and org repos, then builds the repository section
-func (s *HelixAPIServer) buildRepositorySectionForSpecTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
-	if task.ProjectID == "" {
-		return ""
-	}
-
-	// Fetch project repos
-	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		return ""
-	}
-
-	// Fetch Kodit org repos if enabled
-	var koditOrgRepos []*types.GitRepository
-	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
-		orgRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: project.OrganizationID,
-		})
-		if err == nil {
-			for _, repo := range orgRepos {
-				if repo.KoditIndexing {
-					koditOrgRepos = append(koditOrgRepos, repo)
-				}
-			}
-		}
-	}
-
-	primaryRepoID := ""
-	if project != nil {
-		primaryRepoID = project.DefaultRepoID
-	}
-
-	return services.BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
-}

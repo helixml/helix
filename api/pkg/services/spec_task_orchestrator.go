@@ -37,6 +37,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ciNotifier            CINotifier    // Delivers ci_passed / ci_failed messages to running agents
 	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -91,6 +92,13 @@ func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
 	o.attentionService = svc
+}
+
+// SetCINotifier sets the notifier used to deliver CI result messages to a
+// running agent. When nil, the orchestrator still tracks CI status on the
+// task but skips agent-side messaging (human attention events still fire).
+func (o *SpecTaskOrchestrator) SetCINotifier(n CINotifier) {
+	o.ciNotifier = n
 }
 
 // Start begins the orchestration loop
@@ -750,6 +758,12 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			updated = true
 		}
 
+		// CI status: poll the provider for the PR's head SHA, fire
+		// transition notifications, persist if anything changed.
+		if o.pollCIStatusForPR(ctx, task, &task.RepoPullRequests[i], pr) {
+			updated = true
+		}
+
 		switch pr.State {
 		case types.PullRequestStateOpen:
 			anyOpen = true
@@ -817,6 +831,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		return o.store.UpdateSpecTask(ctx, task)
 	}
 
+	// COMPLETION MODEL: deliberately do NOT detect "branch merged to main directly"
+	// and auto-transition to done. The only path to done is now an approved
+	// mark_task_complete proposal, the user-initiated approve-implementation flow,
+	// or direct user action in the UI. handleMainBranchPush in git_http_server.go
+	// records the merge metadata for UI display.
 	return nil
 }
 

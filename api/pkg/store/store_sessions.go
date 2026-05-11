@@ -359,6 +359,22 @@ func (s *PostgresStore) ListSessionsBySandbox(ctx context.Context, sandboxID str
 	return sessions, nil
 }
 
+// ListSessionsByOwner returns every live session owned by this user, regardless
+// of org membership, owner_type, or model_name. Used by user-scoped fan-out
+// (e.g. the color-scheme push), where ListSessions's default filters would
+// silently exclude spec-task sessions (model_name=external_agent,
+// organization_id set).
+func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error) {
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).
+		Where("owner = ?", ownerID).
+		Find(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
 // ListIdleDesktops returns one representative session per desktop (identified by
 // external_agent_id) where no interaction has been created or updated since
 // idleSince. For desktops with no interactions at all, the session's own

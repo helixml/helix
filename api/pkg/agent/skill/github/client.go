@@ -341,6 +341,110 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string) ([]*g
 	return allPRs, nil
 }
 
+// CIStatusResult is the normalized verdict for a head SHA, aggregated
+// across the legacy combined status and the modern check runs APIs.
+// Status is the worst of any individual status/check found:
+// "failed" > "running" > "passed" > "none". Status is the lower-cased
+// raw value — callers normalise via services.NormalizeCIStatus(...).
+// URL points at the GitHub PR's "Checks" tab (computed by the caller from
+// PR data, since this method takes only owner/repo/sha).
+type CIStatusResult struct {
+	// Status is the raw worst-state string. Empty when no statuses or
+	// check runs exist for the SHA. Callers normalise into the canonical
+	// services.CIStatus* values.
+	Status string
+	// HeadSHA echoes the SHA queried; useful when callers chain calls.
+	HeadSHA string
+}
+
+// GetCIStatus fetches the combined commit status AND the check runs for a
+// SHA, then returns the worst raw verdict. We query both because GitHub
+// has two overlapping CI surfaces: the legacy Statuses API (used by
+// many third-party CI services) and the Checks API (used by GitHub
+// Actions). A repo can use one, the other, or both.
+func (c *Client) GetCIStatus(ctx context.Context, owner, repo, sha string) (*CIStatusResult, error) {
+	const (
+		// Severity ordering for "worst-state wins" aggregation.
+		// Higher number = worse / more attention-demanding.
+		sevPassed  = 1
+		sevRunning = 2
+		sevFailed  = 3
+	)
+
+	verdict := func(state string) int {
+		switch strings.ToLower(strings.TrimSpace(state)) {
+		case "success", "neutral", "skipped":
+			return sevPassed
+		case "pending", "queued", "in_progress":
+			return sevRunning
+		case "":
+			return 0
+		default:
+			// failure, error, cancelled, timed_out, action_required, stale, ...
+			return sevFailed
+		}
+	}
+
+	worstSev := 0
+	worstRaw := ""
+	consider := func(state string) {
+		if state == "" {
+			return
+		}
+		s := verdict(state)
+		if s > worstSev {
+			worstSev = s
+			worstRaw = strings.ToLower(strings.TrimSpace(state))
+		}
+	}
+
+	combined, _, err := c.client.Repositories.GetCombinedStatus(ctx, owner, repo, sha, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get combined status: %w", err)
+	}
+	if combined != nil {
+		// Walk individual statuses (rather than the aggregate State) so
+		// we use the same "worst-state wins" rule across both surfaces.
+		for _, s := range combined.Statuses {
+			if s != nil && s.State != nil {
+				consider(*s.State)
+			}
+		}
+	}
+
+	checkOpts := &github.ListCheckRunsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		runs, resp, err := c.client.Checks.ListCheckRunsForRef(ctx, owner, repo, sha, checkOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list check runs: %w", err)
+		}
+		if runs != nil {
+			for _, r := range runs.CheckRuns {
+				if r == nil {
+					continue
+				}
+				// Status is "queued" | "in_progress" | "completed".
+				// When completed, Conclusion holds the verdict.
+				if r.Status != nil && *r.Status != "completed" {
+					consider(*r.Status)
+					continue
+				}
+				if r.Conclusion != nil {
+					consider(*r.Conclusion)
+				}
+			}
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		checkOpts.Page = resp.NextPage
+	}
+
+	return &CIStatusResult{Status: worstRaw, HeadSHA: sha}, nil
+}
+
 // GetRepository gets a repository by owner and name
 func (c *Client) GetRepository(ctx context.Context, owner, repo string) (*github.Repository, error) {
 	repository, _, err := c.client.Repositories.Get(ctx, owner, repo)

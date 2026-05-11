@@ -53,6 +53,7 @@ import {
   Paperclip,
   FileText,
   Camera,
+  StopCircle,
 } from 'lucide-react'
 import {
   DndContext,
@@ -109,6 +110,17 @@ interface RobustPromptInputProps {
   onFileUpload?: (file: File) => Promise<string | null>
   // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
+  // Called when user clicks the cancel button to stop the agent's current turn
+  onCancel?: () => void
+  // Whether the agent is currently processing (has a waiting interaction)
+  isAgentBusy?: boolean
+  // Fires synchronously inside handleSend the moment the user submits a
+  // prompt, before the local queue persist or the backend sync POST. The
+  // parent uses this hook to do optimistic UI updates (e.g. flip the cached
+  // session.config.external_agent_status to "starting" so the desktop
+  // viewer shows the spinner without waiting for the next 3s poll).
+  // Must be cheap and synchronous — runs in the user's click handler.
+  onWillSend?: () => void
 }
 
 // Props for sortable queue item
@@ -518,6 +530,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   appendText,
   onFileUpload,
   onImagePaste,
+  onCancel,
+  isAgentBusy = false,
+  onWillSend,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -672,6 +687,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
       : content
 
+    // Optimistic UI hook: fires synchronously before the queue persist /
+    // backend sync POST so the parent can flip a paused desktop's cached
+    // status to "starting" and render the spinner without waiting for the
+    // 3s session poll. Errors here must not block the send.
+    if (onWillSend) {
+      try {
+        onWillSend()
+      } catch (e) {
+        console.warn('[RobustPromptInput] onWillSend threw:', e)
+      }
+    }
+
     // Add to queue with pending status, passing interrupt mode
     saveToHistory(fullContent, interruptMode)
     clearDraft()
@@ -685,7 +712,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return []
     })
     // Backend handles processing after sync - no need to call processQueue
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode, onWillSend])
 
   // Remove from queue: tombstone locally first (instant UI update, prevents
   // re-import on sync), then fire backend DELETE (best effort).
@@ -805,6 +832,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Handle key events
   // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
+  // Empty Enter (no draft, no attachments) = promote the most recent queued
+  // entry to interrupt mode, which dispatches it immediately via the existing
+  // sync loop. Equivalent to clicking the lightning icon on that queue item.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -812,8 +842,22 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const useInterrupt = e.ctrlKey || e.metaKey // metaKey for Mac Cmd key
       const content = draft.trim()
 
-      // Allow sending if there's content OR attachments
-      if ((!content && attachments.length === 0) || disabled) return
+      // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
+      if (!content && attachments.length === 0) {
+        if (disabled) return
+        const candidates = pendingPrompts.filter(p =>
+          p.interrupt === false &&
+          !p.deleted &&
+          p.id !== sendingId &&
+          p.id !== editingId
+        )
+        if (candidates.length === 0) return
+        const target = candidates.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+        updateInterrupt(target.id, true)
+        return
+      }
+
+      if (disabled) return
 
       // Check if any attachments are still uploading
       const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
@@ -861,7 +905,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, pendingPrompts, updateInterrupt, sendingId, editingId])
 
   // Add a file as an attachment (queues for upload, uploads if online)
   const addFileAsAttachment = useCallback((file: File): string => {
@@ -1508,6 +1552,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               )}
             </IconButton>
           </Tooltip>
+
+          {/* Cancel button - visible when agent is busy */}
+          {isAgentBusy && onCancel && (
+            <Tooltip title="Cancel current turn">
+              <IconButton
+                onClick={onCancel}
+                sx={{
+                  flexShrink: 0,
+                  width: 30,
+                  height: 30,
+                  color: 'warning.main',
+                  '&:hover': {
+                    bgcolor: (theme) => alpha(theme.palette.warning.main, 0.1),
+                  },
+                }}
+              >
+                <StopCircle size={18} />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* Send button */}
           {(() => {

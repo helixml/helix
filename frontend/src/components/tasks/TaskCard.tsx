@@ -54,12 +54,14 @@ import {
   ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
+import CIStatusIcon from "./CIStatusIcon";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
+import useLightTheme from "../../hooks/useLightTheme";
 import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
@@ -125,6 +127,10 @@ export interface SpecTaskWithExtras {
     pr_number?: number;
     pr_url?: string;
     pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
   }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
@@ -141,10 +147,12 @@ export interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   description?: string;
+  original_prompt?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
   labels?: string[];
+  created_at?: string;
   updated_at?: string;
   last_push_at?: string;
 }
@@ -160,6 +168,15 @@ export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
+}
+
+// Format an ISO timestamp for the title tooltip. Returns null when the input
+// is missing or unparseable so callers can omit the date line cleanly.
+function formatCreatedAt(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 interface TaskCardProps {
@@ -272,6 +289,7 @@ const TaskProgressDisplay: React.FC<{
   checklist: ChecklistProgress;
   phaseColor: string;
 }> = React.memo(({ checklist, phaseColor }) => {
+  const lightTheme = useLightTheme();
   // Find the in-progress task index
   const inProgressIndex = checklist.in_progress_task?.index ?? -1;
 
@@ -313,12 +331,13 @@ const TaskProgressDisplay: React.FC<{
   return (
     <Box
       sx={{
-        mt: 1.5,
+        mt: 1,
         mb: 0.5,
-        background:
-          "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
+        background: lightTheme.isLight
+          ? "linear-gradient(145deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.01) 100%)"
+          : "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
         borderRadius: 2,
-        border: "1px solid rgba(255,255,255,0.06)",
+        border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.06)'}`,
         overflow: "hidden",
       }}
     >
@@ -326,10 +345,10 @@ const TaskProgressDisplay: React.FC<{
       <Box
         sx={{
           px: 1.5,
-          py: 0.75,
+          py: 0.5,
           background:
             "linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)",
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)'}`,
           display: "flex",
           alignItems: "center",
           gap: 1,
@@ -342,7 +361,7 @@ const TaskProgressDisplay: React.FC<{
             flex: 1,
             height: 4,
             borderRadius: 2,
-            backgroundColor: "rgba(255,255,255,0.08)",
+            backgroundColor: lightTheme.isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
             "& .MuiLinearProgress-bar": {
               background: `linear-gradient(90deg, ${phaseColor}99 0%, ${phaseColor} 100%)`,
               borderRadius: 2,
@@ -353,7 +372,7 @@ const TaskProgressDisplay: React.FC<{
           variant="caption"
           sx={{
             fontSize: "0.65rem",
-            color: "rgba(255,255,255,0.5)",
+            color: lightTheme.isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.5)",
             fontWeight: 600,
             letterSpacing: "0.02em",
             minWidth: 32,
@@ -365,7 +384,7 @@ const TaskProgressDisplay: React.FC<{
       </Box>
 
       {/* Task list with fade effect */}
-      <Box sx={{ py: 0.5 }}>
+      <Box sx={{ py: 0.25 }}>
         {visibleTasks.map((task, idx) => {
           const isActive = task.status === "in_progress";
           const isCompleted =
@@ -378,10 +397,10 @@ const TaskProgressDisplay: React.FC<{
               key={task.index}
               sx={{
                 px: 1.5,
-                py: 0.5,
+                py: 0.25,
                 display: "flex",
                 alignItems: "flex-start",
-                gap: 0.75,
+                gap: 0.5,
                 opacity,
                 transition: "opacity 0.3s ease",
               }}
@@ -389,8 +408,8 @@ const TaskProgressDisplay: React.FC<{
               {/* Status indicator */}
               <Box
                 sx={{
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -400,7 +419,7 @@ const TaskProgressDisplay: React.FC<{
               >
                 {isActive ? (
                   // Animated spinner for active task
-                  <Box sx={{ position: "relative", width: 14, height: 14 }}>
+                  <Box sx={{ position: "relative", width: 12, height: 12 }}>
                     <Box
                       sx={{
                         position: "absolute",
@@ -422,10 +441,10 @@ const TaskProgressDisplay: React.FC<{
                     />
                   </Box>
                 ) : isCompleted ? (
-                  <CheckCircleIcon sx={{ fontSize: 14, color: "#10b981" }} />
+                  <CheckCircleIcon sx={{ fontSize: 12, color: "#10b981" }} />
                 ) : (
                   <UncheckedIcon
-                    sx={{ fontSize: 14, color: "rgba(255,255,255,0.25)" }}
+                    sx={{ fontSize: 12, color: lightTheme.isLight ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.25)" }}
                   />
                 )}
               </Box>
@@ -437,8 +456,8 @@ const TaskProgressDisplay: React.FC<{
                   fontSize: "0.68rem",
                   lineHeight: 1.35,
                   color: isActive
-                    ? "rgba(255,255,255,0.9)"
-                    : "rgba(255,255,255,0.6)",
+                    ? (lightTheme.isLight ? "rgba(0,0,0,0.87)" : "rgba(255,255,255,0.9)")
+                    : (lightTheme.isLight ? "rgba(0,0,0,0.54)" : "rgba(255,255,255,0.6)"),
                   fontWeight: isActive ? 500 : 400,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -446,7 +465,7 @@ const TaskProgressDisplay: React.FC<{
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: "vertical",
                   textDecoration: isCompleted ? "line-through" : "none",
-                  textDecorationColor: "rgba(255,255,255,0.3)",
+                  textDecorationColor: lightTheme.isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)",
                 }}
               >
                 {task.description}
@@ -766,7 +785,11 @@ function TaskCardInner({
           <Tooltip
             title={
               <span style={{ whiteSpace: "pre-wrap" }}>
-                {task.description || task.name}
+                {(() => {
+                  const created = formatCreatedAt(task.created_at);
+                  const body = task.original_prompt || task.description || task.name;
+                  return created ? `Created ${created}\n\n${body}` : body;
+                })()}
               </span>
             }
             placement="top"
@@ -1008,6 +1031,7 @@ function TaskCardInner({
                 • {runningDuration}
               </Typography>
             )}
+            <CIStatusIcon prs={task.repo_pull_requests} />
           </Box>
 
           {/* Assignee avatar */}
@@ -1054,7 +1078,7 @@ function TaskCardInner({
 
         {/* Label chips */}
         {task.labels && task.labels.length > 0 && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5 }}>
             {task.labels.map((label) => (
               <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
             ))}
@@ -1595,6 +1619,15 @@ function TaskCardInner({
   );
 }
 
+// Compact signature of CI state across all PRs — picks up changes to any
+// ci_status / ci_url / ci_head_sha so the card re-renders when CI moves.
+function ciSignature(prs?: SpecTaskWithExtras["repo_pull_requests"]): string {
+  if (!prs || prs.length === 0) return "";
+  return prs
+    .map((p) => `${p.pr_id ?? ""}:${p.ci_status ?? ""}:${p.ci_head_sha ?? ""}`)
+    .join("|");
+}
+
 // Memoized TaskCard to prevent unnecessary re-renders
 const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
   // Only re-render when meaningful props change
@@ -1605,6 +1638,7 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
     prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
+    ciSignature(prevProps.task.repo_pull_requests) === ciSignature(nextProps.task.repo_pull_requests) &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning &&

@@ -1094,12 +1094,26 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
 	// which runs inside the sandbox where it can query the helix-buildkit container IP.
 
-	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
-	// Pass through HELIX_ENCODER from outer environment to desktop containers.
-	// This allows selecting the video encoder without rebuilding the desktop image.
-	// Supported values: vsock (default auto-detect), openh264, x264, nvenc
-	if encoderOverride := os.Getenv("HELIX_ENCODER"); encoderOverride != "" {
-		env = append(env, fmt.Sprintf("HELIX_ENCODER=%s", encoderOverride))
+	// Forward desktop-bridge tunables from the controlplane env into dev
+	// containers. The desktop-bridge binary reads these inside the container,
+	// so without explicit forwarding here an operator setting them on
+	// `controlplane.extraEnv` would have no effect.
+	//
+	//   HELIX_ENCODER     - H.264 encoder (nvenc | vaapi | openh264 | x264 | ...)
+	//   HELIX_VIDEO_MODE  - PipeWire capture path (zerocopy | native | shm).
+	//                       Skip "scanout" - devcontainer.go sets that
+	//                       explicitly for the macOS QEMU virtio-gpu path.
+	//   HELIX_GOP_SIZE    - GOP size in frames (default 120 = 2s at 60fps)
+	//   HELIX_RENDER_NODE - VA-API render device (e.g. /dev/dri/renderD129)
+	for _, name := range []string{"HELIX_ENCODER", "HELIX_VIDEO_MODE", "HELIX_GOP_SIZE", "HELIX_RENDER_NODE"} {
+		val := os.Getenv(name)
+		if val == "" {
+			continue
+		}
+		if name == "HELIX_VIDEO_MODE" && val == "scanout" {
+			continue
+		}
+		env = append(env, fmt.Sprintf("%s=%s", name, val))
 	}
 
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)

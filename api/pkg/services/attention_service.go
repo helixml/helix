@@ -118,6 +118,26 @@ func (s *AttentionService) EmitEvent(
 	return created, nil
 }
 
+// DismissTaskAttentionEvents clears all active attention events for a task
+// that has reached a terminal state (typically "done" / merged to main). It is
+// best-effort: failures are logged but never propagated, so a notification
+// cleanup error cannot roll back a task state transition.
+func DismissTaskAttentionEvents(ctx context.Context, s store.Store, taskID string) {
+	if s == nil || taskID == "" {
+		return
+	}
+	n, err := s.DismissAttentionEventsForTask(ctx, taskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).
+			Msg("Failed to clear attention events for finished task (non-fatal)")
+		return
+	}
+	if n > 0 {
+		log.Info().Int64("dismissed", n).Str("task_id", taskID).
+			Msg("Cleared attention events for finished task")
+	}
+}
+
 // notifySlack posts an attention event as a threaded reply in the project's
 // Slack channel. It looks up the project's app with ProjectUpdates enabled,
 // finds the existing SlackThread for this spectask, and posts a reply.
@@ -238,6 +258,10 @@ func buildTitle(eventType types.AttentionEventType, task *types.SpecTask) string
 		return "Implementation failed"
 	case types.AttentionEventPRReady:
 		return "Pull request ready"
+	case types.AttentionEventCIPassed:
+		return "CI passed"
+	case types.AttentionEventCIFailed:
+		return "CI failed"
 	default:
 		return "Attention needed"
 	}
@@ -263,6 +287,10 @@ func buildDescription(eventType types.AttentionEventType, task *types.SpecTask) 
 		return fmt.Sprintf("Implementation failed for \"%s\" — needs triage", name)
 	case types.AttentionEventPRReady:
 		return fmt.Sprintf("Pull request opened for \"%s\" — awaiting merge", name)
+	case types.AttentionEventCIPassed:
+		return fmt.Sprintf("CI passed for \"%s\"", name)
+	case types.AttentionEventCIFailed:
+		return fmt.Sprintf("CI failed for \"%s\" — needs investigation", name)
 	default:
 		return fmt.Sprintf("Task \"%s\" needs your attention", name)
 	}
@@ -274,10 +302,12 @@ func eventEmoji(eventType types.AttentionEventType) string {
 		return "📋"
 	case types.AttentionEventAgentInteractionCompleted:
 		return "🛑"
-	case types.AttentionEventSpecFailed, types.AttentionEventImplementationFailed:
+	case types.AttentionEventSpecFailed, types.AttentionEventImplementationFailed, types.AttentionEventCIFailed:
 		return "❌"
 	case types.AttentionEventPRReady:
 		return "🔀"
+	case types.AttentionEventCIPassed:
+		return "✅"
 	default:
 		return "🔔"
 	}

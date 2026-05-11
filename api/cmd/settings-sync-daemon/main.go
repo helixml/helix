@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -86,6 +88,7 @@ type helixConfigResponse struct {
 	ExternalSync                map[string]interface{} `json:"external_sync"`
 	Agent                       map[string]interface{} `json:"agent"`
 	Theme                       string                 `json:"theme"`
+	ColorScheme                 string                 `json:"color_scheme"`
 	Version                     int64                  `json:"version"`
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
@@ -244,15 +247,6 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 	rewritten := origParsed.String()
 	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
 	return rewritten
-}
-
-// rewriteLocalhostURLsInExternalSync rewrites any localhost URLs in the external_sync config
-func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[string]interface{}) {
-	if wsSync, ok := externalSync["websocket_sync"].(map[string]interface{}); ok {
-		if extURL, ok := wsSync["external_url"].(string); ok {
-			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
-		}
-	}
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
@@ -721,8 +715,13 @@ func main() {
 		log.Fatalf("Failed to start file watcher: %v", err)
 	}
 
-	// Start polling loop for Helix changes
+	// Start polling loop for Helix changes (slow safety net, 30s)
 	go daemon.pollHelixChanges()
+
+	// Start a websocket subscriber for instant config-change notifications.
+	// The API publishes a "config_changed" event to session-updates.<owner>.<session>
+	// when the user toggles their color scheme; we re-sync immediately.
+	go daemon.subscribeConfigEvents()
 
 	// HTTP server for health checks and manual triggers
 	http.HandleFunc("/health", daemon.healthCheck)
@@ -817,7 +816,118 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		d.helixSettings["agent_servers"] = agentServers
 	}
 
+	// Mirror the session owner's color scheme to the GNOME desktop. This is best-effort:
+	// gsettings may fail if dconf is not available (e.g. not yet inside dbus-run-session)
+	// or if the setting is unsupported on this distro — we just log and move on.
+	d.applyGNOMEColorScheme(config.ColorScheme)
+
 	return d.writeSettings(d.helixSettings)
+}
+
+// subscribeConfigEvents connects to the API's user websocket for this session and
+// triggers an immediate re-sync whenever a config_changed event arrives. Reconnects
+// forever on failure with a 5s backoff. Falls back to the 30s poll loop if the WS
+// is unreachable.
+func (d *SettingsDaemon) subscribeConfigEvents() {
+	for {
+		if err := d.runConfigEventLoop(); err != nil {
+			log.Printf("config event WS disconnected: %v (reconnecting in 5s)", err)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (d *SettingsDaemon) runConfigEventLoop() error {
+	wsURL, err := url.Parse(d.apiURL)
+	if err != nil {
+		return fmt.Errorf("bad api url: %w", err)
+	}
+	switch wsURL.Scheme {
+	case "https":
+		wsURL.Scheme = "wss"
+	default:
+		wsURL.Scheme = "ws"
+	}
+	wsURL.Path = "/api/v1/ws/user"
+	q := wsURL.Query()
+	q.Set("session_id", d.sessionID)
+	wsURL.RawQuery = q.Encode()
+
+	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dialer.HandshakeTimeout = 10 * time.Second
+
+	header := http.Header{}
+	if d.apiToken != "" {
+		header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	conn, _, err := dialer.Dial(wsURL.String(), header)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+	log.Printf("config event WS connected (%s)", wsURL.String())
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return fmt.Errorf("read: %w", err)
+		}
+		var evt struct {
+			Type        string `json:"type"`
+			Field       string `json:"field"`
+			ColorScheme string `json:"color_scheme"`
+		}
+		if err := json.Unmarshal(msg, &evt); err != nil {
+			continue // not all session-updates events are config_changed; ignore noise
+		}
+		if evt.Type != "config_changed" {
+			continue
+		}
+		log.Printf("config_changed event: field=%s color_scheme=%s", evt.Field, evt.ColorScheme)
+		if err := d.syncFromHelix(); err != nil {
+			log.Printf("re-sync after config_changed failed: %v", err)
+		}
+	}
+}
+
+// applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty
+// string is treated as dark for now (matches the default Yaru Dark loaded by
+// startup-app.sh).
+//
+// We have to set:
+//   - color-scheme (the modern preference signal libadwaita / GNOME 42+ apps
+//     respect)
+//   - gtk-theme (the actual rendered theme — without this, GTK3 apps + the
+//     shell stay on whatever was loaded at startup, so the desktop looks
+//     unchanged even when color-scheme says prefer-light)
+//   - desktop wallpaper (helix-logo is dark; swap to a Yaru light wallpaper
+//     in light mode so the desktop reads as actually light, not just
+//     "dark wallpaper with light app chrome")
+func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
+	colorScheme := "prefer-dark"
+	gtkTheme := "Yaru-dark"
+	wallpaper := "file:///usr/share/backgrounds/helix-logo.png"
+	if scheme == "light" {
+		colorScheme = "prefer-light"
+		gtkTheme = "Yaru"
+		wallpaper = "file:///usr/share/backgrounds/Questing_Quokka_Full_Light_3840x2160.png"
+	}
+
+	cmds := [][]string{
+		{"gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme},
+		{"gsettings", "set", "org.gnome.desktop.interface", "gtk-theme", gtkTheme},
+		{"gsettings", "set", "org.gnome.desktop.background", "picture-uri", wallpaper},
+		{"gsettings", "set", "org.gnome.desktop.background", "picture-uri-dark", wallpaper},
+	}
+	for _, c := range cmds {
+		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
+		if err != nil {
+			log.Printf("gsettings %v failed: %v (%s)", c[1:], err, strings.TrimSpace(string(out)))
+		}
+	}
+	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s wallpaper=%s", colorScheme, gtkTheme, wallpaper)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API

@@ -147,7 +147,7 @@ const InteractionDialog: React.FC<InteractionDialogProps> = ({
           </Typography>
           <Chip 
             label={interaction.state || 'unknown'} 
-            color={interaction.state === 'error' ? 'error' : 'secondary'}
+            color={interaction.state === 'error' ? 'error' : interaction.state === 'interrupted' ? 'warning' : 'secondary'}
             size="small"
           />
         </Box>

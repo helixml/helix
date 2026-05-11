@@ -29,10 +29,10 @@ const SidebarContextHeader: React.FC = () => {
         py: 2,
         display: 'flex',
         alignItems: 'center',
-        background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
+        background: lightTheme.isLight ? lightTheme.panelColor : 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
         borderBottom: lightTheme.border,
         minHeight: TOOLBAR_HEIGHT + 15,
-        boxShadow: '0 2px 8px 0 rgba(0,229,255,0.08)',
+        boxShadow: lightTheme.isLight ? 'none' : '0 2px 8px 0 rgba(0,229,255,0.08)',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
@@ -40,10 +40,10 @@ const SidebarContextHeader: React.FC = () => {
           variant="subtitle1"
           onClick={handleNameClick}
           sx={{
-            color: '#fff',
+            color: lightTheme.textColor,
             fontWeight: 'bold',
             letterSpacing: 0.2,
-            textShadow: '0 1px 4px rgba(0,0,0,0.12)',
+            textShadow: lightTheme.isLight ? 'none' : '0 1px 4px rgba(0,0,0,0.12)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',

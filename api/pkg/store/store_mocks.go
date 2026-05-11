@@ -2023,6 +2023,21 @@ func (mr *MockStoreMockRecorder) DetachRepositoryFromProject(ctx, projectID, rep
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachRepositoryFromProject", reflect.TypeOf((*MockStore)(nil).DetachRepositoryFromProject), ctx, projectID, repoID)
 }
 
+// DismissAttentionEventsForTask mocks base method.
+func (m *MockStore) DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DismissAttentionEventsForTask", ctx, specTaskID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DismissAttentionEventsForTask indicates an expected call of DismissAttentionEventsForTask.
+func (mr *MockStoreMockRecorder) DismissAttentionEventsForTask(ctx, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DismissAttentionEventsForTask", reflect.TypeOf((*MockStore)(nil).DismissAttentionEventsForTask), ctx, specTaskID)
+}
+
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -4694,6 +4709,21 @@ func (m *MockStore) ListSessions(ctx context.Context, query ListSessionsQuery) (
 func (mr *MockStoreMockRecorder) ListSessions(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockStore)(nil).ListSessions), ctx, query)
+}
+
+// ListSessionsByOwner mocks base method.
+func (m *MockStore) ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessionsByOwner", ctx, ownerID)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSessionsByOwner indicates an expected call of ListSessionsByOwner.
+func (mr *MockStoreMockRecorder) ListSessionsByOwner(ctx, ownerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsByOwner", reflect.TypeOf((*MockStore)(nil).ListSessionsByOwner), ctx, ownerID)
 }
 
 // ListSessionsBySandbox mocks base method.

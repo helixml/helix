@@ -12411,64 +12411,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/sample-projects": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get a list of all available sample projects that users can fork and use",
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "List available sample projects",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/server.SampleProject"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects/fork": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Fork a sample project to the user's GitHub account and create a new Helix project",
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Fork a sample project",
-                "parameters": [
-                    {
-                        "description": "Fork request details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.ForkSampleProjectRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/server.ForkSampleProjectResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/sample-projects/simple": {
             "get": {
                 "security": [
@@ -12636,122 +12578,6 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects/{projectId}/archive": {
-            "get": {
-                "description": "Get all files for a sample project as a flat map (for container initialization)",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Get sample project code as archive",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "projectId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects/{projectId}/code": {
-            "get": {
-                "description": "Get the starter code and file structure for a sample project",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Get sample project starter code",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "projectId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.SampleProjectCode"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects/{project_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get details of a specific sample project by ID",
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Get a specific sample project",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Sample project ID",
-                        "name": "project_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.SampleProject"
                         }
                     }
                 }
@@ -14275,6 +14101,82 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Interaction"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/messages": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Persists a Waiting interaction and dispatches it via the external-agent\nWebSocket. If no agent is connected the interaction is held until the\nagent reconnects, at which point pickupWaitingInteraction delivers it —\ncallers do not need to manage WebSocket readiness or retries.\nDistinct from POST /sessions/chat (synchronous SSE chat); use this\nendpoint for fire-and-forget delivery to an external (e.g. desktop) agent.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Queue a message to a session's external agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -17452,6 +17354,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/color-scheme": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the user's UI color scheme. Propagates instantly to GNOME and Zed in any spec-task sessions owned by this user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user color scheme preference",
+                "parameters": [
+                    {
+                        "description": "Color scheme update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserColorSchemeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserColorSchemeRequest"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/me/guidelines": {
             "get": {
                 "security": [
@@ -19770,37 +19723,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ForkSampleProjectRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "private": {
-                    "type": "boolean"
-                },
-                "project_name": {
-                    "type": "string"
-                },
-                "sample_project_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ForkSampleProjectResponse": {
-            "type": "object",
-            "properties": {
-                "github_repo_url": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                }
-            }
-        },
         "server.InitializeSampleRepositoriesRequest": {
             "type": "object",
             "properties": {
@@ -20904,99 +20826,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.SampleProject": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "description": "\"web\", \"api\", \"mobile\", \"data\", \"ai\"",
-                    "type": "string"
-                },
-                "default_branch": {
-                    "type": "string"
-                },
-                "demo_url": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "difficulty": {
-                    "description": "\"beginner\", \"intermediate\", \"advanced\"",
-                    "type": "string"
-                },
-                "github_repo": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "readme_url": {
-                    "type": "string"
-                },
-                "sample_tasks": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.SampleProjectTask"
-                    }
-                },
-                "technologies": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "server.SampleProjectTask": {
-            "type": "object",
-            "properties": {
-                "acceptance_criteria": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "estimated_hours": {
-                    "type": "integer"
-                },
-                "files_to_modify": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "labels": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "priority": {
-                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"backlog\", \"ready\", \"in_progress\", \"review\", \"done\"",
-                    "type": "string"
-                },
-                "technical_notes": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                },
-                "type": {
-                    "description": "\"feature\", \"bug\", \"task\", \"epic\"",
-                    "type": "string"
-                }
-            }
-        },
         "server.SampleTaskPrompt": {
             "type": "object",
             "properties": {
@@ -21156,6 +20985,31 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ClaudeOAuthCredentials"
                 },
                 "setup_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionMessageRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "interrupt": {
+                    "type": "boolean"
+                },
+                "notify_user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionMessageResponse": {
+            "type": "object",
+            "properties": {
+                "interaction_id": {
+                    "type": "string"
+                },
+                "request_id": {
                     "type": "string"
                 }
             }
@@ -21487,49 +21341,6 @@ const docTemplate = `{
                 },
                 "vendor": {
                     "$ref": "#/definitions/types.GPUVendor"
-                }
-            }
-        },
-        "services.SampleProjectCode": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "files": {
-                    "description": "filepath -\u003e content",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "github_repo": {
-                    "type": "string"
-                },
-                "gitignore": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "language": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "readme_url": {
-                    "type": "string"
-                },
-                "startup_script": {
-                    "description": "Custom startup script for this project",
-                    "type": "string"
-                },
-                "technologies": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 }
             }
         },
@@ -22573,14 +22384,18 @@ const docTemplate = `{
                 "agent_interaction_completed",
                 "spec_failed",
                 "implementation_failed",
-                "pr_ready"
+                "pr_ready",
+                "ci_passed",
+                "ci_failed"
             ],
             "x-enum-varnames": [
                 "AttentionEventSpecsPushed",
                 "AttentionEventAgentInteractionCompleted",
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
-                "AttentionEventPRReady"
+                "AttentionEventPRReady",
+                "AttentionEventCIPassed",
+                "AttentionEventCIFailed"
             ]
         },
         "types.AttentionEventUpdateRequest": {
@@ -23741,6 +23556,10 @@ const docTemplate = `{
                 "assignee_id": {
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
+                },
+                "auto_start": {
+                    "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
+                    "type": "boolean"
                 },
                 "base_branch": {
                     "description": "For new mode: branch to create from (defaults to repo default)",
@@ -27788,6 +27607,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "head_sha": {
+                    "description": "HeadSHA is the commit SHA at the tip of the PR's source branch.\nUsed by the CI status poller to detect new pushes and to query the\nprovider's CI/build APIs for the right commit. Empty if the\nprovider response did not include it.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -28123,6 +27946,19 @@ const docTemplate = `{
         "types.RepoPR": {
             "type": "object",
             "properties": {
+                "ci_head_sha": {
+                    "type": "string"
+                },
+                "ci_status": {
+                    "description": "CI status, populated by the spec task orchestrator's PR poll loop.\nCIStatus is one of: \"\" (not yet evaluated), \"running\", \"passed\",\n\"failed\", \"none\" (CI not configured for the PR's head SHA).\nCIHeadSHA is the head commit we last evaluated; it lets the poller\ndetect a new push and reset CIStatus so a stale \"passed\" doesn't\nsuppress a fresh notification when the next commit fails.",
+                    "type": "string"
+                },
+                "ci_updated_at": {
+                    "type": "string"
+                },
+                "ci_url": {
+                    "type": "string"
+                },
                 "pr_id": {
                     "type": "string"
                 },
@@ -30122,6 +29958,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "rebase_requested_at": {
+                    "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
+                    "type": "string"
+                },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
                     "type": "array",
@@ -30986,6 +30826,10 @@ const docTemplate = `{
                 "public_design_docs": {
                     "description": "Public sharing",
                     "type": "boolean"
+                },
+                "rebase_requested_at": {
+                    "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
+                    "type": "string"
                 },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
@@ -32382,6 +32226,15 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UpdateUserColorSchemeRequest": {
+            "type": "object",
+            "properties": {
+                "color_scheme": {
+                    "description": "\"light\", \"dark\", or \"\" (follow OS)",
+                    "type": "string"
+                }
+            }
+        },
         "types.UpdateUserGuidelinesRequest": {
             "type": "object",
             "properties": {
@@ -32858,6 +32711,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentConfig"
                         }
                     ]
+                },
+                "color_scheme": {
+                    "description": "Session owner's UI color scheme: \"light\", \"dark\", or \"\" (follow OS). Daemon applies via gsettings to GNOME.",
+                    "type": "string"
                 },
                 "context_servers": {
                     "type": "object",

@@ -173,6 +173,15 @@ spec:
             - name: GST_DEBUG
               value: {{ .Values.debug.gstDebug | quote }}
 
+            # Operator-supplied env. Chart-wide first, per-component last,
+            # so sandbox.extraEnv overrides global.extraEnv on conflict.
+            {{- with .Values.global.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with .Values.sandbox.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker

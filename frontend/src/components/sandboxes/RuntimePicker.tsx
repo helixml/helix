@@ -14,6 +14,7 @@ import {
   SiOpenjdk,
 } from 'react-icons/si'
 
+import useLightTheme from '../../hooks/useLightTheme'
 import { useListSandboxRuntimes } from '../../services/sandboxesService'
 
 interface Props {
@@ -124,6 +125,7 @@ const metaFor = (name: string): RuntimeMeta => {
 }
 
 const RuntimePicker: FC<Props> = ({ value, onChange }) => {
+  const lightTheme = useLightTheme()
   const { data: runtimes, isLoading } = useListSandboxRuntimes()
 
   const ordered = useMemo(() => {
@@ -213,12 +215,20 @@ const RuntimePicker: FC<Props> = ({ value, onChange }) => {
                   cursor: 'pointer',
                   userSelect: 'none',
                   border: '1px solid',
-                  borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.08)',
-                  bgcolor: selected ? 'rgba(33, 150, 243, 0.08)' : 'rgba(255,255,255,0.02)',
+                  borderColor: selected
+                    ? 'primary.main'
+                    : lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
+                  bgcolor: selected
+                    ? 'rgba(33, 150, 243, 0.08)'
+                    : lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)',
                   transition: 'border-color 120ms, background-color 120ms, transform 120ms',
                   '&:hover': {
-                    borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.18)',
-                    bgcolor: selected ? 'rgba(33, 150, 243, 0.1)' : 'rgba(255,255,255,0.04)',
+                    borderColor: selected
+                      ? 'primary.main'
+                      : lightTheme.isLight ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.18)',
+                    bgcolor: selected
+                      ? 'rgba(33, 150, 243, 0.1)'
+                      : lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
                   },
                   '&:focus-visible': {
                     outline: '2px solid',
