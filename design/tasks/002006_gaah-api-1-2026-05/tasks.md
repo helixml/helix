@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Add a `prListCache` struct (TTL-keyed `map[repoID] → {prs, err, fetchedAt}`) on `GitRepositoryService`; initialize in the service constructor / `Init()` with a 60s default TTL.
-- [ ] Wrap `GitRepositoryService.ListPullRequests` in `git_repository_service_pull_requests.go:215` to read/write the cache. Cache successful results for the full TTL; cache GitHub `*RateLimitError` / `*AbuseRateLimitError` until the rate-limit reset time.
+- [x] Add a `prListCache` struct (TTL-keyed `map[repoID] → {prs, err, fetchedAt}`) on `GitRepositoryService`; initialize in the service constructor / `Init()` with a 60s default TTL.
+- [~] Wrap `GitRepositoryService.ListPullRequests` in `git_repository_service_pull_requests.go:215` to read/write the cache. Cache successful results for the full TTL; cache GitHub `*RateLimitError` / `*AbuseRateLimitError` until the rate-limit reset time.
 - [ ] In `listGitHubPullRequests` (`git_repository_service_pull_requests.go:604`), detect `*github.RateLimitError` from `go-github` and return a typed error the cache layer can recognize. Log the rate-limit hit at WARN once per cache-insert with `repo_id` + `reset_in`.
 - [ ] Invalidate the cache entry for a repo whenever a PR-mutating operation runs against it (`createGitHubPullRequest`, ADO/Bitbucket equivalents).
 - [ ] Refactor `detectExternalPRActivity` (`spec_task_orchestrator.go:946`): build the unique set of external repos across the eligible task batch, call `ListPullRequests` once per unique repo, pass the resulting `map[repoID][]*types.PullRequest` into `checkTaskForExternalPRActivity`.
