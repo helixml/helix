@@ -1,8 +1,8 @@
-# PR-ready notifications: link to PR + auto-ack browser notifications + orchestrator specs_pushed fix
+# PR-ready notifications: link to PR + auto-ack browser notifications + orchestrator specs_pushed fix + helix-specs PR description sync
 
 ## Summary
 
-Three notification-system improvements (the user grouped them):
+Three notification-system improvements (the user grouped them) plus a small fix to the PR-description-sync mechanism that we discovered along the way:
 
 1. **PR-ready notifications now link directly to the external PR.** When Helix creates a PR on an external provider, fire the existing `pr_ready` attention event immediately from the workflow handler, instead of waiting for the orchestrator's polling loop to detect it. Idempotency-keyed by PR ID, so the orchestrator's later emission collapses cleanly. The notification carries `pr_url` in metadata and the panel renders a small `ExternalLink` icon button next to dismiss — clicking it opens the PR in a new tab. Clicking the notification body still navigates to the in-app task page (so users can inspect the task in Helix without leaving).
 
@@ -10,11 +10,14 @@ Three notification-system improvements (the user grouped them):
 
 3. **Fix missing `specs_pushed` on orchestrator-driven SpecReview transitions.** The git-push path in `git_http_server.go` already emits `specs_pushed` per design-doc commit. The orchestrator polling loop (`spec_task_orchestrator.go` `handleSpecGeneration`) sets the same status without emitting — so tasks that land in SpecReview via the orchestrator (e.g. cloned tasks, races, retries) silently went unread. Idempotency-keyed by task ID.
 
+4. **Re-sync PR title/description in `implementation_review` state too.** The post-receive hook only re-read `pull_request_<repo>.md` from helix-specs and called `UpdatePullRequest()` when the task was in `TaskStatusPullRequest`. Tasks that stayed in `TaskStatusImplementationReview` (the more common state during code review) never picked up edits to the PR description file. Now both states trigger the re-sync.
+
 ## Changes
 
 ### Backend
 - `api/pkg/server/spec_task_workflow_handlers.go`: after `CreatePullRequest` succeeds in `ensurePullRequestForRepo`, fire `AttentionEventPRReady` via a small helper (`emitPRReadyEvent`) with the PR ID as idempotency qualifier and `pr_id`/`pr_url` in metadata.
 - `api/pkg/services/spec_task_orchestrator.go`: emit `AttentionEventSpecsPushed` when `handleSpecGeneration` transitions a task to `SpecReview`.
+- `api/pkg/services/git_http_server.go`: `handleFeatureBranchPush` now calls `ensurePullRequest` in the `TaskStatusImplementationReview` case as well, in addition to the existing rebase auto-merge logic.
 
 ### Frontend
 - `frontend/src/hooks/useAttentionEvents.ts`: extend `AttentionEventType` with the missing `'ci_passed'`/`'ci_failed'` (the backend types existed but the union didn't include them).
@@ -34,3 +37,4 @@ An earlier draft of this PR added a separate `pr_opened` type. That was a mistak
 - [ ] Confirm the orchestrator's later poll does NOT produce a second notification (idempotency)
 - [ ] Enable browser notifications, trigger a non-PR event (e.g. agent finished), click the desktop notification → in-app navigation happens AND the badge clears
 - [ ] Trigger an orchestrator-driven SpecReview transition (e.g. clone a task that already has spec docs) → confirm `specs_pushed` notification appears
+- [ ] Edit `pull_request_helix.md` after PR creation, push any commit to the feature branch → PR title/description on GitHub updates
