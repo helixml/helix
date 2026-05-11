@@ -9,7 +9,7 @@
 # BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
 # Update digests when intentionally upgrading base images.
 # - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25-bookworm -> sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c
+# - golang:1.25-bookworm -> sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547
 
 # ====================================================================
 # Build grim from source with JPEG support
@@ -36,7 +36,7 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 # Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS go-build-env
+FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
