@@ -986,11 +986,23 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				continue
 			}
 		case types.TaskStatusImplementationReview:
-			// A push arrived while the task was waiting on a rebase. Record the
-			// push (so the FE can see progress) and, if the user previously
-			// approved (RebaseRequestedAt set), try the FF merge again
-			// automatically. Without this, the user would have to click Accept
-			// a second time and would have no signal that the rebase landed.
+			// A push arrived while a PR is open. Always re-sync the PR
+			// title/description from helix-specs so edits to
+			// pull_request_<repo>.md propagate. (Previously only
+			// TaskStatusPullRequest did this, which meant tasks that stayed
+			// in implementation_review never got description updates.)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to re-sync PR description in implementation_review")
+				}
+			}(task, repo)
+
+			// If the user previously approved (RebaseRequestedAt set), also try
+			// the FF merge again automatically — without this, the user would
+			// have to click Accept a second time and would have no signal that
+			// the rebase landed.
 			if task.RebaseRequestedAt == nil {
 				log.Trace().Str("task_id", task.ID).Str("branch", branchName).Msg("Push to implementation_review task without prior rebase request — leaving for explicit Accept")
 				continue
