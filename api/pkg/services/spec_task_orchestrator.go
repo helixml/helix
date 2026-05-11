@@ -983,8 +983,13 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 
 	log.Debug().Int("count", len(eligibleTasks)).Msg("Checking tasks for external PR activity")
 
+	// prsByRepo memoizes ListPullRequests results across this poll cycle so
+	// that N tasks all referencing the same upstream repo (e.g. helixml/helix)
+	// hit the GitHub API once per repo, not once per task. Combined with the
+	// service-level cache this keeps us well under the 5000 req/hr quota.
+	prsByRepo := make(map[string][]*types.PullRequest)
 	for _, task := range eligibleTasks {
-		err := o.checkTaskForExternalPRActivity(ctx, task)
+		err := o.checkTaskForExternalPRActivity(ctx, task, prsByRepo)
 		if err != nil {
 			// Don't spam logs for deleted projects
 			if isDeletedProjectError(err) {
@@ -1002,8 +1007,10 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 	}
 }
 
-// checkTaskForExternalPRActivity checks a single task for external PR activity
-func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask) error {
+// checkTaskForExternalPRActivity checks a single task for external PR activity.
+// prsByRepo is a per-cycle memo: callers should pass the same map across all
+// tasks in a poll cycle so PR lists for a given repo are fetched at most once.
+func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask, prsByRepo map[string][]*types.PullRequest) error {
 	project, err := o.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		return fmt.Errorf("failed to get project: %w", err)
@@ -1025,11 +1032,19 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 			continue
 		}
 
-		// Check for open or merged PRs on this branch
-		prs, err := o.gitService.ListPullRequests(ctx, repo.ID)
-		if err != nil {
-			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
-			continue
+		// Reuse the per-cycle memo if we've already listed this repo's PRs
+		// for an earlier task in this batch.
+		prs, cached := prsByRepo[repo.ID]
+		if !cached {
+			prs, err = o.gitService.ListPullRequests(ctx, repo.ID)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
+				// Memoize the empty result too so a failing repo is only
+				// attempted once per cycle.
+				prsByRepo[repo.ID] = nil
+				continue
+			}
+			prsByRepo[repo.ID] = prs
 		}
 
 		for _, pr := range prs {
