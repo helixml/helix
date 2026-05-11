@@ -61,7 +61,25 @@ A bare "first wheel-up = unlock" would fire on accidental trackpad jitter and on
 
 ## Listener Lifecycle
 
-Attach the wheel and touch listeners in a `useEffect` keyed on `containerRef.current` (or just `[]` since the container ref is stable for the component's lifetime). All listeners are passive (`{ passive: true }`) — we never preventDefault. Detach on unmount.
+**Updated after a production bug** — original design used `useEffect` to attach listeners imperatively. That approach was broken: `EmbeddedSessionView` has two early returns (`if (!session)` loading state, `if (totalInteractions === 0 && ...)` empty state) that render BEFORE the JSX containing `ref={containerRef}`. The useEffect ran during one of those early renders, saw `containerRef.current === null`, bailed, and never re-ran because its dep array (`[setAutoScroll]`, which is stable) never changed once session loaded.
+
+**Correct approach**: wire handlers via React's synthetic-event props on the JSX:
+
+```tsx
+<Box
+  ref={containerRef}
+  onWheel={handleWheel}
+  onTouchStart={handleTouchStart}
+  onTouchMove={handleTouchMove}
+  onTouchEnd={handleTouchEnd}
+  onTouchCancel={handleTouchEnd}
+  ...
+>
+```
+
+React's event delegation handles attachment automatically whenever the container element actually mounts — there is no window in which the listener can be missed. Handlers are plain `useCallback`s closing over the gesture refs.
+
+The pre-existing ResizeObserver useEffect has the same dep-array shape and likely has the same bug; auto-scroll has been working anyway because `InteractionLiveStream.onMessageUpdate` calls `scrollToBottom` on every state change. Not fixing that in this PR — out of scope.
 
 ## What We Are Deliberately NOT Doing
 

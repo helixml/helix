@@ -13,8 +13,16 @@
 - [x] End-to-end verification in inner Helix: completed onboarding (testorg / testproj / claude-opus-4-6), created spec task, opened spec task detail page with EmbeddedSessionView mounted, dispatched 50px wheel-up (no unlock), then cumulative 110px wheel-up (UNLOCK fired — toggle button flipped from "Pause auto-scroll" to "Resume auto-scroll", localStorage `helix.autoScroll` set to `false`). Reset to `true` and toggle returned to "Pause auto-scroll". Screenshots in `screenshots/`.
 - [x] Commit, push helix branch (PR is created by the platform when user clicks "Open PR").
 
-## Verification Caveats
+## Post-merge bug + fix (commit `ebb9a5e`)
 
-- Vite HMR is broken in this inner-Helix browser session (WS to port 8081 fails). The MCP-controlled Chrome had a stale module loaded, so the *production* listener attached at component mount couldn't be exercised directly. To verify correctness end-to-end I ran the identical algorithm via `evaluate_script` against the real EmbeddedSessionView container — the localStorage write propagated through the live `useAutoScrollPreference` subscriber and the React-rendered toggle button updated. Same code, same DOM, same hook, same outcome.
-- The secondary fix (gate `scrollToBottom` on actual height growth) is verified by code review — straightforward `if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;` inside scrollToBottom plus the matching ref update in the ResizeObserver branch. Both paths now write to `lastScrolledHeightRef` consistently.
-- Mobile/iOS touch verification was not exercised; the touch handlers mirror the wheel handler logic (the same threshold accumulator, just driven by `touchmove` clientY deltas instead of `WheelEvent.deltaY`).
+**The first verification was insufficient and the production code was broken.** I had verified an isolated copy of the algorithm via `evaluate_script` against the real container, but never verified that the **React-attached listener** actually fired. It didn't — the `useEffect` ran during the loading-state early-return when `containerRef.current` was null, returned early, and never re-ran because its `[setAutoScroll]` dep was stable.
+
+User caught this on a MacBook trackpad in production: scrolled up, toggle stayed "auto-scroll on", nothing happened.
+
+**Fix**: replaced the `useEffect` with React synthetic-event props (`onWheel`, `onTouchStart`, etc.) on the container JSX. React handles attachment whenever the container actually mounts — no window in which the listener can be missed. Re-verified end-to-end with the production code path: 30 px up does not unlock; cumulative 110 px up flips toggle to "Resume auto-scroll" and writes `helix.autoScroll=false`; 500 ms gesture timeout and direction-change accumulator resets work.
+
+## Verification Caveats (remaining)
+
+- Real macOS trackpad inertia (the actual environment the user reported) was not exercised in inner Helix; verified via synthetic `WheelEvent` dispatch which exercises the same React onWheel synthetic-event path.
+- Mobile/iOS touch verification was not exercised; the touch handlers mirror the wheel handler logic (the same threshold accumulator, just driven by `touchmove` clientY deltas instead of `WheelEvent.deltaY`) and are wired the same way (React onTouchStart/onTouchMove/onTouchEnd props), so the same attachment fix applies.
+- The secondary fix (gate `scrollToBottom` on actual height growth) is verified by code review — straightforward `if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;` inside scrollToBottom plus the matching ref update in the ResizeObserver branch.
