@@ -15,5 +15,5 @@
 - [x] For each image, replace the old digest with the new one across all matching Dockerfiles using a grep-then-sed sweep so every occurrence updates atomically
 - [x] Re-grep each old digest across the repo to prove zero remaining occurrences
 - [x] `git diff` review: confirm only the 64-hex chars after `@sha256:` changed; no tag, image, whitespace, or structural changes
-- [ ] For every refreshed image, run `docker buildx imagetools inspect <image>:<tag>@<new-digest>` to prove the new digest is reachable on the registry
+- [x] For every refreshed image, run `docker buildx imagetools inspect <image>:<tag>@<new-digest>` to prove the new digest is reachable on the registry
 - [ ] Open the PR with the digest changes; in the body, list each image with old → new digest, confirm multi-arch coverage, call out the CUDA single-arch pin as intentional, and surface the version-drift open questions (`Dockerfile.lint` Go 1.23, `Dockerfile.sandbox` Ubuntu 25.04, `Dockerfile.demos` alpine variant) for stakeholder review
