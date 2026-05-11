@@ -143,6 +143,19 @@ The user offered to help click through this if needed — flag for help if block
 | `api/cmd/settings-sync-daemon/main.go` line 836 (optional) | Lower reconnect sleep 5 s → 1 s. |
 | `api/cmd/settings-sync-daemon/main.go` `runConfigEventLoop` (optional) | After successful `dialer.Dial`, call `d.syncFromHelix()` once before entering the read loop. |
 
+## Implementation Notes (after coding & verification)
+
+- All code changes landed in **one file**: `api/cmd/settings-sync-daemon/main.go`. No frontend, types, or config-file changes were needed — `getZedConfig` already returned the right `Theme`/`ColorScheme` values.
+- Added one extra change beyond the design: `extractUserOverrides` now skips `"theme"`. Without it, the daemon's local theme decision could leak into `userOverrides`, get uploaded to the API as a session-level override, and replay back to the daemon on the next sync, undoing the effective-theme logic. Calling this out so anyone auditing the diff doesn't think it's incidental.
+- `USER_PREFERENCE_FIELDS` was kept as an empty map rather than deleted, with a comment explaining the move to `HELIX_MANAGED_THEMES + effectiveTheme()`. Easier to grep and to add new daemon-write-once-then-leave-alone fields later.
+- **Verified end-to-end in the inner Helix** (image `helix-ubuntu:af47e3`):
+  - Toggled dark→light→dark→light→dark→light→dark; every cycle flipped both GNOME (`color-scheme`, `gtk-theme`) and Zed (`theme`) within ~1 s. The previously-broken light→dark transition now works repeatedly.
+  - Wallpaper stays `helix-logo.png` in both modes (both `picture-uri` and `picture-uri-dark`).
+  - Set Zed `theme` to `"Solarized Dark"` directly on disk → Helix toggle flipped GNOME but left Zed alone. The custom theme survived the 30 s polling tick. Restoring Zed to `"Ayu Dark"` (a managed theme) re-enabled Helix-driven syncing.
+  - Polling tick verified by 30 s-spaced `applied GNOME` log lines firing during the test.
+- **Gotcha (unrelated to this fix):** `docker compose restart api` reassigns the api container's Docker bridge IP, but the desktop container caches the old IP in `/etc/hosts`. After an api restart, the daemon→api traffic hangs on `no route to host` until the desktop container is restarted. This made the dedicated "force WS drop and verify polling repair" test impossible to demo cleanly — but the polling code path is structurally verified by the on-tick `applied GNOME` log lines.
+- **Daemon httpClient has no timeout** (line 675-681). When the api host is unreachable (e.g. mid-restart), the polling tick blocks on the kernel TCP timeout (~30 s+). This is pre-existing behavior, out of scope here, but worth a future cleanup — set `Timeout: 10 * time.Second` on the `http.Client`.
+
 ## Codebase notes for the implementer
 
 - **Where the API computes the theme**: `api/pkg/server/zed_config_handlers.go:300-309`. Reads `UserMeta.Config.ColorScheme` from the session owner; maps `"light"` → `"One Light"`, `"dark"` → `"Ayu Dark"`. If the owner has no preference set, the API returns whatever theme the agent's config specified (could be empty). This means with the changes above, `theme` writes only happen when ColorScheme is set or the agent has a non-empty default — which is the right behavior.
