@@ -2,12 +2,14 @@
 
 ## The Existing Pipeline (no change)
 
-1. Agent runs in planning phase, writes `requirements.md` into the task directory.
-2. Agent pushes the `helix-specs` branch.
-3. The push handler in `api/pkg/services/git_http_server.go:1648-1659` reads `requirements.md`, calls `SpecTitleFromRequirements()` (in `git_helpers.go:307-324`), and overwrites `task.Name` with the result if non-empty.
-4. The task name is later sanitised by `sanitizeForBranchName()` and turned into the directory slug (`design_docs_helpers.go:24-70`).
+What actually happens, verified in the code:
 
-The bug: `SpecTitleFromRequirements()` strips `# Requirements` to empty and falls through to the next non-empty line. With the current prompt, agents legitimately write `# Requirements` because nothing tells them otherwise. The next line is often `## Background`, so the task ends up named "background".
+1. **Task creation** (`spec_driven_task_service.go:229`): `task.DesignDocPath` (the `NNNNNN_slug` folder under `design/tasks/`) is generated from the user's original prompt-derived `task.Name`. This happens BEFORE the agent runs and is never regenerated. → folder name is **immune** to the bug.
+2. **Planning agent runs**, writes `requirements.md`, pushes the `helix-specs` branch.
+3. **Push handler** (`git_http_server.go:1648-1659`): reads `requirements.md`, calls `SpecTitleFromRequirements()` (in `git_helpers.go:307-324`), and if the result is non-empty overwrites `task.Name`. → UI display name is **affected** by the bug.
+4. **Spec approval** transitions the task to implementation. `GenerateUniqueBranchName()` (`spec_driven_task_service.go:1268`) is called and uses the CURRENT `task.Name` — which by this point is whatever step 3 computed. The result is written to `task.BranchName`. → branch name is **also affected** by the bug.
+
+The bug itself: `SpecTitleFromRequirements()` strips `# Requirements` to empty and falls through to the next non-empty line. With the current prompt, agents legitimately write `# Requirements` because nothing tells them otherwise. The next line is often `## Background`, so `task.Name` becomes "background", and shortly afterwards `task.BranchName` becomes `feature/NNNNNN-background`.
 
 ## Decision: Fix at the Prompt, Not the Extractor
 
@@ -71,8 +73,9 @@ Also update the existing `## tasks.md Format` example block (lines 81-87) so the
 
 - `SpecTitleFromRequirements()` in `git_helpers.go` — stays as is. The "strip `Requirements:` prefix" branch is exactly what the new format relies on: agents will write `# Requirements: Add Dark Mode`, the extractor strips the prefix, and `Add Dark Mode` becomes the title.
 - The push-time update in `git_http_server.go:1648-1659` — already handles the case correctly when a usable title is present.
-- The `sanitizeForBranchName` / `GenerateDesignDocPath` helpers — they already do the right thing on a good title.
-- Existing badly-named directories — left in place. Renaming would invalidate links and git history for no real benefit.
+- `sanitizeForBranchName`, `GenerateDesignDocPath`, `GenerateFeatureBranchName` — they already do the right thing on a good title.
+- The folder-naming pipeline — already not affected by the bug because it runs at task creation, before the agent writes anything.
+- Existing badly-named tasks (their UI name and branch name) — left in place. Renaming would invalidate git history and external PR references for no real benefit.
 
 ## Risk and Verification
 
