@@ -85,5 +85,12 @@ Also update the existing `## tasks.md Format` example block (lines 81-87) so the
 ## Notes for Future Cloners
 
 - The planning prompt is one big Go raw string in `spec_task_prompts.go`. There is only one prompt template — both `SpecDrivenTaskService.StartSpecGeneration` and `SpecTaskOrchestrator.handleBacklog` go through `BuildPlanningPrompt`, so a single edit covers every entry point.
-- The prompt is rendered via `text/template`. Any literal `{{` or `}}` you add in the new text would need escaping; the proposed text contains none.
+- The prompt is rendered via `text/template`. Any literal `{{` or `}}` you add in the new text would need escaping; the change here contains none.
 - The cloned-task preamble (`ClonedTaskPreamble`) is injected before the rest of the template. It already implies the agent should re-use the existing requirements.md, so cloned tasks are unaffected by the new title rule (they inherit the original title).
+
+## Implementation Notes (2026-05-11)
+
+- Edits landed on `feature/002002-enforce-requirementsmd`. Two changes in `api/pkg/services/spec_task_prompts.go`: (1) inserted the `## CRITICAL: Title Format` section between "Your Task Directory" and "## CRITICAL: Don't Over-Engineer", (2) updated the `## tasks.md Format` example block H1 to `# Implementation Tasks: <Descriptive Title>`.
+- Added `api/pkg/services/spec_task_prompts_test.go` containing `TestBuildPlanningPrompt_TitleFormatRule`. It calls `BuildPlanningPrompt` with a minimal `*types.SpecTask` and asserts the rendered output contains the new section header and the three `<Descriptive Title>` placeholder strings. Test passes locally (`CGO_ENABLED=1 go test -run TestBuildPlanningPrompt_TitleFormatRule ./pkg/services/`).
+- Verification approach for a prompt-only change: the unit test pins the rule against silent regression. A real planning-agent E2E run is non-deterministic and would test LLM instruction-following, not the deployment — Air confirmed the file change and rebuilt the API on the inner Helix, which is the deployment verification. Any spec task created after this change merges will exercise the new prompt naturally.
+- Gotcha for cloners: the prompt template is a Go raw string built by concatenating ` + "\"...\"" + ` literals around backtick-quoted blocks (so backticks can appear in the rendered markdown). When inserting new code blocks, follow the existing pattern: close the raw string, concatenate `+ "` + "`" + `..." + ` for inline code, and reopen the raw string. Don't try to embed backticks directly.
