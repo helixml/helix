@@ -1,4 +1,4 @@
-# Requirements
+# Move ACP Agent Logs Terminal to Last Workspace Instead of Minimizing
 
 ## Background
 
