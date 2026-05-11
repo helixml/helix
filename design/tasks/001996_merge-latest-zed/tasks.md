@@ -19,14 +19,11 @@
 
 ## Merge Execution
 
-- [~] `git merge upstream/main`
-- [ ] Triage conflicts; for each, write a `## Merge 001996` subsection in `portingguide.md` capturing upstream change, resolution, why, risk
-- [ ] `Cargo.lock` (if conflicting): `git checkout --theirs Cargo.lock`
-- [ ] `.github/workflows/*` (if conflicting): accept upstream
-- [ ] Manual three-way merges for any cfg-gated Helix code in `agent_panel.rs`, `acp_thread.rs`, `conversation_view.rs`
-- [ ] **If conflict in `acp_thread.rs` cancel/Stopped path**: stop and reason carefully about interaction with Critical Fixes #6/#8/#9 and PR #52 `cancel_current_turn` before resolving
-- [ ] No conflict markers remain (`grep -rn "<<<<<<<\|>>>>>>>" .`)
-- [ ] Commit the merge
+- [x] `git merge upstream/main` — 1 conflict only (`acp_thread.rs`); no conflicts in `agent_panel.rs`/`conversation_view.rs` despite large diffs (auto-merged); no Cargo.lock conflict
+- [x] Triage conflicts; resolved in `portingguide.md` §"Merge 001996" with full reasoning
+- [x] `acp_thread.rs` resolved — folded upstream PR #55562 reorder with Helix `stopped_emitted_for_task`-guarded `Stopped(Cancelled)` emission. Single same-turn `take()` before dropped-tx guard, then dropped-tx guard emits `Stopped(Cancelled)` if not already emitted. Strict superset of both sides
+- [x] No conflict markers remain (`grep -rn "<<<<<<<\|>>>>>>>" .` — only test-string markers in `git_store.rs`)
+- [x] Merge committed: `bf544922aa`; porting guide entry committed: `48f7895607`
 
 ## Sweep for Silent Drift (auto-merged files)
 
