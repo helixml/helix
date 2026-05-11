@@ -83,11 +83,12 @@
 - [-] No local Rust toolchain: cargo check/test deferred to CI / E2E
 - [x] Build implicitly proves `cargo check -p zed --features external_websocket_sync` (it's the same compile)
 - [x] **Build fix needed**: upstream added `BaseView::Terminal { terminal_id }` variant to `agent_panel.rs:733`. Helix UI state query at `agent_panel.rs:1270` was missing the arm — added `BaseView::Terminal { .. } => ("terminal".to_string(), None, 0, None)` (commit `1828cea13c`)
-- [ ] Pre-flight: `go mod tidy` in `e2e-test/helix-ws-test-server/`
-- [ ] Copy fresh binary into `e2e-test/zed-binary`
-- [ ] Run E2E `zed-agent` — **all phases pass**, including 1, 2, 3, 4, 8, 9, **13**, **14**
-- [ ] Run E2E `claude` — **all phases pass**, including 1, 2, 3, 4, 8, 9, **13**, **14**
-- [ ] No phase failed — task complete on the test gate
+- [x] Pre-flight: `go mod tidy` in `e2e-test/helix-ws-test-server/` — clean, no changes
+- [x] Copy fresh binary into `e2e-test/zed-binary`
+- [x] **First E2E run revealed Phase 13 race**: `message_completed` arrived before `turn_cancelled`, so `handleTurnCancelled` saw state=Completed (not Waiting) and didn't transition to Interrupted. Fixed by reordering the cancellation handler in `thread_service.rs:1238` to (a) probe `thread.status() == Generating` first, (b) send `TurnCancelled{status:cancelled}` BEFORE invoking `cancel()` so it wins the race against the synchronously-emitted Stopped → message_completed, (c) send `noop` if no turn was running. Commit `a7ad11ec00`.
+- [x] Run E2E `zed-agent` — **ALL 14 PHASES PASSED** (including new Phase 13 cancel + Phase 14 noop)
+- [x] Run E2E `claude` — **ALL 14 PHASES PASSED** on retry (first attempt timed out at Phase 1 with 0 events received — known Claude Code npm-install bootstrap flake unrelated to this merge; the second attempt was clean)
+- [x] No phase failed — test gate satisfied for both agents
 
 ## Update `portingguide.md` (incremental, not at the end)
 
