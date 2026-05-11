@@ -35,17 +35,20 @@ Relevant files:
 
 ## Decision
 
-**OS changes always win. Manual toggles are one-off overrides that last until the OS next changes (or the user toggles again).**
+**The most recent change wins, regardless of source.** Both the user (via the sun/moon toggle) and the OS (via a `prefers-color-scheme` transition) emit change events; whichever fires last sets the current mode. Neither is privileged over the other.
 
 Concretely:
 - Keep the existing binary sun/moon toggle. No new icon, no third state.
 - Drop the `localStorage` lock-out entirely. The media-query `change` listener always updates the resolved mode and POSTs to the API.
-- The user's manual click flips the current mode and POSTs to the API, but does not pin a "user preference" that would block future OS changes.
+- The user's manual click flips the current mode and POSTs to the API, but does not pin a "user preference" that would block a later OS transition.
 
 ### Why this over the previous "three-state" proposal
 - Avoids the icon/UX problem of representing a "System" mode in a single button.
 - Matches the user's stated mental model: "both the system and the user can both change the current setting."
 - Simpler implementation: removes one whole state dimension and the migration that came with it.
+
+### Detection is event-driven, not polled
+The browser's `matchMedia(...).addEventListener('change', …)` only fires on an actual OS-level *transition*. So if the user manually toggles to a mode different from the OS and the OS state never changes after that, the manual choice persists indefinitely (until another click or a reload, which re-resolves to the OS). This is consistent with "last change wins" — there simply isn't a later change to override it.
 
 ### Why we don't need to persist the user's manual choice
 - An explicit toggle changes the current visual immediately and POSTs the resolved color to the server, so the inner desktop follows.

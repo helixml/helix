@@ -6,7 +6,9 @@ Light/dark mode in the Helix UI does not reliably follow the OS-level appearance
 
 ## Approach
 
-Keep the existing binary sun/moon toggle — no new "System" icon. The model is simply: **both the user and the OS can change the current theme**. The user can flip the toggle whenever they want; if the OS appearance later changes, that change wins and re-syncs the app to the OS. There is no permanent "user has opted out of OS following" state.
+Keep the existing binary sun/moon toggle — no new "System" icon. The model is simply: **the most recent change wins, whether it came from the user or the OS**. The user can flip the toggle whenever they want; if the OS appearance later transitions, that transition becomes the most recent change and re-syncs the app. There is no permanent "user has opted out of OS following" state.
+
+Note: OS-driven updates fire only on an actual OS-level *transition* (the browser's `prefers-color-scheme` media-query `change` event). If the OS state never changes, the user's manual choice stays in effect until they click again or reload.
 
 ## User Stories
 
@@ -16,19 +18,19 @@ As a new user on macOS (or any OS with light/dark switching), I want the Helix U
 **Acceptance criteria:**
 - A first-time user (no stored preference) sees light mode when their OS is in light mode and dark mode when their OS is in dark mode.
 
-### US2 — OS changes always win
-As a user, I want OS-level appearance changes to propagate into Helix even if I have previously clicked the in-app toggle.
+### US2 — OS transitions propagate even after a manual toggle
+As a user, I want OS-level appearance transitions to propagate into Helix even if I have previously clicked the in-app toggle.
 
 **Acceptance criteria:**
 - Switching the OS appearance while the Helix tab is open updates the UI within ~1 second, no reload required.
 - This holds regardless of whether I have ever clicked the in-app toggle. There is no "locked" state that prevents OS sync.
 
-### US3 — Manual toggle still works for one-off override
+### US3 — Manual toggle is the most recent change until something else changes
 As a user, I want to be able to flip the toggle and have the UI change immediately, even if my OS is set to the opposite mode.
 
 **Acceptance criteria:**
 - Clicking the sun/moon toggle changes the UI to the opposite mode immediately.
-- That manual choice holds until either (a) I click the toggle again or (b) the OS appearance changes, whichever comes first.
+- That manual choice holds until the next change event, which is either (a) I click the toggle again or (b) the OS appearance transitions.
 
 ### US4 — Inner desktop follows the same theme
 As a user, I want the inner desktop (GNOME, Zed, wallpaper) to match whatever theme the Helix UI is showing, including when that theme is being driven by the OS.
