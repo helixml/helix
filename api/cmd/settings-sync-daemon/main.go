@@ -781,8 +781,8 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if config.Agent != nil {
 		d.helixSettings["agent"] = config.Agent
 	}
-	if config.Theme != "" {
-		d.helixSettings["theme"] = config.Theme
+	if t := d.effectiveTheme(config.Theme); t != "" {
+		d.helixSettings["theme"] = t
 	}
 	injectAgentToolPermissions(d.helixSettings)
 
@@ -902,9 +902,9 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 //   - gtk-theme (the actual rendered theme — without this, GTK3 apps + the
 //     shell stay on whatever was loaded at startup, so the desktop looks
 //     unchanged even when color-scheme says prefer-light)
-//   - desktop wallpaper (helix-logo is dark; swap to a Yaru light wallpaper
-//     in light mode so the desktop reads as actually light, not just
-//     "dark wallpaper with light app chrome")
+//   - desktop wallpaper — kept on the Helix logo in both modes; we set both
+//     picture-uri and picture-uri-dark so GNOME reads the right slot
+//     regardless of the active color scheme
 func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	colorScheme := "prefer-dark"
 	gtkTheme := "Yaru-dark"
@@ -912,7 +912,6 @@ func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	if scheme == "light" {
 		colorScheme = "prefer-light"
 		gtkTheme = "Yaru"
-		wallpaper = "file:///usr/share/backgrounds/Questing_Quokka_Full_Light_3840x2160.png"
 	}
 
 	cmds := [][]string{
@@ -930,6 +929,40 @@ func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s wallpaper=%s", colorScheme, gtkTheme, wallpaper)
 }
 
+// HELIX_MANAGED_THEMES are the Zed editor themes the daemon itself sets in
+// response to the session owner's color-scheme preference. An on-disk theme
+// in this set (or empty) is considered Helix-owned and may be overwritten on
+// the next sync; anything else is treated as a deliberate user choice (e.g.
+// the user picked "Solarized Dark" in Zed's UI) and preserved.
+var HELIX_MANAGED_THEMES = map[string]bool{
+	"One Light": true,
+	"Ayu Dark":  true,
+}
+
+// effectiveTheme decides which value to write to settings.json's "theme" key.
+// It returns apiTheme when the on-disk value is unset or one of the
+// Helix-managed themes; otherwise it returns the on-disk value, preserving
+// the user's manual Zed-UI choice. apiTheme=="" disables the assignment in
+// the caller (we don't want to delete an existing theme key).
+func (d *SettingsDaemon) effectiveTheme(apiTheme string) string {
+	if apiTheme == "" {
+		return ""
+	}
+	data, err := os.ReadFile(SettingsPath)
+	if err != nil {
+		return apiTheme // no existing settings, safe to write
+	}
+	var existing map[string]interface{}
+	if err := json.Unmarshal(data, &existing); err != nil {
+		return apiTheme // unparseable, treat as if missing
+	}
+	onDisk, ok := existing["theme"].(string)
+	if !ok || onDisk == "" || HELIX_MANAGED_THEMES[onDisk] {
+		return apiTheme
+	}
+	return onDisk
+}
+
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
 // Also includes deprecated fields that should be removed from settings
 var SECURITY_PROTECTED_FIELDS = map[string]bool{
@@ -939,12 +972,15 @@ var SECURITY_PROTECTED_FIELDS = map[string]bool{
 	"external_sync": true, // Deprecated: Zed reads this from env vars, not settings.json
 }
 
-// USER_PREFERENCE_FIELDS are settings the daemon writes as initial defaults
-// but never overwrites once the user has changed them via Zed UI.
-// The on-disk value is always preserved in mergeSettings().
-var USER_PREFERENCE_FIELDS = map[string]bool{
-	"theme": true,
-}
+// USER_PREFERENCE_FIELDS used to hold "theme" so mergeSettings would always
+// preserve the on-disk value. That was the wrong model once Helix started
+// driving the theme from the user's color-scheme preference: it pinned the
+// stale value and made dark→light→dark fail (the second dark write was
+// silently overwritten by the on-disk "One Light"). Theme handling now lives
+// in HELIX_MANAGED_THEMES + effectiveTheme(), called from syncFromHelix and
+// checkHelixUpdates. Kept (empty) so the SECURITY_PROTECTED_FIELDS sibling
+// pattern stays obvious; remove if no field ever needs this behaviour again.
+var USER_PREFERENCE_FIELDS = map[string]bool{}
 
 // HELIX_MANAGED_AGENT_FIELDS lists keys under "agent" that Helix owns and that
 // user-side overrides (i.e. whatever Zed wrote to settings.json) must never
@@ -1163,7 +1199,11 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 	}
 
 	for k, v := range current {
-		if k == "context_servers" || k == "languages" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
+		// "theme" is a daemon-local decision (effectiveTheme reads on-disk
+		// directly each sync), so it must not be uploaded to the API as a
+		// user-side override — that would create a stale snapshot that
+		// replays back on the next sync.
+		if k == "context_servers" || k == "languages" || k == "theme" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
 			continue
 		}
 		if k == "agent" {
@@ -1411,8 +1451,13 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		return err
 	}
 
+	// Mirror GNOME on every poll — same call syncFromHelix makes. Idempotent
+	// (gsettings set to the existing value is a no-op) and load-bearing for
+	// the case where the WS subscriber missed a config_changed event during
+	// a reconnect: without this, GNOME stays on the old theme indefinitely.
+	d.applyGNOMEColorScheme(config.ColorScheme)
+
 	// Build new helix settings from defaults + API response
-	// Skip USER_PREFERENCE_FIELDS — those are read from disk, not the API
 	newHelixSettings := helixDefaults()
 	newHelixSettings["context_servers"] = config.ContextServers
 	if config.LanguageModels != nil {
@@ -1424,7 +1469,12 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if config.Agent != nil {
 		newHelixSettings["agent"] = config.Agent
 	}
-	// Note: theme is a USER_PREFERENCE_FIELD — not set here, preserved from disk in mergeSettings
+	// Theme is governed by HELIX_MANAGED_THEMES + effectiveTheme: write the
+	// API value when on-disk is unset or one of our managed themes; preserve
+	// the user's manually-picked theme otherwise.
+	if t := d.effectiveTheme(config.Theme); t != "" {
+		newHelixSettings["theme"] = t
+	}
 	injectAgentToolPermissions(newHelixSettings)
 
 	// Update Claude subscription availability and sync credentials
