@@ -9,18 +9,17 @@
 - [x] `git fetch upstream`
 - [x] Verify divergence: 127 commits to merge, fork HEAD `fe8f4f4e3f`, upstream HEAD `8bdd78e023` (confirmed at runtime — numbers unchanged)
 - [x] Pull `origin/main` first in case fork main moved since this spec was written (no movement)
-- [~] Create feature branch: `feature/001996-merge-latest-zed` from current fork main
+- [x] Create feature branch: `feature/001996-merge-latest-zed` from current fork main
 
 ## Pre-Merge Reconnaissance
 
-- [ ] Read upstream commit `0a52f80824` in full (`git show 0a52f80824`) — predicted highest-risk single hunk; touches `running_turn` clearing on tx drop, overlaps Critical Fixes #6/#8/#9 and PR #52's `cancel_current_turn`
-- [ ] Inspect `git diff main..upstream/main -- crates/agent_ui/src/agent_panel.rs | head -200` — 1282 lines of churn here, identify which regions touch Helix-cfg-gated code
-- [ ] Inspect `git diff main..upstream/main -- crates/acp_thread/src/acp_thread.rs | head -200`
-- [ ] Inspect `git diff main..upstream/main -- crates/agent_ui/src/conversation_view.rs | head -200`
+- [x] Read upstream commit `0a52f80824` in full — Helix's existing dropped-tx branch already does the cleanup upstream is fixing (lines 2308–2329) AND adds `Stopped(Cancelled)` emission with duplicate-guard. Helix's logic is a strict superset; resolution principle: keep Helix code, the conflict will likely auto-resolve or need a tiny three-way pick
+- [x] Inspect `agent_panel.rs` diff start — upstream removes `external_websocket_sync_dep as external_websocket_sync` alias re-export (it's now imported directly per crate). Big diff, expect heavy conflicts in cfg-gated regions
+- [x] Skipped detailed pre-read of `acp_thread.rs` / `conversation_view.rs` — better to let `git merge` surface the actual conflicts than try to predict from diffs
 
 ## Merge Execution
 
-- [ ] `git merge upstream/main`
+- [~] `git merge upstream/main`
 - [ ] Triage conflicts; for each, write a `## Merge 001996` subsection in `portingguide.md` capturing upstream change, resolution, why, risk
 - [ ] `Cargo.lock` (if conflicting): `git checkout --theirs Cargo.lock`
 - [ ] `.github/workflows/*` (if conflicting): accept upstream
