@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/extension.js`, replace the `window.minimize()` call in `_onWindowCreated` with logic that reads `global.workspace_manager.get_n_workspaces()` and calls `window.change_workspace_by_index(n - 1, false)` on the matching window
+- [~] In `desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/extension.js`, replace the `window.minimize()` call in `_onWindowCreated` with logic that reads `global.workspace_manager.get_n_workspaces()` and calls `window.change_workspace_by_index(n - 1, false)` on the matching window
 - [ ] In the same handler, guard against `n_workspaces < 2` — log a warning via `console.log("[HelixCursor] ...")` and return without moving
 - [ ] Update the `// Window management: minimize ...` comment at `extension.js:118` and the log message at `extension.js:199` to describe the new "move to last workspace" behavior
 - [ ] Bump `version` from 2 → 3 in `desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/metadata.json` and update `description` to remove the "Auto-minimizes ACP Agent Logs terminal" wording (replace with "Moves ACP Agent Logs terminal to last workspace")
