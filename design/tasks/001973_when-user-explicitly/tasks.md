@@ -13,6 +13,16 @@
 - [x] End-to-end verification in inner Helix: completed onboarding (testorg / testproj / claude-opus-4-6), created spec task, opened spec task detail page with EmbeddedSessionView mounted, dispatched 50px wheel-up (no unlock), then cumulative 110px wheel-up (UNLOCK fired — toggle button flipped from "Pause auto-scroll" to "Resume auto-scroll", localStorage `helix.autoScroll` set to `false`). Reset to `true` and toggle returned to "Pause auto-scroll". Screenshots in `screenshots/`.
 - [x] Commit, push helix branch (PR is created by the platform when user clicks "Open PR").
 
+## ResizeObserver fix (commit `76c4d21`) — same bug, masked in production
+
+After fixing the wheel-listener attachment, looked at the pre-existing ResizeObserver useEffect: same shape, same bug. It ran during the loading-state early return when `containerRef.current` and `contentRef.current` were null, returned early, and never re-attached because `[isNearBottom]` is stable. The observer was never observing anything.
+
+Auto-scroll appeared to work in production only because `InteractionLiveStream.onMessageUpdate` calls `scrollToBottom` on every message reference change — that fallback path masked the broken ResizeObserver. With my earlier commit gating `scrollToBottom` on actual height growth, the masking still works, but the ResizeObserver path was supposed to be the primary mechanism.
+
+**Fix**: convert `contentRef` from `useRef` to a state-mirrored callback ref (`const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null); const setContentRef = useCallback(setContentEl, [])`). The useEffect now depends on `[contentEl, isNearBottom]`, so it re-runs the moment the content element actually mounts. `containerRef` stays a plain `useRef` because the observer callback reads it synchronously at fire time, and by then both refs are populated.
+
+Verified end-to-end against production code path: scrolled to top with autoScroll ON, injected a 500 px filler into the content element, scrollTop jumped from 0 to exactly `scrollHeight - clientHeight` (7068). With autoScroll OFF, scrollTop stayed at 0.
+
 ## Post-merge bug + fix (commit `ebb9a5e`)
 
 **The first verification was insufficient and the production code was broken.** I had verified an isolated copy of the algorithm via `evaluate_script` against the real container, but never verified that the **React-attached listener** actually fired. It didn't — the `useEffect` ran during the loading-state early-return when `containerRef.current` was null, returned early, and never re-ran because its `[setAutoScroll]` dep was stable.
