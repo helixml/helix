@@ -87,6 +87,18 @@ None. The PUT endpoint, the WebSocket publish, and the settings-sync-daemon all 
 - **User manually toggles to light, OS later flips to light too**: app stays light, listener fires with `light`, no visible change, POST is a repeat. Fine.
 - **User manually toggles to light while OS is dark, then reloads**: page reads `prefers-color-scheme` → dark on reload. The manual override does not survive reload. This is acceptable per the "OS-always-wins" model and avoids needing persistence logic.
 
+## Implementation notes
+
+- **Discovery during implementation:** there is a second piece of code that reads `localStorage.themeMode` — an inline pre-mount `<script>` in `frontend/index.html` that sets `document.documentElement.style.{backgroundColor,color}` before React mounts so the page doesn't flash dark for users who prefer light. It had to be updated in the same commit (drop the localStorage read, resolve directly from `prefers-color-scheme`); otherwise the html element would still flash a stale color from the legacy localStorage value on first render after this change ships.
+- **Verified end-to-end** in the inner Helix at `localhost:8080` with chrome-devtools `emulate.colorScheme`:
+  - Initial load with OS=light → body bg `#ffffff`, no `themeMode` localStorage key.
+  - Pre-seed `localStorage.themeMode = 'dark'`, reload → key is removed by the cleanup, body resolves to OS (`#ffffff`).
+  - With app showing dark, emulate OS → light → body live-updates to `#ffffff` with no reload.
+  - Click sun/moon toggle → body flips, `localStorage.themeMode` stays absent.
+  - After manual toggle, emulate OS → dark → body flips back to `#121214`. Confirms "last change wins" — the manual toggle no longer locks out future OS events.
+- **Total diff:** 13 lines in `frontend/src/contexts/theme.tsx` and 7 lines in `frontend/index.html`. No backend, daemon, or `Page.tsx` changes — the existing sun/moon icon and the existing API/WS pipeline already do the right thing once the localStorage gate is removed.
+- **Inner-desktop verification:** the API call `v1UsersMeColorSchemeUpdate` still fires on every mode change (manual or OS), so the existing `settings-sync-daemon` path into GNOME/Zed is unchanged. Verifying it on a real macOS host is a manual step for the user — the dev container doesn't have an OS appearance to flip.
+
 ## Notes for future agents
 
 - The detection and propagation pipeline is already complete and works. The bug is one gating condition (`if (localStorage.getItem(THEME_MODE_KEY)) return`) plus the matching `setItem` in the toggle handler. Removing both, and removing the localStorage read in `getInitialMode`, is the entire fix.
