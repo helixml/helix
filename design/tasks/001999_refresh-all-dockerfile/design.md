@@ -87,3 +87,41 @@ For each `image:tag`:
   Dockerfiles are on `25.10`. Intentional or stale?
 - `Dockerfile.demos` is on `golang:1.25-alpine3.22`; siblings use
   `golang:1.25-bookworm`. Intentional choice of alpine, or drift?
+
+## Implementation Notes
+
+### Resolution results (2026-05-11)
+
+| Image | Old digest (truncated) | New digest (truncated) | Changed? | Platforms |
+| --- | --- | --- | --- | --- |
+| `golang:1.25-bookworm` | `29e59af9...da1a6d8c` | `e3a54b77...d409547` | **YES** | amd64, arm64/v8, +6 |
+| `node:23-alpine` | `a34e14ef...af09456` | `a34e14ef...af09456` | no | amd64, arm64/v8, +3 |
+| `debian:bookworm-slim` | `4724b8cc...642182655d` | `67b30a61...8493d3` | **YES** | amd64, arm64/v8, +6 |
+| `golangci/golangci-lint:v1.62-alpine` | `0f3af392...0640bc310d` | `0f3af392...0640bc310d` | no | amd64, arm64 |
+| `golang:1.23-alpine3.21` | `4bb4be21...632b0fc6` | `4bb4be21...632b0fc6` | no | amd64, arm64/v8, +6 |
+| `node:20-slim` | `f93745c1...0c40313a55` | `2cf067cf...febfc0` | **YES** | amd64, arm64/v8, +3 |
+| `ubuntu:25.04` | `27771fb7...294dac20` | `27771fb7...294dac20` | no | amd64, arm64/v8, +4 |
+| `ubuntu:25.10` | `4a9232cc...0b810a31e` | `4a9232cc...0b810a31e` | no | amd64, arm64/v8, +4 |
+| `golang:1.25-alpine3.22` | `2c16ac01...fad2ebfb75f884c` | `26b4d711...e17cf95` | **YES** | amd64, arm64/v8, +6 |
+| `gcr.io/distroless/static:nonroot` | `e3f94564...22a80a39` | `e3f94564...22a80a39` | no | amd64, arm64/v8, +3 |
+| `nvidia/cuda:12.6.3-runtime-ubuntu24.04` | `92906d87...3884ba924` | `92906d87...3884ba924` | no | amd64, **arm64** |
+
+Net effect: **4 images need a digest update** (golang 1.25-bookworm,
+debian bookworm-slim, node 20-slim, golang 1.25-alpine3.22). The other
+seven were already pinned to the current upstream manifest list.
+
+### Discovery: NVIDIA CUDA does have arm64
+
+The design assumed `nvidia/cuda:12.6.3-runtime-ubuntu24.04` was an
+amd64-only image. Actual inspection shows the manifest list publishes
+**both** `linux/amd64` and `linux/arm64`. We still leave the Dockerfile
+structure alone — the `CUDA_BASE_IMAGE` ARG default + arm64 pipeline
+override is existing convention — but we will note in the PR that the
+underlying image is in fact multi-arch, in case the team wants to
+simplify the build later.
+
+### Replacement mechanics actually used
+
+For each of the four changing images we ran `grep -rl OLD ./Dockerfile*
+./operator ./scripts | xargs sed -i "s|OLD|NEW|g"` from the helix repo
+root, then re-grepped each old digest to prove zero remaining hits.
