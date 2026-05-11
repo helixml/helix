@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Re-grep `helix/` for every `FROM ... @sha256:` line and the `CUDA_BASE_IMAGE` ARG default; confirm the inventory in `design.md` matches the live repo
+- [~] Re-grep `helix/` for every `FROM ... @sha256:` line and the `CUDA_BASE_IMAGE` ARG default; confirm the inventory in `design.md` matches the live repo
 - [ ] Resolve current multi-arch manifest digest for `golang:1.25-bookworm` via `docker buildx imagetools inspect` and verify both `linux/amd64` and `linux/arm64` are present
 - [ ] Resolve current multi-arch manifest digest for `node:23-alpine`
 - [ ] Resolve current multi-arch manifest digest for `debian:bookworm-slim`
