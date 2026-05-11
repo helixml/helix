@@ -324,17 +324,21 @@ const EmbeddedSessionView = forwardRef<
   //     shifts scrollTop without any input event.
   // This sidesteps the three race surfaces that killed the previous
   // sticky-scroll attempt (see commit 42c3a5112 for the autopsy).
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+  //
+  // Listeners are wired via React's synthetic event props on the container
+  // JSX (NOT a useEffect) because the component renders early-return
+  // loading/empty states before the container exists. A useEffect with a
+  // stable dep array would run once with `containerRef.current === null`
+  // and never re-attach when the container later mounts. React's prop
+  // wiring guarantees attachment whenever the container actually renders.
+  const triggerUnlock = useCallback(() => {
+    setAutoScroll(false);
+    autoScrollRef.current = false;
+    upwardAccumRef.current = 0;
+  }, [setAutoScroll]);
 
-    const triggerUnlock = () => {
-      setAutoScroll(false);
-      autoScrollRef.current = false;
-      upwardAccumRef.current = 0;
-    };
-
-    const onWheel = (e: WheelEvent) => {
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
       if (!autoScrollRef.current) return;
       const now = performance.now();
       // New gesture if the previous wheel event was long enough ago.
@@ -350,18 +354,21 @@ const EmbeddedSessionView = forwardRef<
         // signals the user does NOT want to disengage auto-scroll.
         upwardAccumRef.current = 0;
       }
-    };
+    },
+    [triggerUnlock],
+  );
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (!autoScrollRef.current) return;
-      const t = e.touches[0];
-      if (!t) return;
-      touchStartYRef.current = t.clientY;
-      lastTouchYRef.current = t.clientY;
-      upwardAccumRef.current = 0;
-    };
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (!autoScrollRef.current) return;
+    const t = e.touches[0];
+    if (!t) return;
+    touchStartYRef.current = t.clientY;
+    lastTouchYRef.current = t.clientY;
+    upwardAccumRef.current = 0;
+  }, []);
 
-    const onTouchMove = (e: TouchEvent) => {
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
       if (!autoScrollRef.current) return;
       const t = e.touches[0];
       if (!t || lastTouchYRef.current === null) return;
@@ -376,28 +383,15 @@ const EmbeddedSessionView = forwardRef<
       } else if (dy < 0) {
         upwardAccumRef.current = 0;
       }
-    };
+    },
+    [triggerUnlock],
+  );
 
-    const onTouchEnd = () => {
-      touchStartYRef.current = null;
-      lastTouchYRef.current = null;
-      upwardAccumRef.current = 0;
-    };
-
-    container.addEventListener("wheel", onWheel, { passive: true });
-    container.addEventListener("touchstart", onTouchStart, { passive: true });
-    container.addEventListener("touchmove", onTouchMove, { passive: true });
-    container.addEventListener("touchend", onTouchEnd, { passive: true });
-    container.addEventListener("touchcancel", onTouchEnd, { passive: true });
-
-    return () => {
-      container.removeEventListener("wheel", onWheel);
-      container.removeEventListener("touchstart", onTouchStart);
-      container.removeEventListener("touchmove", onTouchMove);
-      container.removeEventListener("touchend", onTouchEnd);
-      container.removeEventListener("touchcancel", onTouchEnd);
-    };
-  }, [setAutoScroll]);
+  const handleTouchEnd = useCallback(() => {
+    touchStartYRef.current = null;
+    lastTouchYRef.current = null;
+    upwardAccumRef.current = 0;
+  }, []);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -536,6 +530,11 @@ const EmbeddedSessionView = forwardRef<
       <Box
         ref={containerRef}
         onScroll={handleScroll}
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         sx={{
           // Use height: 0 + flex: 1 to force this to be the scrollable container
           // Without height: 0, the container may expand to fit content on iOS
