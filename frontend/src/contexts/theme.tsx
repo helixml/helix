@@ -4,14 +4,15 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
 
-const THEME_MODE_KEY = 'themeMode'
-
 function getInitialMode(): PaletteMode {
-  const stored = localStorage.getItem(THEME_MODE_KEY)
-  if (stored === 'light' || stored === 'dark') return stored
   if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
   return 'dark'
 }
+
+// Drop a stale preference from earlier versions that pinned the mode in
+// localStorage. We now keep the mode in memory only — every reload re-resolves
+// from the OS, and OS transitions or manual toggles set the current mode.
+try { localStorage.removeItem('themeMode') } catch { /* ignore */ }
 
 export const ThemeContext = React.createContext({
   mode: 'dark' as PaletteMode,
@@ -23,15 +24,13 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const api = useApi()
   const [mode, setMode] = useState<PaletteMode>(getInitialMode)
 
-  // Live OS preference sync: follow the OS only while the user has not explicitly
-  // toggled (no entry in localStorage). Once they toggle, their explicit choice wins.
-  // We also push the change to the API so the user's spec-task GNOME desktops and
-  // Zed editors flip with them — otherwise the OS-driven flip would only update
-  // the browser app, not the inner desktop.
+  // Live OS preference sync. The most recent change wins, regardless of source —
+  // an OS transition here, a manual toggle in toggleMode below. We always update
+  // local state and push to the API so the user's spec-task GNOME desktops and
+  // Zed editors flip too via the settings-sync-daemon's WS subscription.
   useEffect(() => {
     const mql = window.matchMedia('(prefers-color-scheme: light)')
     const handler = (e: MediaQueryListEvent) => {
-      if (localStorage.getItem(THEME_MODE_KEY)) return
       const next: PaletteMode = e.matches ? 'light' : 'dark'
       setMode(next)
       api.getApiClient().v1UsersMeColorSchemeUpdate({ color_scheme: next })
@@ -237,7 +236,6 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const toggleMode = () => {
     setMode((prevMode) => {
       const next = prevMode === 'dark' ? 'light' : 'dark'
-      localStorage.setItem(THEME_MODE_KEY, next)
       // Fire-and-forget: persist to the user's account so any spec-task
       // sessions they own can mirror the theme into GNOME and Zed within
       // ~100ms via the settings-sync-daemon's WS subscription.
