@@ -78,6 +78,15 @@ Recommendation: **alternative**. `recoverIncompletePushes` runs once at startup,
 - `api/pkg/services/spec_task_orchestrator_test.go` — add a test that asserts `ListPullRequests` is called exactly once per unique repo when multiple tasks share repos.
 - (Optional) `api/pkg/config/server.go` — add `GithubPRListCacheTTL` and `GithubRateLimitBackoff` if we expose env vars. Skip if defaults are good enough.
 
+## Implementation Notes
+
+- **`SpecTaskOrchestrator.gitService` is a concrete `*GitRepositoryService`, not an interface.** I considered introducing an interface to enable mocking the orchestrator-level dedup, but it cascades through `NewSpecTaskOrchestrator`'s callers and is broader than this fix. Instead, the cache layer carries the proof-of-fix in unit tests; the orchestrator-level memo is a one-line `prsByRepo[repo.ID]` lookup verifiable by code review.
+- **GitHub `RateLimitError` propagates through `%w` wrapping correctly.** `Client.ListPullRequests` (skill) and `listGitHubPullRequests` (services) both already wrap with `fmt.Errorf("...: %w", err)`, so `errors.As` in `rateLimitBackoffUntil` unwraps to find the typed error from `go-github`. No change needed at the GitHub-client layer.
+- **Test constructors don't initialize the cache.** `git_http_server_test.go` and `git_repository_service_pull_requests_test.go` build `&GitRepositoryService{...}` literals without `prListCache`. The wrapper code in `ListPullRequests`, `CreatePullRequest`, and `UpdatePullRequest` is nil-safe (`if s.prListCache != nil`) so existing tests keep working without modification.
+- **Cache invalidation is at the dispatch level.** Putting it in `CreatePullRequest` / `UpdatePullRequest` (before the provider switch) covers all four providers (GitHub, ADO, GitLab, Bitbucket) with one line each, instead of repeating it in every provider-specific helper.
+- **Skipped env-var plumbing.** Defaults are 60s cache / 5m fallback backoff. No operator has hit a case requiring different values; adding `HELIX_GITHUB_PR_LIST_CACHE_TTL` etc. would be premature config bloat. Trivial to add later.
+- **Memoize failures too.** In the orchestrator's `prsByRepo`, even a failing `ListPullRequests` writes `nil` so the next task with the same repo skips the call rather than re-fetching. This matters when the cache layer returns the cached rate-limit error: that's *fast*, but writing nil into the map means the orchestrator doesn't even spend the lookup.
+
 ## Risk / gotchas
 
 - **Test fixtures using `MockGitRepositoryService`** mock the public interface, so adding a cache inside the concrete impl is invisible to existing tests. Good.
