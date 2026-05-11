@@ -401,13 +401,14 @@ PINEOF
 
 _INSTALL_BASE
 
-# Install Go (version extracted from go.mod)
-# This makes Go available for agents running inside the container (Helix-in-Helix)
-COPY go.mod /tmp/go.mod
-RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
+# Install Go (version passed via --build-arg from stack, derived from go.mod on host).
+# Passing as a build-arg (instead of COPY-ing go.mod) means dependency bumps in
+# go.mod don't invalidate this layer or any of the downstream apt/npm/install layers —
+# only an actual Go-version change does. TARGETARCH is set by Docker buildx.
+ARG GO_VERSION
+RUN [ -n "${GO_VERSION}" ] || { echo "ERROR: --build-arg GO_VERSION=... is required" >&2; exit 1; } && \
     echo "Installing Go ${GO_VERSION} for ${TARGETARCH}..." && \
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz && \
-    rm /tmp/go.mod && \
     /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
 

@@ -90,6 +90,15 @@ const spin = keyframes`
   }
 `;
 
+const pulseDot = keyframes`
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+`;
+
 
 type SpecTaskPhase =
   | "backlog"
@@ -631,6 +640,7 @@ function TaskCardInner({
 
   const { acknowledge } = useAttentionEvents();
   const hasUnreadNotification = attentionEvents.length > 0;
+  const isAgentWorking = task.agent_work_state === "working";
 
   const runningDuration = useRunningDuration(
     task.started_at,
@@ -753,7 +763,25 @@ function TaskCardInner({
         },
       }}
     >
-      {hasUnreadNotification && (
+      {isAgentWorking ? (
+        <Tooltip title="Agent is running">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "success.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+              animation: `${pulseDot} 1.5s ease-in-out infinite`,
+            }}
+          />
+        </Tooltip>
+      ) : hasUnreadNotification ? (
         <Tooltip title="Agent finished - click to dismiss">
           <Box
             sx={{
@@ -770,7 +798,7 @@ function TaskCardInner({
             }}
           />
         </Tooltip>
-      )}
+      ) : null}
       <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box

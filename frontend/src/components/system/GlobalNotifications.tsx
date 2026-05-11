@@ -103,6 +103,11 @@ function groupEvents(events: AttentionEvent[]): EventGroup[] {
   return groups
 }
 
+function isGroupUnread(group: EventGroup): boolean {
+  if (group.kind === 'single') return !group.event.acknowledged_at
+  return !group.primary.acknowledged_at || !group.secondary.acknowledged_at
+}
+
 // After grouping, keep only the most recent group per spec_task_id.
 // Groups are later sorted by timestamp, so deduplication order doesn't matter here.
 function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
@@ -351,9 +356,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const {
     events,
     newEvents,
-    totalCount,
-    unreadCount,
-    hasNew,
     acknowledge,
     dismiss,
     snooze,
@@ -474,6 +476,12 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const groups = deduplicateGroupsByTask(groupEvents(events))
     .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
 
+  // Badge counts are derived from the de-duplicated groups the user actually
+  // sees in the panel, not the raw event list (which can contain duplicates).
+  const deduplicatedTotalCount = groups.length
+  const deduplicatedUnreadCount = groups.filter(isGroupUnread).length
+  const deduplicatedHasNew = deduplicatedUnreadCount > 0
+
   // Build recently visited list: task/review pages not already shown as active alerts
   const navHistory = useNavigationHistory()
   const alertTaskIds = new Set(events.map(e => e.spec_task_id).filter(Boolean))
@@ -503,14 +511,14 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         }}
       >
         <Badge
-          badgeContent={hasNew ? unreadCount : totalCount}
-          color={hasNew ? 'error' : 'default'}
+          badgeContent={deduplicatedHasNew ? deduplicatedUnreadCount : deduplicatedTotalCount}
+          color={deduplicatedHasNew ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
               fontSize: '0.6rem',
               height: 15,
               minWidth: 15,
-              ...(!hasNew && totalCount > 0 && {
+              ...(!deduplicatedHasNew && deduplicatedTotalCount > 0 && {
                 backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.25)',
                 color: lightTheme.isLight ? '#fff' : 'rgba(0,0,0,0.7)',
               }),
@@ -565,20 +573,20 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             >
               Needs Attention
             </Typography>
-            {totalCount > 0 && (
+            {deduplicatedTotalCount > 0 && (
               <Box
                 sx={{
                   fontSize: '0.6rem',
                   fontWeight: 700,
-                  color: hasNew ? '#fff' : lightTheme.textColor,
-                  backgroundColor: hasNew ? '#ef4444' : (lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'),
+                  color: deduplicatedHasNew ? '#fff' : lightTheme.textColor,
+                  backgroundColor: deduplicatedHasNew ? '#ef4444' : (lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'),
                   borderRadius: '4px',
                   px: 0.5,
                   py: 0.125,
                   lineHeight: 1.3,
                 }}
               >
-                {totalCount}
+                {deduplicatedTotalCount}
               </Box>
             )}
             {/* Mine / All toggle */}
@@ -621,7 +629,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-            {totalCount > 0 && (
+            {deduplicatedTotalCount > 0 && (
               <Button
                 size="small"
                 onClick={handleDismissAll}
@@ -676,7 +684,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
 
         {/* Event list — grouped where applicable, sorted newest-first */}
         <Box sx={{ overflowY: 'auto', flex: 1 }}>
-          {totalCount === 0 ? (
+          {deduplicatedTotalCount === 0 ? (
             <Box sx={{ py: 6, textAlign: 'center' }}>
               <Typography
                 variant="body2"

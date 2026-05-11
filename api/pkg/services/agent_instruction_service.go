@@ -139,6 +139,7 @@ Your design has been approved. Implement the code changes now.
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
 3. **Update tasks.md** - Mark [~] when you START a task, [x] when DONE, push immediately
 4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
+5. **Use conventional commit format** - ` + "`type(scope): description`" + ` (e.g., ` + "`feat(api): add X`" + `, ` + "`fix(frontend): handle Y`" + `, ` + "`docs(specs): update progress`" + `). Types: feat, fix, refactor, chore, docs, test, style, perf, ci, build, revert. The ` + "`commit-msg`" + ` hook in code repos enforces this.
 
 ## CRITICAL: Use tasks.md, NOT Internal To-Do Tools
 
@@ -171,7 +172,7 @@ Small frequent pushes are better than one big push at the end.
 
 ` + "```bash" + `
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "Progress update" && git push origin helix-specs
+git add -A && git commit -m "chore(specs): update progress" && git push origin helix-specs
 ` + "```" + `
 
 ## Steps
@@ -337,7 +338,7 @@ What changed in {{.}} and why.
 - Key change 2
 EOF
 {{end}}
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR descriptions" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR descriptions" && git push origin helix-specs
 ` + "```" + `
 {{else}}
 ` + "```bash" + `
@@ -354,7 +355,7 @@ Brief description of what this PR does and why.
 ## Testing
 How this was tested (if applicable).
 EOF
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR description" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR description" && git push origin helix-specs
 ` + "```" + `
 {{end}}
 **Tips for good PR descriptions:**
@@ -410,7 +411,7 @@ Speak English.
 
 If changes are needed, update /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ and push:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
 ` + "```" + `
 `))
 
@@ -440,7 +441,7 @@ Update your design based on this feedback:
 
 After updating, push immediately:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
 ` + "```" + `
 `))
 
