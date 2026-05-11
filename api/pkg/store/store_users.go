@@ -239,6 +239,9 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 				db = db.Where("username ILIKE ?", "%"+query.Username+"%")
 			}
 		}
+		if query.Waitlisted != nil {
+			db = db.Where("waitlisted = ?", *query.Waitlisted)
+		}
 	}
 
 	// Count total matching records before applying pagination

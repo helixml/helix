@@ -577,6 +577,17 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
+export interface ServerActivateTrialRequest {
+  credits?: number;
+  days?: number;
+}
+
+export interface ServerActivateTrialResponse {
+  org_id?: string;
+  status?: string;
+  user?: TypesUser;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
   gpus?: HydraGPUInfo[];
@@ -6102,6 +6113,20 @@ export interface TypesUser {
   token?: string;
   /** none, runner. keycloak, api_key */
   token_type?: TypesTokenType;
+  trial_credits_on_first_org?: number;
+  /**
+   * Trial intent stashed by admin before the user has created their first org.
+   * Consumed by wallet creation on first owned org, then cleared.
+   */
+  trial_days_on_first_org?: number;
+  trial_ends_at?: number;
+  trial_org_id?: string;
+  /**
+   * Transient trial-display fields populated by the admin users list when
+   * ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+   * explicitly populated (json:"...,omitempty").
+   */
+  trial_status?: string;
   /**
    * these are set by the keycloak user based on the token
    * if it's an app token - the keycloak user is loaded from the owner of the app
@@ -6796,6 +6821,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/password`,
         method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.
+     *
+     * @tags users
+     * @name V1AdminUsersTrialActivateDelete
+     * @summary Revoke an admin-granted trial (Admin, cloud only)
+     * @request DELETE:/api/v1/admin/users/{id}/trial-activate
+     * @secure
+     */
+    v1AdminUsersTrialActivateDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerActivateTrialResponse, any>({
+        path: `/api/v1/admin/users/${id}/trial-activate`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.
+     *
+     * @tags users
+     * @name V1AdminUsersTrialActivateCreate
+     * @summary Activate a trial for a user (Admin, cloud only)
+     * @request POST:/api/v1/admin/users/{id}/trial-activate
+     * @secure
+     */
+    v1AdminUsersTrialActivateCreate: (id: string, request: ServerActivateTrialRequest, params: RequestParams = {}) =>
+      this.request<ServerActivateTrialResponse, any>({
+        path: `/api/v1/admin/users/${id}/trial-activate`,
+        method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,

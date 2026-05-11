@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to Helix!</title>
+    <title>Your Helix trial is active</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -99,23 +99,11 @@
             font-weight: 400;
         }
         @media (max-width: 600px) {
-            .container {
-                margin: 20px;
-                border-radius: 8px;
-            }
-            .header {
-                padding: 30px 20px 25px;
-            }
-            .content {
-                padding: 30px 20px;
-            }
-            .title {
-                font-size: 24px;
-            }
-            .cta-button {
-                padding: 14px 28px;
-                font-size: 15px;
-            }
+            .container { margin: 20px; border-radius: 8px; }
+            .header { padding: 30px 20px 25px; }
+            .content { padding: 30px 20px; }
+            .title { font-size: 24px; }
+            .cta-button { padding: 14px 28px; font-size: 15px; }
         }
     </style>
 </head>
@@ -123,23 +111,24 @@
     <div class="container">
         <div class="header">
             <img src="https://helix.ml/assets/helix-logo.png" alt="Helix" class="logo">
-            <h1 class="title">You're in!</h1>
-            <p class="subtitle">Your Helix account has been approved</p>
+            <h1 class="title">Your Helix trial is active</h1>
+            <p class="subtitle">{{ .TrialDays }} days of full access, no credit card required</p>
         </div>
 
         <div class="content">
             <div class="welcome-text">
                 {{ if .FirstName }}<p>Hi {{ .FirstName }},</p>{{ end }}
-                <p>Great news! Your account has been approved and you now have full access to Helix.</p>
-                {{ if gt .TrialDays 0 }}
-                <p><strong>You're on a {{ .TrialDays }}-day free trial.</strong> No credit card required — your organization is set up with trial credits so you can start using Helix immediately. We'll let you know before the trial ends so you can add a payment method to keep going.</p>
+                <p>Good news - you've been granted a <strong>{{ .TrialDays }}-day free trial</strong> of Helix Business. No payment method required.</p>
+                {{ if .TrialPending }}
+                <p>The trial will activate automatically the moment you create your first organization. Sign in and complete onboarding to get started.</p>
                 {{ else }}
-                <p>Start building with AI - safer, faster, and smarter. Explore everything Helix has to offer and turn your vision into reality.</p>
+                <p>The trial is active on your organization right now, with credits already loaded into your wallet. You can use Helix immediately for inference, RAG, coding, and everything else included in the Business plan.</p>
                 {{ end }}
+                <p>Before the trial ends we'll remind you to add a payment method so your subscription continues without interruption.</p>
             </div>
 
             <a href="{{ .AppURL }}" class="cta-button" target="_blank">
-                Get Started
+                Open Helix
             </a>
         </div>
 

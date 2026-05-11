@@ -172,6 +172,18 @@ type User struct {
 
 	Waitlisted bool `json:"waitlisted"`
 
+	// Trial intent stashed by admin before the user has created their first org.
+	// Consumed by wallet creation on first owned org, then cleared.
+	TrialDaysOnFirstOrg    *int     `json:"trial_days_on_first_org,omitempty"`
+	TrialCreditsOnFirstOrg *float64 `json:"trial_credits_on_first_org,omitempty"`
+
+	// Transient trial-display fields populated by the admin users list when
+	// ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+	// explicitly populated (json:"...,omitempty").
+	TrialStatus string `json:"trial_status,omitempty" gorm:"-"`
+	TrialOrgID  string `json:"trial_org_id,omitempty" gorm:"-"`
+	TrialEndsAt *int64 `json:"trial_ends_at,omitempty" gorm:"-"`
+
 	// LastSeenAt is the most recent time the user authenticated against the API.
 	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
