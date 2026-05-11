@@ -797,7 +797,15 @@ function build-zed-agent() {
     return 1
   fi
 
-  docker buildx build -t helix-sway:latest -f Dockerfile.sway-helix .
+  local GO_VERSION
+  GO_VERSION=$(awk '/^go [0-9]/ {print $2; exit}' go.mod)
+  if [ -z "$GO_VERSION" ]; then
+    echo "❌ Could not extract Go version from go.mod"
+    return 1
+  fi
+
+  docker buildx build --build-arg "GO_VERSION=${GO_VERSION}" \
+    -t helix-sway:latest -f Dockerfile.sway-helix .
 
   if [ $? -eq 0 ]; then
     echo "✅ Zed agent Docker image built successfully"
@@ -1040,7 +1048,18 @@ function build-desktop() {
   # Docker automatically detects Go code changes via COPY layers
   _dt_elapsed "🔨 Building ${IMAGE_NAME}:latest..."
 
+  # Extract Go version from go.mod and pass as build-arg. Avoids COPY-ing go.mod
+  # into the final stage just to grep one line — every dep bump would otherwise
+  # invalidate every downstream apt/npm/install layer.
+  local GO_VERSION
+  GO_VERSION=$(awk '/^go [0-9]/ {print $2; exit}' go.mod)
+  if [ -z "$GO_VERSION" ]; then
+    echo "❌ Could not extract Go version from go.mod"
+    exit 1
+  fi
+
   docker buildx build --provenance=false -f "$DOCKERFILE" \
+    --build-arg "GO_VERSION=${GO_VERSION}" \
     -t "${IMAGE_NAME}:latest" \
     .
 
