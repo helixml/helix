@@ -500,7 +500,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_PriorInteractionMessageIDsAreFilte
 
 	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-current").
 		Return(nil, store.ErrNotFound).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_leak").
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_leak").
 		Return(nil, nil).AnyTimes()
 
 	// Zed's flush_streaming_throttle replays the prior turn's msg-A while
@@ -568,7 +568,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_WrapperRestartRenumberedMessageIDs
 
 	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-current").
 		Return(nil, store.ErrNotFound).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_restart").
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_restart").
 		Return(nil, nil).AnyTimes()
 
 	// Wrapper restarted; it sends NEW content under the reused id "348".

@@ -221,12 +221,12 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_Caching() {
 		Return([]*types.Knowledge{}, nil)
 
 	user := suite.testUser()
-	server1, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123")
+	server1, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123", "")
 	suite.NoError(err)
 	suite.NotNil(server1)
 
 	// Second call - should return cached server (no new GetApp call)
-	server2, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123")
+	server2, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123", "")
 	suite.NoError(err)
 	suite.NotNil(server2)
 
@@ -249,7 +249,7 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_DifferentApps() {
 		ListKnowledge(gomock.Any(), gomock.Any()).
 		Return([]*types.Knowledge{}, nil)
 
-	server1, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123")
+	server1, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123", "")
 	suite.NoError(err)
 
 	// Create server for app2
@@ -262,7 +262,7 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_DifferentApps() {
 			{ID: "k1", Name: "docs", Description: "Documentation"},
 		}, nil)
 
-	server2, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-456")
+	server2, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-456", "")
 	suite.NoError(err)
 
 	// Should be different servers
@@ -413,7 +413,7 @@ func (suite *HelixMCPBackendSuite) TestAddToolsFromAssistant_WithAPIs() {
 		GetApp(gomock.Any(), "app-123").
 		Return(app, nil)
 
-	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123")
+	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123", "")
 	suite.NoError(err)
 
 	// Server should be cached
@@ -435,7 +435,7 @@ func (suite *HelixMCPBackendSuite) TestAddToolsFromAssistant_WithKnowledge() {
 		GetApp(gomock.Any(), "app-456").
 		Return(app, nil)
 
-	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-456")
+	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-456", "")
 	suite.NoError(err)
 
 	// Server should be cached
@@ -455,6 +455,11 @@ func (suite *HelixMCPBackendSuite) TestServeHTTP_MessageEndpoint_InvalidJSON() {
 	suite.mockStore.EXPECT().
 		ListKnowledge(gomock.Any(), gomock.Any()).
 		Return([]*types.Knowledge{}, nil)
+	// Non-empty session_id triggers a spec-task lookup; return empty so the
+	// proposal tools are not registered for this generic test session.
+	suite.mockStore.EXPECT().
+		ListSpecTasks(gomock.Any(), gomock.Any()).
+		Return([]*types.SpecTask{}, nil)
 
 	// Send invalid JSON
 	invalidJSON := []byte(`{not valid json}`)
@@ -483,6 +488,11 @@ func (suite *HelixMCPBackendSuite) TestServeHTTP_MessageEndpoint_ValidToolsList(
 	suite.mockStore.EXPECT().
 		ListKnowledge(gomock.Any(), gomock.Any()).
 		Return([]*types.Knowledge{}, nil)
+	// Non-empty session_id triggers a spec-task lookup; return empty so the
+	// proposal tools are not registered for this generic test session.
+	suite.mockStore.EXPECT().
+		ListSpecTasks(gomock.Any(), gomock.Any()).
+		Return([]*types.SpecTask{}, nil)
 
 	// Create MCP tools/list request
 	mcpRequest := map[string]interface{}{
