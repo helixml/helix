@@ -138,6 +138,20 @@ _INSTALL_ROCM
 # ====================================================================
 # Install Docker + NVIDIA Container Toolkit
 # ====================================================================
+# Pin docker-ce and containerd.io versions explicitly. Without pinning,
+# every sandbox image rebuild silently picks up whatever apt has on the
+# day, which has bitten us across Helix patch releases (e.g. 2.11.0 ->
+# 2.11.2 jumped to Docker 29.x and broke pods reusing the persisted
+# /var/lib/docker PVC). Bumping these is now a deliberate change.
+#
+# To find current versions in the Docker apt repo for the build's Ubuntu
+# release, inside a build of this stage run:
+#   apt-cache madison docker-ce containerd.io
+# Format is "5:VERSION-1~ubuntu.<release>~<codename>" for docker-ce and
+# "VERSION-1~ubuntu.<release>~<codename>" for containerd.io. Bump in
+# this file when ready to upgrade.
+ARG DOCKER_VERSION=5:29.2.1-1~ubuntu.25.04~plucky
+ARG CONTAINERD_VERSION=2.2.1-1~ubuntu.25.04~plucky
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -149,9 +163,9 @@ RUN apt-get update -y && \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
     && apt-get update -y \
     && apt-get install -y --no-install-recommends \
-    docker-ce-cli \
-    docker-ce \
-    containerd.io \
+    docker-ce-cli=${DOCKER_VERSION} \
+    docker-ce=${DOCKER_VERSION} \
+    containerd.io=${CONTAINERD_VERSION} \
     docker-buildx-plugin \
     docker-compose-plugin \
     iproute2 \
