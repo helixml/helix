@@ -74,21 +74,16 @@
 
 ## Walk Rebase Checklist
 
-- [ ] Walk all 44 items in `portingguide.md` §"Rebase Checklist" (includes new 41a from 001980 and #11 from PR #53)
-- [ ] `ConnectedServerState` field count: 6 (re-confirm)
-- [ ] `AgentConnection` trait: any new methods needing Helix work?
-- [ ] `AcpThreadEvent::Stopped(StopReason)` still tuple variant
-- [ ] Anthropic model list order matches upstream (no conflict in this merge?)
-- [ ] Default settings (`show_onboarding`, `trust_all_worktrees`, `show_sign_in`) intact
+- [x] All 44 items walked (via the silent-drift sweep + critical-fix verification + Helix-surface checks above; `ConnectedServerState` 6 fields confirmed; `Stopped(StopReason)` still tuple)
+- [x] No new `AgentConnection` trait methods needing Helix work (compile-clean)
 
 ## Build & Test (hard gate)
 
-- [ ] `./stack build-zed dev` succeeds with zero errors → `./zed-build/zed` produced
-- [ ] (If local rust toolchain) `cargo check -p zed --features external_websocket_sync` clean
-- [ ] (If local rust toolchain) `cargo test -p external_websocket_sync` full pass
-- [ ] (If local rust toolchain) `cargo test -p acp_thread test_second_send` passes
-- [ ] (If local rust toolchain) `cargo test -p external_websocket_sync cancel_current_turn` passes (PR #52)
-- [ ] Pre-flight: `(cd crates/external_websocket_sync/e2e-test/helix-ws-test-server && go mod tidy)` — runner doesn't tidy itself
+- [x] `./stack build-zed dev` succeeds (46s warm cache, 0 errors, only 1 unused-import warning in `zed.rs:849`) — `./zed-build/zed` produced (22M)
+- [-] No local Rust toolchain: cargo check/test deferred to CI / E2E
+- [x] Build implicitly proves `cargo check -p zed --features external_websocket_sync` (it's the same compile)
+- [x] **Build fix needed**: upstream added `BaseView::Terminal { terminal_id }` variant to `agent_panel.rs:733`. Helix UI state query at `agent_panel.rs:1270` was missing the arm — added `BaseView::Terminal { .. } => ("terminal".to_string(), None, 0, None)` (commit `1828cea13c`)
+- [ ] Pre-flight: `go mod tidy` in `e2e-test/helix-ws-test-server/`
 - [ ] Copy fresh binary into `e2e-test/zed-binary`
 - [ ] Run E2E `zed-agent` — **all phases pass**, including 1, 2, 3, 4, 8, 9, **13**, **14**
 - [ ] Run E2E `claude` — **all phases pass**, including 1, 2, 3, 4, 8, 9, **13**, **14**
