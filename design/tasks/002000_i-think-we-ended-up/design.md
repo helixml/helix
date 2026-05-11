@@ -86,3 +86,32 @@ No DB migration, no config flag, no flag flip.
 - We are NOT adding a "should I move?" preference. The whole reason
   this code exists is for the Helix sandbox UX; if a future task
   needs configurability, add it then.
+
+## Implementation Notes (post-build)
+
+- The actual terminal that hosts "ACP Agent Logs" is **ghostty**,
+  not kitty (`launch_terminal` in `desktop/shared/start-zed-core.sh`
+  was changed at some point; current invocation is `ghostty.real
+  --title=ACP Agent Logs ...`). The substring match
+  `title.includes("ACP Agent Logs")` still matches, so no code
+  change was needed in the extension — the title-based match is
+  terminal-agnostic.
+- Build cycle: `./stack build-ubuntu` produced
+  `helix-ubuntu:688422`. The inner Helix sandbox auto-pulls new
+  images on next session start; existing sessions keep their
+  pinned image (no need to restart the sandbox).
+- Verification approach: instead of trying to screenshot the
+  GNOME activities overview through the streaming pipeline (which
+  required a live spec-task session and a perfectly-timed click),
+  I queried Mutter's window state directly via
+  `org.gnome.Shell.Eval` over the session D-Bus. This gave a
+  ground-truth result: `workspace_index: 3, minimized: false,
+  active_workspace_index: 0`. See
+  `screenshots/01-mutter-dbus-verification.txt`.
+- Gotcha: D-Bus session address has to come from the
+  `gnome-shell` process's `/proc/$PID/environ` because
+  `dbus-run-session` doesn't bind a well-known socket (it picks a
+  random `/tmp/dbus-xxxxx`). Connecting from `bash -c` requires
+  exporting that env var; `gdbus` from `root` won't work even with
+  the right address — use `docker exec -u retro` so the UID
+  matches.
