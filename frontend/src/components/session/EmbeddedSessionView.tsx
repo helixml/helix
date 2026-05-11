@@ -69,7 +69,7 @@ export interface EmbeddedSessionViewHandle {
  *   - A single global preference (`helix.autoScroll`, default ON) controls
  *     whether new content auto-scrolls the chat to the bottom.
  *   - When ON: every content-height *growth* (driven by ResizeObserver on
- *     contentRef) is followed by a scroll to bottom. Renders that don't
+ *     the inner content Box) is followed by a scroll to bottom. Renders that don't
  *     grow content (3s polls, WS keepalives, identical re-renders) do
  *     no scroll work — `scrollToBottom()` is a no-op when
  *     `container.scrollHeight === lastScrolledHeightRef.current`.
@@ -224,9 +224,19 @@ const EmbeddedSessionView = forwardRef<
     enabled: !!sessionId,
   });
 
-  // Ref to the inner content Box; observed by ResizeObserver so we only
-  // react to *actual* content size changes, not every React re-render.
-  const contentRef = useRef<HTMLDivElement>(null);
+  // The inner content Box is observed by ResizeObserver so we only react
+  // to *actual* content size changes, not every React re-render. Using a
+  // state-mirrored callback ref (NOT a plain useRef) so the ResizeObserver
+  // useEffect can re-run when the element actually mounts — necessary
+  // because EmbeddedSessionView has early returns (loading state when
+  // !session, empty state when no interactions) that render before the
+  // JSX containing this ref. A plain useRef + stable-deps useEffect runs
+  // once with `current === null` and never re-runs when the content
+  // finally mounts; the callback-ref state flip forces the re-run.
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  const setContentRef = useCallback((el: HTMLDivElement | null) => {
+    setContentEl(el);
+  }, []);
   // Last observed content height. 0 until the first ResizeObserver callback.
   const lastContentHeightRef = useRef(0);
   // True once we've forced an initial scroll-to-bottom for this session.
@@ -283,10 +293,12 @@ const EmbeddedSessionView = forwardRef<
   // ResizeObserver-driven auto-scroll: only fires when the content's actual
   // size changes. Renders that don't grow content (e.g., the 3s React Query
   // poll returning identical data) do no scroll work at all.
+  //
+  // The dep array includes `contentEl` so the effect re-runs when the
+  // content element first mounts after a loading-state early return.
   useEffect(() => {
     const container = containerRef.current;
-    const content = contentRef.current;
-    if (!container || !content) return;
+    if (!container || !contentEl) return;
 
     const observer = new ResizeObserver((entries) => {
       const newHeight = entries[0]?.contentRect.height ?? 0;
@@ -309,9 +321,9 @@ const EmbeddedSessionView = forwardRef<
       }
     });
 
-    observer.observe(content);
+    observer.observe(contentEl);
     return () => observer.disconnect();
-  }, [isNearBottom]);
+  }, [contentEl, isNearBottom]);
 
   // Detect explicit user scroll-up and flip auto-scroll OFF when the user
   // accumulates >= USER_SCROLL_UNLOCK_PX upward within a single gesture.
@@ -551,7 +563,7 @@ const EmbeddedSessionView = forwardRef<
         }}
       >
         <Box
-          ref={contentRef}
+          ref={setContentRef}
           sx={{
             width: "100%",
             maxWidth: 700,
