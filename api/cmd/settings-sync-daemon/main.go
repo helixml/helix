@@ -826,14 +826,15 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 // subscribeConfigEvents connects to the API's user websocket for this session and
 // triggers an immediate re-sync whenever a config_changed event arrives. Reconnects
-// forever on failure with a 5s backoff. Falls back to the 30s poll loop if the WS
-// is unreachable.
+// forever on failure with a 1s backoff. Falls back to the 30s poll loop if the WS
+// is unreachable. Pubsub events are not retained — the shorter backoff narrows
+// the window in which a config_changed publish can be missed.
 func (d *SettingsDaemon) subscribeConfigEvents() {
 	for {
 		if err := d.runConfigEventLoop(); err != nil {
-			log.Printf("config event WS disconnected: %v (reconnecting in 5s)", err)
+			log.Printf("config event WS disconnected: %v (reconnecting in 1s)", err)
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -868,6 +869,14 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 	}
 	defer conn.Close()
 	log.Printf("config event WS connected (%s)", wsURL.String())
+
+	// Re-sync on every successful (re)connect so we pick up any config_changed
+	// publishes that happened while we were disconnected (pubsub doesn't
+	// retain). Without this we'd have to wait up to 30s for the polling
+	// fallback to repair state after a WS blip.
+	if err := d.syncFromHelix(); err != nil {
+		log.Printf("re-sync on WS connect failed: %v", err)
+	}
 
 	for {
 		_, msg, err := conn.ReadMessage()
