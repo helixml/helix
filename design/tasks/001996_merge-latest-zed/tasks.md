@@ -92,22 +92,23 @@
 
 ## Update `portingguide.md` (incremental, not at the end)
 
-- [ ] All conflict resolutions appended live with upstream change / resolution / why / risk
-- [ ] `## Merge 001996 (2026-05-11)` section created mirroring 001980's structure
-- [ ] If upstream `0a52f80824` (#55562) required resolution: dedicated subsection explaining interaction with Critical Fixes #6/#8/#9 and PR #52 `cancel_current_turn`
-- [ ] Commit history table extended with merge commit + any follow-up fix commits
-- [ ] Any new rebase-checklist items added if novel fragility uncovered
-- [ ] Stale guide entries discovered along the way are corrected or deleted (do not invent updates)
+- [x] Conflict resolution appended live with upstream change / resolution / why / risk (commit `48f7895607`)
+- [x] `## Merge 001996 (2026-05-11)` section created mirroring 001980's structure
+- [x] Upstream `0a52f80824` (#55562) interaction documented in detail with reasoning trail
+- [x] Commit history table extended with merge commit + 3 follow-up fix commits (`bf544922aa`, `1828cea13c`, `a7ad11ec00`)
+- [x] Two new "Pre-existing Breakage Repaired" subsections added: `BaseView::Terminal` exhaustiveness and Phase 13 cancel/MessageCompleted race
+- [x] No stale guide entries discovered to correct
 
 ## Re-merge Fork Main (only if needed)
 
-- [ ] If anyone pushed to fork main during the merge: `git merge origin/main` into feature branch and re-run E2E
+- [x] Zed `origin/main` unchanged — no re-merge needed
+- [x] Helix `origin/main` advanced 3 commits during work — fast-forward merged into `feature/001996-merge-latest-zed` (helix) before bumping ZED_COMMIT
 
 ## Finalise
 
-- [ ] Push `feature/001996-merge-latest-zed` to Zed remote (`origin`)
-- [ ] Write `pull_request_zed.md` and `pull_request_helix.md` in this task directory (mirror 001980's structure)
-- [ ] Bump `sandbox-versions.txt` `ZED_COMMIT=` in `/home/retro/work/helix/` to new merge HEAD
-- [ ] Push `feature/001996-merge-latest-zed` branch to Helix remote
-- [ ] Do not force-push `main`
-- [ ] Do not open PRs from the agent (per task convention — Helix UI handles PR creation)
+- [x] Pushed `feature/001996-merge-latest-zed` to Zed remote (commit `a767007e53`)
+- [x] Wrote `pull_request_zed.md` and `pull_request_helix.md`
+- [x] Bumped `ZED_COMMIT` in `sandbox-versions.txt` to `a767007e53304b077eaee5d1872a5631e2ada207` (commit `2aa86b851`)
+- [x] Pushed `feature/001996-merge-latest-zed` to Helix remote
+- [x] Did not force-push `main`
+- [x] Did not open PRs from the agent (per task convention — Helix UI handles PR creation)
