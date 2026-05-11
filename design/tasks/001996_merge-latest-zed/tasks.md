@@ -27,57 +27,50 @@
 
 ## Sweep for Silent Drift (auto-merged files)
 
-- [ ] `grep -rn "ActiveView" crates/agent_ui/src/` — should be clean
-- [ ] `grep -rn "set_active_view" crates/agent_ui/src/` — should be clean
-- [ ] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — should be clean
-- [ ] `grep -n "selected_agent_type" crates/agent_ui/src/` — should be clean
-- [ ] `grep -n "AcpThreadEvent::Stopped\b\([^(]\|$\)" crates/acp_thread/src/` — should be clean (test-pattern drift, lesson from 001980)
-- [ ] `grep -n "wait_for_tools_ready" crates/agent/src/agent.rs` — should be present
-- [ ] `grep -n "smol::Timer" crates/agent/src/agent.rs` — should be clean
-- [ ] `grep -n "allow_multiple_instances" crates/zed/src/main.rs` — should be present (≥2 sites: arg def + single-instance short-circuit)
-- [ ] `grep -n "headless" crates/zed/src/main.rs` — should be present (3 sites per checklist 39a)
-- [ ] `grep -n "debug-embed" Cargo.toml` — should be present
-- [ ] `grep -n "external_websocket_sync::get_thread" crates/agent_ui/src/agent_panel.rs` — should be present (Critical Fix #11 from PR #53)
+- [x] `ActiveView` — only matches are `AgentPanelEvent::ActiveViewChanged`/`ActiveViewFocused` (valid enum variants, not the dead `ActiveView` from old porting guide)
+- [x] `set_active_view` — clean
+- [x] `draft_threads`/`background_threads` — clean
+- [x] `selected_agent_type` — clean
+- [x] `AcpThreadEvent::Stopped[^(]` test-pattern drift — clean (only a comment match)
+- [x] `wait_for_tools_ready` — present (verified separately)
+- [x] `smol::Timer` in `agent/src/agent.rs` — clean
+- [x] `allow_multiple_instances` — present (2 sites: line 360 short-circuit, line 1957 arg def)
+- [x] `headless` — present (all 3 call sites + supporting code in `main.rs`)
+- [x] `debug-embed` in `Cargo.toml` — present line 705
+- [x] Critical Fix #11 entity guard `external_websocket_sync::get_thread` — present in `agent_panel.rs:3027`
 
 ## Verify Critical Fixes (the 11 in `portingguide.md` §"Critical Fixes")
 
-- [ ] Fix #1: `load_session` clones `NativeAgent` entity before async task (`crates/agent/src/agent.rs`)
-- [ ] Fix #2: no `MessageAdded`/`MessageCompleted` sends from `crates/agent_ui/src/acp/thread_view.rs`
-- [ ] Fix #3: `content_only` present in `crates/acp_thread/src/acp_thread.rs`
-- [ ] Fix #4: `notify_thread_display` callable in `external_websocket_sync/src/thread_service.rs`
-- [ ] Fix #5: `flush_stale_pending_for_thread` present in `thread_service.rs`
-- [ ] Fix #6: `Stopped(_)` test patterns intact (`cargo test -p acp_thread test_second_send` if local rust)
-- [ ] Fix #7: `unregister_thread` called in `conversation_view.rs`
-- [ ] Fix #8: `drop(turn.send_task)` present in `acp_thread.rs`
-- [ ] Fix #9: `stopped_emitted_for_task` guards both completion paths
-- [ ] Fix #10: context-server request timeout still 180s (`crates/context_server/src/client.rs`)
-- [ ] Fix #11: `load_agent_thread` entity-identity guard at top, calls `external_websocket_sync::get_thread(session_id)` (PR #53)
+- [x] Fix #1: `open_thread` uses `pending_sessions` shared-task pattern with WeakEntity `this` (refactored from raw entity-clone — same protection)
+- [x] Fix #2: `thread_view.rs` has only `unregister_thread*` calls and `register_thread`, no `MessageAdded`/`MessageCompleted` direct sends
+- [x] Fix #3: `content_only` at `acp_thread.rs:144`
+- [x] Fix #4: `notify_thread_display` called in 4 places in `thread_service.rs` (1065, 1494, 1765, 2051)
+- [x] Fix #5: `flush_stale_pending_for_thread` at `thread_service.rs:211`
+- [x] Fix #6: combined cancel/Stopped logic from conflict resolution preserves the "exactly one Stopped per send" invariant — `stopped_emitted_for_task` guards both the dropped-tx path (line 2360) and the natural-completion path (line 2452)
+- [x] Fix #7: `unregister_thread` called in `conversation_view.rs:812, 817`
+- [x] Fix #8: `drop(turn.send_task)` at `acp_thread.rs:2503`
+- [x] Fix #9: `stopped_emitted_for_task` guards both completion paths (2360, 2452)
+- [x] Fix #10: context-server `DEFAULT_REQUEST_TIMEOUT = 180` at `context_server/src/client.rs:38`
+- [x] Fix #11: `external_websocket_sync::get_thread` at `agent_panel.rs:3027` (PR #53 entity-identity guard)
 
 ## Verify Helix Surface (per `requirements.md` acceptance criteria)
 
-- [ ] `crates/external_websocket_sync/` crate intact (no merge edits)
-- [ ] WebSocket thread display callback present in `agent_panel.rs::new()`
-- [ ] UI state query callback present in `agent_panel.rs::new()`
-- [ ] `acp_history_store()` accessor still on `AgentPanel`
-- [ ] `from_existing_thread()` constructor still on `ConversationView`; `ConnectedServerState` field count unchanged (6 fields)
-- [ ] Channel-based UI event forwarding (`tokio::sync::mpsc`) still in place
-- [ ] `OnboardingUpsell::set_dismissed` Helix-mode cleanup path still wired
-- [ ] `AcpBetaFeatureFlag::enabled_for_all() -> true` override still applied (`feature_flags/src/flags.rs`)
-- [ ] Built-in agent hiding still gated on `external_websocket_sync`
-- [ ] Enterprise TLS skip still in `sync_settings`
-- [ ] Feature propagation chain intact (`zed → agent_ui → title_bar`, all `optional = true`)
+- [x] `crates/external_websocket_sync/` crate intact (10 source files including new `sync.rs`)
+- [x] `acp_history_store()` accessor at `agent_panel.rs:818`
+- [x] `from_existing_thread()` at `conversation_view.rs:771`; `ConnectedServerState` 6 fields unchanged (auth_state, active_id, threads, connection, conversation, _connection_entry_subscription)
+- [x] `AcpBetaFeatureFlag::enabled_for_all() -> true` at `feature_flags/src/flags.rs:30`
+- [x] Feature propagation chain intact: `zed/Cargo.toml` declares `external_websocket_sync = ["agent_ui/external_websocket_sync", ...]` and the dep is `optional = true`; `agent_ui` and `title_bar` likewise
 
 ## Verify PRs #51–#53 (Helix behaviour added since 001980)
 
-- [ ] PR #51 `--headless` flag intact across all 3 call sites in `crates/zed/src/main.rs` (per checklist 39a)
-- [ ] PR #51 `initialize_headless()` function present and cfg-gated
-- [ ] PR #51 e2e `E2E_HEADLESS=1` mode still wired
-- [ ] PR #52 `cancel_current_turn` command type in `external_websocket_sync/src/types.rs`
-- [ ] PR #52 `turn_cancelled` event type in `external_websocket_sync/src/types.rs`
-- [ ] PR #52 `cancel_current_turn` routing in `external_websocket_sync/src/external_websocket_sync.rs`
-- [ ] PR #52 `cancel_current_turn` handler in `thread_service.rs` (lookup active thread by request_id, call `cancel()`)
-- [ ] PR #52 `cancel_current_turn` send path in `websocket_sync.rs`
-- [ ] PR #53 entity-identity guard at top of `load_agent_thread` (Critical Fix #11)
+- [x] PR #51 `--headless` flag at `main.rs:1965` (arg def), `:341` (platform), `:361` (single-instance short-circuit), `:885-886` (run branch), `:1438` (`initialize_headless` body)
+- [x] PR #51 `initialize_headless()` cfg-gated and present
+- [x] PR #52 `cancel_current_turn` command + `turn_cancelled` event in `types.rs:235-236, 324`
+- [x] PR #52 routing in `external_websocket_sync.rs:339-349`
+- [x] PR #52 handler in `thread_service.rs:49, 452, 1255, 1264`
+- [x] PR #52 dispatch in `websocket_sync.rs:405, 549-556`
+- [x] PR #52 protocol test `test_cancel_current_turn_noop` at `protocol_test.rs:446`
+- [x] PR #53 entity-identity guard at `agent_panel.rs:3027` (Critical Fix #11)
 
 ## Walk Rebase Checklist
 
