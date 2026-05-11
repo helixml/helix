@@ -2,14 +2,14 @@
 
 ## Setup
 
-- [ ] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, more detailed than this spec (724 lines as of 2026-05-11)
-- [ ] Read prior plan `001980_merge-latest-zed/` end-to-end — closest precedent (this is mandatory, not optional)
-- [ ] Skim 001909 plan for the carry-over fix list (`--allow-multiple-instances`, `debug-embed`, `smol → executor.timer`)
-- [ ] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] `git fetch upstream`
-- [ ] Verify divergence: 127 commits to merge, fork HEAD `fe8f4f4e3f`, upstream HEAD `8bdd78e023` (re-confirm by counting; numbers may have moved if either side advanced)
-- [ ] Pull `origin/main` first in case fork main moved since this spec was written
-- [ ] Create feature branch: `feature/001996-merge-latest-zed` from current fork main
+- [x] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, more detailed than this spec (724 lines as of 2026-05-11)
+- [x] Read prior plan `001980_merge-latest-zed/` end-to-end — closest precedent (this is mandatory, not optional)
+- [x] Skim 001909 plan for the carry-over fix list (`--allow-multiple-instances`, `debug-embed`, `smol → executor.timer`)
+- [x] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
+- [x] `git fetch upstream`
+- [x] Verify divergence: 127 commits to merge, fork HEAD `fe8f4f4e3f`, upstream HEAD `8bdd78e023` (confirmed at runtime — numbers unchanged)
+- [x] Pull `origin/main` first in case fork main moved since this spec was written (no movement)
+- [~] Create feature branch: `feature/001996-merge-latest-zed` from current fork main
 
 ## Pre-Merge Reconnaissance
 
