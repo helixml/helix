@@ -14,7 +14,18 @@ Helix already supports the inverse direction (IdP → Helix) via JIT provisionin
 - **JIT already covers the create-on-first-login flow.** Once the admin creates the user in the IdP, the user logs in and Helix provisions them automatically. End-to-end this works.
 - **A clear error is better than a silent ghost user.** Today the bug creates a row that misleads the admin into thinking the user exists. A 400 with a clear message removes the foot-gun.
 
-If a customer later wants Helix to be the user-creation UI for Keycloak specifically, that's a separable feature with its own spec — and would build on top of this fix (configured admin credentials, separate code path that creates in IdP first then mirrors locally).
+### Could we reuse an existing OIDC CLI / client?
+
+Reviewer asked whether an existing OIDC CLI in the repo could be used to create users in the IdP. Verified — it cannot:
+
+- **`helix oidc` does not exist.** The registered subcommands (`api/cmd/helix/root.go:43-68`) are: `app, chat, knowledge, fs, secret, project, sandbox, spectask, mcp, model, provider, organization, roles, system, team, member, user`. No `oidc`.
+- **`helix user` CLI exists** (`api/pkg/cli/user/`) with `list`, `delete`, `reset-password` subcommands — but **no `create` subcommand**, and every command is a thin wrapper over the same Helix REST API (`/api/v1/users`, `/api/v1/admin/users/...`). Adding `helix user create` would call the same buggy `createUser` handler — same problem.
+- **Helix's OIDC code is consumer-side only.** `api/pkg/auth/oidc.go` uses `coreos/go-oidc` to verify tokens and call the userinfo endpoint. There is no admin API client (no `gocloak`, no `okta-sdk-golang`, etc.), no admin client credentials configured, and no code that POSTs `/admin/realms/.../users` to anything.
+- **Keycloak ships its own `kcadm.sh`**, but it is (a) Keycloak-specific, (b) not bundled with or invoked by Helix, and (c) shelling out to a CLI from inside an HTTP handler is the wrong pattern (auth, error handling, deployment).
+
+So there is no existing capability to reuse. Bridging would still be a net-new integration with all the same trade-offs as Option B in the original analysis.
+
+If a customer later wants Helix to be the user-creation UI for Keycloak specifically, that's a separable feature with its own spec — and would build on top of this fix (add configured Keycloak admin credentials, a `keycloak.AdminClient`, and a separate code path that creates in IdP first then mirrors locally). It is not in scope here.
 
 ## Backend changes
 

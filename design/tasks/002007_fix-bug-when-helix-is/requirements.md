@@ -26,6 +26,6 @@ The local row is also misleading — it makes it look like the user exists, but 
 
 ## Out of scope
 
-- **Implementing a Keycloak/OIDC admin REST client** to actually create users in the IdP from Helix. Each IdP has a different admin API; that's a much larger feature. The right design today is to direct admins to their IdP. Reconsider only if a customer specifically requests it.
+- **Implementing a Keycloak/OIDC admin REST client** to actually create users in the IdP from Helix. Each IdP has a different admin API; that's a much larger feature. The right design today is to direct admins to their IdP. Reconsider only if a customer specifically requests it. (See `design.md` → "Could we reuse an existing OIDC CLI / client?" — verified there is no such CLI/client in the repo today; the existing `helix user` CLI calls the same buggy REST endpoint, and `api/pkg/auth/oidc.go` is consumer-side only with no admin API capability.)
 - Bulk user import.
 - Changing the regular-auth Create User UX.
