@@ -42,14 +42,58 @@ Independent of Bug A. `checkHelixUpdates` (the 30 s polling fallback) does not c
 
 ## Fix
 
-### 1. Make Helix authoritative for the Zed theme when a color scheme is set
+### 1. Make Helix authoritative for the Zed theme — but only when on-disk is one of *our* themes
 
-Two coordinated changes in `main.go`:
+The right model is narrower than "remove `theme` from `USER_PREFERENCE_FIELDS` and let Helix always win." We want:
 
-- **Remove `theme` from `USER_PREFERENCE_FIELDS`** (line 945). Helix is the source of truth for `theme` whenever the user has expressed a color scheme preference. The original protection is no longer the right model — we're already overriding `agent.default_model` and other fields via `HELIX_MANAGED_AGENT_FIELDS`; theme belongs in the same family.
-- **Have `checkHelixUpdates` also write the API's `theme`**: mirror the syncFromHelix block from line 784-786 inside `checkHelixUpdates` after the response decode. This makes the polling fallback actually keep Zed in sync.
+- If the on-disk Zed theme is one of the two themes the daemon itself sets (`One Light` or `Ayu Dark`) — or unset — Helix's color-scheme-driven theme overrides it. This is what fixes the stuck-on-light bug.
+- If the on-disk Zed theme is **anything else** (the user manually picked `Solarized Dark`, `Monokai`, `Tokyo Night`, … in Zed's UI), leave it alone. The user has expressed a real preference and toggling Helix's color scheme should not silently overwrite it.
 
-After this, both paths consistently write the API's theme value and `mergeSettings` no longer pins on-disk; the daemon's writes are the single source of truth.
+**Implementation**: introduce a small set and a helper.
+
+```go
+// Themes the daemon itself writes from a Helix color-scheme preference.
+// On-disk values in this set (or empty) are considered "Helix-owned" and
+// may be overwritten on the next sync. Anything else is treated as a
+// deliberate user choice and preserved.
+var HELIX_MANAGED_THEMES = map[string]bool{
+    "One Light": true,
+    "Ayu Dark":  true,
+}
+
+// effectiveTheme returns the theme value the daemon should write to
+// settings.json. apiTheme is what /zed-config returned. Falls back to the
+// user's custom on-disk theme when present.
+func (d *SettingsDaemon) effectiveTheme(apiTheme string) string {
+    if apiTheme == "" {
+        return ""
+    }
+    onDisk := readOnDiskTheme()        // "" if unset / missing / unparseable
+    if onDisk == "" || HELIX_MANAGED_THEMES[onDisk] {
+        return apiTheme
+    }
+    return onDisk
+}
+```
+
+Then:
+
+- In **`syncFromHelix`** (line 784-786): replace the assignment with `if t := d.effectiveTheme(config.Theme); t != "" { d.helixSettings["theme"] = t }`.
+- In **`checkHelixUpdates`** (~ line 1424): add the mirror block — same line, same helper. This is what fixes the polling-never-touches-theme half of the bug.
+- In **`mergeSettings`** (line 1076-1080): remove `theme` from the `USER_PREFERENCE_FIELDS` loop so the per-call `effectiveTheme` decision is the single source of truth and isn't doubled-back-on by `mergeSettings`. Drop `theme` from `USER_PREFERENCE_FIELDS` entirely (the constant becomes empty — keep the symbol or delete it). Leave `telemetry` preservation untouched (it's keyed off `SECURITY_PROTECTED_FIELDS`, separate concern).
+- Truth table:
+
+| On-disk `theme` | Helix color scheme | API returns | What we write |
+|---|---|---|---|
+| `Ayu Dark` | dark→light | `One Light` | `One Light` ✅ |
+| `One Light` | light→dark | `Ayu Dark` | `Ayu Dark` ✅ (the bug fix) |
+| `Monokai` | dark→light | `One Light` | `Monokai` (user's choice preserved) |
+| unset | dark | `Ayu Dark` | `Ayu Dark` |
+| unset | (none set) | `""` | unchanged on disk |
+
+**Trade-off — when does a user re-engage color-scheme theming after picking a custom theme?** They have to manually set their Zed theme back to `One Light` or `Ayu Dark`. Acceptable: this only matters for users who picked a non-Helix theme in the first place, and there's no Helix UI for "reset Zed theme" today (out of scope).
+
+**Caveat**: if the user manually picks `Ayu Dark` or `One Light` in Zed's UI while their Helix color scheme is the *opposite*, the next sync will flip them to the matching one. That's a minor edge case — picking one of the two protected themes manually counts as opting into Helix-managed behavior.
 
 ### 2. Make the polling fallback also apply GNOME
 
@@ -68,12 +112,7 @@ These are nice-to-have. Fix #1 + #2 + #3 alone close the user-visible bugs.
 
 ## What about a user manually changing the theme in Zed's UI?
 
-Today, picking a theme in Zed's UI writes `theme` into `settings.json`, and `USER_PREFERENCE_FIELDS` keeps Helix from clobbering it. After this change, Helix-driven theme writes will overwrite the manual choice on the next color-scheme push or 30 s poll.
-
-That's the right trade-off:
-- The manual-choice-protection was load-bearing only when Helix didn't drive theme. Now Helix does.
-- A user who wants `Solarized Dark` instead of `Ayu Dark` should configure that on the Helix side (e.g. let the user pick which dark/light theme pair to use, separate task), not by silently winning a fight with the daemon.
-- For now, the manual choice will be overwritten — call this out in the design doc and accept it. There is no existing user-facing setting for "which Zed theme to use" anyway, so the manual choice is power-user territory.
+Covered above by the `HELIX_MANAGED_THEMES` set. A user who picks anything outside `{One Light, Ayu Dark}` in Zed's UI keeps their choice — Helix toggles change GNOME but leave Zed alone. A user who re-picks one of the two managed themes opts back into color-scheme-driven syncing on the next toggle.
 
 ## Verification (live)
 
@@ -96,7 +135,9 @@ The user offered to help click through this if needed — flag for help if block
 | File | Change |
 |------|--------|
 | `api/cmd/settings-sync-daemon/main.go` line 945-947 (`USER_PREFERENCE_FIELDS`) | Remove `theme` from the map. Update the leading comment. |
-| `api/cmd/settings-sync-daemon/main.go` `checkHelixUpdates` (~ line 1424-1428) | Add `if config.Theme != "" { newHelixSettings["theme"] = config.Theme }`, mirroring the syncFromHelix block at 784-786. Update the "Note: theme is a USER_PREFERENCE_FIELD" comment to reflect the new ownership. |
+| `api/cmd/settings-sync-daemon/main.go` (new code, near other constants) | Add the `HELIX_MANAGED_THEMES` set and the `effectiveTheme(apiTheme string) string` helper described above. |
+| `api/cmd/settings-sync-daemon/main.go` `syncFromHelix` (line 784-786) | Replace with `if t := d.effectiveTheme(config.Theme); t != "" { d.helixSettings["theme"] = t }`. |
+| `api/cmd/settings-sync-daemon/main.go` `checkHelixUpdates` (~ line 1424-1428) | Add the same `effectiveTheme`-guarded assignment, mirroring the new syncFromHelix block. Update the "Note: theme is a USER_PREFERENCE_FIELD" comment to reflect the new ownership. |
 | `api/cmd/settings-sync-daemon/main.go` `checkHelixUpdates` (after response decode) | Call `d.applyGNOMEColorScheme(config.ColorScheme)` so the polling fallback also repairs GNOME. Call it on every poll (not only on diff) so a stale gsettings state self-heals. |
 | `api/cmd/settings-sync-daemon/main.go` `applyGNOMEColorScheme` (line 908-931) | Remove the light-mode wallpaper override — keep `helix-logo.png` for both branches. Update the leading comment. |
 | `api/cmd/settings-sync-daemon/main.go` line 836 (optional) | Lower reconnect sleep 5 s → 1 s. |

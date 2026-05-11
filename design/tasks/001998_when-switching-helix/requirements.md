@@ -22,8 +22,16 @@ When the user toggles light/dark mode in the Helix browser UI, the inner desktop
 - Both `picture-uri` and `picture-uri-dark` are `helix-logo.png` after every toggle, in both modes.
 - The Quokka wallpaper (`Questing_Quokka_Full_Light_3840x2160.png`) is no longer referenced by the daemon.
 
+### US-3: Manually-picked custom Zed themes are preserved
+**As a** user who picks a Zed theme outside the two Helix-managed ones (e.g. `Solarized Dark`, `Monokai`, `Tokyo Night`) in Zed's UI, **I want** the Helix light/dark toggle to leave my Zed theme alone.
+
+**Acceptance Criteria:**
+- If the on-disk `theme` is `One Light` or `Ayu Dark` (or unset), Helix's color-scheme toggle overrides it to the matching `One Light` / `Ayu Dark`.
+- If the on-disk `theme` is anything else, Helix's toggle does **not** change it. GNOME still flips; only Zed's theme is preserved.
+- A user can re-engage color-scheme-driven theming by manually setting `theme` back to `One Light` or `Ayu Dark` in Zed's UI.
+
 ## Out of Scope
 
 - Per-session theme overrides — the desktop already follows the *session owner* (`zed_config_handlers.go:300-303`), and that stays.
 - A new light-mode Helix wallpaper asset — we're reusing the existing `helix-logo.png`.
-- The user's ability to change the Zed theme manually inside Zed's UI to something other than `One Light`/`Ayu Dark` while leaving the Helix toggle alone. Today that's nominally what `USER_PREFERENCE_FIELDS` was protecting — see the design doc for why we're removing the protection and what we're doing instead.
+- A user-facing UI for "which Zed light/dark theme pair to use" (today the daemon hard-codes `One Light` / `Ayu Dark`). Could be a follow-up if there's demand.
