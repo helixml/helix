@@ -46,16 +46,20 @@ We keep using `system.NewHTTPError400` — 400 is appropriate because the reques
 
 ## Frontend changes
 
-**`frontend/src/components/dashboard/CreateUserDialog.tsx`**:
+**`frontend/src/components/dashboard/UsersTable.tsx`** (the only caller of the dialog — verified via `grep`):
 
 1. Read auth provider via the existing `useGetConfig()` hook (already used in `Login.tsx:80`).
-2. If `config.auth_provider === 'oidc'`, render an informational `<Alert severity="info">` inside `DialogContent` instead of the email/password fields, with text along the lines of:
-   > User creation is managed by your OIDC provider. Create the user in your provider's admin console — they will appear here automatically on first login.
-3. Hide the "Create" button in `DialogActions` when in OIDC mode (keep "Close").
+2. Compute `const isOIDC = config?.auth_provider === 'oidc'`.
+3. Hide the "Create User" `<Button>` (`UsersTable.tsx:240-247`) when `isOIDC` is true — wrap in `{!isOIDC && (...)}` or render `null`. The `<Box>` that wraps it can be omitted as well so the page top doesn't have an empty flex row.
+4. Optionally also gate `<CreateUserDialog open={...}>` so the dialog cannot be opened by stale state — but since the button is the only entry point, this is belt-and-braces.
 
-**Caller (the dashboard page that opens this dialog)** — consider hiding the "Create User" button entirely in OIDC mode. Find the caller via `Grep` for `<CreateUserDialog`. If the button still makes sense as an entry point for the explanation, leave it; otherwise hide it. Decide during implementation.
+**`frontend/src/components/dashboard/CreateUserDialog.tsx`** — **no changes required.** Per reviewer feedback, the button is removed entirely in OIDC mode, so the dialog is unreachable from the UI. We do not add an "info panel" variant to the dialog; that was over-engineering. Keep the regular-mode dialog exactly as it is today.
 
 No changes to the generated API client are needed (the endpoint signature is unchanged).
+
+### Why remove the button rather than show an explanation
+
+Reviewer feedback: "Remove the ability for an admin to 'create user' if users are coming in through OIDC." Hiding the button outright is cleaner than rendering a button that opens a dialog whose only content is an explanation that you can't use it. The page header copy can be tightened later if needed (separate concern).
 
 ## Test plan
 
@@ -77,8 +81,7 @@ If switching the inner Helix to OIDC is not feasible during implementation, flag
 |------|--------|
 | `api/pkg/server/handlers.go` | Add OIDC guard in `createUser` (~5 lines) |
 | `api/pkg/server/handlers_test.go` (or new test file) | Add unit test for the OIDC guard |
-| `frontend/src/components/dashboard/CreateUserDialog.tsx` | Branch on `config.auth_provider`, render info panel + hide submit in OIDC mode |
-| Caller of `CreateUserDialog` (TBD during implementation) | Optionally hide "Create User" button in OIDC mode |
+| `frontend/src/components/dashboard/UsersTable.tsx` | Read `config.auth_provider`; hide "Create User" button (and its wrapping `<Box>`) when value is `oidc` |
 
 ## Notes for the implementer
 

@@ -18,10 +18,10 @@ The local row is also misleading — it makes it look like the user exists, but 
 
 ## Acceptance criteria
 
-1. **Backend rejects local user creation in OIDC mode.** `POST /api/v1/users` returns HTTP 400 with a clear message ("User creation is managed by your OIDC provider...") when `cfg.Auth.Provider == AuthProviderOIDC`. No local DB row is written.
-2. **Frontend dialog explains the situation in OIDC mode.** When `config.auth_provider === 'oidc'`, the `CreateUserDialog` shows an informational panel instead of the email/password form, naming the OIDC provider URL (`config.oidc_url` or similar) where the admin should go. The Create button is hidden.
-3. **Existing regular-auth flow is unchanged.** When `cfg.Auth.Provider == AuthProviderRegular`, behaviour is identical to today.
-4. **JIT provisioning continues to work.** A user created in the OIDC provider lands in Helix's DB on first OIDC login (existing `OIDCClient.ValidateUserToken` behaviour).
+1. **The "Create User" button is removed from the Admin Dashboard in OIDC mode.** When `config.auth_provider === 'oidc'`, the button at `frontend/src/components/dashboard/UsersTable.tsx:240-247` does not render at all. Admins should manage users in their OIDC provider.
+2. **Backend rejects local user creation in OIDC mode (defence in depth).** `POST /api/v1/users` returns HTTP 400 with a clear message ("User creation is managed by your OIDC provider...") when `cfg.Auth.Provider == AuthProviderOIDC`. No local DB row is written. This guards against direct API calls and stale frontend bundles.
+3. **Existing regular-auth flow is unchanged.** When `cfg.Auth.Provider == AuthProviderRegular`, the button renders, the dialog works, and a local user is created exactly as today.
+4. **JIT provisioning continues to work.** A user created in the OIDC provider lands in Helix's DB on first OIDC login (existing `OIDCClient.ValidateUserToken` behaviour at `api/pkg/auth/oidc.go:341-363`).
 5. **Backend test covers the OIDC rejection path** so the regression cannot reappear.
 
 ## Out of scope
