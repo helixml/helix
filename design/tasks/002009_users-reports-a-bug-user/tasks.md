@@ -13,11 +13,12 @@
 
 ## Bug 2 — org lookup returns 404 (not 500) when org doesn't exist
 
-- [~] Update `lookupOrg` in `api/pkg/server/wallet_handlers.go` to detect `errors.Is(err, store.ErrNotFound)` and return a more helpful wrapped error (`organization %q not found: %w`) that preserves the sentinel for callers to detect
-- [ ] Update each caller of `lookupOrg` to map ErrNotFound to HTTP 404 instead of 500. Call sites: `provider_handlers.go:80`, `project_handlers.go:75`, `wallet_handlers.go:38,157,242,290`, `quota_handlers.go:25`. Real errors continue to 500
-- [ ] If `system.NewHTTPError404` does not already exist in `api/pkg/system/`, add it next to the existing 400/403/500 helpers (one-liner). Otherwise use the existing helper
-- [ ] Add a short Go unit test on `lookupOrg` that uses the gomock store: ErrNotFound from store → returned error satisfies `errors.Is(err, store.ErrNotFound)`; generic store error → does not
-- [ ] Run `cd api && go build ./pkg/server/...` to confirm Go still compiles
+- [x] Updated `lookupOrg` in `api/pkg/server/wallet_handlers.go` to detect `errors.Is(err, store.ErrNotFound)` and return a more helpful wrapped error (`organization %q not found: %w`) that preserves the sentinel for callers to detect
+- [x] Updated callers of `lookupOrg` to map ErrNotFound to HTTP 404 instead of 500: `provider_handlers.go:80` (writeErrResponse), `project_handlers.go:73` (NewHTTPError404), `quota_handlers.go:23` (http.Error 404), `wallet_handlers.go:38` (NewHTTPError404), `question_set_handlers.go:69` (refined existing 404 to be ErrNotFound-specific). Real errors continue to 500
+- [x] **Scope note:** the 3 wallet handlers using `(string, error)` returns (`createTopUp:158`, `subscriptionCreate:249`, `subscriptionManage:297`) go through `system.DefaultWrapper` which always 500s. Updating those would require changing handler signatures + route bindings — out of scope for the user's reported bug (those endpoints are billing actions a user with a stale org slug is unlikely to invoke). Better lookupOrg error message still flows through. The `sandbox.go` caller already returned 404 — no change needed
+- [x] `system.NewHTTPError404` already existed at `api/pkg/system/http.go:80` — no new helper needed
+- [x] Added `api/pkg/server/wallet_handlers_test.go` with `TestLookupOrgSuite`: ErrNotFound preserved as sentinel + named in message; real DB error not confused with ErrNotFound; org_/slug routing regressions guarded
+- [x] Ran `go build ./pkg/server/...` and `CGO_ENABLED=1 go test -v -run TestLookupOrgSuite ./pkg/server/ -count=1` — both pass
 
 ## Combined verification
 
