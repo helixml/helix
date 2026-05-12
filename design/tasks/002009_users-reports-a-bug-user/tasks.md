@@ -22,8 +22,8 @@
 
 ## Combined verification
 
-- [ ] Run `cd frontend && yarn build` (no FE changes expected, but CLAUDE.md requires the check)
-- [ ] In inner Helix: configure a provider endpoint with a deliberately unreachable `BaseURL` (e.g. `https://127.0.0.1:1`) and visit Projects / Onboarding / App settings. Confirm pages don't stall for 3 s per navigation after the first successful warm-up; confirm the bogus provider appears with an error status badge but the model list elsewhere is not empty
-- [ ] In inner Helix: hit `GET /api/v1/projects?organization_id=org_doesnotexist` (or `?organization_id=nonexistentslug`) with a valid session cookie via the browser DevTools network tab or `curl`. Confirm response is HTTP 404 with the new message wording, not 500
+- [x] Run `cd frontend && yarn build` (no FE changes expected, but CLAUDE.md requires the check) — passes
+- [~] In inner Helix: configure a provider endpoint with a deliberately unreachable `BaseURL` (e.g. `https://127.0.0.1:1`) and visit Projects / Onboarding / App settings. Confirm pages don't stall for 3 s per navigation after the first successful warm-up; confirm the bogus provider appears with an error status badge but the model list elsewhere is not empty
+- [~] In inner Helix: hit `GET /api/v1/projects?organization_id=org_doesnotexist` (or `?organization_id=nonexistentslug`) with a valid session cookie via the browser DevTools network tab or `curl`. Confirm response is HTTP 404 with the new message wording, not 500
 - [ ] Take a screenshot of the providers table showing the degraded provider with status badge, save under `screenshots/01-degraded-provider.png`
 - [ ] Open PR with conventional commit message `fix(api): stale-while-revalidate provider models, 404 on missing org` and link this spec
