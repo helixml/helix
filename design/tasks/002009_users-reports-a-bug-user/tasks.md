@@ -2,7 +2,7 @@
 
 ## Bug 1 — stale-while-revalidate for provider model list
 
-- [ ] In `api/pkg/server/provider_handlers.go`, introduce two cache key helpers (e.g. `freshModelCacheKey` and `staleModelCacheKey`) so fresh and stale entries live under separate keys with separate TTLs. Add a constant or config field for the stale TTL (default 1 hour; reuse `ModelsCacheTTL` for fresh)
+- [~] In `api/pkg/server/provider_handlers.go`, introduce two cache key helpers (e.g. `freshModelCacheKey` and `staleModelCacheKey`) so fresh and stale entries live under separate keys with separate TTLs. Add a constant or config field for the stale TTL (default 1 hour; reuse `ModelsCacheTTL` for fresh)
 - [ ] Update `getProviderModels` so that on `ListModels` error (after the existing static-`Models` synthesis branch is exhausted) it falls back to the stale cache before returning the error. Change its return signature to `(models []types.OpenAIModel, servedStale bool, err error)` so the caller can flag degraded status without losing the model list
 - [ ] Update `listProviderEndpoints` to read the new `servedStale` return value: when `servedStale` is true, set `Status = ProviderEndpointStatusError` and `Error` to the underlying upstream error string, but leave `available_models` populated from the stale entry
 - [ ] On every successful fresh fetch in `getProviderModels`, write to BOTH the fresh key (short TTL) and the stale key (long TTL)
