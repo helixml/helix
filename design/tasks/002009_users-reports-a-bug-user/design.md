@@ -192,6 +192,18 @@ No frontend change required. The existing 404 handling in `useOrganizations.load
    - Hit `/api/v1/projects?organization_id=org_doesnotexist` directly via `curl` with the user's session cookie — confirm 404 with the new wording, not 500.
 3. **Build checks**: `cd api && go build ./pkg/server/...` and `cd frontend && yarn build` (the latter only because CLAUDE.md mandates it; no FE changes here).
 
+## Implementation notes (added during implementation)
+
+- **Final return signature for `getProviderModels` is `(models, staleErr, err error)`** rather than the `(models, servedStale bool, err error)` proposed in the original design. The bool flag created an awkward callsite: when serving stale, you want the error context in the response (`Status = error` + `Error = <upstream msg>`), not just a flag. Returning the error directly avoids carrying it as a side-channel.
+- **`store.ErrNotFound` is at `api/pkg/store/store.go:189`** as a `errors.New("not found")` sentinel. Both `errors.Is` and string comparison work; we use `errors.Is`.
+- **`system.NewHTTPError404` already exists** at `api/pkg/system/http.go:80` — no new helper needed.
+- **9 lookupOrg call sites, not 8.** The grep for `lookupOrg(` in the original design missed `sandboxes_api_handlers.go:911` (already returns 404 — good, no change needed) and `question_set_handlers.go:69` (was returning 404 unconditionally — refined to be ErrNotFound-specific so real DB errors still 500).
+- **3 wallet handlers (`createTopUp`, `subscriptionCreate`, `subscriptionManage`) intentionally not migrated to 404.** They return `(string, error)` and go through `system.DefaultWrapper` which always 500s. Fixing them would require changing the handler signature + the `authRouter.HandleFunc` route binding, a larger refactor outside the spirit of "small bug fix." The error message is still cleaner via the new `lookupOrg` wrapping.
+- **Cache type is `*ristretto.Cache[string, string]`** (typed-key version) — the second `1` argument in `SetWithTTL` is the cost (each entry costs 1).
+- **Inner-Helix verification** showed the `with_models=true` providers endpoint completes in ~20 ms even with a broken provider configured, confirming the parallel-goroutine + 3-second-cap layout still bounds wall-clock time to ~3 s worst case.
+- **The `quota_handlers.go` caller has a pre-existing latent bug**: it calls `lookupOrg` even when `orgID == ""`, which produces a "id or name not specified" error. Out of scope; the fix here only changes the error→404 mapping for ErrNotFound, leaving that branch unchanged.
+- **`frontend/dist` had root ownership** (probably from Docker bind-mount), preventing `yarn build` until `chown`'d back to `retro`. Per CLAUDE.md, never `rm -rf` it — `chown -R retro:retro frontend/dist` was the right fix.
+
 ## Notes & gotchas
 
 - The cache being process-local means each API replica will have its own stale entry. Fine for the current single-API deploy; if Helix later scales horizontally we may want to share the stale snapshot via Postgres or Redis. Out of scope.
