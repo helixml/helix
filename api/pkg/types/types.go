@@ -2759,6 +2759,7 @@ const (
 	EventCronTriggerFailed    Event = 2
 	EventPasswordResetRequest Event = 3
 	EventWaitlistApproved     Event = 4
+	EventTrialActivated       Event = 5
 )
 
 func (e Event) String() string {
@@ -2771,6 +2772,8 @@ func (e Event) String() string {
 		return "password_reset_request"
 	case EventWaitlistApproved:
 		return "waitlist_approved"
+	case EventTrialActivated:
+		return "trial_activated"
 	default:
 		return "unknown_event"
 	}
@@ -2786,6 +2789,15 @@ type Notification struct {
 	// Populated by the provider
 	Email     string
 	FirstName string
+
+	// TrialDays, when non-zero, signals to the email template that the
+	// approval also activates a free trial of this length.
+	TrialDays int
+
+	// TrialPending is true when a trial has been granted but the user has not
+	// yet created their first org — so the trial is parked on the user and
+	// will be applied at org-create time.
+	TrialPending bool
 
 	// If set, send to these emails instead of the session owner
 	Emails []string

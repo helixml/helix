@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -46,6 +46,13 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'pr_ready': return '#8b5cf6'
     default: return '#6b7280'
   }
+}
+
+// extractExternalPRURL returns the PR URL from event metadata if present.
+// pr_ready events emitted from the workflow handler / orchestrator carry pr_url.
+function extractExternalPRURL(event: AttentionEvent): string {
+  const url = event.metadata?.pr_url
+  return typeof url === 'string' ? url : ''
 }
 
 function timeAgo(dateStr: string): string {
@@ -306,6 +313,20 @@ const AttentionEventItem: React.FC<{
       <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>
+      {event.event_type === 'pr_ready' && extractExternalPRURL(event) && (
+        <Tooltip title="Open pull request">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(extractExternalPRURL(event), '_blank', 'noopener,noreferrer')
+            }}
+            sx={{ p: 0.25, flexShrink: 0, color: lightTheme.textColorFaded, '&:hover': { color: lightTheme.textColor } }}
+          >
+            <ExternalLink size={12} />
+          </IconButton>
+        </Tooltip>
+      )}
       <Tooltip title="Dismiss">
         <IconButton
           size="small"
@@ -380,12 +401,14 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
       .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
     for (const group of groups) {
       if (group.kind === 'grouped') {
-        const { primary } = group
+        const { primary, secondary } = group
         fireNotification(
           primary.id,
           'Helix: Spec ready & agent finished',
           `${primary.spec_task_name || ''} · ${primary.project_name || ''}`,
           () => {
+            acknowledge(primary.id)
+            acknowledge(secondary.id)
             account.orgNavigate('project-task-detail', {
               id: primary.project_id,
               taskId: primary.spec_task_id,
@@ -399,6 +422,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           `Helix: ${event.title}`,
           `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
+            acknowledge(event.id)
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -407,7 +431,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         )
       }
     }
-  }, [newEvents, browserNotifEnabled, fireNotification, account])
+  }, [newEvents, browserNotifEnabled, fireNotification, account, acknowledge])
 
   const handleDrawerOpen = useCallback(() => {
     setDrawerOpen(true)

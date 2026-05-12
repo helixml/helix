@@ -914,6 +914,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/trial-activate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Activate a trial for a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Trial parameters (days, credits)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Revoke an admin-granted trial (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -9397,7 +9474,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.AccessGrant"
+                            "$ref": "#/definitions/types.CreateAccessGrantResponse"
                         }
                     }
                 }
@@ -19239,6 +19316,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ActivateTrialRequest": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                },
+                "days": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.ActivateTrialResponse": {
+            "type": "object",
+            "properties": {
+                "org_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
+                }
+            }
+        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -21291,7 +21393,7 @@ const docTemplate = `{
                 "message": {
                     "type": "string"
                 },
-                "statusCode": {
+                "status_code": {
                     "type": "integer"
                 }
             }
@@ -23244,6 +23346,53 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateAccessGrantResponse": {
+            "type": "object",
+            "properties": {
+                "added_to_organization": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "If granted to an organization",
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "App ID, Knowledge ID, etc",
+                    "type": "string"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "team_id": {
+                    "description": "If granted to a team",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "If granted to a user",
+                    "type": "string"
+                }
+            }
+        },
         "types.CreateBranchRequest": {
             "type": "object",
             "properties": {
@@ -25003,14 +25152,16 @@ const docTemplate = `{
                 "waiting",
                 "editing",
                 "complete",
-                "error"
+                "error",
+                "interrupted"
             ],
             "x-enum-varnames": [
                 "InteractionStateNone",
                 "InteractionStateWaiting",
                 "InteractionStateEditing",
                 "InteractionStateComplete",
-                "InteractionStateError"
+                "InteractionStateError",
+                "InteractionStateInterrupted"
             ]
         },
         "types.Item": {
@@ -32049,6 +32200,23 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.TokenType"
                         }
                     ]
+                },
+                "trial_credits_on_first_org": {
+                    "type": "number"
+                },
+                "trial_days_on_first_org": {
+                    "description": "Trial intent stashed by admin before the user has created their first org.\nConsumed by wallet creation on first owned org, then cleared.",
+                    "type": "integer"
+                },
+                "trial_ends_at": {
+                    "type": "integer"
+                },
+                "trial_org_id": {
+                    "type": "string"
+                },
+                "trial_status": {
+                    "description": "Transient trial-display fields populated by the admin users list when\n?include=trial is set. Not persisted (gorm:\"-\") and not emitted unless\nexplicitly populated (json:\"...,omitempty\").",
+                    "type": "string"
                 },
                 "type": {
                     "description": "these are set by the keycloak user based on the token\nif it's an app token - the keycloak user is loaded from the owner of the app\nif it's a runner token - these values will be empty",

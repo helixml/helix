@@ -1172,12 +1172,17 @@ function TaskCardInner({
           </Box>
         )}
 
-        {/* Live screenshot for active sessions - click opens desktop viewer */}
-        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {/* Live screenshot for active sessions - click opens desktop viewer.
+            Only render when the sandbox is actually live ("running"/"starting").
+            Polling absent sandboxes burns API requests and dumps a fleet of
+            503s in the logs every time the page loads, since each card spins
+            up its own poll loop until it hits one. */}
         {task.planning_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
-          !taskError && (
+          !taskError &&
+          (task.sandbox_state === "running" ||
+            task.sandbox_state === "starting") && (
             <LiveAgentScreenshot
               sessionId={task.planning_session_id}
               projectId={projectId}

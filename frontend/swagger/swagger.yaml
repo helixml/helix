@@ -870,6 +870,22 @@ definitions:
       severity:
         type: string
     type: object
+  server.ActivateTrialRequest:
+    properties:
+      credits:
+        type: number
+      days:
+        type: integer
+    type: object
+  server.ActivateTrialResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
+    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       dev_containers:
@@ -2234,7 +2250,7 @@ definitions:
     properties:
       message:
         type: string
-      statusCode:
+      status_code:
         type: integer
     type: object
   types.APIError:
@@ -3637,6 +3653,37 @@ definitions:
         description: User ID or email
         type: string
     type: object
+  types.CreateAccessGrantResponse:
+    properties:
+      added_to_organization:
+        type: boolean
+      created_at:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: If granted to an organization
+        type: string
+      resource_id:
+        description: App ID, Knowledge ID, etc
+        type: string
+      roles:
+        items:
+          $ref: '#/definitions/types.Role'
+        type: array
+      team_id:
+        description: If granted to a team
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
+      user_id:
+        description: If granted to a user
+        type: string
+    type: object
   types.CreateBranchRequest:
     properties:
       base_branch:
@@ -4901,6 +4948,7 @@ definitions:
     - editing
     - complete
     - error
+    - interrupted
     type: string
     x-enum-varnames:
     - InteractionStateNone
@@ -4908,6 +4956,7 @@ definitions:
     - InteractionStateEditing
     - InteractionStateComplete
     - InteractionStateError
+    - InteractionStateInterrupted
   types.Item:
     properties:
       b64_json:
@@ -9979,6 +10028,23 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.TokenType'
         description: none, runner. keycloak, api_key
+      trial_credits_on_first_org:
+        type: number
+      trial_days_on_first_org:
+        description: |-
+          Trial intent stashed by admin before the user has created their first org.
+          Consumed by wallet creation on first owned org, then cleared.
+        type: integer
+      trial_ends_at:
+        type: integer
+      trial_org_id:
+        type: string
+      trial_status:
+        description: |-
+          Transient trial-display fields populated by the admin users list when
+          ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+          explicitly populated (json:"...,omitempty").
+        type: string
       type:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
@@ -10866,6 +10932,58 @@ paths:
       security:
       - BearerAuth: []
       summary: Reset a user's password (Admin only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/trial-activate:
+    delete:
+      description: Clears any stashed trial intent on the user and cancels the Stripe
+        subscription on the user's oldest owned org if it is currently in a trialing
+        state. Paid (active) subscriptions are never cancelled.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ActivateTrialResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke an admin-granted trial (Admin, cloud only)
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: 'Stash a trial intent on the user, or immediately create a Stripe
+        trial subscription on the user''s oldest-owned org. Defaults: 90 days, $100
+        credits.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Trial parameters (days, credits)
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/server.ActivateTrialRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ActivateTrialResponse'
+      security:
+      - BearerAuth: []
+      summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
   /api/v1/api_keys:
@@ -16238,7 +16356,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.AccessGrant'
+            $ref: '#/definitions/types.CreateAccessGrantResponse'
       security:
       - BearerAuth: []
       summary: Grant access to a project to a team or organization member

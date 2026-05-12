@@ -41,8 +41,8 @@ func WSURL(options ClientOptions, path string) string {
 }
 
 type HTTPError struct {
-	StatusCode int
-	Message    string
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
 }
 
 func (e *HTTPError) Error() string {

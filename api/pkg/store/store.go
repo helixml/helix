@@ -147,10 +147,12 @@ type ListUsersQuery struct {
 	Username  string          `json:"username"`
 	// Query is a free-text search matched (ILIKE) against email, username, and full_name.
 	// When set it is OR-combined and takes precedence over the separate Email/Username filters.
-	Query   string `json:"query"`
-	Page    int
-	PerPage int
-	Order   string // Defaults to Created Desc
+	Query string `json:"query"`
+	// Waitlisted filters on the user.waitlisted column when non-nil. Nil = no filter.
+	Waitlisted *bool `json:"waitlisted,omitempty"`
+	Page       int
+	PerPage    int
+	Order      string // Defaults to Created Desc
 }
 
 // SearchUsersQuery defines parameters for searching users with partial matching
