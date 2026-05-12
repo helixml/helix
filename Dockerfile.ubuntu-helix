@@ -884,8 +884,19 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
     echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
       > /etc/skel/.config/google-chrome/Default/Preferences
 
-# Install chrome-devtools-mcp globally and pre-build fontconfig cache
-RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+# Install MCP server packages globally so Zed and Claude Code can invoke them
+# by direct binary path (e.g. /usr/bin/chrome-devtools-mcp) instead of
+# `npx <pkg>@latest`. Going through npx hits the shared _npx cache, and when
+# Zed and Claude Code spawn in parallel against the same cache the install
+# dance ("reify mark retired" — rename node_modules/<pkg> → tmp, reinstall,
+# rename back) races and the JSON-RPC `initialize` never returns. Spec-task
+# logs then show `chrome-devtools context server failed to start: Context
+# server request timeout` (180s). Going via the global binary avoids npx
+# entirely and removes the contention.
+RUN npm install -g \
+        chrome-devtools-mcp@0.25.0 \
+        @modelcontextprotocol/server-github@2025.4.8 \
+    && fc-cache -f -v
 
 # URL capture script for Claude Code OAuth login flow.
 # When BROWSER=/usr/local/bin/helix-capture-browser, `claude auth login` writes
