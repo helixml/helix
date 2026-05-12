@@ -35,6 +35,9 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 	if orgID != "" {
 		org, err := s.lookupOrg(req.Context(), orgID)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(err.Error())
+			}
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
 
@@ -196,19 +199,25 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	return s.Stripe.GetTopUpSessionURL(params)
 }
 
-// lookupOrg looks up an organization by ID or name
+// lookupOrg looks up an organization by ID or name. The returned error wraps
+// store.ErrNotFound when the org row doesn't exist (or has been deleted), so
+// callers can distinguish "user supplied a stale slug" from a real DB failure
+// and respond with 404 instead of 500. Without this, a stale /org/<slug>/...
+// URL surfaces to the user as a generic 500 that looks like the server is broken.
 func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.Organization, error) {
 	query := &store.GetOrganizationQuery{}
 
 	if strings.HasPrefix(orgStr, "org_") {
 		query.ID = orgStr
 	} else {
-		// Lookup by ID
 		query.Name = orgStr
 	}
 
 	org, err := s.Store.GetOrganization(ctx, query)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("organization %q not found: %w", orgStr, store.ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to get organization: %w", err)
 	}
 

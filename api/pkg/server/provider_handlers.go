@@ -77,6 +77,10 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	if orgID != "" {
 		org, err := s.lookupOrg(ctx, orgID)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				writeErrResponse(rw, err, http.StatusNotFound)
+				return
+			}
 			writeErrResponse(rw, fmt.Errorf("failed to lookup org: %w", err), http.StatusInternalServerError)
 			return
 		}
