@@ -2,14 +2,14 @@
 
 ## Bug 1 — stale-while-revalidate for provider model list
 
-- [~] In `api/pkg/server/provider_handlers.go`, introduce two cache key helpers (e.g. `freshModelCacheKey` and `staleModelCacheKey`) so fresh and stale entries live under separate keys with separate TTLs. Add a constant or config field for the stale TTL (default 1 hour; reuse `ModelsCacheTTL` for fresh)
-- [ ] Update `getProviderModels` so that on `ListModels` error (after the existing static-`Models` synthesis branch is exhausted) it falls back to the stale cache before returning the error. Change its return signature to `(models []types.OpenAIModel, servedStale bool, err error)` so the caller can flag degraded status without losing the model list
-- [ ] Update `listProviderEndpoints` to read the new `servedStale` return value: when `servedStale` is true, set `Status = ProviderEndpointStatusError` and `Error` to the underlying upstream error string, but leave `available_models` populated from the stale entry
-- [ ] On every successful fresh fetch in `getProviderModels`, write to BOTH the fresh key (short TTL) and the stale key (long TTL)
-- [ ] Update `invalidateProviderModelCache` (line 274 today) to delete both fresh and stale keys so a rename/edit/delete doesn't leave a stale entry alive for the long TTL
-- [ ] Verify `StartModelCacheRefresh` and `refreshAllProviderModels` keep working unchanged — they call `getProviderModels`, so the new write-both-keys behaviour inside that function handles them automatically (no separate code path)
-- [ ] Add unit tests in `api/pkg/server/provider_handlers_test.go` (create the file if it doesn't exist): (a) cache hit returns cached models without calling `ListModels`; (b) fresh expired + stale present + `ListModels` returns error → handler returns stale models with `Status = error`; (c) no fresh + no stale + `ListModels` errors → existing error behaviour preserved; (d) `invalidateProviderModelCache` clears both keys
-- [ ] Run `CGO_ENABLED=1 go test -v -run TestProviderHandlers ./pkg/server/ -count=1` and confirm all new tests pass
+- [x] In `api/pkg/server/provider_handlers.go`, introduce two cache key helpers (`freshModelCacheKey` and `staleModelCacheKey`) so fresh and stale entries live under separate keys with separate TTLs. Stale TTL: 1 hour (`staleModelCacheTTL` constant); fresh TTL stays at `ModelsCacheTTL`
+- [x] Update `getProviderModels` so that on `ListModels` error (after the existing static-`Models` synthesis branch is exhausted) it falls back to the stale cache before returning the error. Return signature changed to `(models []types.OpenAIModel, staleErr error, err error)` — `err` for hard failure, `staleErr` non-nil when serving from stale cache
+- [x] Update `listProviderEndpoints` to read the new `staleErr` return: when non-nil, set `Status = ProviderEndpointStatusError` and `Error` to the underlying upstream error string, but leave `available_models` populated from the stale entry
+- [x] On every successful fresh fetch in `getProviderModels`, write to BOTH the fresh key (short TTL) and the stale key (long TTL)
+- [x] Update `invalidateProviderModelCache` to delete both fresh and stale keys so a rename/edit/delete doesn't leave a stale entry alive for the long TTL
+- [x] Verified: `StartModelCacheRefresh` and `refreshAllProviderModels` work unchanged — they call `getProviderModels`, so the new write-both-keys behaviour handles them automatically. Updated 3 other call sites for the new 3-return-value signature (warm-after-create + 2 in refreshAllProviderModels)
+- [x] Add unit tests in `api/pkg/server/provider_handlers_test.go`: (a) `TestGetProviderModels_FallsBackToStaleOnUpstreamError` — fresh expired + stale present + `ListModels` returns error → handler returns stale models with non-nil staleErr; (b) `TestGetProviderModels_PopulatesBothFreshAndStaleOnSuccess` — fresh fetch writes both keys; (c) `TestInvalidateProviderModelCache_ClearsBothFreshAndStale` — invalidation drops both. Existing test for hard-fail (no fresh, no stale, error) still passes
+- [x] Ran `CGO_ENABLED=1 go test -v -run TestProviderHandlersSuite ./pkg/server/ -count=1` — all 16 tests pass including the 3 new ones
 
 ## Bug 2 — org lookup returns 404 (not 500) when org doesn't exist
 
