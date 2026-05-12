@@ -15,10 +15,10 @@ Web users have to copy/paste from DevTools or describe issues in Slack/Crisp fro
 > As a SaaS user, I want to click "Report Issue" from the global menu so I can describe what went wrong with the current page; the report should auto-include browser info, the current URL, the most recent ErrorBoundary captures (`frontend/src/components/system/ErrorBoundary.tsx` already buffers them in sessionStorage), and my user/org IDs.
 
 **3. Self-hosted (k8s/Helm) user with internet egress**
-> As an operator running Helix on a Helm install with outbound internet, I want the same "Report Issue" button to work and ship the report to Helix (anonymized via deployment ID hashed from my license key, the same identifier the existing `PingService` already sends to Launchpad), so I don't have to open a separate ticket and attach files.
+> As an operator running Helix on a Helm install with outbound internet, I want the same "Report Issue" button to work and route my report into the Helix support Crisp queue (the same queue the Mac app and SaaS web users already file into — `frontend/index.html:68-79` ships the Crisp widget in every install), tagged with a deployment ID hashed from my license key, so I don't have to open a separate ticket and attach files.
 
 **4. Self-hosted (air-gapped) user**
-> As an operator running Helix without outbound internet, I want "Report Issue" to instead produce a downloadable `.zip` bundle that I can attach to an email or upload to a support portal, so the same workflow works offline.
+> As an operator running Helix without outbound internet (so `client.crisp.chat` won't load), I want "Report Issue" to fall back to producing a downloadable `.json` bundle that I can attach to an email or upload to a support portal, so the same workflow works offline.
 
 **5. CLI / on-call operator**
 > As an operator debugging a broken install over ssh, I want `helix support report --task <id>` (or `--session <id>`) to write the same bundle to a file, so I can grab it without needing browser access.
@@ -46,19 +46,21 @@ Web users have to copy/paste from DevTools or describe issues in Slack/Crisp fro
 - [ ] **Recent frontend ErrorBoundary captures** from sessionStorage (already buffered, max 20).
 
 ### Privacy / safety
-- [ ] Before submission, the user sees a preview of the JSON / formatted bundle and can edit or remove fields.
+- [ ] Before submission, the user sees a preview of the JSON bundle and can edit or remove fields.
 - [ ] Prompts/responses and log lines are truncated (per-line cap + last-N-lines cap) to keep payload <1 MB.
 - [ ] License key is **hashed**, never sent in clear text.
 - [ ] Known secret env-var names (e.g. `*_API_KEY`, `*_TOKEN`, `*_SECRET`) are stripped from any included config dump.
-- [ ] An admin can disable outbound reporting entirely via env var (`HELIX_FEEDBACK_DISABLED=true`); the UI then only offers the "download bundle" path.
+- [ ] An admin can disable Crisp outreach entirely via env var (`HELIX_FEEDBACK_DISABLED=true`); the UI then only offers the "download bundle" path and never calls `$crisp`.
 
 ### Transport
-- [ ] When outbound reporting is enabled and reachable, the API server POSTs the bundle to a configurable endpoint (`HELIX_FEEDBACK_URL`, default `https://feedback.helix.ml/v1/report`) and returns a reference ID to the UI.
-- [ ] When the endpoint is unreachable or disabled, the same handler returns the bundle as a downloadable `.json` (or `.zip` if logs are large) — the UI prompts a save dialog.
-- [ ] CLI `helix support report` writes the bundle to a file path and prints the size; never auto-uploads from the CLI in v1 (operators upload manually).
+- [ ] On Send, the dialog opens the existing Crisp widget (`$crisp.push(['do', 'chat:open'])`), sends a compact text summary (≤9 KB — same budget the Mac app uses at `for-mac/frontend/src/components/SettingsPanel.tsx:226`), and triggers a browser download of the full bundle as `helix-feedback-{report_id}.json` for the user to drag into the chat.
+- [ ] When `$crisp` is undefined (script blocked or air-gapped) or `HELIX_FEEDBACK_DISABLED=true`, the dialog skips the Crisp calls and just downloads the bundle, with a toast explaining where to send it.
+- [ ] User identity (`user:email`, `user:nickname`) is pushed to Crisp from the existing `useAccount()` data, matching `frontend/src/contexts/account.tsx:312-315`.
+- [ ] CLI `helix support report` writes the bundle to a file path and prints the size; never auto-sends from the CLI in v1 (operators attach manually).
 
 ### Out of scope (v1)
-- The Helix-side ingestion service (`feedback.helix.ml`) — we'll spec the contract here, but building the receiving service is a separate task.
-- Two-way conversation on a report (use Crisp / email after the report is filed).
+- Programmatic file upload via Crisp's `message:send`/`file` API — needs a publicly-fetchable URL we'd have to host. Drag-drop into the Crisp chat panel is the v1 attachment flow.
+- Two-way conversation tracking — Crisp already handles that natively once the report message lands.
 - Auto-creating GitHub issues from reports.
 - Redacting log lines for arbitrary regex secrets — only the env-var-name strip is in scope.
+- Configurable Crisp website ID for self-hosted (helm installs use the same hard-coded ID in `frontend/index.html` so reports land in the Helix support queue).
