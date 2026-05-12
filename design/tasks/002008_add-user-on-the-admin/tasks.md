@@ -9,4 +9,4 @@
 - [x] Run `cd frontend && yarn build` — completed cleanly (37s, no errors). `yarn install --frozen-lockfile` was needed first since this sandbox didn't have node_modules.
 - [x] **Browser verification SKIPPED** — inner Helix at `localhost:8080` is not running in this sandbox (`/tmp/helix-startup.log` shows the helix-ubuntu image is still building from the outer startup script and the inner compose stack hasn't been brought up). Bringing it up just to verify a one-line conditional render mirroring `Login.tsx`'s existing `auth_provider === 'oidc'` pattern is not worth the build time. **PR description will explicitly flag this per CLAUDE.md** ("WARNING: NOT tested in inner Helix browser; verified by code inspection + Go unit test only").
 - [x] Write per-repo PR descriptions
-- [~] Push code to `feature/002008-hide-create-user-in-oidc`; the platform creates the GitHub PR automatically
+- [x] Push code to `feature/002008-hide-create-user-in-oidc`; the platform creates the GitHub PR automatically (commits: `fix(api): block local user creation when OIDC is configured`, `fix(frontend): hide Create User button in OIDC mode`)
