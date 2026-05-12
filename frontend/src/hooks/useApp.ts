@@ -816,15 +816,15 @@ export const useApp = (appId: string) => {
       await loadAccessGrants()
       
       return newGrant
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create access grant:', error)
-      snackbar.error('Failed to create access grant')
+      snackbar.error(error?.message || 'Failed to create access grant')
       return null
     } finally {
       setIsAppSaving(false)
     }
   }
-  
+
   /**
    * Deletes an access grant for the current app
    * @param grantId - The ID of the access grant to delete

@@ -1402,7 +1402,7 @@ export enum StripeSubscriptionStatus {
 
 export interface SystemHTTPError {
   message?: string;
-  statusCode?: number;
+  status_code?: number;
 }
 
 export interface TypesAPIError {
@@ -2244,6 +2244,24 @@ export interface TypesCreateAccessGrantRequest {
   team_id?: string;
   /** User ID or email */
   user_reference?: string;
+}
+
+export interface TypesCreateAccessGrantResponse {
+  added_to_organization?: boolean;
+  created_at?: string;
+  id?: string;
+  /** If granted to an organization */
+  organization_id?: string;
+  /** App ID, Knowledge ID, etc */
+  resource_id?: string;
+  roles?: TypesRole[];
+  /** If granted to a team */
+  team_id?: string;
+  updated_at?: string;
+  /** Populated by the server if UserID is set */
+  user?: TypesUser;
+  /** If granted to a user */
+  user_id?: string;
 }
 
 export interface TypesCreateBranchRequest {
@@ -10917,7 +10935,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant, any>({
+      this.request<TypesCreateAccessGrantResponse, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "POST",
         body: request,
