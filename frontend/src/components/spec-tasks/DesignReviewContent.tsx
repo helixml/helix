@@ -71,7 +71,7 @@ import CommentLogSidebar from "./CommentLogSidebar";
 import ReviewActionFooter from "./ReviewActionFooter";
 import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import RejectDesignDialog from "./RejectDesignDialog";
-import { useSpecTask } from "../../services/specTaskService";
+import { useSpecTask, useArchiveSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
@@ -132,6 +132,7 @@ export default function DesignReviewContent({
   const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const archiveMutation = useArchiveSpecTask();
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(
     new Map(),
@@ -1040,11 +1041,7 @@ export default function DesignReviewContent({
 
   const handleRejectDesign = async () => {
     try {
-      const apiClient = api.getApiClient();
-      await apiClient.v1SpecTasksArchivePartialUpdate(specTaskId, {
-        archived: true,
-      });
-
+      await archiveMutation.mutateAsync({ taskId: specTaskId, archived: true });
       snackbar.success("Design rejected - spec task archived");
       setShowRejectDialog(false);
       onClose();
@@ -1623,6 +1620,7 @@ export default function DesignReviewContent({
         reason={rejectReason}
         onReasonChange={setRejectReason}
         onReject={handleRejectDesign}
+        isSubmitting={archiveMutation.isPending}
       />
     </Box>
   );
