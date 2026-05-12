@@ -13,7 +13,7 @@
 
 ## Bug 2 — org lookup returns 404 (not 500) when org doesn't exist
 
-- [ ] Update `lookupOrg` in `api/pkg/server/wallet_handlers.go` to detect `errors.Is(err, store.ErrNotFound)` and return a more helpful wrapped error (`organization %q not found: %w`) that preserves the sentinel for callers to detect
+- [~] Update `lookupOrg` in `api/pkg/server/wallet_handlers.go` to detect `errors.Is(err, store.ErrNotFound)` and return a more helpful wrapped error (`organization %q not found: %w`) that preserves the sentinel for callers to detect
 - [ ] Update each caller of `lookupOrg` to map ErrNotFound to HTTP 404 instead of 500. Call sites: `provider_handlers.go:80`, `project_handlers.go:75`, `wallet_handlers.go:38,157,242,290`, `quota_handlers.go:25`. Real errors continue to 500
 - [ ] If `system.NewHTTPError404` does not already exist in `api/pkg/system/`, add it next to the existing 400/403/500 helpers (one-liner). Otherwise use the existing helper
 - [ ] Add a short Go unit test on `lookupOrg` that uses the gomock store: ErrNotFound from store → returned error satisfies `errors.Is(err, store.ErrNotFound)`; generic store error → does not
