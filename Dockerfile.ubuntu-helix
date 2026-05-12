@@ -7,24 +7,24 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-03-30).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
 # Update digests when intentionally upgrading base images.
-# - ubuntu:25.10         -> sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b
-# - golang:1.25-bookworm -> sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac
+# - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+# - golang:1.25-bookworm -> sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
 # amd64 (default): pinned nvidia/cuda digest — cache-stable, no silent updates
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
-ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d638d35015c6353053121bd299d25943b875763321653884ba924
 
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-03-30)
+# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25-bookworm AS go-build-env
+FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -73,7 +73,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 #
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
-FROM ubuntu:25.10 AS rust-build-env
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 ARG TARGETARCH
 WORKDIR /build
@@ -182,7 +182,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 #
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
-FROM ubuntu:25.10
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
 RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base-app)
@@ -278,7 +278,29 @@ RUN <<_INSTALL_BASE
   gosu nobody true && echo "gosu working!"
 
   echo "**** Setup Firefox PPA ****"
-  add-apt-repository -y ppa:mozillateam/ppa
+  # Launchpad is intermittently unavailable; both `add-apt-repository`
+  # (which hits launchpad.net for the GPG key) and the subsequent
+  # `apt-get update` (which fetches the InRelease file from
+  # ppa.launchpadcontent.net) fail with timeouts during outages.
+  # Three consecutive CI failures on 2026-05-02 prompted this retry
+  # wrapper. Backoff: 5s, 15s, 30s, 60s.
+  # POSIX-compatible (no `local`) so it works under dash, the default
+  # `RUN` shell.
+  retry_apt() {
+    n=0
+    until "$@"; do
+      n=$((n+1))
+      if [ $n -ge 5 ]; then
+        echo "FATAL: apt operation failed after $n attempts: $*"
+        return 1
+      fi
+      sleep_for=$((n*15))
+      [ $n -eq 1 ] && sleep_for=5
+      echo "apt operation failed (attempt $n), retrying in ${sleep_for}s: $*"
+      sleep $sleep_for
+    done
+  }
+  retry_apt add-apt-repository -y ppa:mozillateam/ppa
 
   echo "**** Configure APT pins ****"
   cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
@@ -287,7 +309,7 @@ Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 PINEOF
 
-  apt-get update
+  retry_apt apt-get update
 
   echo "**** Install GNOME Desktop (Wayland session) ****"
   apt-get install -y $DE_PACKAGES firefox libavcodec-extra
@@ -303,14 +325,14 @@ PINEOF
 
 _INSTALL_BASE
 
-# Install Go (version extracted from go.mod)
-# This makes Go available for agents running inside the container (Helix-in-Helix)
-# TARGETARCH is set by Docker buildx (amd64 or arm64)
-COPY go.mod /tmp/go.mod
-RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
+# Install Go (version passed via --build-arg from stack, derived from go.mod on host).
+# Passing as a build-arg (instead of COPY-ing go.mod) means dependency bumps in
+# go.mod don't invalidate this layer or any of the downstream apt/npm/install
+# layers — only an actual Go-version change does. TARGETARCH is set by Docker buildx.
+ARG GO_VERSION
+RUN [ -n "${GO_VERSION}" ] || { echo "ERROR: --build-arg GO_VERSION=... is required" >&2; exit 1; } && \
     echo "Installing Go ${GO_VERSION} for ${TARGETARCH}..." && \
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz && \
-    rm /tmp/go.mod && \
     /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
 
@@ -693,17 +715,40 @@ RUN apt-get update && \
 # Google Chrome doesn't provide arm64 Linux packages
 RUN <<_INSTALL_CHROME
 set -e
-apt-get update
+
+# Launchpad is intermittently unavailable; both `add-apt-repository`
+# (which hits launchpad.net for the PPA's GPG key) and `apt-get update`
+# (which fetches InRelease from ppa.launchpadcontent.net) fail with
+# timeouts during outages. Three consecutive CI failures on 2026-05-02
+# prompted this retry wrapper. Backoff: 5s, 15s, 30s, 60s.
+# POSIX-compatible (no `local`) so it works under dash, the default
+# `RUN` shell.
+retry_apt() {
+    n=0
+    until "$@"; do
+        n=$((n+1))
+        if [ $n -ge 5 ]; then
+            echo "FATAL: apt operation failed after $n attempts: $*"
+            return 1
+        fi
+        sleep_for=$((n*15))
+        [ $n -eq 1 ] && sleep_for=5
+        echo "apt operation failed (attempt $n), retrying in ${sleep_for}s: $*"
+        sleep $sleep_for
+    done
+}
+
+retry_apt apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
     # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
-    apt-get install -y software-properties-common
-    add-apt-repository -y ppa:xtradeb/apps
-    apt-get update
+    retry_apt apt-get install -y software-properties-common
+    retry_apt add-apt-repository -y ppa:xtradeb/apps
+    retry_apt apt-get update
     # Install the real chromium package from XtraDeb + chromedriver
-    apt-get install -y chromium chromium-driver
+    retry_apt apt-get install -y chromium chromium-driver
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 

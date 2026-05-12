@@ -59,7 +59,7 @@ func (ml *MessageList) Add(msgs ...*openai.ChatCompletionMessage) {
 
 func (ml *MessageList) AddFirst(prompt string) {
 
-	ml.Messages = append([]*openai.ChatCompletionMessage{DeveloperMessage(prompt)}, ml.Messages...)
+	ml.Messages = append([]*openai.ChatCompletionMessage{SystemMessage(prompt)}, ml.Messages...)
 }
 
 func (ml *MessageList) ReplaceAt(index int, newMsg *openai.ChatCompletionMessage) error {

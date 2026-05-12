@@ -37,6 +37,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ciNotifier            CINotifier    // Delivers ci_passed / ci_failed messages to running agents
 	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -91,6 +92,13 @@ func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
 	o.attentionService = svc
+}
+
+// SetCINotifier sets the notifier used to deliver CI result messages to a
+// running agent. When nil, the orchestrator still tracks CI status on the
+// task but skips agent-side messaging (human attention events still fire).
+func (o *SpecTaskOrchestrator) SetCINotifier(n CINotifier) {
+	o.ciNotifier = n
 }
 
 // Start begins the orchestration loop
@@ -557,7 +565,33 @@ func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *t
 			task.DesignDocsPushedAt = &now
 		}
 
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+
+		// The git-push path (git_http_server) emits specs_pushed via commit hash;
+		// this orchestrator path also needs to notify. Use task ID as the
+		// idempotency qualifier so repeated polls don't duplicate, and so a
+		// race with the git-push path (which uses commit hash) still produces
+		// at most one notification per situation.
+		if o.attentionService != nil {
+			go func(t *types.SpecTask) {
+				_, err := o.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventSpecsPushed,
+					t,
+					t.ID,
+					nil,
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", t.ID).
+						Msg("Failed to emit specs_pushed attention event from orchestrator")
+				}
+			}(task)
+		}
+
+		return nil
 	}
 
 	return nil
@@ -750,6 +784,12 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			updated = true
 		}
 
+		// CI status: poll the provider for the PR's head SHA, fire
+		// transition notifications, persist if anything changed.
+		if o.pollCIStatusForPR(ctx, task, &task.RepoPullRequests[i], pr) {
+			updated = true
+		}
+
 		switch pr.State {
 		case types.PullRequestStateOpen:
 			anyOpen = true
@@ -796,7 +836,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			}
 		}
 
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+		DismissTaskAttentionEvents(ctx, o.store, task.ID)
+		return nil
 	}
 
 	if allClosed && !anyOpen && len(task.RepoPullRequests) > 0 {
@@ -853,7 +897,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			task.MergedAt = &now
 			task.CompletedAt = &now
 			task.UpdatedAt = now
-			return o.store.UpdateSpecTask(ctx, task)
+			if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+				return err
+			}
+			DismissTaskAttentionEvents(ctx, o.store, task.ID)
+			return nil
 		}
 	}
 
@@ -961,8 +1009,13 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 
 	log.Debug().Int("count", len(eligibleTasks)).Msg("Checking tasks for external PR activity")
 
+	// prsByRepo memoizes ListPullRequests results across this poll cycle so
+	// that N tasks all referencing the same upstream repo (e.g. helixml/helix)
+	// hit the GitHub API once per repo, not once per task. Combined with the
+	// service-level cache this keeps us well under the 5000 req/hr quota.
+	prsByRepo := make(map[string][]*types.PullRequest)
 	for _, task := range eligibleTasks {
-		err := o.checkTaskForExternalPRActivity(ctx, task)
+		err := o.checkTaskForExternalPRActivity(ctx, task, prsByRepo)
 		if err != nil {
 			// Don't spam logs for deleted projects
 			if isDeletedProjectError(err) {
@@ -980,8 +1033,10 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 	}
 }
 
-// checkTaskForExternalPRActivity checks a single task for external PR activity
-func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask) error {
+// checkTaskForExternalPRActivity checks a single task for external PR activity.
+// prsByRepo is a per-cycle memo: callers should pass the same map across all
+// tasks in a poll cycle so PR lists for a given repo are fetched at most once.
+func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask, prsByRepo map[string][]*types.PullRequest) error {
 	project, err := o.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		return fmt.Errorf("failed to get project: %w", err)
@@ -1003,11 +1058,19 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 			continue
 		}
 
-		// Check for open or merged PRs on this branch
-		prs, err := o.gitService.ListPullRequests(ctx, repo.ID)
-		if err != nil {
-			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
-			continue
+		// Reuse the per-cycle memo if we've already listed this repo's PRs
+		// for an earlier task in this batch.
+		prs, cached := prsByRepo[repo.ID]
+		if !cached {
+			prs, err = o.gitService.ListPullRequests(ctx, repo.ID)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
+				// Memoize the empty result too so a failing repo is only
+				// attempted once per cycle.
+				prsByRepo[repo.ID] = nil
+				continue
+			}
+			prsByRepo[repo.ID] = prs
 		}
 
 		for _, pr := range prs {
@@ -1082,7 +1145,11 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 				task.MergedAt = &now
 				task.CompletedAt = &now
 				task.UpdatedAt = now
-				return o.store.UpdateSpecTask(ctx, task)
+				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+					return err
+				}
+				DismissTaskAttentionEvents(ctx, o.store, task.ID)
+				return nil
 			}
 		}
 	}
@@ -1125,7 +1192,11 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		task.MergedAt = &now
 		task.CompletedAt = &now
 		task.UpdatedAt = now
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+		DismissTaskAttentionEvents(ctx, o.store, task.ID)
+		return nil
 	}
 
 	return nil

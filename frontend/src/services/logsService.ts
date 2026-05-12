@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { MutableRefObject } from "react";
-import useApi from "../hooks/useApi";
 
 export interface LogEntry {
     timestamp: string;
@@ -45,20 +44,10 @@ export function useSlotLogs(
         sinceRef?: MutableRefObject<string | null>; // Read 'since' from ref, not query key
     }
 ) {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
     return useQuery({
         queryKey: slotLogsQueryKey(slotId, query),
-        queryFn: async () => {
-            // Build query with 'since' from ref (not in query key)
-            const actualQuery = {
-                ...query,
-                since: options?.sinceRef?.current || undefined,
-            };
-
-            const response = await apiClient.v1LogsDetail(slotId, actualQuery);
-            return response.data as LogResponse;
+        queryFn: async (): Promise<LogResponse> => {
+            throw new Error("Runner slot logs are no longer available");
         },
         enabled: options?.enabled ?? false,
         refetchInterval: options?.refetchInterval,

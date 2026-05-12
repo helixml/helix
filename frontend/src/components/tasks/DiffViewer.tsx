@@ -26,6 +26,7 @@ import DiffFileList from "./DiffFileList";
 import DiffContent from "./DiffContent";
 import useSnackbar from "../../hooks/useSnackbar";
 import useThemeConfig from "../../hooks/useThemeConfig";
+import useLightTheme from "../../hooks/useLightTheme";
 import useRouter from "../../hooks/useRouter";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
 
@@ -53,6 +54,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
   pollInterval = 3000,
 }) => {
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
   const snackbar = useSnackbar();
   const router = useRouter();
   const isBigScreen = useIsBigScreen({ breakpoint: "sm" });
@@ -235,7 +237,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
         flexDirection: "column",
         height: "100%",
         overflow: "hidden",
-        bgcolor: themeConfig.darkBackgroundColor,
+        bgcolor: lightTheme.backgroundColor,
       }}
     >
       <Box
@@ -245,14 +247,14 @@ const DiffViewer: FC<DiffViewerProps> = ({
           justifyContent: "space-between",
           px: 2,
           py: 1.25,
-          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-          bgcolor: "rgba(255, 255, 255, 0.02)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+          bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <Typography
             variant="subtitle2"
-            sx={{ fontWeight: 600, color: themeConfig.darkText }}
+            sx={{ fontWeight: 600, color: lightTheme.textColor }}
           >
             Changes
           </Typography>
@@ -335,8 +337,8 @@ const DiffViewer: FC<DiffViewerProps> = ({
       {tabs.length > 1 && (
         <Box
           sx={{
-            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-            bgcolor: "rgba(255, 255, 255, 0.01)",
+            borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.015)' : 'rgba(255, 255, 255, 0.01)',
           }}
         >
           <Tabs
@@ -386,7 +388,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
                     color: themeConfig.tealRoot,
                   },
                   "&:hover": {
-                    color: themeConfig.darkText,
+                    color: lightTheme.textColor,
                   },
                 }}
               />
@@ -404,8 +406,8 @@ const DiffViewer: FC<DiffViewerProps> = ({
             justifyContent: "center",
             py: 0.75,
             px: 1,
-            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-            bgcolor: "rgba(255, 255, 255, 0.02)",
+            borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
           }}
         >
           <ToggleButtonGroup
@@ -434,7 +436,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
                   },
                 },
                 "&:hover": {
-                  bgcolor: "rgba(255, 255, 255, 0.05)",
+                  bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                 },
               },
             }}
@@ -481,7 +483,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
             gap: 1,
           }}
         >
-          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
+          <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
             No changes detected
           </Typography>
           <Typography variant="caption" sx={{ color: themeConfig.neutral400 }}>
@@ -495,16 +497,16 @@ const DiffViewer: FC<DiffViewerProps> = ({
             sx={{
               width: 280,
               flexShrink: 0,
-              borderRight: "1px solid rgba(255, 255, 255, 0.06)",
+              borderRight: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
               overflow: "auto",
-              bgcolor: "rgba(255, 255, 255, 0.01)",
+              bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.015)' : 'rgba(255, 255, 255, 0.01)',
             }}
           >
             <Box
               sx={{
                 px: 1.5,
                 py: 1,
-                borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
               }}
             >
               <Typography
@@ -567,14 +569,14 @@ const DiffViewer: FC<DiffViewerProps> = ({
               sx={{
                 flex: 1,
                 overflow: "auto",
-                bgcolor: "rgba(255, 255, 255, 0.01)",
+                bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.015)' : 'rgba(255, 255, 255, 0.01)',
               }}
             >
               <Box
                 sx={{
                   px: 1.5,
                   py: 1,
-                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                  borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
                 }}
               >
                 <Typography

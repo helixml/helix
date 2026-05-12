@@ -63,16 +63,9 @@ type AppCreateResponse struct {
 func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) ([]ModelSubstitution, error) {
 	var substitutions []ModelSubstitution
 
-	owner := user.ID
-	if app.OrganizationID != "" {
-		owner = app.OrganizationID
-	}
-
-	// Get available providers for the user. Use the endpoint-aware listing
-	// so we can match agent records that store the provider's immutable ID
-	// (DB-backed) as well as the canonical name (env-baked globals + legacy
-	// agents that haven't been re-saved yet).
-	availableEndpoints, err := s.providerManager.ListProviderEndpoints(ctx, owner)
+	// Use the org-aware endpoint list so an org agent referencing the user's
+	// personal provider still finds it (mirrors validateProvidersAndModels).
+	availableEndpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -81,19 +74,24 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		return substitutions, err
 	}
 
-	// Create a set of available providers for fast lookup, indexed by both
-	// ID and (lowercased) Name. Substitution catalogs are name-keyed so
-	// alt.Provider is always a name; the agent-stored value may be an ID,
-	// a canonical global name, or a legacy mixed-case name.
-	providerSet := make(map[types.Provider]bool)
-	for _, ep := range availableEndpoints {
-		if ep.ID != "" {
-			providerSet[types.Provider(ep.ID)] = true
+	// One predicate, case-insensitive on names: substitution catalogs are
+	// name-keyed (alt.Provider is always a canonical name) but the
+	// agent-stored value may be an ID, a canonical global name, or a
+	// legacy mixed-case name. Single helper avoids the case-sensitive Go
+	// map gotcha that the previous double-keyed providerSet papered over.
+	providerKnown := func(ref string) bool {
+		if ref == "" {
+			return false
 		}
-		if ep.Name != "" {
-			providerSet[types.Provider(ep.Name)] = true
-			providerSet[types.Provider(strings.ToLower(ep.Name))] = true
+		for _, ep := range availableEndpoints {
+			if ep.ID != "" && ep.ID == ref {
+				return true
+			}
+			if strings.EqualFold(ep.Name, ref) {
+				return true
+			}
 		}
+		return false
 	}
 
 	log.Info().
@@ -126,7 +124,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 				return
 			}
 
-			substitute := s.findModelSubstitution(originalProvider, originalModel, modelClasses, providerSet)
+			substitute := s.findModelSubstitution(originalProvider, originalModel, modelClasses, providerKnown)
 			if substitute != nil {
 				// Only record a substitution if the provider or model actually changed
 				if substitute.Provider != originalProvider || substitute.Model != originalModel {
@@ -207,16 +205,15 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 	return substitutions, nil
 }
 
-// findModelSubstitution finds the first available model from the alternatives list
-func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, providerSet map[types.Provider]bool) *AlternativeModelOption {
-	// First check if the original provider is available
-	if providerSet[types.Provider(originalProvider)] {
+// findModelSubstitution finds the first available model from the alternatives list.
+// providerKnown is a case-insensitive predicate over the actor-visible
+// providers (env globals + DB-backed user/org).
+func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, providerKnown func(string) bool) *AlternativeModelOption {
+	if providerKnown(originalProvider) {
 		return nil
 	}
 
-	// Original provider is not available, look for substitutions
 	for _, class := range modelClasses {
-		// Check if the original provider/model combination exists in this class
 		found := false
 		for _, alt := range class.Alternatives {
 			if alt.Provider == originalProvider && alt.Model == originalModel {
@@ -224,17 +221,15 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 				break
 			}
 		}
-
-		if found {
-			// Found the original model in this class, now look for available alternatives
-			for _, alt := range class.Alternatives {
-				if providerSet[types.Provider(alt.Provider)] {
-					return &alt
-				}
-			}
-
-			return nil
+		if !found {
+			continue
 		}
+		for _, alt := range class.Alternatives {
+			if providerKnown(alt.Provider) {
+				return &alt
+			}
+		}
+		return nil
 	}
 
 	return nil
@@ -587,44 +582,13 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.App) error {
-
-	owner := user.ID
-	if app.OrganizationID != "" {
-		owner = app.OrganizationID
-	}
-
-	endpoints, err := s.providerManager.ListProviderEndpoints(ctx, owner)
+	endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", user.ID).
 			Msg("Failed to get available providers during validation")
 		return fmt.Errorf("failed to get available providers: %w", err)
-	}
-
-	// When creating org apps, also include the user's personal providers
-	if app.OrganizationID != "" {
-		userEndpoints, err := s.providerManager.ListProviderEndpoints(ctx, user.ID)
-		if err == nil {
-			seen := make(map[string]struct{}, len(endpoints))
-			for _, ep := range endpoints {
-				key := ep.ID
-				if key == "" {
-					key = "name:" + ep.Name
-				}
-				seen[key] = struct{}{}
-			}
-			for _, ep := range userEndpoints {
-				key := ep.ID
-				if key == "" {
-					key = "name:" + ep.Name
-				}
-				if _, ok := seen[key]; !ok {
-					endpoints = append(endpoints, ep)
-					seen[key] = struct{}{}
-				}
-			}
-		}
 	}
 
 	// Provider references are IDs for DB-backed providers, canonical names
@@ -1086,7 +1050,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// Validate and default tools
 	for idx := range updatedWithTools.Config.Helix.Assistants {
-		assistant := &update.Config.Helix.Assistants[idx]
+		assistant := &updatedWithTools.Config.Helix.Assistants[idx]
 
 		// Ensure we don't have tools with duplicate names
 		toolNames := make(map[string]bool)

@@ -11,6 +11,7 @@ import Button from '@mui/material/Button'
 import {
   Bot,
   Clock,
+  Container,
   Server,
   Settings,
   ChevronsUp,
@@ -21,7 +22,7 @@ import {
   LogOut,
   LogIn,
   FileText,
-  HelpCircle,  
+  HelpCircle,
   FileQuestionMark,
   MessageCircle,
   Kanban,
@@ -100,51 +101,65 @@ interface NavButtonProps {
   label: string
 }
 
-const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => (
-  <Tooltip title={tooltip} placement="right">
-    <Box
-      onClick={onClick}
-      sx={{
-        mt: 1,
-        width: AVATAR_SIZE + 8,
-        height: AVATAR_SIZE + 8,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        color: isActive ? '#E2E8F0' : '#A0AEC0',
-        backgroundColor: isActive ? 'rgba(226, 232, 240, 0.15)' : 'transparent',
-        borderRadius: 1,
-        border: isActive ? '1px solid rgba(226, 232, 240, 0.3)' : '1px solid transparent',
-        transform: isActive ? 'scale(1.05)' : 'scale(1)',
-        '&:hover': {
-          color: '#E2E8F0',
-          transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
-          backgroundColor: isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)',
-        },
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {icon}
-      </Box>
-      <Typography
-        variant="caption"
+const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => {
+  const lightTheme = useLightTheme()
+  const isLight = lightTheme.isLight
+  const activeText = isLight ? '#000' : '#E2E8F0'
+  // Light mode = "looking at a cheap iPad in direct sunlight" — go max
+  // contrast. Inactive icons + labels are near-black so they survive glare.
+  const inactiveText = isLight ? '#000' : '#A0AEC0'
+  const activeBg = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(226, 232, 240, 0.15)'
+  const activeBorder = isLight ? 'rgba(0, 0, 0, 0.30)' : 'rgba(226, 232, 240, 0.3)'
+  const hoverBg = isLight
+    ? (isActive ? 'rgba(0, 0, 0, 0.16)' : 'rgba(0, 0, 0, 0.08)')
+    : (isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)')
+  const labelInactive = isLight ? '#000' : '#6B7280'
+  return (
+    <Tooltip title={tooltip} placement="right">
+      <Box
+        onClick={onClick}
         sx={{
-          fontSize: '0.65rem',
-          color: isActive ? '#E2E8F0' : '#6B7280',
-          textAlign: 'center',
-          lineHeight: 1,
-          mt: 0.8,
-          fontWeight: isActive ? 'bold' : 'normal',
+          mt: 1,
+          width: AVATAR_SIZE + 8,
+          height: AVATAR_SIZE + 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          color: isActive ? activeText : inactiveText,
+          backgroundColor: isActive ? activeBg : 'transparent',
+          borderRadius: 1,
+          border: isActive ? `1px solid ${activeBorder}` : '1px solid transparent',
+          transform: isActive ? 'scale(1.05)' : 'scale(1)',
+          '&:hover': {
+            color: activeText,
+            transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
+            backgroundColor: hoverBg,
+          },
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        {label}
-      </Typography>
-    </Box>
-  </Tooltip>
-)
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {icon}
+        </Box>
+        <Typography
+          variant="caption"
+          sx={{
+            fontSize: '0.65rem',
+            color: isActive ? activeText : labelInactive,
+            textAlign: 'center',
+            lineHeight: 1,
+            mt: 0.8,
+            fontWeight: isActive ? 'bold' : (isLight ? 600 : 'normal'),
+          }}
+        >
+          {label}
+        </Typography>
+      </Box>
+    </Tooltip>
+  )
+}
 
 const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) => {
   const account = useAccount()
@@ -398,6 +413,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('tasks'),
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
+      },
+      {
+        icon: <Container size={NAV_BUTTON_SIZE} />,
+        tooltip: "View sandboxes",
+        isActive: isActive(['sandboxes', 'sandbox_detail']),
+        onClick: () => orgNavigateTo('sandboxes'),
+        label: "Sandbox",
       },
       // TODO: re-enable once we have the files editor working
       // {
@@ -1121,10 +1143,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           sx: {
             maxHeight: '400px',
             minWidth: '300px',
-            background: '#181A20',
-            color: '#F1F1F1',
+            background: lightTheme.panelColor,
+            color: lightTheme.textColor,
             borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            boxShadow: lightTheme.isLight ? '0 8px 32px rgba(0,0,0,0.15)' : '0 8px 32px rgba(0,0,0,0.5)',
             mt: 1,
           },
         }}
@@ -1157,7 +1179,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                       ? 'transparent'
                       : currentOrgSlug === org.name
                         ? 'rgba(0, 229, 255, 0.15)'
-                        : '#2D3748',
+                        : lightTheme.highlightColor,
                 },
               }}
             >
@@ -1194,11 +1216,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               <Box sx={{ flex: 1 }}>
                 <Typography
                   variant="body1"
-                  sx={{ color: org.member === false ? '#CBD5E1' : '#F8FAFC', fontWeight: 500 }}
+                  sx={{ color: org.member === false ? lightTheme.textColorFaded : lightTheme.textColor, fontWeight: 500 }}
                 >
                   {org.display_name || org.name}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
+                <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
                   {org.member === false ? 'Not a member' : 'Organization workspace'}
                 </Typography>
               </Box>

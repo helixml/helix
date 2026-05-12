@@ -342,16 +342,13 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 // — the agent record stores the immutable ID, settings.json carries the
 // current name. Renames flow into running sessions on the next sync poll.
 func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error) {
+	// Always list global providers including Helix — runner availability is
+	// checked by the inferencerouter at request-routing time post sandbox-
+	// absorbs-runner pivot, not at provider-listing time. Matches
+	// ListProviders and the SetRunnerController no-op contract.
 	m.globalClientsMu.RLock()
 	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
 	for provider := range m.globalClients {
-		// Skip the Helix provider if there are no runners — same gate as
-		// ListProviders so the snapshots agree on what's reachable.
-		if provider == types.ProviderHelix && m.runnerController != nil {
-			if len(m.runnerController.RunnerIDs()) == 0 {
-				continue
-			}
-		}
 		endpoints = append(endpoints, &types.ProviderEndpoint{
 			Name:         string(provider),
 			EndpointType: types.ProviderEndpointTypeGlobal,

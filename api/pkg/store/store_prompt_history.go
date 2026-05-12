@@ -349,6 +349,78 @@ func (s *PostgresStore) MarkPromptAsCrashed(ctx context.Context, promptID string
 		Error
 }
 
+// ReconcileStuckSendingPrompts catches up prompt_history_entries that were
+// orphaned by the old in-memory interactionToPromptMapping pre-2026-04-30:
+// the dispatched interaction reached state='complete' (Zed responded) but the
+// in-memory map was lost (API restart, dispatch-failure path, etc.) before
+// MarkPromptAsSent could fire, so the prompt sat in 'sending' indefinitely
+// while the response was already in the chat. New code path persists the link
+// on Interaction.PromptID so this only matters for legacy rows + the brief
+// window where new code hasn't shipped to all instances. Idempotent and safe
+// to re-run; the WHERE clause is the no-op gate.
+//
+// Two queries cover both cases:
+//
+//  1. New rows where interactions.prompt_id is set — precise join, mark sent
+//     when the linked interaction is complete.
+//  2. Legacy rows where prompt_id is NULL — heuristic match on session_id +
+//     timing. Only matches prompts older than 5 minutes (skip live work) whose
+//     session has at least one Complete interaction since the prompt was
+//     created.
+func (s *PostgresStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, error) {
+	var total int
+
+	// Path 1: precise — the new PromptID column links the interaction back.
+	{
+		result := s.gdb.WithContext(ctx).Exec(`
+			UPDATE prompt_history_entries
+			SET status = 'sent', updated_at = NOW()
+			WHERE id IN (
+				SELECT p.id
+				FROM prompt_history_entries p
+				JOIN interactions i ON i.prompt_id = p.id
+				WHERE p.status = 'sending'
+				  AND p.deleted_at IS NULL
+				  AND i.state = 'complete'
+			)
+		`)
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += int(result.RowsAffected)
+	}
+
+	// Path 2: legacy heuristic — the prompt predates the PromptID column, so
+	// rely on session_id + the existence of any Complete interaction created
+	// after the prompt as evidence the agent processed it. The 5-minute floor
+	// avoids racing newly-dispatched prompts that just haven't reached Zed yet.
+	{
+		result := s.gdb.WithContext(ctx).Exec(`
+			UPDATE prompt_history_entries
+			SET status = 'sent', updated_at = NOW()
+			WHERE id IN (
+				SELECT p.id
+				FROM prompt_history_entries p
+				WHERE p.status = 'sending'
+				  AND p.deleted_at IS NULL
+				  AND p.created_at < NOW() - INTERVAL '5 minutes'
+				  AND EXISTS (
+					SELECT 1 FROM interactions i
+					WHERE i.session_id = p.session_id
+					  AND i.state = 'complete'
+					  AND i.created >= p.created_at
+				  )
+			)
+		`)
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += int(result.RowsAffected)
+	}
+
+	return total, nil
+}
+
 // ResetCrashedPromptsForSession resets every prompt for sessionID that was
 // marked crashed by MarkPromptAsCrashed: status becomes 'pending', retry_count
 // is zeroed, next_retry_at and error_message are cleared. The auto-retry

@@ -21,7 +21,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useAutoScrollPreference,
   AUTO_SCROLL_NEAR_BOTTOM_PX,
+  USER_SCROLL_UNLOCK_PX,
 } from "../../hooks/useAutoScrollPreference";
+
+// Timeout (ms) after which a fresh wheel event is treated as a new gesture
+// and the upward-scroll accumulator resets. Stops "scroll up 60px, read,
+// then scroll up another 60px" from cumulatively crossing the threshold.
+const USER_SCROLL_GESTURE_TIMEOUT_MS = 500;
 
 // Number of interactions to render initially (and per "load more" click).
 // Keep this low — long-running agent sessions can have interactions with
@@ -62,12 +68,20 @@ export interface EmbeddedSessionViewHandle {
  *
  *   - A single global preference (`helix.autoScroll`, default ON) controls
  *     whether new content auto-scrolls the chat to the bottom.
- *   - When ON: every render where scrollHeight grew is followed by a scroll
- *     to bottom. No "is the user at the bottom?" detection. No guards. No
- *     wheel/touch listeners. The user opts out with the toggle button.
+ *   - When ON: every content-height *growth* (driven by ResizeObserver on
+ *     the inner content Box) is followed by a scroll to bottom. Renders that don't
+ *     grow content (3s polls, WS keepalives, identical re-renders) do
+ *     no scroll work — `scrollToBottom()` is a no-op when
+ *     `container.scrollHeight === lastScrolledHeightRef.current`.
  *   - When OFF: no auto-scroll. If new content lands below the viewport,
  *     a "Jump to latest" pill appears; clicking it scrolls to bottom and
  *     re-enables the preference.
+ *   - Auto-scroll flips OFF in two ways: (a) the toggle button (bottom
+ *     right), and (b) explicit user scroll-up — if the user wheels or
+ *     finger-drags upward by a cumulative ≥ USER_SCROLL_UNLOCK_PX (100px)
+ *     within a single gesture. We listen to `wheel` and `touchmove`
+ *     directly (not `scrollTop` deltas) so programmatic scrolls and
+ *     content reflow above the viewport cannot trip the unlock.
  */
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
@@ -90,6 +104,23 @@ const EmbeddedSessionView = forwardRef<
   // True when auto-scroll is OFF and new content has landed below the viewport.
   // Drives the "Jump to latest" pill.
   const [hasNewBelow, setHasNewBelow] = useState(false);
+
+  // Last scrollHeight we wrote scrollTop to. Used to short-circuit
+  // scrollToBottom() when nothing has actually grown since the last write —
+  // otherwise InteractionLiveStream's onMessageUpdate (which fires on every
+  // message/responseEntries reference change, throttled but ungated) would
+  // trigger a redundant scroll write per polling interval and per WS update.
+  const lastScrolledHeightRef = useRef(0);
+
+  // Cumulative upward user-scroll distance (px) within the current gesture.
+  // Flipped to autoScroll=OFF when this crosses USER_SCROLL_UNLOCK_PX.
+  const upwardAccumRef = useRef(0);
+  // Timestamp of the last wheel event, used to detect a fresh gesture and
+  // reset the accumulator after a quiet gap.
+  const lastWheelTsRef = useRef(0);
+  // Touch state for tracking finger-drag direction.
+  const touchStartYRef = useRef<number | null>(null);
+  const lastTouchYRef = useRef<number | null>(null);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -117,13 +148,16 @@ const EmbeddedSessionView = forwardRef<
 
   // Scroll to bottom. Respects the auto-scroll preference unless `force` is set
   // (force is only used for initial mount, session change, and the
-  // jump-to-latest pill click).
+  // jump-to-latest pill click). Non-force calls also short-circuit when
+  // scrollHeight hasn't changed since the last write — see lastScrolledHeightRef.
   const scrollToBottom = useCallback(
     (force = false) => {
       const container = containerRef.current;
       if (!container) return;
       if (!force && !autoScrollRef.current) return;
+      if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
       container.scrollTop = container.scrollHeight;
+      lastScrolledHeightRef.current = container.scrollHeight;
       setHasNewBelow(false);
       onScrollToBottom?.();
     },
@@ -190,9 +224,19 @@ const EmbeddedSessionView = forwardRef<
     enabled: !!sessionId,
   });
 
-  // Ref to the inner content Box; observed by ResizeObserver so we only
-  // react to *actual* content size changes, not every React re-render.
-  const contentRef = useRef<HTMLDivElement>(null);
+  // The inner content Box is observed by ResizeObserver so we only react
+  // to *actual* content size changes, not every React re-render. Using a
+  // state-mirrored callback ref (NOT a plain useRef) so the ResizeObserver
+  // useEffect can re-run when the element actually mounts — necessary
+  // because EmbeddedSessionView has early returns (loading state when
+  // !session, empty state when no interactions) that render before the
+  // JSX containing this ref. A plain useRef + stable-deps useEffect runs
+  // once with `current === null` and never re-runs when the content
+  // finally mounts; the callback-ref state flip forces the re-run.
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  const setContentRef = useCallback((el: HTMLDivElement | null) => {
+    setContentEl(el);
+  }, []);
   // Last observed content height. 0 until the first ResizeObserver callback.
   const lastContentHeightRef = useRef(0);
   // True once we've forced an initial scroll-to-bottom for this session.
@@ -208,6 +252,11 @@ const EmbeddedSessionView = forwardRef<
 
       hasInitiallyScrolled.current = false;
       lastContentHeightRef.current = 0;
+      lastScrolledHeightRef.current = 0;
+      upwardAccumRef.current = 0;
+      lastWheelTsRef.current = 0;
+      touchStartYRef.current = null;
+      lastTouchYRef.current = null;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
       setOlderInteractions([]);
@@ -244,10 +293,12 @@ const EmbeddedSessionView = forwardRef<
   // ResizeObserver-driven auto-scroll: only fires when the content's actual
   // size changes. Renders that don't grow content (e.g., the 3s React Query
   // poll returning identical data) do no scroll work at all.
+  //
+  // The dep array includes `contentEl` so the effect re-runs when the
+  // content element first mounts after a loading-state early return.
   useEffect(() => {
     const container = containerRef.current;
-    const content = contentRef.current;
-    if (!container || !content) return;
+    if (!container || !contentEl) return;
 
     const observer = new ResizeObserver((entries) => {
       const newHeight = entries[0]?.contentRect.height ?? 0;
@@ -263,15 +314,96 @@ const EmbeddedSessionView = forwardRef<
 
       if (autoScrollRef.current) {
         container.scrollTop = container.scrollHeight;
+        lastScrolledHeightRef.current = container.scrollHeight;
         setHasNewBelow(false);
       } else if (!isNearBottom()) {
         setHasNewBelow(true);
       }
     });
 
-    observer.observe(content);
+    observer.observe(contentEl);
     return () => observer.disconnect();
-  }, [isNearBottom]);
+  }, [contentEl, isNearBottom]);
+
+  // Detect explicit user scroll-up and flip auto-scroll OFF when the user
+  // accumulates >= USER_SCROLL_UNLOCK_PX upward within a single gesture.
+  //
+  // We listen to wheel and touch input events directly — NOT to scrollTop
+  // deltas — because:
+  //   * wheel/touchmove only fire from real user input; programmatic
+  //     scrollTop writes don't synthesize them.
+  //   * content reflow above the viewport (image loads, syntax highlight)
+  //     shifts scrollTop without any input event.
+  // This sidesteps the three race surfaces that killed the previous
+  // sticky-scroll attempt (see commit 42c3a5112 for the autopsy).
+  //
+  // Listeners are wired via React's synthetic event props on the container
+  // JSX (NOT a useEffect) because the component renders early-return
+  // loading/empty states before the container exists. A useEffect with a
+  // stable dep array would run once with `containerRef.current === null`
+  // and never re-attach when the container later mounts. React's prop
+  // wiring guarantees attachment whenever the container actually renders.
+  const triggerUnlock = useCallback(() => {
+    setAutoScroll(false);
+    autoScrollRef.current = false;
+    upwardAccumRef.current = 0;
+  }, [setAutoScroll]);
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (!autoScrollRef.current) return;
+      const now = performance.now();
+      // New gesture if the previous wheel event was long enough ago.
+      if (now - lastWheelTsRef.current > USER_SCROLL_GESTURE_TIMEOUT_MS) {
+        upwardAccumRef.current = 0;
+      }
+      lastWheelTsRef.current = now;
+      if (e.deltaY < 0) {
+        upwardAccumRef.current += -e.deltaY;
+        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
+      } else if (e.deltaY > 0) {
+        // Direction change resets the accumulator — scrolling down clearly
+        // signals the user does NOT want to disengage auto-scroll.
+        upwardAccumRef.current = 0;
+      }
+    },
+    [triggerUnlock],
+  );
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (!autoScrollRef.current) return;
+    const t = e.touches[0];
+    if (!t) return;
+    touchStartYRef.current = t.clientY;
+    lastTouchYRef.current = t.clientY;
+    upwardAccumRef.current = 0;
+  }, []);
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (!autoScrollRef.current) return;
+      const t = e.touches[0];
+      if (!t || lastTouchYRef.current === null) return;
+      // Finger moving DOWN the screen (clientY increases) scrolls the
+      // content UP — that's the gesture we treat as "user wants to read
+      // history."
+      const dy = t.clientY - lastTouchYRef.current;
+      lastTouchYRef.current = t.clientY;
+      if (dy > 0) {
+        upwardAccumRef.current += dy;
+        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
+      } else if (dy < 0) {
+        upwardAccumRef.current = 0;
+      }
+    },
+    [triggerUnlock],
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    touchStartYRef.current = null;
+    lastTouchYRef.current = null;
+    upwardAccumRef.current = 0;
+  }, []);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -410,6 +542,11 @@ const EmbeddedSessionView = forwardRef<
       <Box
         ref={containerRef}
         onScroll={handleScroll}
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         sx={{
           // Use height: 0 + flex: 1 to force this to be the scrollable container
           // Without height: 0, the container may expand to fit content on iOS
@@ -426,7 +563,7 @@ const EmbeddedSessionView = forwardRef<
         }}
       >
         <Box
-          ref={contentRef}
+          ref={setContentRef}
           sx={{
             width: "100%",
             maxWidth: 700,

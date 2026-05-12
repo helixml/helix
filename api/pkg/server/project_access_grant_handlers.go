@@ -202,12 +202,23 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 				Role:           types.OrganizationRoleMember,
 			})
 			if err != nil {
-				writeErrResponse(rw, fmt.Errorf("error adding user to organisation: %w", err), http.StatusInternalServerError)
-				return
+				// Handle the race where a concurrent grant request added the
+				// same user between our earlier membership check and this
+				// create. If they are a member now, treat as success.
+				existing, checkErr := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+					OrganizationID: project.OrganizationID,
+					UserID:         userID,
+				})
+				if checkErr != nil || len(existing) == 0 {
+					writeErrResponse(rw, fmt.Errorf("error adding user to organisation: %w", err), http.StatusInternalServerError)
+					return
+				}
+				log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("user added to organisation by a concurrent request; proceeding with grant")
+			} else {
+				log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("auto-added user to organisation when granting project access")
 			}
 
 			addedToOrganization = true
-			log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("auto-added user to organisation when granting project access")
 		}
 	}
 
@@ -240,7 +251,7 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 	}
 
 	writeResponse(rw, &types.CreateAccessGrantResponse{
-		AccessGrant:         grant,
+		AccessGrant:         *grant,
 		AddedToOrganization: addedToOrganization,
 	}, http.StatusOK)
 }

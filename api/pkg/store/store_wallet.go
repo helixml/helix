@@ -211,17 +211,20 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 		}
 
 		transaction := &types.Transaction{
-			ID:            system.GenerateTransactionID(),
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
-			WalletID:      walletID,
-			Amount:        amount,
-			BalanceBefore: currentBalance,
-			BalanceAfter:  currentBalance + amount,
-			Type:          meta.TransactionType,
-			InteractionID: meta.InteractionID,
-			LLMCallID:     meta.LLMCallID,
-			TopUpID:       meta.TopUpID,
+			ID:                 system.GenerateTransactionID(),
+			CreatedAt:          time.Now(),
+			UpdatedAt:          time.Now(),
+			WalletID:           walletID,
+			Amount:             amount,
+			BalanceBefore:      currentBalance,
+			BalanceAfter:       currentBalance + amount,
+			Type:               meta.TransactionType,
+			InteractionID:      meta.InteractionID,
+			LLMCallID:          meta.LLMCallID,
+			SandboxID:          meta.SandboxID,
+			SandboxRuntime:     meta.SandboxRuntime,
+			SandboxPricingType: meta.SandboxPricingType,
+			TopUpID:            meta.TopUpID,
 		}
 
 		if err := tx.Create(transaction).Error; err != nil {

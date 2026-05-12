@@ -82,7 +82,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const [showApiKey, setShowApiKey] = useState(false);
   const [isFieldFocused, setIsFieldFocused] = useState(false);
   const { mutateAsync: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
-  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
+  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint();
   const { mutateAsync: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
 
   const { success: snackbarSuccess } = useSnackbar();
@@ -179,14 +179,17 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       const trimmedModel = modelName.trim();
       const presetModels = provider.is_custom && trimmedModel ? [trimmedModel] : undefined;
 
-      if (isEditing && existingProvider) {
+      if (isEditing && existingProvider?.id) {
         // Update existing provider
         await updateProviderEndpoint({
-          base_url: baseUrl,
-          api_key: apiKeyToUse,
-          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
-          description: provider.description,
-          ...(provider.is_custom ? { models: presetModels ?? [] } : {}),
+          id: existingProvider.id,
+          body: {
+            base_url: baseUrl,
+            api_key: apiKeyToUse,
+            endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+            description: provider.description,
+            ...(provider.is_custom ? { models: presetModels ?? [] } : {}),
+          },
         });
         snackbarSuccess('Provider updated successfully');
       } else {
@@ -357,7 +360,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           </SectionCard>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+      <DialogActions sx={{ background: lightTheme.panelColor, borderTop: lightTheme.border, flexDirection: 'column', alignItems: 'stretch' }}>
         {error && (
           <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
             <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>

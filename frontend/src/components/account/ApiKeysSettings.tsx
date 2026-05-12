@@ -17,6 +17,7 @@ import { Copy, Eye, EyeOff, RefreshCcw } from 'lucide-react'
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
+import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import {
@@ -29,6 +30,7 @@ const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>
 const ApiKeysSettings: FC = () => {
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
 
   const { data: apiKeys } = useGetUserAPIKeys()
   const regenerateApiKey = useRegenerateUserAPIKey()
@@ -78,7 +80,7 @@ export HELIX_API_KEY=${firstApiKey}
 
   return (
     <>
-      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: lightTheme.isLight ? lightTheme.panelColor : themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
         <Grid item xs={12}>
           <Box sx={{ mb: 3 }}>
             <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>API Key</Typography>
@@ -146,9 +148,9 @@ export HELIX_API_KEY=${firstApiKey}
                   onClick={() => handleCopy(cliInstall)}
                   startIcon={<Copy size={16} />}
                   sx={{
-                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                    backgroundColor: lightTheme.isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.6)',
                     '&:hover': {
-                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                      backgroundColor: lightTheme.isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.8)',
                     },
                   }}
                 >
@@ -184,9 +186,9 @@ export HELIX_API_KEY=${firstApiKey}
                       onClick={() => handleCopy(cliLogin)}
                       startIcon={<Copy size={16} />}
                       sx={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        backgroundColor: lightTheme.isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.6)',
                         '&:hover': {
-                          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                          backgroundColor: lightTheme.isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.8)',
                         },
                       }}
                     >

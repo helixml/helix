@@ -172,6 +172,18 @@ type User struct {
 
 	Waitlisted bool `json:"waitlisted"`
 
+	// Trial intent stashed by admin before the user has created their first org.
+	// Consumed by wallet creation on first owned org, then cleared.
+	TrialDaysOnFirstOrg    *int     `json:"trial_days_on_first_org,omitempty"`
+	TrialCreditsOnFirstOrg *float64 `json:"trial_credits_on_first_org,omitempty"`
+
+	// Transient trial-display fields populated by the admin users list when
+	// ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+	// explicitly populated (json:"...,omitempty").
+	TrialStatus string `json:"trial_status,omitempty" gorm:"-"`
+	TrialOrgID  string `json:"trial_org_id,omitempty" gorm:"-"`
+	TrialEndsAt *int64 `json:"trial_ends_at,omitempty" gorm:"-"`
+
 	// LastSeenAt is the most recent time the user authenticated against the API.
 	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
@@ -201,7 +213,7 @@ type CreateAccessGrantRequest struct {
 
 // CreateAccessGrantResponse wraps AccessGrant with metadata about side effects
 type CreateAccessGrantResponse struct {
-	*AccessGrant
+	AccessGrant
 	AddedToOrganization bool `json:"added_to_organization"`
 }
 
@@ -324,6 +336,16 @@ type UserConfig struct {
 	StripeCustomerID         string   `json:"stripe_customer_id"`
 	StripeSubscriptionID     string   `json:"stripe_subscription_id"`
 	PinnedProjectIDs         []string `json:"pinned_project_ids,omitempty"`
+	// ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+	// Empty string means follow OS preference. Propagated to the GNOME desktop
+	// (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+	// by this user.
+	ColorScheme string `json:"color_scheme,omitempty"`
+}
+
+// UpdateUserColorSchemeRequest is the request body for setting a user's color scheme.
+type UpdateUserColorSchemeRequest struct {
+	ColorScheme string `json:"color_scheme"` // "light", "dark", or "" (follow OS)
 }
 
 func (u UserConfig) Value() (driver.Value, error) {

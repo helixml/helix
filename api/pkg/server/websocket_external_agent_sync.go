@@ -81,12 +81,14 @@ type streamingContext struct {
 	// in-place instead of appending duplicates. A new accumulator per call would
 	// lose the message_id→content mapping because the DB only stores the joined string.
 	accumulator *wsprotocol.MessageAccumulator
-	// priorMessageIDs are message_ids from earlier completed interactions in
-	// this session. Seeded into the accumulator so Zed's flush_streaming_throttle
-	// re-sends of prior-turn entries are dropped instead of leaking into the
-	// current interaction's response_entries.
-	priorMessageIDs []string
-	mu              sync.Mutex
+	// priorEntries are (message_id, content) snapshots from earlier completed
+	// interactions in this session. Seeded into the accumulator so Zed's
+	// flush_streaming_throttle re-sends of prior-turn entries are dropped
+	// instead of leaking into the current interaction's response_entries.
+	// Compared by (id, content) so wrapper-restart renumbering doesn't drop
+	// legitimate new content (see design/2026-04-30-queue-and-other-stuck-state-bugs.md).
+	priorEntries []wsprotocol.ResponseEntry
+	mu           sync.Mutex
 }
 
 const (
@@ -668,6 +670,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleChatResponseError(sessionID, syncMsg)
 	case "agent_ready":
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
+	case "turn_cancelled":
+		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:
@@ -917,10 +921,21 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(createdSession.ID, createdSession.Owner, createdInteraction)
 
+	// Store request_id → interaction_id mapping so that cancel and completion
+	// handlers can look up the correct interaction.
+	if requestID != "" {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
+		apiServer.contextMappingsMutex.Unlock()
+	}
 
 	log.Info().
 		Str("helix_session_id", createdSession.ID).
 		Str("interaction_id", createdInteraction.ID).
+		Str("request_id", requestID).
 		Msg("✅ [HELIX] Created initial interaction and stored mapping")
 
 	// Check if this external agent belongs to a spectask session
@@ -1170,28 +1185,18 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		if targetInteraction != nil {
 			// Mark the originating queue prompt as 'sent' the first time Zed
-			// emits an assistant event for this interaction. Until now the
-			// prompt has been in 'sending' state since dispatch — the queue UI
-			// keeps it visible. We delete the map entry on first match so
-			// subsequent message_added events for the same interaction don't
-			// re-mark (and don't pay for the lookup beyond the first).
-			apiServer.contextMappingsMutex.Lock()
-			if promptID, ok := apiServer.interactionToPromptMapping[targetInteraction.ID]; ok {
-				delete(apiServer.interactionToPromptMapping, targetInteraction.ID)
-				apiServer.contextMappingsMutex.Unlock()
-				if markErr := apiServer.Controller.Options.Store.MarkPromptAsSent(context.Background(), promptID); markErr != nil {
+			// emits an assistant event for this interaction. The link comes from
+			// the persisted Interaction.PromptID column so it survives API
+			// restarts and reconnect-via-pickupWaitingInteraction. Idempotent at
+			// the SQL layer — calling MarkPromptAsSent on an already-sent prompt
+			// is a no-op write — so it's safe to fire on every message_added.
+			if targetInteraction.PromptID != "" {
+				if markErr := apiServer.Controller.Options.Store.MarkPromptAsSent(context.Background(), targetInteraction.PromptID); markErr != nil {
 					log.Warn().Err(markErr).
-						Str("prompt_id", promptID).
+						Str("prompt_id", targetInteraction.PromptID).
 						Str("interaction_id", targetInteraction.ID).
 						Msg("Failed to mark prompt as sent after Zed acknowledged")
-				} else {
-					log.Info().
-						Str("prompt_id", promptID).
-						Str("interaction_id", targetInteraction.ID).
-						Msg("✅ [QUEUE] Marked prompt as sent (Zed started processing)")
 				}
-			} else {
-				apiServer.contextMappingsMutex.Unlock()
 			}
 
 			// Update the existing interaction with the AI response content
@@ -1211,10 +1216,12 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 					targetInteraction.LastZedMessageOffset,
 					targetInteraction.ResponseEntries,
 				)
-				// Drop replays of message_ids that belong to earlier
-				// interactions in this session — Zed's flush_streaming_throttle
-				// resends ALL ACP thread entries on every event.
-				sctx.accumulator.SetPriorMessageIDs(sctx.priorMessageIDs)
+				// Drop replays of (message_id, content) pairs that belong to
+				// earlier interactions in this session — Zed's
+				// flush_streaming_throttle resends ALL ACP thread entries on
+				// every event. Content-aware so wrapper-restart renumbering
+				// doesn't drop legitimate new content under a reused id.
+				sctx.accumulator.SetPriorEntries(sctx.priorEntries)
 			}
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
@@ -1642,7 +1649,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		}
 	}
 
-	priorMsgIDs := collectPriorMessageIDs(interactions, newInteractionID)
+	priorEntries := collectPriorEntries(interactions, newInteractionID)
 
 	// If we have an existing context (from a transition), update it instead of creating new
 	if exists && sctx != nil {
@@ -1650,7 +1657,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		sctx.session = helixSession
 		sctx.interaction = targetInteraction
 		sctx.interactionID = newInteractionID
-		sctx.priorMessageIDs = priorMsgIDs
+		sctx.priorEntries = priorEntries
 		sctx.mu.Unlock()
 
 		log.Info().
@@ -1663,10 +1670,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 
 	// Create new context
 	sctx = &streamingContext{
-		session:         helixSession,
-		interaction:     targetInteraction,
-		interactionID:   newInteractionID,
-		priorMessageIDs: priorMsgIDs,
+		session:       helixSession,
+		interaction:   targetInteraction,
+		interactionID: newInteractionID,
+		priorEntries:  priorEntries,
 	}
 
 	apiServer.streamingContextsMu.Lock()
@@ -1687,16 +1694,22 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	return sctx
 }
 
-// collectPriorMessageIDs harvests message_ids stored in response_entries of
-// completed interactions in this session, excluding the target interaction.
-// These ids are seeded into the new interaction's accumulator so Zed's
+// collectPriorEntries harvests (message_id, content) pairs from response_entries
+// of completed interactions in this session, excluding the target interaction.
+// These are seeded into the new interaction's accumulator so Zed's
 // flush_streaming_throttle replays of prior-turn entries are dropped instead
 // of leaking into the new interaction's response_entries.
-func collectPriorMessageIDs(interactions []*types.Interaction, targetInteractionID string) []string {
+//
+// We carry content (not just IDs) because Zed's wrapper may restart and
+// renumber message_ids; without comparing content, legitimate new entries
+// under reused IDs would be silently dropped. See
+// design/2026-04-30-queue-and-other-stuck-state-bugs.md for the empty-response
+// bounce that motivated this.
+func collectPriorEntries(interactions []*types.Interaction, targetInteractionID string) []wsprotocol.ResponseEntry {
 	if len(interactions) == 0 {
 		return nil
 	}
-	var ids []string
+	var entries []wsprotocol.ResponseEntry
 	for _, i := range interactions {
 		if i == nil || i.ID == targetInteractionID {
 			continue
@@ -1704,17 +1717,17 @@ func collectPriorMessageIDs(interactions []*types.Interaction, targetInteraction
 		if len(i.ResponseEntries) == 0 {
 			continue
 		}
-		var entries []wsprotocol.ResponseEntry
-		if err := json.Unmarshal(i.ResponseEntries, &entries); err != nil {
+		var ie []wsprotocol.ResponseEntry
+		if err := json.Unmarshal(i.ResponseEntries, &ie); err != nil {
 			continue
 		}
-		for _, e := range entries {
+		for _, e := range ie {
 			if e.MessageID != "" {
-				ids = append(ids, e.MessageID)
+				entries = append(entries, e)
 			}
 		}
 	}
-	return ids
+	return entries
 }
 
 // flushAndClearStreamingContext flushes any dirty interaction state to the DB,
@@ -1748,6 +1761,14 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 				if entriesJSON, err := json.Marshal(sctx.accumulator.Entries()); err == nil {
 					_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
 				}
+			}
+			// Before flushing, refresh the State field from the store.
+			// Other handlers (e.g. handleTurnCancelled) may have changed
+			// the state while streaming was in progress. We must not
+			// overwrite those state transitions with our stale cached state.
+			freshInteraction, refreshErr := apiServer.Controller.Options.Store.GetInteraction(ctx, sctx.interaction.ID)
+			if refreshErr == nil {
+				sctx.interaction.State = freshInteraction.State
 			}
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
 			if err != nil {
@@ -1815,7 +1836,12 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // to an external agent. It creates a waiting interaction, enqueues it for response
 // routing, and sends the WebSocket command. All callers that need to send a message
 // to an agent should use this function.
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) (interactionID string, err error) {
+//
+// interrupt=true tells the agent to cancel its current turn before processing the
+// message, matching the semantic used by prompt-history queue messages. Used for
+// reactive feedback (e.g. design review comments) where the latest input should
+// take priority over in-flight work.
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool) (interactionID string, err error) {
 	ctx := context.Background()
 
 	// Look up the session to get its ZedThreadID and agent name
@@ -1872,6 +1898,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
 			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
+			"interrupt":     interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
 		},
 	}
 
@@ -1924,6 +1951,100 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		}
 	}()
 	return sendErr
+}
+
+// sendCancelToExternalAgent sends a cancel_current_turn command to Zed and waits
+// for a turn_cancelled response (up to timeout). Returns the status ("cancelled" or "noop")
+// or an error if the timeout expires or the command can't be sent.
+func (apiServer *HelixAPIServer) sendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
+	// Create a channel to receive the turn_cancelled response
+	ch := make(chan string, 1)
+	apiServer.contextMappingsMutex.Lock()
+	apiServer.pendingCancelChannels[requestID] = ch
+	apiServer.contextMappingsMutex.Unlock()
+
+	// Clean up on exit
+	defer func() {
+		apiServer.contextMappingsMutex.Lock()
+		delete(apiServer.pendingCancelChannels, requestID)
+		apiServer.contextMappingsMutex.Unlock()
+	}()
+
+	// Send cancel command
+	command := types.ExternalAgentCommand{
+		Type: "cancel_current_turn",
+		Data: map[string]interface{}{
+			"request_id": requestID,
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		return "", fmt.Errorf("failed to send cancel command: %w", err)
+	}
+
+	// Wait for response or timeout
+	select {
+	case status := <-ch:
+		return status, nil
+	case <-time.After(timeout):
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("Timeout waiting for turn_cancelled from Zed")
+		return "", fmt.Errorf("timeout waiting for turn_cancelled")
+	}
+}
+
+// handleTurnCancelled processes the turn_cancelled event from Zed
+func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, _ := syncMsg.Data["request_id"].(string)
+	status, _ := syncMsg.Data["status"].(string)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Str("status", status).
+		Msg("Received turn_cancelled from Zed")
+
+	// Notify any pending cancel channel
+	apiServer.contextMappingsMutex.RLock()
+	ch, exists := apiServer.pendingCancelChannels[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if exists {
+		select {
+		case ch <- status:
+		default:
+			// Channel full or already received — ignore
+		}
+	}
+
+	// If the turn was actually cancelled, mark the interaction as interrupted
+	if status == "cancelled" {
+		apiServer.contextMappingsMutex.RLock()
+		interactionID, hasInteraction := apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
+
+		if hasInteraction {
+			interaction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), interactionID)
+			if err == nil && interaction.State == types.InteractionStateWaiting {
+				interaction.State = types.InteractionStateInterrupted
+				interaction.Completed = time.Now()
+				interaction.Updated = time.Now()
+				if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
+					log.Error().Err(err).Str("interaction_id", interactionID).Msg("Failed to mark interaction as interrupted")
+				} else {
+					log.Info().Str("interaction_id", interactionID).Msg("Marked interaction as interrupted")
+					// Publish update to frontend
+					session, sessionErr := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+					if sessionErr == nil {
+						apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, interaction)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // registerConnection registers a new external agent connection
@@ -2501,8 +2622,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return nil
 	}
 
-	// Mark the interaction as complete
-	targetInteraction.State = types.InteractionStateComplete
+	// Mark the interaction as complete — but don't overwrite "interrupted" state.
+	// When a turn is cancelled, handleTurnCancelled marks the interaction as
+	// interrupted. The message_completed event may arrive shortly after (the agent
+	// finishes its in-flight work), and we must not clobber the interrupted state.
+	if targetInteraction.State == types.InteractionStateInterrupted {
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("⏭️ [HELIX] Interaction already interrupted — skipping state transition to complete")
+	} else {
+		targetInteraction.State = types.InteractionStateComplete
+	}
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
 
@@ -2523,6 +2654,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 	}
 
+	// Continuous reconciliation: if the queued prompt was never marked sent
+	// via handleMessageAdded (e.g. the agent went straight to message_completed
+	// without intermediate streaming, or the streaming path missed it), this
+	// is the last reliable point at which we know the interaction completed
+	// successfully. Idempotent — a no-op for prompts already in 'sent'.
+	if targetInteraction.PromptID != "" {
+		if markErr := apiServer.Controller.Options.Store.MarkPromptAsSent(context.Background(), targetInteraction.PromptID); markErr != nil {
+			log.Warn().Err(markErr).
+				Str("prompt_id", targetInteraction.PromptID).
+				Str("interaction_id", targetInteraction.ID).
+				Msg("Failed to mark prompt as sent at message_completed reconciliation")
+		}
+	}
+
 	log.Info().
 		Str("helix_session_id", helixSessionID).
 		Str("interaction_id", targetInteraction.ID).
@@ -2538,8 +2683,36 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if helixSession.Metadata.SpecTaskID != "" {
 		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
 
-		// Emit attention event: agent interaction completed
-		if apiServer.attentionService != nil {
+		// Emit attention event: agent interaction completed.
+		//
+		// Skip the notification when the user is clearly already active in the
+		// session — either they interrupted the agent (sent a new message that
+		// caused this completion) or they sent a quick follow-up. In both cases
+		// a newer interaction with state=waiting already exists, and notifying
+		// is just noise because the user is looking right at the UI.
+		skipAttention := false
+		latestInteractions, _, listErr := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1,
+		})
+		if listErr != nil {
+			log.Warn().Err(listErr).
+				Str("session_id", helixSessionID).
+				Msg("Failed to list interactions for attention-event suppression check; emitting event as default")
+		} else if len(latestInteractions) > 0 {
+			latest := latestInteractions[len(latestInteractions)-1]
+			if latest.State == types.InteractionStateWaiting && latest.Created.After(targetInteraction.Created) {
+				log.Debug().
+					Str("session_id", helixSessionID).
+					Str("completed_interaction_id", targetInteraction.ID).
+					Str("newer_waiting_interaction_id", latest.ID).
+					Msg("Skipping agent_interaction_completed attention event: user already active in session")
+				skipAttention = true
+			}
+		}
+
+		if !skipAttention && apiServer.attentionService != nil {
 			go func() {
 				task, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
 				if err != nil {
@@ -2777,9 +2950,9 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		return
 	}
 
-	// NOTE: Don't mark as sent here. sendQueuedPromptToSession registers an
-	// interactionToPromptMapping entry on successful dispatch; handleMessageAdded
-	// marks the prompt as 'sent' when Zed actually starts streaming a response,
+	// NOTE: Don't mark as sent here. sendQueuedPromptToSession persists the
+	// interaction with PromptID set; handleMessageAdded reads that column and
+	// marks the prompt 'sent' when Zed actually starts streaming a response,
 	// so the queue UI keeps showing it as in-flight until then.
 
 	log.Info().
@@ -2831,8 +3004,8 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 	}
 
 	// NOTE: Don't mark as sent here — see comment in processPromptQueue. The
-	// prompt is marked sent when Zed sends the first message_added for the
-	// interaction created above, via interactionToPromptMapping.
+	// prompt is marked sent when Zed sends the first message_added, by
+	// handleMessageAdded reading the Interaction.PromptID column.
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -2887,15 +3060,12 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			// the one we already created for THIS prompt on a previous dispatch
 			// attempt (e.g. the no-WS path persisted I1, the agent then connected
 			// and pickupWaitingInteraction sent it, and now the prompt's retry
-			// timer is firing while I1 is still mid-turn). The mapping is the
-			// authoritative link from interaction → originating prompt; if it
-			// points back at us, the message is already in flight and we must
-			// NOT create a duplicate. handleMessageAdded will mark this prompt
-			// 'sent' when Zed acknowledges the existing interaction.
-			apiServer.contextMappingsMutex.Lock()
-			mappedPromptID, mapped := apiServer.interactionToPromptMapping[latestInteractions[0].ID]
-			apiServer.contextMappingsMutex.Unlock()
-			if mapped && mappedPromptID == prompt.ID {
+			// timer is firing while I1 is still mid-turn). The PromptID column
+			// on the interaction is the authoritative link to the originating
+			// prompt; if it points back at us, the message is already in flight
+			// and we must NOT create a duplicate. handleMessageAdded will mark
+			// this prompt 'sent' when Zed acknowledges the existing interaction.
+			if latestInteractions[0].PromptID == prompt.ID {
 				log.Info().
 					Str("session_id", sessionID).
 					Str("interaction_id", latestInteractions[0].ID).
@@ -2908,7 +3078,11 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
-	// This ensures that when the agent responds, handleMessageAdded has an interaction to update
+	// This ensures that when the agent responds, handleMessageAdded has an interaction to update.
+	// PromptID persists the link back to the prompt_history_entry so handleMessageAdded /
+	// handleMessageCompleted can mark the prompt 'sent' from the DB row, not from an in-memory
+	// map that doesn't survive API restart. Replaces interactionToPromptMapping.
+	// See design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	interaction := &types.Interaction{
 		ID:            "", // Will be generated
 		Created:       time.Now(),
@@ -2920,6 +3094,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Mode:          types.SessionModeInference,
 		PromptMessage: prompt.Content,
 		State:         types.InteractionStateWaiting,
+		PromptID:      prompt.ID,
 	}
 
 	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
@@ -2942,13 +3117,11 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// Use interaction ID as request ID for better tracing
 	requestID := createdInteraction.ID
 
-	// CRITICAL: Store request_id->session mapping so thread_created can find the right session
-	// This is needed for the FIRST message when ZedThreadID is empty and a new thread will be created
-	// Also stash interaction → prompt mapping NOW (not after a successful dispatch) so that the
-	// no-WS path — which still leaves I1 in the DB for pickupWaitingInteraction to deliver — can
-	// be marked 'sent' when Zed eventually acknowledges. Without this pre-set, dispatch failures
-	// orphan the prompt from its interaction and the queue UI shows it as failed forever even
-	// though Zed processed the message after the agent woke up.
+	// Store request_id->session mapping so thread_created can find the right session
+	// (needed for the FIRST message when ZedThreadID is empty and Zed will create a
+	// new thread). The interaction → prompt link no longer lives in an in-memory map;
+	// it's persisted on the Interaction.PromptID column at create time, so it
+	// survives API restart and pickupWaitingInteraction-driven re-delivery.
 	apiServer.contextMappingsMutex.Lock()
 	if apiServer.requestToSessionMapping == nil {
 		apiServer.requestToSessionMapping = make(map[string]string)
@@ -2959,10 +3132,6 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		apiServer.requestToInteractionMapping = make(map[string]string)
 	}
 	apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
-	if apiServer.interactionToPromptMapping == nil {
-		apiServer.interactionToPromptMapping = make(map[string]string)
-	}
-	apiServer.interactionToPromptMapping[createdInteraction.ID] = prompt.ID
 	apiServer.contextMappingsMutex.Unlock()
 	log.Info().
 		Str("request_id", requestID).
@@ -3001,18 +3170,17 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	//     or still booting. sendCommandToExternalAgent has already kicked off
 	//     autoStartDevContainerForSession; pickupWaitingInteraction will deliver
 	//     the persisted Waiting interaction once the agent reconnects. The
-	//     interactionToPromptMapping we set above survives the failure, so when
-	//     Zed acknowledges I1 the prompt gets marked 'sent' via handleMessageAdded.
-	//     We must NOT mark the prompt as failed in this case — doing so used to
-	//     surface a misleading "no WebSocket connection" error in the queue UI
-	//     and trigger a retry that, once I1 reached Zed, collided with the
-	//     in-flight interaction and produced a second misleading "session became
-	//     busy" failure. The message was being delivered exactly once all along.
+	//     Interaction.PromptID column we set on createInteraction survives the
+	//     failure (it's in the DB row), so when Zed acknowledges I1 the prompt
+	//     gets marked 'sent' via handleMessageAdded reading the column. We must
+	//     NOT mark the prompt as failed here — doing so used to surface a
+	//     misleading "no WebSocket connection" error and trigger a retry that
+	//     collided with the in-flight interaction (PR #2311).
 	//
 	//  2. Real dispatch failures (channel full, connection replaced mid-send):
 	//     the connection exists but the send didn't take. Mark the prompt failed
 	//     so the queue's exponential-backoff retry kicks in. Tear down the
-	//     mapping so the next attempt starts clean.
+	//     request_id mappings so the next attempt starts clean.
 	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
 		if errors.Is(err, ErrNoExternalAgentWS) {
 			log.Info().
@@ -3020,12 +3188,6 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 				Str("interaction_id", createdInteraction.ID).
 				Str("prompt_id", prompt.ID).
 				Msg("⏸️ [QUEUE] Agent not connected — interaction persisted, awaiting pickupWaitingInteraction on reconnect")
-			// Don't tear down requestToSessionMapping/requestToInteractionMapping
-			// or the interactionToPromptMapping: pickupWaitingInteraction will
-			// assemble its own request_id mappings, and we need the
-			// interaction→prompt link intact so the eventual delivery marks the
-			// prompt as 'sent'. The prompt stays in 'sending' state so the queue
-			// UI shows the spinner instead of a red error.
 			return nil
 		}
 
@@ -3035,13 +3197,13 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			Str("prompt_id", prompt.ID).
 			Msg("❌ [QUEUE] Failed to send to agent (real dispatch failure, will retry)")
 
-		// Clean up in-memory state so the next retry starts clean. Without this,
-		// stale message_completed events from a prior agent context could match
-		// this interaction.
+		// Clean up request_id mappings so the next retry starts clean. Without
+		// this, stale message_completed events from a prior agent context could
+		// match this interaction. The interaction → prompt link lives in the
+		// DB column, so it survives this cleanup.
 		apiServer.contextMappingsMutex.Lock()
 		delete(apiServer.requestToSessionMapping, requestID)
 		delete(apiServer.requestToInteractionMapping, requestID)
-		delete(apiServer.interactionToPromptMapping, createdInteraction.ID)
 		apiServer.contextMappingsMutex.Unlock()
 
 		if markErr := apiServer.Store.MarkPromptAsFailed(context.Background(), prompt.ID, err.Error()); markErr != nil {
@@ -3053,10 +3215,18 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	return nil
 }
 
-// autoStartDevContainerForSession checks if a session belongs to a spec task and,
-// if so, auto-starts its dev container. This is fire-and-forget — the caller's
+// autoStartDevContainerForSession boots the dev container for any zed_external
+// session that has no live WebSocket connection. Fire-and-forget — the caller's
 // message is already persisted and will be picked up by pickupWaitingInteraction
 // when the agent reconnects.
+//
+// Handles three session shapes via startDevContainerForSession:
+//   - spec-task sessions  (session.Metadata.SpecTaskID set)
+//   - exploratory sessions (session.Metadata.ProjectID set)
+//   - legacy sessions      (session.ProjectID set)
+//
+// Sessions with none of the above are logged and skipped (we cannot invent project
+// config). Non-zed_external sessions are also skipped (they have no desktop to wake).
 func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
 	ctx := context.Background()
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
@@ -3068,21 +3238,25 @@ func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID strin
 		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
 		return
 	}
-	if session.Metadata.SpecTaskID == "" {
-		log.Debug().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: no spec task ID on session, skipping")
+	if session.Metadata.AgentType != "zed_external" {
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("autoStartDevContainerForSession: not a zed_external session, skipping")
 		return
 	}
-	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-	if err != nil {
-		log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for dev container auto-start")
-		return
-	}
+
 	log.Info().
 		Str("session_id", sessionID).
-		Str("spec_task_id", specTask.ID).
+		Str("spec_task_id", session.Metadata.SpecTaskID).
+		Bool("has_spec_task", session.Metadata.SpecTaskID != "").
 		Msg("Auto-starting dev container for session with no WebSocket connection")
-	if startErr := apiServer.startDevContainerForSpecTask(ctx, specTask); startErr != nil {
-		log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start dev container")
+
+	if startErr := apiServer.startDevContainerForSession(ctx, session); startErr != nil {
+		log.Error().Err(startErr).
+			Str("session_id", sessionID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Msg("Failed to auto-start dev container")
 	}
 }
 
@@ -3190,28 +3364,25 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						// dead process and rebounds. We pin next_retry_at far in the
 						// future via MarkPromptAsCrashed so the queue stops looping,
 						// and the frontend's crash detector renders a Restart button.
-						apiServer.contextMappingsMutex.Lock()
-						promptID, hasPrompt := apiServer.interactionToPromptMapping[interactions[i].ID]
-						if hasPrompt {
-							delete(apiServer.interactionToPromptMapping, interactions[i].ID)
-						}
-						apiServer.contextMappingsMutex.Unlock()
-						if hasPrompt {
+						// Read the prompt_id directly from the interaction column so this
+						// works after API restart too (the in-memory map used to be the
+						// only source of this link).
+						if interactions[i].PromptID != "" {
 							failureMsg := fmt.Sprintf("Thread load failed: %s", errorMsg)
 							var markErr error
 							if isAgentCrashError(errorMsg) {
 								log.Warn().
-									Str("prompt_id", promptID).
+									Str("prompt_id", interactions[i].PromptID).
 									Str("interaction_id", interactions[i].ID).
 									Str("acp_thread_id", acpThreadID).
 									Msg("💥 [HELIX] Claude Agent crashed — marking prompt crashed (suppress auto-retry, awaits user Restart)")
-								markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), promptID, failureMsg)
+								markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), interactions[i].PromptID, failureMsg)
 							} else {
-								markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), promptID, failureMsg)
+								markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), interactions[i].PromptID, failureMsg)
 							}
 							if markErr != nil {
 								log.Error().Err(markErr).
-									Str("prompt_id", promptID).
+									Str("prompt_id", interactions[i].PromptID).
 									Str("interaction_id", interactions[i].ID).
 									Msg("Failed to mark prompt after thread load error")
 							}

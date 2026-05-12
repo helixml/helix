@@ -6,6 +6,12 @@ const STORAGE_KEY = "helix.autoScroll";
 // jump-to-latest pill. Only used when auto-scroll is OFF.
 export const AUTO_SCROLL_NEAR_BOTTOM_PX = 80;
 
+// Cumulative upward user-scroll distance (px) within a single gesture that
+// flips auto-scroll OFF. Detected from wheel/touch input events (not from
+// scrollTop deltas) so programmatic scrolls and content reflow can't trip
+// it — see EmbeddedSessionView.tsx for the listener wiring.
+export const USER_SCROLL_UNLOCK_PX = 100;
+
 const readStored = (): boolean => {
   try {
     const v = localStorage.getItem(STORAGE_KEY);

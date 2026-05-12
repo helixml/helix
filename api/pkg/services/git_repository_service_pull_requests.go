@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
@@ -18,6 +20,10 @@ import (
 	"github.com/rs/zerolog/log"
 	gl "github.com/xanzy/go-gitlab"
 )
+
+// rateLimitFallbackBackoff is used when GitHub returns a rate-limit / abuse error
+// without a usable reset time. We back off for this long before retrying.
+const rateLimitFallbackBackoff = 5 * time.Minute
 
 // OAuthRequiredError is returned when a user-initiated action requires
 // a GitHub OAuth connection that the acting user does not have.
@@ -62,6 +68,11 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 		return "", fmt.Errorf("repository is not external, cannot create pull request")
 	}
 
+	// Drop any cached PR list for this repo so the next read sees the new PR.
+	if s.prListCache != nil {
+		s.prListCache.invalidate(repoID)
+	}
+
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
@@ -85,6 +96,11 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 
 	if repo.ExternalURL == "" {
 		return fmt.Errorf("repository is not external")
+	}
+
+	// Drop any cached PR list for this repo so the next read reflects the update.
+	if s.prListCache != nil {
+		s.prListCache.invalidate(repoID)
 	}
 
 	switch repo.ExternalType {
@@ -213,6 +229,41 @@ func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context,
 }
 
 func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error) {
+	if s.prListCache != nil {
+		if prs, cachedErr, ok := s.prListCache.get(repoID); ok {
+			return prs, cachedErr
+		}
+	}
+
+	prs, err := s.listPullRequestsUncached(ctx, repoID)
+	if s.prListCache == nil {
+		return prs, err
+	}
+
+	if err != nil {
+		// Cache rate-limit / abuse errors until their reset window so we don't
+		// re-hit the upstream from every concurrent caller while the limit is
+		// still in effect. Other errors are not cached so transient failures
+		// retry on the next call.
+		if backoffUntil, ok := rateLimitBackoffUntil(err); ok {
+			s.prListCache.setError(repoID, err, backoffUntil)
+			log.Warn().
+				Err(err).
+				Str("repo_id", repoID).
+				Dur("reset_in", time.Until(backoffUntil)).
+				Msg("GitHub rate limit hit; backing off ListPullRequests for this repo")
+		}
+		return nil, err
+	}
+
+	s.prListCache.set(repoID, prs)
+	return prs, nil
+}
+
+// listPullRequestsUncached performs the actual upstream PR list call, dispatched
+// by the repository's external provider type. ListPullRequests wraps this with
+// the prListCache.
+func (s *GitRepositoryService) listPullRequestsUncached(ctx context.Context, repoID string) ([]*types.PullRequest, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository not found: %w", err)
@@ -234,6 +285,28 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 	default:
 		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
+}
+
+// rateLimitBackoffUntil inspects err for a GitHub rate-limit / abuse error and,
+// if found, returns the time at which we should retry. Falls back to a fixed
+// 5-minute backoff if no reset time is available on the error.
+func rateLimitBackoffUntil(err error) (time.Time, bool) {
+	var rl *gh.RateLimitError
+	if errors.As(err, &rl) {
+		reset := rl.Rate.Reset.Time
+		if reset.IsZero() || reset.Before(time.Now()) {
+			reset = time.Now().Add(rateLimitFallbackBackoff)
+		}
+		return reset, true
+	}
+	var abuse *gh.AbuseRateLimitError
+	if errors.As(err, &abuse) {
+		if abuse.RetryAfter != nil && *abuse.RetryAfter > 0 {
+			return time.Now().Add(*abuse.RetryAfter), true
+		}
+		return time.Now().Add(rateLimitFallbackBackoff), true
+	}
+	return time.Time{}, false
 }
 
 func pullRequestStateFromAzureDevOps(state string) types.PullRequestState {
@@ -425,6 +498,10 @@ func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, re
 
 	if adoPR.Url != nil {
 		pr.URL = fmt.Sprintf("%s/pullrequest/%d", repo.ExternalURL, *adoPR.PullRequestId)
+	}
+
+	if adoPR.LastMergeSourceCommit != nil && adoPR.LastMergeSourceCommit.CommitId != nil {
+		pr.HeadSHA = *adoPR.LastMergeSourceCommit.CommitId
 	}
 
 	return pr, nil
@@ -669,6 +746,7 @@ func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *t
 		SourceBranch: ghPR.GetHead().GetRef(),
 		TargetBranch: ghPR.GetBase().GetRef(),
 		URL:          ghPR.GetHTMLURL(),
+		HeadSHA:      ghPR.GetHead().GetSHA(),
 	}
 
 	if ghPR.GetUser() != nil {
@@ -863,6 +941,7 @@ func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *
 		SourceBranch: glMR.SourceBranch,
 		TargetBranch: glMR.TargetBranch,
 		URL:          glMR.WebURL,
+		HeadSHA:      glMR.SHA,
 	}
 
 	if glMR.Author != nil {

@@ -137,6 +137,19 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	return result, int64(len(result)), nil
 }
 
+func (m *MemoryStore) ListSessionsByOwner(_ context.Context, ownerID string) ([]*types.Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*types.Session, 0)
+	for _, s := range m.sessions {
+		if s.Owner == ownerID {
+			cp := *s
+			result = append(result, &cp)
+		}
+	}
+	return result, nil
+}
+
 // --- Interaction methods ---
 
 func (m *MemoryStore) ListStuckWaitingInteractions(_ context.Context, _ time.Time, _ int) ([]*types.Interaction, error) {
@@ -300,6 +313,9 @@ func (m *MemoryStore) MarkPromptAsCrashed(_ context.Context, _ string, _ string)
 	return nil
 }
 func (m *MemoryStore) ResetCrashedPromptsForSession(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (m *MemoryStore) ReconcileStuckSendingPrompts(_ context.Context) (int, error) {
 	return 0, nil
 }
 func (m *MemoryStore) RequeueBouncedPrompt(_ context.Context, _ string) error     { return nil }

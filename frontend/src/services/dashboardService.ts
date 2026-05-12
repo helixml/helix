@@ -1,21 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useApi from "../hooks/useApi";
+import { DashboardData } from "../types/dashboard";
 
 export const dashboardQueryKey = () => ["dashboard"];
 
 export function useGetDashboardData() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
     return useQuery({
         queryKey: dashboardQueryKey(),
-        queryFn: async () => {
-            const result = await apiClient.v1DashboardList();
-            return result.data;
-        },
+        queryFn: async (): Promise<DashboardData> => ({ runners: [] }),
         enabled: true,
-        staleTime: 1000, // 1 second - matches backend update intervals
-        refetchInterval: 1000, // Refetch every 1 second - matches backend runner cache and reconcile intervals
+        staleTime: Infinity,
     });
 }
 
@@ -40,6 +34,10 @@ export interface UserListQuery {
     type?: string;
     /** Filter by token type */
     token_type?: string;
+    /** Filter by waitlist status (true = only waitlisted, false = only active) */
+    waitlisted?: boolean;
+    /** Comma-separated list of extras to include (e.g. "trial") */
+    include?: string;
 }
 
 /**
@@ -246,6 +244,58 @@ export function useAdminDeleteUser() {
         },
         onSuccess: () => {
             // Invalidate users list to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+export interface ActivateTrialInput {
+    userId: string;
+    days?: number;
+    credits?: number;
+}
+
+/**
+ * Hook to activate a trial on a user (cloud edition, admin only).
+ * If the user has no orgs yet, the intent is stashed and applied when they
+ * create their first org. Otherwise the Stripe trial subscription is created
+ * on the user's oldest owned org wallet immediately.
+ */
+export function useAdminActivateTrial() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: ActivateTrialInput) => {
+            const response = await apiClient.v1AdminUsersTrialActivateCreate(input.userId, {
+                days: input.days ?? 0,
+                credits: input.credits ?? 0,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+/**
+ * Hook to revoke a trial on a user (cloud edition, admin only).
+ * Clears any stashed intent and cancels the Stripe subscription if currently
+ * trialing. Paid subscriptions are never cancelled.
+ */
+export function useAdminRevokeTrial() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (userId: string) => {
+            const response = await apiClient.v1AdminUsersTrialActivateDelete(userId);
+            return response.data;
+        },
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users"] });
         },
     });

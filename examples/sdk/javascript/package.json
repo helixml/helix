@@ -1,0 +1,37 @@
+{
+  "name": "@helixml/sandbox",
+  "version": "0.1.0",
+  "description": "Vercel-style SDK for Helix Sandboxes — create ephemeral containers, run commands, read/write files, stream a terminal.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "example:create-and-run": "node --experimental-strip-types examples/create-and-run.ts",
+    "example:files": "node --experimental-strip-types examples/file-roundtrip.ts",
+    "example:list": "node --experimental-strip-types examples/list-and-cleanup.ts",
+    "example:logs": "node --experimental-strip-types examples/stream-logs.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

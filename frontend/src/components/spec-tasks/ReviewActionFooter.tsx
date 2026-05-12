@@ -10,11 +10,12 @@ interface ReviewActionFooterProps {
   isBlockedByDependencies?: boolean
   blockedReason?: string
   allTabsViewed?: boolean
-  unviewedTabNames?: string[]
+  hasNextDocument?: boolean
   onApprove: () => void
   onRequestChanges: () => void
   onReject: () => void
   onStartImplementation: () => void
+  onNextDocument?: () => void
 }
 
 export default function ReviewActionFooter({
@@ -25,11 +26,12 @@ export default function ReviewActionFooter({
   isBlockedByDependencies = false,
   blockedReason = '',
   allTabsViewed = true,
-  unviewedTabNames = [],
+  hasNextDocument = false,
   onApprove,
   onRequestChanges,
   onReject,
   onStartImplementation,
+  onNextDocument,
 }: ReviewActionFooterProps) {
   return (
     <Box
@@ -93,25 +95,35 @@ export default function ReviewActionFooter({
           >
             Request Changes
           </Button>
-          <Tooltip
-            title={
-              !allTabsViewed
-                ? `Review all tabs before approving: ${unviewedTabNames.join(', ')}`
-                : ''
-            }
-            placement="top"
-          >
-            <span>
-              <Button
-                variant="contained"
-                color="success"
-                onClick={onApprove}
-                disabled={unresolvedCount > 0 || !allTabsViewed}
-              >
-                Approve Design
-              </Button>
-            </span>
-          </Tooltip>
+          {hasNextDocument && unresolvedCount === 0 ? (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={onNextDocument}
+            >
+              Next Document
+            </Button>
+          ) : (
+            <Tooltip
+              title={
+                unresolvedCount > 0
+                  ? `Resolve ${unresolvedCount} comment${unresolvedCount !== 1 ? 's' : ''} before approving`
+                  : ''
+              }
+              placement="top"
+            >
+              <span>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={onApprove}
+                  disabled={unresolvedCount > 0 || !allTabsViewed}
+                >
+                  Approve Design
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </>
       ) : (
         <Alert severity="info" sx={{ flex: 1 }}>

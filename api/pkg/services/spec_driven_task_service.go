@@ -171,16 +171,29 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		organizationID = project.OrganizationID
 	}
 
+	// Determine initial status. If AutoStart is requested, skip backlog and queue
+	// immediately (mirrors cloneTaskToProject behaviour). This bypasses the project's
+	// auto_start_backlog_tasks setting so the task starts even when project auto-start is off.
+	initialStatus := types.TaskStatusBacklog
+	if req.AutoStart {
+		if req.JustDoItMode {
+			initialStatus = types.TaskStatusQueuedImplementation
+		} else {
+			initialStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
+		AssigneeID:     req.AssigneeID, // Optional: handler validates org membership before this is reached
 		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
 		Priority:       req.Priority,
-		Status:         types.TaskStatusBacklog,
+		Status:         initialStatus,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
 		HelixAppID:     helixAppID,       // Helix agent used for entire workflow
@@ -1407,7 +1420,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
+				// task-state machine — same semantic as a comment, should preempt in-flight work.
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "", true)
 				if err != nil {
 					log.Error().
 						Err(err).

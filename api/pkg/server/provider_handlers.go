@@ -162,8 +162,8 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		// Sandbox-absorbs-runner equivalent of the old runnerController
 		// gate: skip the Helix provider when no sandbox is currently
 		// serving any model. Otherwise the picker offers an option that
-		// returns "no runner has model X" for every request, which is a
-		// worse UX than not advertising it at all.
+		// returns "model X is not available" for every request, which
+		// is a worse UX than not advertising it at all.
 		if provider == types.ProviderHelix && s.inferenceRouter != nil {
 			if len(s.inferenceRouter.AvailableModels()) == 0 {
 				continue
@@ -259,9 +259,25 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	writeResponse(rw, providerEndpoints, http.StatusOK)
 }
 
+// modelCacheKey is the single source of truth for the per-provider models cache
+// key. Anything that mutates a provider (delete, rename, URL/key/Models change)
+// must invalidate the entry under the OLD name and let the next read repopulate.
+func modelCacheKey(name, owner string) string {
+	return fmt.Sprintf("%s:%s", name, owner)
+}
+
+// invalidateProviderModelCache clears the cached model list for the given
+// provider so subsequent reads refetch from upstream. Call this whenever a
+// provider's identity (name) or content (BaseURL, Models, APIKey, billing
+// flags) changes, including deletes. Without this, a deleted/renamed/edited
+// provider continues serving stale models for up to ModelsCacheTTL.
+func (s *HelixAPIServer) invalidateProviderModelCache(name, owner string) {
+	s.cache.Del(modelCacheKey(name, owner))
+}
+
 func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error) {
 	// Check for cached models
-	cacheKey := fmt.Sprintf("%s:%s", providerEndpoint.Name, providerEndpoint.Owner)
+	cacheKey := modelCacheKey(providerEndpoint.Name, providerEndpoint.Owner)
 	if cached, found := s.cache.Get(cacheKey); found {
 		var models []types.OpenAIModel
 		err := json.Unmarshal([]byte(cached), &models)
@@ -566,6 +582,11 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// Capture identity BEFORE mutation so we can invalidate the cache entry
+	// keyed under the old name/owner — a rename leaves the old entry stranded
+	// otherwise.
+	prevName, prevOwner := existingEndpoint.Name, existingEndpoint.Owner
+
 	// Apply endpoint type change and update ownership accordingly
 	if updatedEndpoint.EndpointType != "" && updatedEndpoint.EndpointType != existingEndpoint.EndpointType {
 		switch updatedEndpoint.EndpointType {
@@ -642,6 +663,15 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// Invalidate the model cache for both the old identity (covers renames /
+	// owner-type changes leaving a stranded entry) and the new identity (covers
+	// BaseURL / Models / APIKey edits where the key didn't change but the
+	// upstream might now return a different model list).
+	s.invalidateProviderModelCache(prevName, prevOwner)
+	if savedEndpoint.Name != prevName || savedEndpoint.Owner != prevOwner {
+		s.invalidateProviderModelCache(savedEndpoint.Name, savedEndpoint.Owner)
+	}
+
 	// Mask API key in response
 	savedEndpoint.APIKey = "*****"
 
@@ -711,6 +741,12 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Error deleting provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Invalidate the model-list cache so the model picker, /v1/chat/completions
+	// routing, and /api/v1/providers/models stop serving the deleted provider's
+	// models. Without this, stale entries linger for up to ModelsCacheTTL and
+	// requests during that window can still resolve through a deleted provider.
+	s.invalidateProviderModelCache(existingEndpoint.Name, existingEndpoint.Owner)
 
 	rw.WriteHeader(http.StatusOK)
 }
@@ -977,11 +1013,16 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		}
 	}
 
-	// Then refresh database-stored providers (both user and global from DB)
-	// We need to refresh for "system" owner to cover dynamic providers from env vars
+	// Then refresh ALL database-stored providers (system, per-user, and
+	// per-org). The previous filter (Owner=system + WithGlobal) skipped
+	// org-scoped user providers entirely, so their model-list cache was only
+	// populated when a UI call hit /api/v1/providers/.../models — meaning
+	// /v1/chat/completions routing for those providers silently failed
+	// (findProviderWithModel cache miss → default-provider fence) until
+	// someone visited the dashboard. Use All=true so the cache is warm for
+	// every configured provider regardless of scope.
 	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-		Owner:      string(types.OwnerTypeSystem),
-		WithGlobal: true,
+		All: true,
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to list database providers for cache refresh")

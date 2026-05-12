@@ -31,7 +31,11 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents.
 // Returns (requestID, interactionID, error).
-type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, string, error)
+//
+// The fourth string is a notifyUserID (empty = no extra notification). interrupt=true
+// tells the agent to cancel its current turn before processing — use it for reactive
+// feedback like design-review comments; use false for system-driven instructions.
+type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
@@ -981,6 +985,41 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
 				continue
 			}
+		case types.TaskStatusImplementationReview:
+			// A push arrived while a PR is open. Always re-sync the PR
+			// title/description from helix-specs so edits to
+			// pull_request_<repo>.md propagate. (Previously only
+			// TaskStatusPullRequest did this, which meant tasks that stayed
+			// in implementation_review never got description updates.)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to re-sync PR description in implementation_review")
+				}
+			}(task, repo)
+
+			// If the user previously approved (RebaseRequestedAt set), also try
+			// the FF merge again automatically — without this, the user would
+			// have to click Accept a second time and would have no signal that
+			// the rebase landed.
+			if task.RebaseRequestedAt == nil {
+				log.Trace().Str("task_id", task.ID).Str("branch", branchName).Msg("Push to implementation_review task without prior rebase request — leaving for explicit Accept")
+				continue
+			}
+			now := time.Now()
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task last_push_at")
+				continue
+			}
+			s.wg.Add(1)
+			go func(taskID string) {
+				defer s.wg.Done()
+				s.tryAutoMergeAfterRebase(context.Background(), taskID)
+			}(task.ID)
 		case types.TaskStatusPullRequest:
 			s.wg.Add(1)
 			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
@@ -1003,6 +1042,108 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			continue
 		}
 	}
+}
+
+// tryAutoMergeAfterRebase re-attempts the server-side fast-forward merge after the
+// agent has pushed a (presumably rebased) feature branch. Mirrors the merge half
+// of approveImplementation in spec_task_workflow_handlers.go. If the FF still
+// fails the task is left in implementation_review; we do not re-prompt the agent
+// here because the same flow that calls this also recorded the push, so the next
+// user-driven Accept will see LastPushAt > RebaseRequestedAt and re-issue the
+// rebase request only if needed.
+//
+// Re-fetches the task by ID rather than operating on a pointer passed from the
+// caller — between the push hook firing and this goroutine running, the row may
+// have been mutated by the orchestrator or by a user action (move-to-backlog,
+// archive, etc). Operating on a stale pointer would silently overwrite those
+// changes.
+func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID string) {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("auto-merge: get task failed")
+		return
+	}
+	// Status guard: if the user moved the task elsewhere (backlog, archived) or
+	// it already reached `done` via another path, do nothing. Without this guard
+	// the goroutine would resurrect the task as `done` and overwrite the user's
+	// deliberate intervention.
+	if task.Status != types.TaskStatusImplementationReview {
+		log.Debug().
+			Str("task_id", taskID).
+			Str("status", string(task.Status)).
+			Msg("auto-merge: task no longer in implementation_review, skipping")
+		return
+	}
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get project failed")
+		return
+	}
+	if project.DefaultRepoID == "" {
+		return
+	}
+	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get repo failed")
+		return
+	}
+	if repo.DefaultBranch == "" {
+		return
+	}
+
+	var oldDefaultBranchRef string
+	if repo.IsExternal && repo.ExternalURL != "" {
+		lock := s.gitRepoService.GetRepoLock(repo.ID)
+		lock.Lock()
+		defer lock.Unlock()
+
+		if err := s.gitRepoService.SyncAllBranches(ctx, repo.ID, true); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("auto-merge: sync failed, continuing with local state")
+		}
+		oldDefaultBranchRef, _ = GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+	}
+
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+		log.Info().
+			Err(mergeErr).
+			Str("task_id", task.ID).
+			Str("source_branch", task.BranchName).
+			Str("target_branch", repo.DefaultBranch).
+			Msg("auto-merge: FF still not possible after agent push — leaving task in implementation_review")
+		return
+	}
+
+	if repo.IsExternal && repo.ExternalURL != "" {
+		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
+			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: push to upstream failed - rolling back")
+			if oldDefaultBranchRef != "" {
+				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
+					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: rollback failed")
+				}
+			}
+			return
+		}
+	}
+
+	now := time.Now()
+	task.MergedToMain = true
+	task.MergedAt = &now
+	task.Status = types.TaskStatusDone
+	task.StatusUpdatedAt = &now
+	task.CompletedAt = &now
+	task.ImplementationApprovedAt = &now
+	task.UpdatedAt = now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: failed to mark task done after successful auto-merge")
+		return
+	}
+	DismissTaskAttentionEvents(ctx, s.store, task.ID)
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
 // handleMainBranchPush transitions task from implementation_review → done
@@ -1045,7 +1186,9 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 			task.UpdatedAt = now
 			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
 			}
+			DismissTaskAttentionEvents(ctx, s.store, task.ID)
 		}
 	}
 }
@@ -1256,19 +1399,15 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	for _, pr := range prs {
 		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
 		if branchMatches && pr.State == types.PullRequestStateOpen {
-			// Update the PR title/description in case helix-specs changed
-			if pr.Number > 0 {
-				if updateErr := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.Number, title, description); updateErr != nil {
-					log.Warn().Err(updateErr).Str("pr_id", pr.ID).Msg("Failed to update existing PR content")
-				}
-			}
+			// Do not update the PR title/description here — the user may have renamed the PR
+			// and overwriting their title would conflict with their explicit change.
 			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
 			task.UpdatedAt = time.Now()
 			s.store.UpdateSpecTask(ctx, task)
 			log.Info().
 				Str("pr_id", pr.ID).
 				Str("repo_id", repo.ID).
-				Msg("Found and updated existing pull request")
+				Msg("Found existing pull request")
 			return nil
 		}
 		// If a PR was closed (not merged) on this branch, don't recreate it.
@@ -1516,6 +1655,19 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 	if err != nil {
 		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to read design docs")
 		return
+	}
+
+	// Update task name from requirements.md title (on every push)
+	if reqContent, ok := docs["requirements.md"]; ok {
+		if specTitle := SpecTitleFromRequirements(reqContent); specTitle != "" && specTitle != task.Name {
+			task.Name = specTitle
+			task.UpdatedAt = time.Now()
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to update task name from spec title")
+			} else {
+				log.Info().Str("spec_task_id", specTaskID).Str("new_name", specTitle).Msg("Updated task name from spec title")
+			}
+		}
 	}
 
 	existingReviews, _ := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)

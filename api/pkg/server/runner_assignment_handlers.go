@@ -61,7 +61,7 @@ func (apiServer *HelixAPIServer) refreshInferenceRouterFromHeartbeat(ctx context
 	url := ""
 	if devHost := strings.TrimSpace(envFallback("HELIX_DEV_SANDBOX_HOST", "")); devHost != "" {
 		url = "http://" + devHost
-	} else if inst, err := apiServer.Store.GetSandbox(ctx, sandboxID); err == nil && inst != nil {
+	} else if inst, err := apiServer.Store.GetSandboxInstance(ctx, sandboxID); err == nil && inst != nil {
 		host := inst.Hostname
 		if host == "" {
 			host = inst.IPAddress

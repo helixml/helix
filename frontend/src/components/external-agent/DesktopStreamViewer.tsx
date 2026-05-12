@@ -42,6 +42,7 @@ import {
   getStandardVideoFormats,
 } from "../../lib/helix-stream/stream/video";
 import useApi from "../../hooks/useApi";
+import useLightTheme from "../../hooks/useLightTheme";
 import { useAccount } from "../../contexts/account";
 import { useVideoStream } from "../../contexts/VideoStreamContext";
 import { TypesClipboardData } from "../../api/api";
@@ -144,6 +145,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   className = "",
   suppressOverlay = false,
 }) => {
+  const lightTheme = useLightTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
@@ -4445,7 +4447,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
         // High z-index for iOS fullscreen to cover everything, or keyboard open
         zIndex: isIOSFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
-        backgroundColor: "#000",
+        // Letterbox/pillarbox bars around the streamed video. Match the page
+        // background so a light-mode desktop reads as fully light, not "light
+        // desktop in a black frame".
+        backgroundColor: lightTheme.isLight ? "#f4f4f4" : "#000",
         display: "flex",
         flexDirection: "column",
         outline: "none",
@@ -4456,6 +4461,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         userSelect: "none",
         // Clip zoomed content that extends beyond container bounds
         overflow: "hidden",
+        // Prevent Safari bounce/rubber-band scrolling on this container only
+        // This allows Chrome swipe navigation to work on other pages
+        overscrollBehavior: "none",
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported

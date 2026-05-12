@@ -300,6 +300,9 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 	}
 
 	session.Name = update.Name
+	if err := apiServer.validateSessionProviderRef(ctx, update.Provider, session.OrganizationID, session.Owner); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 	session.Provider = update.Provider
 	session.ModelName = update.ModelName
 
@@ -557,7 +560,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if startReq.Provider == "" {
 			startReq.Provider = types.Provider(session.Provider)
 		} else {
-			// Update provider for the session
+			// Update provider for the session — validate that a pe_… reference
+			// is visible in this session's scope before persisting.
+			if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), session.OrganizationID, session.Owner); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
 			session.Provider = string(startReq.Provider)
 		}
 
@@ -571,6 +579,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Set default agent type if not specified
 		if startReq.AgentType == "" {
 			startReq.AgentType = "helix"
+		}
+
+		if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), startReq.OrganizationID, user.ID); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		session = &types.Session{
@@ -2149,6 +2162,30 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 // @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/sessions/{id}/stop-external-agent [delete]
+// cancelSessionTurn cancels the active turn for a session by sending cancel_current_turn to Zed.
+// Returns 202 Accepted immediately; the interaction state update flows to the frontend via WebSocket.
+func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Fire cancel in background — don't block the HTTP response
+	go s.cancelCurrentTurnIfActive(context.Background(), sessionID)
+
+	return map[string]string{"status": "accepted"}, nil
+}
+
 func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -2190,6 +2227,85 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 	return map[string]string{
 		"message":    "external Zed agent stopped",
 		"session_id": sessionID,
+	}, nil
+}
+
+// SessionMessageRequest is the request body for POST /sessions/{id}/messages.
+type SessionMessageRequest struct {
+	Content      string `json:"content"`
+	Interrupt    bool   `json:"interrupt,omitempty"`
+	NotifyUserID string `json:"notify_user_id,omitempty"`
+}
+
+// SessionMessageResponse is returned from POST /sessions/{id}/messages.
+// interaction_id can be used to correlate streamed responses on /api/v1/ws/user.
+type SessionMessageResponse struct {
+	RequestID     string `json:"request_id"`
+	InteractionID string `json:"interaction_id"`
+}
+
+// sendSessionMessage godoc
+// @Summary Queue a message to a session's external agent
+// @Description Persists a Waiting interaction and dispatches it via the external-agent
+// @Description WebSocket. If no agent is connected the interaction is held until the
+// @Description agent reconnects, at which point pickupWaitingInteraction delivers it —
+// @Description callers do not need to manage WebSocket readiness or retries.
+// @Description Distinct from POST /sessions/chat (synchronous SSE chat); use this
+// @Description endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+// @Tags    Sessions
+// @Accept  json
+// @Produce json
+// @Param   id path string true "Session ID"
+// @Param   request body SessionMessageRequest true "Message payload"
+// @Success 200 {object} SessionMessageResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/messages [post]
+func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Request) (*SessionMessageResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	sessionID := mux.Vars(r)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session id is required")
+	}
+
+	var body SessionMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+	if strings.TrimSpace(body.Content) == "" {
+		return nil, system.NewHTTPError400("content is required")
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if session == nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	requestID, interactionID, err := s.sendMessageToSession(ctx, sessionID, body.Content, body.NotifyUserID, body.Interrupt)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to queue session message")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to queue session message: %v", err))
+	}
+
+	return &SessionMessageResponse{
+		RequestID:     requestID,
+		InteractionID: interactionID,
 	}, nil
 }
 
@@ -2299,6 +2415,10 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 
 	if req.OrganizationID == "" && user.OrganizationID != "" {
 		req.OrganizationID = user.OrganizationID
+	}
+
+	if err := s.validateSessionProviderRef(ctx, string(req.Provider), req.OrganizationID, userID); err != nil {
+		return nil, err
 	}
 
 	session := &types.Session{
@@ -2420,6 +2540,47 @@ func (s *HelixAPIServer) getSessionOutput(_ http.ResponseWriter, r *http.Request
 	}
 
 	return resp, nil
+}
+
+// validateSessionProviderRef rejects a session being persisted with a provider
+// reference (a pe_… DB ID) that isn't visible to the session's owner. Without
+// this fence, the frontend can leak a previously-selected pe_… across an org
+// switch — the row is written, then inference fails downstream with a cryptic
+// "no client found for provider: pe_… , available providers: [...]" because
+// MultiClientManager.GetClient correctly only sees the new org's providers.
+//
+// Empty refs and non-pe_ refs (env-baked global names like "openai") are
+// accepted: those are resolved at request time. Only ID-shaped refs need this
+// pre-flight check.
+//
+// A provider is visible if:
+//   - it is a global endpoint (ProviderEndpointTypeGlobal), or
+//   - its owner is the session's organization, or
+//   - its owner is the session's user (personal providers).
+//
+// Anything else returns an explicit "not visible" error so the UI can surface
+// the mismatch instead of inference 500-ing.
+func (s *HelixAPIServer) validateSessionProviderRef(ctx context.Context, providerRef, organizationID, userID string) error {
+	if providerRef == "" || !strings.HasPrefix(providerRef, system.ProviderEndpointPrefix) {
+		return nil
+	}
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: providerRef})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("provider %q not found", providerRef)
+		}
+		return fmt.Errorf("looking up provider %q: %w", providerRef, err)
+	}
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+		return nil
+	}
+	if organizationID != "" && endpoint.Owner == organizationID {
+		return nil
+	}
+	if userID != "" && endpoint.Owner == userID {
+		return nil
+	}
+	return fmt.Errorf("provider %q is not visible to this session", providerRef)
 }
 
 // triggerSummaryGeneration triggers async summary generation for an interaction

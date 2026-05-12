@@ -4,13 +4,14 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import type { TooltipContentProps } from 'recharts';
+
+import useLightTheme from '../../hooks/useLightTheme';
 
 export interface ShadcnSeries {
   key: string;
@@ -41,6 +42,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number) => string) => {
   const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
+    const lightTheme = useLightTheme();
     if (!active || !payload || !payload.length) return null;
     const date = label ? new Date(label as string) : null;
     const dateLabel = date
@@ -50,19 +52,19 @@ const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number)
     return (
       <Box
         sx={{
-          bgcolor: 'rgba(10, 10, 15, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.12)',
+          bgcolor: lightTheme.isLight ? 'rgba(255, 255, 255, 0.98)' : 'rgba(10, 10, 15, 0.95)',
+          border: lightTheme.isLight ? '1px solid rgba(0, 0, 0, 0.12)' : '1px solid rgba(255, 255, 255, 0.12)',
           borderRadius: 2,
           px: 1.5,
           py: 1,
           fontSize: '0.8rem',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          boxShadow: lightTheme.isLight ? '0 4px 12px rgba(0,0,0,0.12)' : '0 4px 12px rgba(0,0,0,0.4)',
           minWidth: 140,
         }}
       >
         <Typography
           variant="caption"
-          sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mb: 0.5 }}
+          sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)', display: 'block', mb: 0.5 }}
         >
           {dateLabel}
         </Typography>
@@ -76,13 +78,13 @@ const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number)
               sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}
             >
               <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: s.color }} />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', flex: 1 }}>
+              <Typography variant="caption" sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.85)', flex: 1 }}>
                 {s.label}
               </Typography>
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#fff',
+                  color: lightTheme.textColor,
                   fontVariantNumeric: 'tabular-nums',
                   fontWeight: 500,
                 }}
@@ -108,6 +110,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   hideLegend = false,
   chartHeight = 220,
 }) => {
+  const lightTheme = useLightTheme();
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
@@ -117,7 +120,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
     <Box
       sx={{
         height: 300,
-        bgcolor: 'rgba(0, 0, 0, 0.2)',
+        bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(0, 0, 0, 0.2)',
         borderRadius: 2,
         p: 2,
         position: 'relative',
@@ -178,7 +181,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 axisLine={false}
                 tickMargin={8}
                 minTickGap={32}
-                tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 12 }}
+                tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={(v: string) =>
                   new Date(v).toLocaleDateString(undefined, {
                     month: 'short',
@@ -191,22 +194,17 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 axisLine={false}
                 tickMargin={8}
                 width={48}
-                tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 12 }}
+                tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
               />
               <Tooltip
                 cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
                 content={React.createElement(ShadcnTooltip(series, valueFormatter))}
               />
-              {!hideLegend && (
-                <Legend
-                  verticalAlign="bottom"
-                  height={24}
-                  iconType="square"
-                  iconSize={10}
-                  wrapperStyle={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.75)' }}
-                />
-              )}
+              {/* Recharts' default legend lays items at whatever order they
+                  enter the chart and wraps awkwardly when there are many
+                  series — items end up in two ragged rows. We render our own
+                  legend below the chart instead (see <ChartLegend/> below). */}
               {series.map(s => (
                 <Area
                   key={s.key}
@@ -237,6 +235,49 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
           </Box>
         )}
       </Box>
+      {!hideLegend && hasData && (
+        // Tight, single-line legend. Recharts' default Legend wrapped 5-item
+        // legends to two rows with one orphaned item ("Sandboxes" alone on
+        // line 2), which looked broken. We render our own with small swatches
+        // and a compact font so 5 items fit on one row at typical card widths;
+        // when the parent really is too narrow, items wrap evenly rather than
+        // dropping a single trailing label below.
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            alignItems: 'center',
+            columnGap: 1.25,
+            rowGap: 0.5,
+            mt: 1,
+            px: 0.5,
+          }}
+        >
+          {series.map(s => (
+            <Box
+              key={s.key}
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: '0 0 auto' }}
+            >
+              <Box
+                sx={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '2px',
+                  bgcolor: s.color,
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                variant="caption"
+                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.66rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
+              >
+                {s.label}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 };

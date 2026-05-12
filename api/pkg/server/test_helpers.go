@@ -44,6 +44,7 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		contextMappings:             make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
+		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -70,8 +71,19 @@ func (s *HelixAPIServer) QueueCommand(sessionID string, cmd types.ExternalAgentC
 // SendChatMessage sends a chat message through the production code path,
 // creating an interaction and sending the WebSocket command. This is the
 // same path used by sendMessageToSpecTaskAgent.
+//
+// Defaults interrupt=false to preserve historical behaviour for the cross-repo
+// e2e test server (zed-repo). Use SendChatMessageWithInterrupt for tests that
+// need to exercise the interrupt path.
 func (s *HelixAPIServer) SendChatMessage(sessionID, message, requestID string) error {
-	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, false)
+	return err
+}
+
+// SendChatMessageWithInterrupt sends a chat message with the interrupt flag set,
+// matching the semantic used by design-review comments and the prompt-history queue.
+func (s *HelixAPIServer) SendChatMessageWithInterrupt(sessionID, message, requestID string, interrupt bool) error {
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
 	return err
 }
 
@@ -131,6 +143,12 @@ func (s *HelixAPIServer) ProcessSyncEvent(sessionID string, syncMsg *types.SyncM
 // to the given spectask.
 func (s *HelixAPIServer) FindConnectedSessionForSpecTask(ctx context.Context, specTask *types.SpecTask) (string, error) {
 	return s.findConnectedSessionForSpecTask(ctx, specTask)
+}
+
+// SendCancelToExternalAgent sends a cancel_current_turn command and waits
+// for the turn_cancelled response. Exposed for E2E tests.
+func (s *HelixAPIServer) SendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
+	return s.sendCancelToExternalAgent(sessionID, requestID, timeout)
 }
 
 // SyncEventHook is a callback invoked after each sync event is processed.
