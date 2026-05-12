@@ -1,10 +1,10 @@
 # Implementation Tasks
 
 - [x] Check `git log --all --grep="OIDC"` in the helix repo — if task 002007's PR has merged, close this task as a duplicate and skip the rest. **Result: 002007 has only design-doc commits, no code merged → proceed with implementation here.**
-- [~] Add OIDC guard in `api/pkg/server/handlers.go` `createUser` (after the admin check, before request decoding): return `system.NewHTTPError400` with the explanation message when `apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC`
-- [ ] Add a Go unit test in `api/pkg/server/` (gomock + suite per CLAUDE.md) asserting: response is HTTP 400 with the expected message substring AND `store.CreateUser` is not called (`Times(0)`) when provider is OIDC
-- [ ] Run `CGO_ENABLED=1 go test -v -run <NewTestName> ./pkg/server/ -count=1` and confirm green; run `go build ./pkg/server/...` to confirm Go still compiles
-- [ ] In `frontend/src/components/dashboard/UsersTable.tsx`: import `useGetConfig` from `../../services/userService` and `TypesAuthProvider` from `../../api/api`; compute `isOIDC = config?.auth_provider === TypesAuthProvider.AuthProviderOIDC`; wrap the `<Box>` containing the Create User button (lines ~290-294) in `{!isOIDC && (...)}`
+- [x] Add OIDC guard in `api/pkg/server/handlers.go` `createUser` (after the admin check, before request decoding): return `system.NewHTTPError400` with the explanation message when `apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC`
+- [x] Add a Go unit test in `api/pkg/server/` (table-free, mirroring `admin_handlers_test.go` style) asserting: response is HTTP 400 with the expected message substring AND `authenticator.CreateUser` + `store.GetUser` are not called (`Times(0)`) when provider is OIDC. Also a sanity test that the existing non-admin guard still fires first.
+- [x] Run `go test -v -run TestCreateUser_OIDCMode_Rejected|TestCreateUser_NonAdmin_Forbidden ./pkg/server/ -count=1` — both PASS. `go build ./pkg/server/...` clean. (CGO unavailable in spec-task sandbox, but these tests don't need CGO since they don't import tree-sitter packages.)
+- [~] In `frontend/src/components/dashboard/UsersTable.tsx`: import `useGetConfig` from `../../services/userService` and `TypesAuthProvider` from `../../api/api`; compute `isOIDC = config?.auth_provider === TypesAuthProvider.AuthProviderOIDC`; wrap the `<Box>` containing the Create User button (lines ~290-294) in `{!isOIDC && (...)}`
 - [ ] Do NOT modify `CreateUserDialog.tsx` — it remains for regular-auth mode and is unreachable in OIDC mode because the entry button is gone
 - [ ] Run `cd frontend && yarn build` and confirm it compiles cleanly
 - [ ] Test in inner Helix (regular mode, default): register/login as admin, navigate to Admin Dashboard → Users, confirm Create User button still renders and the existing creation flow works end-to-end (no regression)
