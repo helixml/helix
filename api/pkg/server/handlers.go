@@ -766,6 +766,11 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	if tokenType := req.URL.Query().Get("token_type"); tokenType != "" {
 		query.TokenType = types.TokenType(tokenType)
 	}
+	if w := req.URL.Query().Get("waitlisted"); w != "" {
+		if b, err := strconv.ParseBool(w); err == nil {
+			query.Waitlisted = &b
+		}
+	}
 
 	// Get users from store
 	users, totalCount, err := apiServer.Store.ListUsers(ctx, query)
@@ -787,6 +792,12 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 				users[i].Admin = true
 				break
 			}
+		}
+	}
+
+	if includes := req.URL.Query().Get("include"); strings.Contains(includes, "trial") {
+		for _, u := range users {
+			apiServer.enrichUserTrialDisplay(ctx, u)
 		}
 	}
 
@@ -1037,12 +1048,18 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		Str("approved_user_email", targetUser.Email).
 		Msg("admin approved user")
 
-	// Send approval notification email
+	// Send approval notification email. If the user had a trial pre-stashed
+	// by admin (via the trial-activate endpoint), surface it in the email.
 	firstName := strings.Split(targetUser.FullName, " ")[0]
+	trialDays := 0
+	if targetUser.TrialDaysOnFirstOrg != nil && *targetUser.TrialDaysOnFirstOrg > 0 {
+		trialDays = *targetUser.TrialDaysOnFirstOrg
+	}
 	notifyErr := apiServer.Controller.Options.Notifier.Notify(ctx, &types.Notification{
 		Event:     types.EventWaitlistApproved,
 		Email:     targetUser.Email,
 		FirstName: firstName,
+		TrialDays: trialDays,
 	})
 	if notifyErr != nil {
 		log.Error().

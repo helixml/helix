@@ -1109,6 +1109,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/admin/users/{id}", system.DefaultWrapper(apiServer.adminDeleteUser)).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/users/{id}/approve", system.DefaultWrapper(apiServer.adminApproveUser)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminActivateTrial)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminRevokeTrial)).Methods(http.MethodDelete)
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 

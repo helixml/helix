@@ -331,6 +331,10 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// If an admin pre-stashed trial intent on this user, apply it to this
+	// first owned org. Best-effort: logs errors but does not block.
+	apiServer.consumeUserTrialIntent(ctx, user, createdOrg.ID)
+
 	writeResponse(rw, createdOrg, http.StatusCreated)
 }
 
