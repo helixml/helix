@@ -162,6 +162,30 @@ const (
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
 	autoWakeMaxRetries = 2
+
+	// defaultColdStartGracePeriod is how long we wait for an in-flight
+	// `StartDesktop` to bring up the dev container + Zed + claude-agent-acp
+	// before we count the wait against the cold-start retry budget.
+	//
+	// While `session.Metadata.ExternalAgentStatus == "starting"` the existing
+	// boot is in progress: re-kicking `autoStartDevContainerForSession` is
+	// a no-op (StartDesktop holds a per-session lock and bails when status
+	// is "running") but still increments AutoWakeCount on every scan tick.
+	// With autoWakeMaxRetries=2 and ~10s ticks the budget burned in <90s,
+	// while a cold helix-ubuntu boot routinely takes 90–150s. Result:
+	// `state=error` ("Agent never connected after auto-wake cold-start
+	// retries") fired ~30s before WS actually connected.
+	//
+	// Witnessed live on spt_01kreb7sevt5ecyagxhctv3ejh: container created
+	// at T+18s, retries exhausted at T+93s, WS connected at T+123s.
+	//
+	// 5 min covers the realistic boot envelope (ZFS clone of large
+	// snapshots, golden cache unpack, GNOME + Zed init, claude-agent-acp
+	// dial) with margin. After this we fall through to the normal
+	// retry-and-error path so genuinely-failed boots don't churn forever.
+	//
+	// Override at runtime with HELIX_COLD_START_GRACE_SECONDS.
+	defaultColdStartGracePeriod = 5 * time.Minute
 )
 
 // autoWakeStuckThreshold returns the configured stuck threshold.
@@ -175,6 +199,19 @@ func autoWakeStuckThreshold() time.Duration {
 		}
 	}
 	return defaultAutoWakeStuckThreshold
+}
+
+// coldStartGracePeriod returns how long an in-flight `StartDesktop` is
+// allowed to run before we count it against the cold-start retry budget.
+// Reads HELIX_COLD_START_GRACE_SECONDS so operators can dial it up on
+// slow disks (large ZFS clones, cold golden caches) without redeploying.
+func coldStartGracePeriod() time.Duration {
+	if raw := os.Getenv("HELIX_COLD_START_GRACE_SECONDS"); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return defaultColdStartGracePeriod
 }
 
 // startAutoWakeStuckInteractionsWorker launches the periodic scanner.
@@ -440,7 +477,37 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // from its in-memory copy). A Save here would race-clobber AutoWakeCount
 // back to a stale value, and the cap would never engage. See the file
 // header at lines 75-86 for the original incident on spt_01kq2308n428ss3wrm67ta6mjd.
+//
+// Container-state-aware retry budget: before bumping AutoWakeCount we look
+// at `session.Metadata.ExternalAgentStatus`. If a `StartDesktop` is already
+// in flight ("starting") and the interaction is younger than the cold-start
+// grace period, we skip without touching the budget — the existing boot
+// will either finish (Zed dials home and pickupWaitingInteraction delivers)
+// or trip the StartDesktop hard timeout (20 min) and clear the status.
+// Re-kicking during the boot window only races against the existing
+// per-session lock and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
+	// Skip if a StartDesktop is genuinely in progress and we're still
+	// inside the grace period. Failing to load the session is non-fatal
+	// — fall through to the existing path so a transient store error
+	// doesn't permanently disable the cold-start kick.
+	if session, err := apiServer.Store.GetSession(ctx, stuck.SessionID); err == nil && session != nil {
+		if session.Metadata.ExternalAgentStatus == "starting" &&
+			time.Since(stuck.Created) < coldStartGracePeriod() {
+			log.Debug().
+				Str("interaction_id", stuck.ID).
+				Str("session_id", stuck.SessionID).
+				Dur("interaction_age", time.Since(stuck.Created)).
+				Dur("grace_period", coldStartGracePeriod()).
+				Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
+			return
+		}
+	} else if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; proceeding with kick")
+	}
+
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
 		stuck.State = types.InteractionStateError
 		stuck.Error = "Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"
