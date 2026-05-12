@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [ ] Check `git log --all --grep="OIDC"` in the helix repo — if task 002007's PR has merged, close this task as a duplicate and skip the rest
-- [ ] Add OIDC guard in `api/pkg/server/handlers.go` `createUser` (after the admin check, before request decoding): return `system.NewHTTPError400` with the explanation message when `apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC`
+- [x] Check `git log --all --grep="OIDC"` in the helix repo — if task 002007's PR has merged, close this task as a duplicate and skip the rest. **Result: 002007 has only design-doc commits, no code merged → proceed with implementation here.**
+- [~] Add OIDC guard in `api/pkg/server/handlers.go` `createUser` (after the admin check, before request decoding): return `system.NewHTTPError400` with the explanation message when `apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC`
 - [ ] Add a Go unit test in `api/pkg/server/` (gomock + suite per CLAUDE.md) asserting: response is HTTP 400 with the expected message substring AND `store.CreateUser` is not called (`Times(0)`) when provider is OIDC
 - [ ] Run `CGO_ENABLED=1 go test -v -run <NewTestName> ./pkg/server/ -count=1` and confirm green; run `go build ./pkg/server/...` to confirm Go still compiles
 - [ ] In `frontend/src/components/dashboard/UsersTable.tsx`: import `useGetConfig` from `../../services/userService` and `TypesAuthProvider` from `../../api/api`; compute `isOIDC = config?.auth_provider === TypesAuthProvider.AuthProviderOIDC`; wrap the `<Box>` containing the Create User button (lines ~290-294) in `{!isOIDC && (...)}`
