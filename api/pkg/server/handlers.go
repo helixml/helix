@@ -834,6 +834,13 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError403("only admins can create users")
 	}
 
+	if apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC {
+		return nil, system.NewHTTPError400(
+			"User creation is managed by your OIDC provider. " +
+				"Create the user in the OIDC provider's admin console; " +
+				"they will be provisioned in Helix on first login.")
+	}
+
 	var request types.AdminCreateUserRequest
 
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {

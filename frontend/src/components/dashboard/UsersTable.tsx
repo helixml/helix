@@ -31,13 +31,14 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CardGiftcardIcon from "@mui/icons-material/CardGiftcard";
 import CancelIcon from "@mui/icons-material/Cancel";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import { TypesUser } from "../../api/api";
+import { TypesAuthProvider, TypesUser } from "../../api/api";
 import {
     useListUsers,
     useAdminApproveUser,
     useAdminRevokeTrial,
     UserListQuery,
 } from "../../services/dashboardService";
+import { useGetConfig } from "../../services/userService";
 import { AccountContext } from "../../contexts/account";
 import useSnackbar from "../../hooks/useSnackbar";
 import CreateUserDialog from "./CreateUserDialog";
@@ -151,6 +152,8 @@ interface UsersTableProps {
 const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
     const account = useContext(AccountContext);
     const isCloud = account.serverConfig?.edition === "cloud";
+    const { data: config } = useGetConfig();
+    const isOIDC = config?.auth_provider === TypesAuthProvider.AuthProviderOIDC;
 
     const [searchQuery, setSearchQuery] = useState("");
     const [waitlistFilter, setWaitlistFilter] = useState<WaitlistFilter>("all");
@@ -287,11 +290,13 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
 
     return (
         <>
-            <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end" }}>
-                <Button variant="contained" color="secondary" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)}>
-                    Create User
-                </Button>
-            </Box>
+            {!isOIDC && (
+                <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end" }}>
+                    <Button variant="contained" color="secondary" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)}>
+                        Create User
+                    </Button>
+                </Box>
+            )}
             <Paper sx={{ width: "100%", overflow: "hidden" }}>
                 <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 2, flex: 1, flexWrap: "wrap" }}>
