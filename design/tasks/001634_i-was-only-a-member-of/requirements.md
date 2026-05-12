@@ -1,43 +1,52 @@
-# Requirements: Team-Based Project Visibility Bug
+# Requirements: Team-Based Project Visibility
 
 ## Problem Statement
 
-An org member who belongs to a team that has been granted admin access to a project cannot see that project in the org project list. Only after being promoted to org owner does the project become visible. This violates the expected RBAC behavior.
+An org member who belongs to a team that holds an access grant on a project cannot see that project in the org project list. Promoting the user to org owner makes the project visible (because org owners bypass per-project authorization in `listOrganizationProjects`).
+
+Reported case: `https://app.helix.ml/orgs/the-linux-foundation`, team granted "admin" on a project, user is org member only.
 
 ## User Stories
 
-**US-1:** As an org member who belongs to a team with any role (read/write/admin) on a project, I should be able to see that project when listing org projects.
+**US-1:** As an org member who is in a team that has any access grant on a project, I see that project in the org project list.
 
-**US-2:** As an org member with team-based access to a project, I should be able to open and interact with that project according to the role granted to my team.
+**US-2:** As an org member with team-based access, I can open the project page and exercise the actions allowed by my team's role.
 
 ## Acceptance Criteria
 
-- AC-1: A user who is a member of a team that has an `admin` access grant on a project can see and access the project when listing org projects.
-- AC-2: A user who is a member of a team that has a `read` access grant on a project can see the project when listing org projects.
-- AC-3: A user who is a member of a team that has a `write` access grant on a project can see the project when listing org projects.
-- AC-4: Existing orgs whose seeded roles predate any fix still work correctly (i.e., the fix handles stale DB role configs).
-- AC-5: Org owners continue to see all projects (no regression).
-- AC-6: Project owners continue to see their own projects regardless of team membership (no regression).
+- AC-1: Org member in a team with an `admin` access grant on a project sees the project in `GET /api/v1/projects?organization_id=...`.
+- AC-2: Org member in a team with a `read` access grant on a project sees the project in the same listing.
+- AC-3: Org member in a team with a `write` access grant on a project sees the project in the same listing.
+- AC-4: Org owners and project owners continue to see all the projects they currently see (no regression).
+- AC-5: A user not in any team and with no direct grant does NOT see the project (no regression — RBAC still enforced).
 
-## Root Cause Analysis
+## Investigation Summary
 
-Two related bugs found in `api/pkg/types/authz_roles.go`:
+### Confirmed Bug
 
-**Bug 1 — RoleRead/RoleWrite missing `ResourceProject`:**
-`RoleRead` and `RoleWrite` enumerate specific resource types (`ResourceApplication`, `ResourceKnowledge`, `ResourceAccessGrants`) but do NOT include `ResourceProject`. The `evaluate()` function in `authz.go` checks resources explicitly, so team members granted `read` or `write` on a project fail the authorization check and cannot see the project.
+**`RoleRead` and `RoleWrite` configs in `api/pkg/types/authz_roles.go` omit `ResourceProject`.** The `evaluate()` function in `api/pkg/server/authz.go:389` only matches when a rule's `Resources` list contains the requested resource OR `ResourceAny`. With `read` or `write` granted to a team on a project, the lookup returns the grant but the rule does not match `ResourceProject`, so the user fails authorization.
 
 ```go
-// authz_roles.go - current (broken)
+// authz_roles.go (current)
 RoleRead = Config{Rules: []Rule{{
     Resources: []Resource{
-        ResourceApplication,
-        ResourceKnowledge,
-        ResourceAccessGrants,  // missing ResourceProject
+        ResourceApplication, ResourceKnowledge, ResourceAccessGrants, // no ResourceProject
     }, ...
 }}}
 ```
 
-**Bug 2 — Stale role configs in existing orgs:**
-Roles are seeded into the DB when an org is created (`seedOrganizationRoles`). If `RoleRead`/`RoleWrite` configs are updated in code, existing orgs retain the old DB-stored configs. There is no mechanism to sync role configs when the canonical definitions change.
+This alone explains the symptom for any team that holds a non-admin role on the project.
 
-**Note on RoleAdmin:** `RoleAdmin` uses `ResourceAny` (`"*"`), which correctly matches `ResourceProject` via `resource == types.ResourceAny` in `evaluate()`. So team members with the `admin` role should theoretically see the project — however, the user reported that even `admin` did not work, which suggests the stale DB config issue (Bug 2) may be the primary cause, or there is an additional issue with `ListTeams` not returning teams when the user is a member.
+### Unconfirmed (admin role case)
+
+The user's report mentions the team was an "admin" of the project. `RoleAdmin` uses `ResourceAny` (`"*"`), which `evaluate()` matches for any requested resource — so the admin path *should* work end-to-end. We have not reproduced this case from code analysis alone. Possible (but unverified) explanations:
+
+- The "admin" the user is referring to in the UI may map to a role whose stored DB config differs from `types.RoleAdmin` (e.g., if the role config was edited, or seeded by an older version of the code).
+- A separate data condition (soft-deleted team, missing `OrganizationID` on the `team_memberships` row, etc.).
+
+The implementation must therefore include verification against the real `the-linux-foundation` data after the code fix lands, so we can confirm whether AC-1 is met by the read/write fix alone or if a second issue remains.
+
+### Out of Scope
+
+- Allowing non-admin team roles to perform write/delete on the project (we only fix visibility/`Get`).
+- Reworking the `RoleAdmin` ResourceAny semantics.
