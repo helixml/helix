@@ -3903,6 +3903,50 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		return fmt.Errorf("failed to load existing session: %w", err)
 	}
 
+	// PHANTOM-DRAFT GUARD (belt-and-braces against helixml/zed Fix 1a not being
+	// in this Zed binary): on every container restart, Zed's agent panel
+	// speculatively calls new_session() to back its empty input editor — see
+	// crates/agent_ui/src/agent_panel.rs `activate_draft`. That fires
+	// UserCreatedThread to us even though the user never typed anything in the
+	// new "draft" thread. Without this guard, every restart leaks an empty
+	// "New Chat" row in spec_task_zed_threads and a duplicate Claude spawn that
+	// races against the existing one for npm `_npx/<hash>` cache, surfacing as
+	// 180s `chrome-devtools/github context server failed to start` errors.
+	//
+	// If this spec_task already has an active work_session whose helix_session
+	// has no interactions, the incoming UserCreatedThread is almost certainly
+	// such a phantom draft. Refuse and log loudly. The user creating a genuine
+	// new chat is unaffected: they only do that AFTER typing in the existing
+	// thread (which gives it ≥1 interaction), so the dedup wouldn't fire.
+	//
+	// Full diagnosis: design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md
+	if specTaskID := existingSession.Metadata.SpecTaskID; specTaskID != "" {
+		existingThreads, listErr := apiServer.Controller.Options.Store.ListSpecTaskZedThreads(ctx, specTaskID)
+		if listErr == nil {
+			for _, et := range existingThreads {
+				if et.Status != types.SpecTaskZedStatusActive {
+					continue
+				}
+				ws, wErr := apiServer.Controller.Options.Store.GetSpecTaskWorkSession(ctx, et.WorkSessionID)
+				if wErr != nil || ws == nil {
+					continue
+				}
+				_, count, iErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+					SessionID: ws.HelixSessionID,
+				})
+				if iErr == nil && count == 0 {
+					log.Warn().
+						Str("acp_thread_id", acpThreadID).
+						Str("spec_task_id", specTaskID).
+						Str("phantom_zed_thread_id", et.ZedThreadID).
+						Str("phantom_helix_session", ws.HelixSessionID).
+						Msg("⚠️ [HELIX] Refusing to create new session — spec_task already has empty active work_session (probable phantom draft from Zed agent panel; see design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md)")
+					return nil
+				}
+			}
+		}
+	}
+
 	// Create new Helix session for this user-created thread.
 	// Copy ALL metadata from existing session so the new session is properly
 	// associated with the spectask, project, and agent runtime.

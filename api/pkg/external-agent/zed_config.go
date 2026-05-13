@@ -287,8 +287,17 @@ func GenerateZedMCPConfig(
 	// console access, network analysis, and input automation.
 	// Uses Puppeteer internally to control Chrome via CDP (Chrome DevTools Protocol).
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
+	//
+	// Invoke the globally-installed binary directly (Dockerfile.ubuntu-helix
+	// pins `chrome-devtools-mcp` via `npm install -g`). Going through
+	// `npx chrome-devtools-mcp@latest` instead causes npm's `_npx/<hash>`
+	// cache to do a "reify mark retired" rename dance every spawn; when Zed
+	// and Claude Code spawn in parallel the renames race and the JSON-RPC
+	// `initialize` never returns — Zed surfaces this as
+	// `chrome-devtools context server failed to start: Context server
+	// request timeout` (180s).
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
-		Command: "npx",
+		Command: "/usr/bin/chrome-devtools-mcp",
 		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
 		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
 		// so sites still render in desktop mode, and the resulting Chrome window leaves
@@ -298,7 +307,6 @@ func GenerateZedMCPConfig(
 		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
 		// and prevents extension probing (e.g. LinkedIn bot detection).
 		Args: []string{
-			"chrome-devtools-mcp@latest",
 			"--viewport", "1280x800",
 			"--chrome-arg=--disable-blink-features=AutomationControlled",
 			"--chrome-arg=--no-first-run",

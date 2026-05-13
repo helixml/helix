@@ -71,7 +71,7 @@ import CommentLogSidebar from "./CommentLogSidebar";
 import ReviewActionFooter from "./ReviewActionFooter";
 import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import RejectDesignDialog from "./RejectDesignDialog";
-import { useSpecTask } from "../../services/specTaskService";
+import { useSpecTask, useArchiveSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
@@ -132,6 +132,7 @@ export default function DesignReviewContent({
   const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const archiveMutation = useArchiveSpecTask();
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(
     new Map(),
@@ -1040,11 +1041,7 @@ export default function DesignReviewContent({
 
   const handleRejectDesign = async () => {
     try {
-      const apiClient = api.getApiClient();
-      await apiClient.v1SpecTasksArchivePartialUpdate(specTaskId, {
-        archived: true,
-      });
-
+      await archiveMutation.mutateAsync({ taskId: specTaskId, archived: true });
       snackbar.success("Design rejected - spec task archived");
       setShowRejectDialog(false);
       onClose();
@@ -1119,7 +1116,7 @@ export default function DesignReviewContent({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <GlobalStyles styles={{ "::highlight(comment-highlight)": { backgroundColor: "#b3d7ff", color: "#000" } }} />
+      <GlobalStyles styles={{ "::highlight(comment-highlight)": { backgroundColor: "rgba(25, 118, 210, 0.4)" } }} />
       {/* Main Content Area */}
       <Box display="flex" flex={1} overflow="hidden">
         {/* Document Viewer */}
@@ -1300,6 +1297,16 @@ export default function DesignReviewContent({
               hoveredElementRef.current = null;
               setHoverButtonPosition(null);
             }}
+            onMouseMove={(e) => {
+              if (!hoverButtonPosition) return;
+              const containerRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const mouseX = e.clientX - containerRect.left;
+              const buttonRightEdge = containerRect.width / 2 + 400 + 4 + 28;
+              if (mouseX > buttonRightEdge) {
+                setHoverButtonPosition(null);
+                hoveredElementRef.current = null;
+              }
+            }}
             sx={{
               bgcolor: "background.default",
               position: "relative",
@@ -1311,6 +1318,11 @@ export default function DesignReviewContent({
                 <IconButton
                   size="small"
                   onClick={() => {
+                    if (hoveredElementRef.current) {
+                      const range = document.createRange();
+                      range.selectNodeContents(hoveredElementRef.current);
+                      savedRangeRef.current = range;
+                    }
                     setSelectedText(hoverButtonPosition.elementText);
                     setCommentFormPosition({ x: 0, y: hoverButtonPosition.y });
                     setHoverButtonPosition(null);
@@ -1341,6 +1353,15 @@ export default function DesignReviewContent({
               onMouseMove={(e) => {
                 if (showCommentForm || isNarrowViewport) return;
                 const target = e.target as Node;
+                for (const bubble of commentRefs.current.values()) {
+                  if (bubble.contains(target)) {
+                    if (hoverButtonPosition) {
+                      setHoverButtonPosition(null);
+                      hoveredElementRef.current = null;
+                    }
+                    return;
+                  }
+                }
                 const blockTags = new Set(["P", "LI", "H1", "H2", "H3", "H4", "BLOCKQUOTE", "PRE"]);
                 let node: Node | null = target;
                 while (node && node !== markdownRef.current) {
@@ -1623,6 +1644,7 @@ export default function DesignReviewContent({
         reason={rejectReason}
         onReasonChange={setRejectReason}
         onReject={handleRejectDesign}
+        isSubmitting={archiveMutation.isPending}
       />
     </Box>
   );

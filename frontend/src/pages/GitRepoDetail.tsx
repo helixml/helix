@@ -500,8 +500,8 @@ const GitRepoDetail: FC = () => {
         return result
       }
       return null
-    } catch (err) {
-      snackbar.error('Failed to create access grant')
+    } catch (err: any) {
+      snackbar.error(err?.message || 'Failed to create access grant')
       return null
     }
   }
