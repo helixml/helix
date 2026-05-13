@@ -132,6 +132,10 @@ A Notion database becomes Helix-managed by adding the following columns. Helix's
 - Toggle-block expand/collapse events: Notion does not expose these via the API, so they cannot be observed. Note in findings, do not attempt to work around.
 - Free-plan workspace support for the primary (Automation/Button) path — Notion gates "Send webhook" actions to paid plans. Free-plan users get the secondary (API webhook subscription) path with reduced functionality.
 
+## Target customer
+
+Initial target customer is on the **Notion Business plan**, so the primary-path features (Database Automations + Button "Send webhook" actions) are available. Free-plan parity is **not** a release blocker for v1 — the secondary API-webhook path exists only to cover event types Automations don't surface (`comment.created`, free-form page edits), not to back-fill missing plan capabilities.
+
 ## Open Questions
 
 - **Public vs internal Notion integration**: do we want a single Helix-owned **public integration** (in the Notion directory, per-workspace OAuth), or per-Helix-admin **internal integrations**? The MVP picks internal-integration because it's faster to ship and doesn't need a Notion review; findings doc revisits.
