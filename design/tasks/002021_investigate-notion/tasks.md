@@ -74,14 +74,16 @@
 
 ## End-to-end demo (mirrors the customer's Go/NoGo flow)
 - [ ] In the test Notion workspace: create a database with a `Go/NoGo` select column (options: `Go`, `NoGo`) and an optional `Result` rich-text column
+- [ ] Add a **kanban board view** of the same database grouped by `Go/NoGo` so we can demo the drag-card UX as well as the table-row-edit UX
 - [ ] Configure the Helix Notion trigger via the wizard end-to-end (action column = `Go/NoGo`, create option = `Go`, cancel option = `NoGo`, result column = `Result`)
 - [ ] Create both Database Automations in Notion following the wizard's instructions
-- [ ] Flip a row's `Go/NoGo: NoGo → Go` → confirm Helix spectask is created and an `embed` block is appended to the row's page body pointing at the live task
-- [ ] Click into the row → confirm the live Helix UI renders inside the row's page body, including video stream
-- [ ] Wait for spectask completion → confirm the `Result` column is populated; confirm `Go/NoGo` is **untouched**
-- [ ] Flip the row back to `NoGo` → confirm Helix cancels the spectask and removes the embed block
+- [ ] **Table view demo:** flip a row's `Go/NoGo: NoGo → Go` → confirm Helix spectask is created and an `embed` block is appended to the row's page body
+- [ ] **Kanban view demo:** drag a card from the `NoGo` lane to the `Go` lane → confirm the same outcome (verifies that the same Automation fires regardless of view)
+- [ ] Click into the row/card → confirm the live Helix UI renders inside the row's page body, including video stream
+- [ ] Wait for spectask completion → confirm the `Result` column is populated; confirm `Go/NoGo` is **untouched** in both views
+- [ ] Drag the card back to `NoGo` (or flip the row) → confirm Helix cancels the spectask and removes the embed block
 - [ ] Add a `Run` button column → press it on a separate row → confirm immediate spectask creation regardless of `Go/NoGo`
-- [ ] Capture a short screen recording (or screenshot sequence) for the demo
+- [ ] Capture a short screen recording showing both the table and kanban views driving the same agent
 
 ## Findings doc
 - [ ] Write `findings.md` covering: end-to-end latency observed (Notion → Helix → row write-back round-trip), what worked, what didn't, embed result, recommended GA shape (drop secondary path? keep both?), friction in setup wizard, whether free-plan parity matters

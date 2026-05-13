@@ -23,8 +23,8 @@ The script:
 **One-time per workspace (Helix admin):**
 1. In Helix, on a Helix App's **Triggers** tab, click **Add Trigger → Notion**. Helix shows the wizard.
 2. **Wizard step 1 — Connect to Notion.** Click "Connect to Notion". Browser redirects to Notion's standard OAuth consent screen, where the user picks which pages/databases to share with Helix. (Notion grants are page-level, per-user — the customer admin shares the specific database they want Helix to manage; child pages of that database come along.) Notion redirects back to Helix with the OAuth code; Helix exchanges it for a long-lived token and stores an `OAuthConnection` row.
-3. **Wizard step 2 — Pick the database.** Helix calls `POST /v1/search` filtered to databases — only the databases the user just shared appear in the dropdown. User picks one.
-4. **Wizard step 3 — Pick the action column and option mapping.** Helix fetches the database schema and lists every `select` and `status` column. User picks one (e.g. `Go/NoGo`). Helix then lists that column's options and the user picks: "create" option (e.g. `Go`) and "cancel" option (e.g. `NoGo`). User can also pick optional `Prompt` and `Result` rich-text columns from the same dropdown (or leave empty). Helix saves the mapping.
+3. **Wizard step 2 — Pick the database.** Helix calls `POST /v1/search` filtered to databases — only the databases the user just shared appear in the dropdown. User picks one. Wizard tip: "if you want a kanban-board UX, group the database by the action column you'll pick in the next step — Notion does this purely on the view side, no schema change needed."
+4. **Wizard step 3 — Pick the action column and option mapping.** Helix fetches the database schema and lists every `select` and `status` column. User picks one (e.g. `Go/NoGo` or `Status`). Helix then lists that column's options and the user picks: "create" option (e.g. `Go` / `In progress` / `Doing`) and "cancel" option (e.g. `NoGo` / `Backlog`). These options correspond to kanban swim lanes if the user is using a board view. User can also pick optional `Prompt` and `Result` rich-text columns from the same dropdown (or leave empty). Helix saves the mapping.
 5. **Wizard step 4 — Pick the target Helix project.** Spectasks created from this database land in this project.
 6. **Wizard step 5 — Wire the Notion Automations.** Helix shows: a webhook URL, a generated shared secret, and step-by-step instructions (with screenshots) to create **two automations** in Notion (or one with two branches if Notion supports it — verify in discovery):
    - Open the database → click the ⚡ icon top-right → "+ New automation".
@@ -45,6 +45,15 @@ The script:
 ## How a Notion change maps to a Helix action
 
 This is the central UX decision. Helix needs to know, from a webhook payload, *what to do* — start a spectask, stop one, just write a result back, etc. We anchor the MVP on a **convention**: one Notion database = one Helix project; each row = one candidate spectask.
+
+**Kanban is the natural fit.** A Notion database can be viewed as a kanban board grouped by any `select` or `status` column — same data, different lens. That maps perfectly onto our model:
+
+- **Helix project** ↔ Notion database
+- **Kanban column** ↔ option of the action column (e.g. `Backlog`, `Doing`, `Done`)
+- **Spectask** ↔ kanban card (i.e. a database row)
+- **Dragging a card across columns** ↔ flipping the action column's value ↔ fires the Database Automation ↔ Helix dispatches create / cancel
+
+The customer's `Go/NoGo` column trivially becomes a two-column kanban (`Go` and `NoGo` lanes); the embed block we insert into the card's page body shows the live Helix UI when the user clicks into the card. Nothing in the design is kanban-specific — kanban "just works" because it's the same property changing — but it's the most intuitive way for users to interact with the system, and the wizard / onboarding docs will lead with the kanban framing.
 
 **Notion has two purpose-built primitives we lean on** (both POST to an arbitrary webhook URL with selected row fields, both on Notion paid plans):
 
@@ -102,6 +111,9 @@ A Notion database becomes Helix-managed by designating one **action column** (a 
 
 **1. PM driving agents from an existing Notion database (the customer's flow)**
 > As a PM with a Notion database that already has a `Go/NoGo` dropdown column on each row, I want to flip a row to `Go` and have Helix automatically create a spectask in the linked project and embed the live Helix UI directly inside the row's page body — so I can read the row, watch the agent work, and see results in one Notion view. Flipping back to `NoGo` cancels the spectask. Helix never touches my `Go/NoGo` column — I own that.
+
+**1a. Same flow, kanban-board view of the same database**
+> As a team lead, I want to see my Helix-managed database as a kanban board grouped by the action column — `Backlog`, `In progress`, `Done` swim lanes (or `Go` / `NoGo`, etc., whatever the user picked). Dragging a card from `Backlog` to `In progress` should kick off the Helix agent for that card; dragging it back to `Backlog` should cancel. The card opens to show the embedded live Helix UI. The "kanban" mode is just a Notion view of the same database — no separate setup.
 
 **2. Knowledge worker triggering an agent on demand (button-driven)**
 > As an engineer with a one-off row of work, I want to click a `Run on Helix` button on that row and have Helix immediately start the spectask, so I don't have to use the action-column mechanism for ad-hoc runs.
