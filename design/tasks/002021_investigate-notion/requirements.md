@@ -14,6 +14,37 @@ This task delivers a working **demo loop** plus a written-up assessment of the g
 2. **Helix → Notion embed**: a Helix task / spec-task page that renders cleanly inside a Notion `/embed` block.
 3. **Findings doc** (`design/tasks/002021_investigate-notion/findings.md`, written during implementation): what works, what doesn't, recommended GA shape.
 
+## End-to-end onboarding (the user's-eye view)
+
+The integration touches three surfaces — Helix (where the trigger config lives), Notion's OAuth consent (one-time install), and the Notion database itself (column setup + Automation). The onboarding wizard in Helix walks the user through all three. **Helix is not in the Notion integration catalog**; we use a Helix-owned **public Notion integration** that's installed via a direct OAuth URL we hand the user. (Notion permits this — public integrations are fully functional before/without catalog listing; catalog listing is a separate marketing surface.)
+
+The script:
+
+**One-time per workspace (Helix admin):**
+1. In Helix, on a Helix App's **Triggers** tab, click **Add Trigger → Notion**. Helix shows the wizard.
+2. **Wizard step 1 — Connect to Notion.** Click "Connect to Notion". Browser redirects to Notion's standard OAuth consent screen, where the user picks which pages/databases to share with Helix. (Notion grants are page-level, per-user — the customer admin shares the specific database they want Helix to manage; child pages of that database come along.) Notion redirects back to Helix with the OAuth code; Helix exchanges it for a long-lived token and stores an `OAuthConnection` row.
+3. **Wizard step 2 — Pick the database.** Helix calls `POST /v1/search` filtered to databases — only the databases the user just shared appear in the dropdown. User picks one.
+4. **Wizard step 3 — Validate / customise columns.** Helix fetches the database schema. It looks for the four convention columns (`Status` status-type, `Prompt` rich-text, `Helix Task` URL, `Result` rich-text). For each missing or wrong-typed column, the wizard shows "this column is missing/wrong type — add it in Notion, then click Recheck" with the exact spec. Once the schema is valid, the user can rename any of the convention columns (e.g. `Status` → `Helix Status`) and Helix stores the mapping. The user also confirms the `Status` value names that drive actions (defaults: `Ready` → create, `Cancelled` → cancel, `Running` / `Done` → output-only states Helix writes).
+5. **Wizard step 4 — Pick the target Helix project.** Spectasks created from this database land in this project.
+6. **Wizard step 5 — Wire the Notion Automation.** Helix shows: a webhook URL, a generated shared secret, and step-by-step instructions (with a screenshot) to do this in Notion:
+   - Open the database → click the ⚡ icon top-right → "+ New automation".
+   - Trigger: "When `Status` is set to `Ready`".
+   - Action: "Send webhook" → paste the Helix URL.
+   - Headers: paste `X-Helix-Webhook-Secret: <secret>` and `X-Helix-Source: notion-automation`.
+   - Body fields: include `Status`, `Prompt`, `Helix Task`, page ID (auto).
+   - Save.
+   - **Optionally**, add a `Run on Helix` Button-property column: open the database schema → "+ New property" → type Button → action "Send webhook" with the same URL but `X-Helix-Source: notion-button`. This gives a per-row "kick off now" button.
+7. The wizard's **Test setup** button POSTs a synthetic Automation payload through the URL so the user can confirm the wiring without touching real rows.
+
+**Recurring (anyone in the team):**
+8. In Notion, add a row to the database — fill in `Title`, `Prompt`, set `Status: Backlog`. When ready, flip `Status: Ready`. Notion fires the Automation → Helix creates a spectask in the configured project, sets `Status: Running` and writes the spectask URL into the row's `Helix Task` column.
+9. **To watch it run inline (optional)**: paste the `Helix Task` URL into a Notion `/embed` block in the row's page body. The live Helix task UI renders inside Notion. (There is no Notion property type that auto-renders an embed; this is a one-time manual step per row, or the user can leave it as a clickable link.)
+10. When the agent finishes, Helix writes `Status: Done` and the result summary into `Result`. The customer sees the row update without leaving Notion.
+
+**Note on who-installs-what:** the Helix admin runs steps 1–7 once. Step 8 onward is everyday team use — no further Helix touchpoint per row. The OAuth grant and Notion Automation persist across rows.
+
+**Alternative auth mode (documented for completeness, not the default):** if the customer prefers not to OAuth into a third-party Helix integration, they can create a **Notion internal integration** in their own developer portal, share the database with it manually, and paste the static token into Helix's wizard step 1 instead of clicking "Connect to Notion". Same flow from step 2 onward. The findings doc decides whether we keep both modes.
+
 ## How a Notion change maps to a Helix action
 
 This is the central UX decision. Helix needs to know, from a webhook payload, *what to do* — start a spectask, stop one, just write a result back, etc. We anchor the MVP on a **convention**: one Notion database = one Helix project; each row = one candidate spectask.
