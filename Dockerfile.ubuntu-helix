@@ -904,7 +904,15 @@ RUN npm install -g \
 # for this file and opens the URL in the user's native browser.
 COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
 COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
+# helix-npx — installed as /usr/local/bin/npx so it shadows the system
+# /usr/bin/npx via PATH order. Gives each `npx <pkg>` invocation its own
+# NPM_CONFIG_CACHE so parallel npx spawns (Zed + Claude both starting
+# the same MCP at session start, or two parallel agent sessions hitting
+# the same package) don't race in npm's `_npx/<hash>` rename dance.
+# Zed's own ACP-wrapper bootstrapping calls npm via absolute path so it
+# bypasses this shim.
+COPY desktop/shared/helix-npx.sh /usr/local/bin/npx
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper /usr/local/bin/npx
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
