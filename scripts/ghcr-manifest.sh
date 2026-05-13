@@ -18,8 +18,9 @@ GHCR_REPO=$(echo "$OLD_REPO" | sed 's|registry.helixml.tech/helix|ghcr.io/helixm
 
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u helixml --password-stdin
 
+# TEMP: arm64 leg removed while arm64 builds are disabled in .drone.yml.
+# Restore the `"$GHCR_REPO:$VERSION-linux-arm64"` line below when arm64 is re-enabled.
 docker manifest create --amend "$GHCR_REPO:$VERSION" \
-  "$GHCR_REPO:$VERSION-linux-amd64" \
-  "$GHCR_REPO:$VERSION-linux-arm64"
+  "$GHCR_REPO:$VERSION-linux-amd64"
 docker manifest push "$GHCR_REPO:$VERSION"
-echo "GHCR multi-arch manifest pushed: $GHCR_REPO:$VERSION"
+echo "GHCR manifest pushed (amd64-only): $GHCR_REPO:$VERSION"
