@@ -1,41 +1,58 @@
 # Implementation Tasks
 
 ## Discovery (do first)
-- [ ] Register a Notion **internal integration** in a test workspace; capture client ID, client secret, and an integration-token PAT for solo testing
-- [ ] Manually `POST` a hand-crafted "page edited" webhook payload at a local endpoint to confirm the HMAC signature scheme matches Notion's docs
+- [ ] Register a Notion **internal integration** in a paid-plan test workspace; capture client ID, client secret, and an integration-token PAT for solo testing
+- [ ] Manually create a Database Automation in a test database with action "Send webhook" → confirm payload shape (which fields land, what headers Notion supports adding) using webhook.site
+- [ ] Manually add a Button property column with a "Send webhook" action → confirm payload shape and that we can distinguish it from the Automation payload via a custom header
+- [ ] `POST` a hand-crafted secondary-path webhook payload at a local endpoint to confirm `X-Notion-Signature` HMAC scheme matches the docs
 - [ ] Paste `https://app.helix.ml/embed/task/{task_id}?access_token={key}` into a Notion `/embed` block in a test page; screenshot the result to `screenshots/01-notion-embed-baseline.png`
-- [ ] Inspect the response headers Helix returns on `/embed/*` and document them in the findings doc (X-Frame-Options, CSP)
+- [ ] Inspect the response headers Helix returns on `/embed/*` (X-Frame-Options, CSP) and document in the findings doc
 
 ## Backend — types & OAuth
-- [ ] Add `NotionTrigger` struct + `Notion` field on `Trigger` in `api/pkg/types/types.go`
+- [ ] Add `NotionTrigger`, `NotionColumnMap`, `NotionActionMap` structs + `Notion` field on `Trigger` in `api/pkg/types/types.go`
 - [ ] Add `TriggerTypeNotion = "notion"` constant
+- [ ] Add `ExternalTriggerRef` struct + JSONB column on `SpecTask`
 - [ ] Add `OAuthProviderTypeNotion = "notion"` in `api/pkg/types/oauth.go`
 - [ ] Extend `oauth/oauth2.go` `GetUserInfo` switch with the Notion case (parse `/v1/users/me`)
 - [ ] Add `useBasicAuth` flag (or per-provider override) so the Notion token exchange sends client creds via HTTP Basic
 - [ ] Set `Notion-Version: 2025-09-03` header on every authorized request
 
-## Backend — trigger
-- [ ] Create `api/pkg/trigger/notion/notion.go` with `New()` and `ProcessWebhook(ctx, cfg, headers, body)`
-- [ ] Implement HMAC-SHA256 signature verification against `verification_token`
-- [ ] Implement webhook subscription handshake helper (verify-token paste flow)
-- [ ] Implement event dispatch for `page.properties_updated`, `page.content_updated`, `comment.created`
-- [ ] Implement page fetch via stored OAuth connection (or trigger-config-level token for internal-integration mode)
-- [ ] Implement in-memory dedup keyed by page ID with a debounce window (default 10s)
-- [ ] Implement `render.go` prompt formatter with `PromptTemplate` (Go `text/template`)
+## Backend — trigger (primary path: Database Automation + Button)
+- [ ] Create `api/pkg/trigger/notion/notion.go` with `New()` and `ProcessWebhook(ctx, cfg, headers, body)` that branches on `X-Helix-Source` header
+- [ ] Implement shared-secret verification (constant-time compare on `X-Helix-Webhook-Secret` header)
+- [ ] Implement `events.go` payload parser for the Automation/Button shape (Notion's webhook-action JSON)
+- [ ] Implement `dispatch.go`: `Status → Ready` (or button press) creates spectask; `Status → Cancelled` cancels; idempotency via `ExternalTriggerRef` lookup
+- [ ] Implement `client.go`: `GetPage`, `PatchPage` (status + URL + result write-back) using the OAuth connection
+- [ ] Hook spectask completion in `api/pkg/services/spec_driven_task_service.go` to invoke `notion.WriteResultBack` when `ExternalTriggerRef.Type == "notion"`
 - [ ] Wire `notion.ProcessWebhook` into `trigger.ProcessWebhook` switch
 - [ ] Update `webhookTriggerHandler` to pass request headers through to `trigger.ProcessWebhook`
-- [ ] Optional `ReplyAsComment`: implement Notion `POST /v1/comments` call; tag bot's own author so we skip looped events
+
+## Backend — trigger (secondary path: API webhook subscription)
+- [ ] Implement HMAC-SHA256 verification against `verification_token` in `events.go`
+- [ ] Implement subscription handshake helper (verify-token paste flow)
+- [ ] Implement event dispatch for `page.properties_updated`, `page.content_updated`, `comment.created`
+- [ ] Implement page fetch via stored OAuth connection
+- [ ] Implement in-memory dedup keyed by page ID with a debounce window (default 10s)
+- [ ] Implement `render.go` prompt formatter with `PromptTemplate` (Go `text/template`) for the secondary path
 
 ## Backend — tests
+- [ ] Unit test: shared-secret verify accepts good secret, rejects bad
 - [ ] Unit test: HMAC verify accepts good signature, rejects bad signature, rejects mismatched body
-- [ ] Unit test: dedup collapses two webhooks for the same page within the debounce window
-- [ ] Unit test: prompt template renders for each event type
-- [ ] Unit test: own-bot comment is ignored to break reply loops
+- [ ] Unit test: dispatch — `Status → Ready` creates a spectask via mocked spectask service; idempotent on replay
+- [ ] Unit test: dispatch — `Status → Cancelled` cancels in-flight spectask referenced by `ExternalTriggerRef`
+- [ ] Unit test: spectask-completion hook PATCHes back `Status: Done` + `Result`
+- [ ] Unit test: prompt template renders for each secondary-path event type
+- [ ] Unit test: dedup collapses two secondary-path webhooks for the same page within the debounce window
+- [ ] Unit test: writing `Status: Running` from Helix does NOT trigger a re-dispatch loop (validates the no-loop invariant for default action mapping)
 
-## Frontend — trigger config UI
+## Frontend — trigger setup wizard
 - [ ] Add a "Notion" option in the per-app trigger configuration form
-- [ ] Form fields: verification token (paste-from-Notion), OAuth connection picker, optional page IDs / database IDs / event-type filters, prompt template, "Reply as comment" toggle
-- [ ] Display the generated webhook URL with copy-to-clipboard (already done generically — confirm Notion case renders it)
+- [ ] Wizard step 1: pick an OAuth connection (or "create one")
+- [ ] Wizard step 2: pick the Notion database (call OAuth-authorized `POST /v1/search` filtered to databases)
+- [ ] Wizard step 3: validate the database schema — fetch its properties, verify `Status` is a status type, `Helix Task` is a URL, etc.; show clear errors and a "Click here to add the missing columns" button (links to Notion docs)
+- [ ] Wizard step 4: pick the target Helix project; set status-value mapping (defaults pre-filled)
+- [ ] Wizard step 5: display the generated webhook URL, shared secret, and copy-paste instructions for creating the Database Automation in Notion (with a screenshot annotation)
+- [ ] "Test setup" button that POSTs a synthetic Automation payload through the same webhook URL
 - [ ] Render Notion entries in the trigger executions list
 
 ## Frontend — OAuth provider preset
@@ -48,13 +65,15 @@
 - [ ] Verify desktop video stream works inside Notion's iframe (or document why it doesn't)
 
 ## End-to-end demo
-- [ ] In the test Notion workspace: create a database with a `Status` property
-- [ ] Configure a Helix App with a Notion trigger pointing at that workspace
-- [ ] Toggle a row's `Status` → confirm Helix session is created and visible
-- [ ] (If `ReplyAsComment` enabled) confirm a reply lands as a comment on the row
-- [ ] Embed the resulting Helix task URL inside the same Notion page; confirm both directions work in one view
+- [ ] In the test Notion workspace: create a database with the convention columns
+- [ ] Configure the Helix Notion trigger via the wizard end-to-end
+- [ ] Create the Database Automation following the wizard's instructions
+- [ ] Flip a row's `Status: Backlog → Ready` → confirm Helix spectask is created and `Helix Task` URL appears in the row
+- [ ] Wait for spectask completion → confirm `Status: Done` and `Result` are populated back in the row
+- [ ] Add a `Run` button column → press it on a separate row → confirm immediate spectask creation
+- [ ] Paste the `Helix Task` URL into a Notion `/embed` block on the same page → confirm the live Helix UI renders inside Notion
 - [ ] Capture a short screen recording (or screenshot sequence) for the demo
 
 ## Findings doc
-- [ ] Write `findings.md` covering: webhook latency observed, what worked, what didn't, embed result, recommended GA shape, rate-limit estimate, scope of polling work if needed
+- [ ] Write `findings.md` covering: end-to-end latency observed (Notion → Helix → row write-back round-trip), what worked, what didn't, embed result, recommended GA shape (drop secondary path? keep both?), friction in setup wizard, whether free-plan parity matters
 - [ ] Include screenshots and the demo recording link
