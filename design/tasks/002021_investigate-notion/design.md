@@ -68,28 +68,47 @@ The general API webhook subscription stays as a **secondary path** for: (a) free
 
 ### 1b. Action dispatch from a row webhook
 
-The primary-path payload contains the page ID and the property values the user selected. Helix's dispatch logic:
+The primary-path payload contains the page ID and the property values the user selected in the Automation's body fields. Helix's dispatch logic keys off the `X-Helix-Action` header that the user (Helix's setup wizard, really) configured on the Automation, so we don't need to inspect the action column's value at all on dispatch — the user has already told Notion which event means create vs cancel:
 
 ```go
-switch row.Status {
-case cfg.StatusValueReady:    // e.g. "Ready"
-    if existingSpecTask(row.PageID) != nil { return noop }
-    spectask := createSpecTask(cfg.TargetProjectID, row.Title, row.Prompt,
+action := r.Header.Get("X-Helix-Action") // "create" | "cancel"
+switch action {
+case "create":
+    if existingSpecTask(row.PageID) != nil { return noop } // idempotent on replay
+    prompt := row.GetText(cfg.PromptColumn) // empty → fall back to page body fetch
+    spectask := createSpecTask(cfg.TargetProjectID, row.Title, prompt,
                                 externalRef("notion", row.PageID))
-    notion.PatchPage(row.PageID, map[string]any{
-        cfg.StatusColumn:    cfg.StatusValueRunning,           // "Running"
-        cfg.HelixTaskColumn: spectaskURL(spectask),
-    })
-case cfg.StatusValueCancelled:
+    blockID := notion.AppendEmbedBlock(row.PageID, embedURL(spectask))
+    spectask.ExternalTriggerRef.NotionEmbedBlockID = blockID
+    saveSpecTask(spectask)
+case "cancel":
     if st := existingSpecTask(row.PageID); st != nil {
         cancelSpecTask(st)
+        notion.DeleteBlockBestEffort(st.ExternalTriggerRef.NotionEmbedBlockID)
     }
-case "_button_run":           // synthetic value for Button property webhook
-    spectask := createSpecTask(...) // same as Ready
 }
 ```
 
-Spectask completion (existing internal Helix event, hooked via `spec_driven_task_service`) calls `notion.WriteResultBack(externalRef, finalStatus, summary)` which `PATCH`es `Status: Done` and `Result: <summary>`. The mapping from spectask → Notion row lives on the spectask as a new `external_trigger_ref` field (`{"type":"notion","page_id":"…","trigger_config_id":"…"}`).
+**Helix never `PATCH`es the action column.** This eliminates the loop risk entirely (Helix can't trigger its own Automation) and means we don't need any constraint on what option names the customer uses — `Go/NoGo`, `Backlog/Done`, anything.
+
+Spectask completion (existing internal Helix event, hooked via `spec_driven_task_service`) calls `notion.WriteResultBack(externalRef, summary)` which `PATCH`es the `Result` column **only** (if configured). Embed block stays in place. The mapping from spectask → Notion row lives on the spectask as a new `external_trigger_ref` field (`{"type":"notion","page_id":"…","trigger_config_id":"…","embed_block_id":"…"}`).
+
+### 1c. Embed block insertion
+
+Notion's API: `PATCH /v1/blocks/{page_id}/children` with body
+```json
+{ "children": [
+  { "object": "block", "type": "embed",
+    "embed": { "url": "https://app.helix.ml/embed/task/spt_abc?access_token=..." } }
+]}
+```
+The response includes the created block's ID, which we store on the spectask for later removal.
+
+**Embed URL access token:** the `?access_token=` is a Helix API key tied to a service-account user that has read access to the target project. We don't want to embed a per-user token (different team members will open the row). One service-account-per-trigger-config is the simplest model; minted at trigger create time, scoped to read-only on the target project. Documented in design as a token-scoping subtask.
+
+**Failure modes:**
+- Embed-block insert fails (permissions, network) → spectask is still created; trigger execution is logged with a warning. Findings doc captures whether this happens in practice.
+- Embed-block delete fails (user moved/deleted it, or block ID stale) → log and continue; cancel still proceeds.
 
 ### 1c. Differentiating Automation vs Button vs API payloads
 
@@ -163,13 +182,15 @@ type NotionTrigger struct {
     // Auth
     SharedSecret      string `json:"shared_secret"`                      // Primary path (Automation/Button) — Helix-generated, copied into Notion's webhook headers
     VerificationToken string `json:"verification_token,omitempty"`       // Secondary path — HMAC secret from Notion subscription handshake
-    OAuthConnectionID string `json:"oauth_connection_id,omitempty"`      // For PATCH-back to row, GET page content
+    OAuthConnectionID string `json:"oauth_connection_id,omitempty"`      // For row PATCH and embed-block insert/delete
 
     // Convention binding (primary path)
-    NotionDatabaseID string             `json:"notion_database_id,omitempty"`  // The DB this trigger is bound to
-    TargetProjectID  string             `json:"target_project_id,omitempty"`   // Helix project to create spectasks in
-    ColumnMapping    NotionColumnMap    `json:"column_mapping,omitempty"`      // Maps convention names → user's actual column names
-    ActionMapping    NotionActionMap    `json:"action_mapping,omitempty"`      // Status values → Helix actions
+    NotionDatabaseID    string          `json:"notion_database_id,omitempty"`     // The DB this trigger is bound to
+    TargetProjectID     string          `json:"target_project_id,omitempty"`      // Helix project to create spectasks in
+    EmbedAccessTokenRef string          `json:"embed_access_token_ref,omitempty"` // Reference to the API key used in embed URL (?access_token=)
+    ColumnMapping       NotionColumnMap `json:"column_mapping,omitempty"`         // User's actual column names
+    // No ActionMapping — the user's Notion Automation already encodes which option means create vs cancel
+    // via the X-Helix-Action header. Helix doesn't need to know the option names.
 
     // Secondary path (free-form pages / comments)
     WatchPageIDs   []string `json:"watch_page_ids,omitempty"`
@@ -178,17 +199,16 @@ type NotionTrigger struct {
 }
 
 type NotionColumnMap struct {
-    Status    string `json:"status,omitempty"`     // default "Status"
-    Prompt    string `json:"prompt,omitempty"`     // default "Prompt"
-    HelixTask string `json:"helix_task,omitempty"` // default "Helix Task"
-    Result    string `json:"result,omitempty"`     // default "Result"
-}
+    // Action column metadata is informational only (used by the setup wizard to
+    // generate Notion Automation copy-paste instructions). It is not consulted
+    // on dispatch; the Automation's X-Helix-Action header drives action.
+    ActionColumn       string `json:"action_column,omitempty"`        // user's column name, e.g. "Go/NoGo"
+    ActionColumnType   string `json:"action_column_type,omitempty"`   // "select" or "status" — for wizard validation only
+    ActionOptionCreate string `json:"action_option_create,omitempty"` // e.g. "Go" — wizard-generated header sample
+    ActionOptionCancel string `json:"action_option_cancel,omitempty"` // e.g. "NoGo"
 
-type NotionActionMap struct {
-    StatusValueReady     string `json:"status_value_ready,omitempty"`     // default "Ready"
-    StatusValueRunning   string `json:"status_value_running,omitempty"`   // default "Running"
-    StatusValueDone      string `json:"status_value_done,omitempty"`      // default "Done"
-    StatusValueCancelled string `json:"status_value_cancelled,omitempty"` // default "Cancelled"
+    PromptColumn string `json:"prompt_column,omitempty"` // optional rich-text column; empty → use page body
+    ResultColumn string `json:"result_column,omitempty"` // optional rich-text column; empty → no writeback
 }
 ```
 
@@ -206,6 +226,7 @@ type ExternalTriggerRef struct {
     TriggerConfigID   string `json:"trigger_config_id"`
     NotionPageID      string `json:"notion_page_id,omitempty"`
     NotionDatabaseID  string `json:"notion_database_id,omitempty"`
+    NotionEmbedBlockID string `json:"notion_embed_block_id,omitempty"` // For best-effort cleanup on cancel
 }
 ```
 
@@ -254,10 +275,12 @@ If the desktop video stream doesn't work in Notion's iframe (likely candidates: 
 
 | Risk                                                                  | Likelihood | Mitigation                                                                                  |
 | --------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------- |
-| Database Automation / Button is paid-plan-only — free users excluded from primary path | Certain    | Document. Free-plan users get the secondary API webhook path (less functionality). Findings doc decides whether free-plan parity matters. |
-| Helix's row write-back (`PATCH /v1/pages`) triggers the user's own Automation → loop | High | Status changes Helix makes (`Running`, `Done`) must not match the trigger value (`Ready`). Setup wizard enforces this via UI validation; default mapping makes this impossible. |
-| User adds the convention columns with the wrong types (e.g. `Status` as text not status) | High | Setup wizard fetches the database schema via the OAuth connection and validates types before saving the trigger config; surfaces a clear error otherwise. |
-| Setup is fiddly — three steps in Notion (install integration, add columns, add automation) | High | Step-by-step wizard with copy-paste blocks for the URL + secret + headers. v2: downloadable Notion template DB. |
+| Database Automation / Button is paid-plan-only — free users excluded from primary path | Certain    | Document. Target customer is on Business; free-plan parity is not v1 blocker. Free-plan users get the secondary API webhook path. |
+| ~~Helix write-back triggers the user's own Automation → loop~~ | ~~High~~ | **Eliminated by design** — Helix never PATCHes the action column, so it cannot trigger its own Automation. The `Result` column is rich-text, which Automations don't fire on. |
+| Embed-block insert fails (Notion API hiccup, permission revoked) | Low | Spectask still created; trigger execution row logs warning. User can manually paste the embed URL as fallback. |
+| Embed-block delete on cancel fails (user moved/edited the block) | Medium | Best-effort delete — log on failure, don't block cancellation. Stale block contains a URL to a cancelled task; harmless. |
+| User picks a `Status` column whose options Notion's UI groups awkwardly (the To-do/In-progress/Complete groups) | Low | Type-agnostic dispatch means we don't care about groups. Wizard just shows the option names. |
+| Setup is fiddly — installing OAuth + creating two Automations | Medium | Step-by-step wizard with copy-paste blocks and screenshots. Test-setup button. v2: a single Notion automation template the user can import. |
 | Helix dev domain not reachable from Notion (must be public HTTPS)     | Medium     | Use ngrok / cloud preview env for testing. Documented in findings.                          |
 | Notion embed via Iframely refuses arbitrary URLs                      | Medium     | Add OG meta tags to `/embed/*`. Fall back: instruct users to use Notion's "link preview" instead of `/embed`. |
 | Secondary-path `page.properties_updated` doesn't say which property → extra GETs | Certain (secondary path only) | One GET per delivery + 3 req/sec rate limit is fine for demo volume. Cache per-page for de-dup. |

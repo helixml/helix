@@ -24,22 +24,19 @@ The script:
 1. In Helix, on a Helix App's **Triggers** tab, click **Add Trigger → Notion**. Helix shows the wizard.
 2. **Wizard step 1 — Connect to Notion.** Click "Connect to Notion". Browser redirects to Notion's standard OAuth consent screen, where the user picks which pages/databases to share with Helix. (Notion grants are page-level, per-user — the customer admin shares the specific database they want Helix to manage; child pages of that database come along.) Notion redirects back to Helix with the OAuth code; Helix exchanges it for a long-lived token and stores an `OAuthConnection` row.
 3. **Wizard step 2 — Pick the database.** Helix calls `POST /v1/search` filtered to databases — only the databases the user just shared appear in the dropdown. User picks one.
-4. **Wizard step 3 — Validate / customise columns.** Helix fetches the database schema. It looks for the four convention columns (`Status` status-type, `Prompt` rich-text, `Helix Task` URL, `Result` rich-text). For each missing or wrong-typed column, the wizard shows "this column is missing/wrong type — add it in Notion, then click Recheck" with the exact spec. Once the schema is valid, the user can rename any of the convention columns (e.g. `Status` → `Helix Status`) and Helix stores the mapping. The user also confirms the `Status` value names that drive actions (defaults: `Ready` → create, `Cancelled` → cancel, `Running` / `Done` → output-only states Helix writes).
+4. **Wizard step 3 — Pick the action column and option mapping.** Helix fetches the database schema and lists every `select` and `status` column. User picks one (e.g. `Go/NoGo`). Helix then lists that column's options and the user picks: "create" option (e.g. `Go`) and "cancel" option (e.g. `NoGo`). User can also pick optional `Prompt` and `Result` rich-text columns from the same dropdown (or leave empty). Helix saves the mapping.
 5. **Wizard step 4 — Pick the target Helix project.** Spectasks created from this database land in this project.
-6. **Wizard step 5 — Wire the Notion Automation.** Helix shows: a webhook URL, a generated shared secret, and step-by-step instructions (with a screenshot) to do this in Notion:
+6. **Wizard step 5 — Wire the Notion Automations.** Helix shows: a webhook URL, a generated shared secret, and step-by-step instructions (with screenshots) to create **two automations** in Notion (or one with two branches if Notion supports it — verify in discovery):
    - Open the database → click the ⚡ icon top-right → "+ New automation".
-   - Trigger: "When `Status` is set to `Ready`".
-   - Action: "Send webhook" → paste the Helix URL.
-   - Headers: paste `X-Helix-Webhook-Secret: <secret>` and `X-Helix-Source: notion-automation`.
-   - Body fields: include `Status`, `Prompt`, `Helix Task`, page ID (auto).
-   - Save.
-   - **Optionally**, add a `Run on Helix` Button-property column: open the database schema → "+ New property" → type Button → action "Send webhook" with the same URL but `X-Helix-Source: notion-button`. This gives a per-row "kick off now" button.
-7. The wizard's **Test setup** button POSTs a synthetic Automation payload through the URL so the user can confirm the wiring without touching real rows.
+   - **Automation A (create):** trigger = "When `<action column>` is set to `<create option>`" (e.g. `Go`); action = "Send webhook" → paste Helix URL; headers = `X-Helix-Webhook-Secret: <secret>` and `X-Helix-Source: notion-automation` and `X-Helix-Action: create`; body = (the action column's value, the Prompt column if configured, page ID auto-included).
+   - **Automation B (cancel):** trigger = "When `<action column>` is set to `<cancel option>`" (e.g. `NoGo`); same URL/secret; header `X-Helix-Action: cancel`.
+   - **Optionally**, add a `Run on Helix` Button-property column with action "Send webhook", same URL, `X-Helix-Source: notion-button`, `X-Helix-Action: create`. Per-row "kick off now" button.
+7. The wizard's **Test setup** button POSTs a synthetic Automation payload (both `create` and `cancel` directions) through the URL so the user can confirm wiring without touching real rows.
 
 **Recurring (anyone in the team):**
-8. In Notion, add a row to the database — fill in `Title`, `Prompt`, set `Status: Backlog`. When ready, flip `Status: Ready`. Notion fires the Automation → Helix creates a spectask in the configured project, sets `Status: Running` and writes the spectask URL into the row's `Helix Task` column.
-9. **To watch it run inline (optional)**: paste the `Helix Task` URL into a Notion `/embed` block in the row's page body. The live Helix task UI renders inside Notion. (There is no Notion property type that auto-renders an embed; this is a one-time manual step per row, or the user can leave it as a clickable link.)
-10. When the agent finishes, Helix writes `Status: Done` and the result summary into `Result`. The customer sees the row update without leaving Notion.
+8. In Notion, the team uses the database as they always have. When a row is ready, flip `Go/NoGo` from `NoGo` (or unset) to `Go`. Notion fires Automation A → Helix creates a spectask in the configured project, appends a Helix `embed` block to that row's page body. Click into the row → see the live Helix UI rendered inline.
+9. When the agent finishes, Helix writes the result summary into the `Result` column (if configured). The embed block stays in place; clicking it shows the finished task. **Helix never touches the `Go/NoGo` column** — the user owns that.
+10. To stop a running spectask, flip `Go/NoGo` back to `NoGo`. Notion fires Automation B → Helix cancels the spectask and best-effort removes the embed block.
 
 **Note on who-installs-what:** the Helix admin runs steps 1–7 once. Step 8 onward is everyday team use — no further Helix touchpoint per row. The OAuth grant and Notion Automation persist across rows.
 
@@ -58,27 +55,36 @@ Both are dramatically better than the general API webhook subscription for our u
 
 ### The MVP convention (one row = one spectask)
 
-A Notion database becomes Helix-managed by adding the following columns. Helix's setup UI shows the user how to create them and how to wire the Automation/Button.
+A Notion database becomes Helix-managed by designating one **action column** (a dropdown — Notion `select` OR `status` type, doesn't matter) and one optional **result column** (rich text). Helix's setup wizard shows the user how to wire the Automation. **Helix never writes back to the action column** — the user owns that, which means there is no possibility of a write-back loop and no constraint on what the action-column option names are.
 
-| Column          | Notion type     | Direction                  | Meaning                                                                            |
-| --------------- | --------------- | -------------------------- | ---------------------------------------------------------------------------------- |
-| `Title` (built-in) | title         | input                      | Spectask name                                                                      |
-| `Prompt`        | rich text       | input                      | Spectask prompt (or use the page body if empty)                                    |
-| `Status`        | status          | input + output             | Drives the action via Automation. Recommended values: `Backlog`, `Ready`, `Running`, `Done`, `Cancelled`. Helix updates this as the spectask progresses. |
-| `Helix Task`    | URL             | output                     | Helix writes the embeddable task URL here on creation; user clicks to open or pastes into an `/embed` block. |
-| `Result`        | rich text       | output                     | Helix writes the agent's final output summary on completion.                       |
-| `Run` (optional) | button          | input                      | Manual "Run on Helix" button. Sends webhook → starts spectask regardless of `Status`. |
+| Column            | Notion type   | Direction                  | Meaning                                                                            |
+| ----------------- | ------------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| `Title` (built-in) | title        | input                      | Spectask name.                                                                     |
+| `Prompt` (optional) | rich text  | input                      | Spectask prompt. If empty, Helix falls back to the row's page body (block content). |
+| **Action column** | `select` or `status` | input             | Drives the action via Automation. **User-named, user-controlled.** Customer's example: a `Go/NoGo` select column with two options. Alternative: a `Status` workflow column with `Backlog`/`Ready`/`Done` etc. Helix is told which option triggers create vs. which triggers cancel during setup. |
+| `Result` (optional) | rich text  | output                     | Helix writes the agent's final output summary on completion. If absent, the result is left only in Helix. |
+| `Run` (optional)  | button        | input                      | Manual "Run on Helix" button — sends webhook → starts spectask regardless of action column. |
 
-**Action mapping:**
-- `Status: Backlog → Ready` (Automation fires) → Helix creates a spectask in the configured project; flips `Status` to `Running`; writes the task URL into `Helix Task`.
-- `Status: Running → Cancelled` (Automation fires) → Helix cancels the in-flight spectask.
-- `Run` button pressed (Button webhook fires) → Helix creates a spectask immediately, regardless of `Status`. Useful for ad-hoc / one-off rows.
-- Spectask completes → Helix `PATCH`es `Status: Done` and writes `Result`. (Notion doesn't have an "embed" property type, so the live embed is not auto-rendered inline; the user manually drops an `/embed` block referencing the `Helix Task` URL if they want the live view.)
+**Where the live embed lives:** when Helix creates a spectask for a row, it appends a Notion `embed` block to that row's **page body** via `PATCH /v1/blocks/{page_id}/children` pointing at `https://app.helix.ml/embed/task/{task_id}`. The user opens the row in Notion → sees the live Helix UI rendered inside the row's page. No manual paste, no separate URL-column step.
+
+(Notion has no inline-embed *property* type — embedding only works as a block in a page body. Each database row IS a Notion page, so this works cleanly. The user's row-list view shows whatever columns they've configured; clicking into a row reveals the embedded Helix UI in the body.)
+
+**Action mapping (customer's Go/NoGo example):**
+- `Go/NoGo: <unset> → Go` (Automation fires) → Helix creates a spectask in the configured project; appends the embed block to the row's page body.
+- `Go/NoGo: Go → NoGo` (Automation fires) → Helix cancels the in-flight spectask referenced by the `ExternalTriggerRef`; optionally removes the embed block (best effort — see below).
+- `Run` button pressed → Helix creates a spectask immediately, ignoring the action column.
+- Spectask completes → Helix writes the summary to `Result` (if configured). Helix does **not** touch the action column, so the user can decide whether to flip `Go → NoGo` themselves.
+
+**Embed-block lifecycle on cancel/completion:**
+- On cancel: best-effort remove the embed block (we recorded its block ID at creation time on the spectask). If removal fails (user moved/edited it), log and move on — we don't want a Notion edit failure to block cancellation.
+- On completion: leave the embed block in place. The Helix task URL still resolves to the finished task with its final state, and the user may want to reopen it.
 
 **Why this shape:**
-- **Status property is the natural workflow primitive** Notion users already reach for. It has built-in groups (`To-do` / `In-progress` / `Complete`), works with kanban views, and Automations have a first-class "when Status changes" trigger.
-- **One-row-one-spectask** is the simplest mental model that survives translation back to a Helix project view; it avoids the "what does this row mean?" ambiguity that comes from watching a free-form page.
-- **The convention is opt-in per-database**, not workspace-wide — users can have other Notion databases that Helix doesn't touch.
+- **Type-agnostic action column** — `Go/NoGo` (select) and `Backlog/Ready/Done` (status) and any other dropdown shape all work. The user names the options; Helix learns the mapping during setup. Customers who already have a `Go/NoGo` workflow don't have to re-architect.
+- **Helix never writes the action column** → no loop risk, no need to constrain what option names exist, no setup-wizard validation that "the trigger value isn't the writeback value".
+- **Embed-in-body is the right place** — Notion's UX makes the row a page, the embed block belongs in the page body where the user can read context and watch the agent work alongside.
+- **One-row-one-spectask** is the simplest mental model that survives translation back to a Helix project view.
+- **The convention is opt-in per-database** — users can have other Notion databases Helix doesn't touch.
 
 ### What this does *not* try to do
 
@@ -94,17 +100,17 @@ A Notion database becomes Helix-managed by adding the following columns. Helix's
 
 ## User Stories
 
-**1. PM driving agents from a Notion task database (status-driven)**
-> As a PM with a Notion database of "AI tasks", I want to flip a row's `Status` from `Backlog` to `Ready` and have Helix automatically create a spectask in the linked project, populate the row's `Helix Task` URL column, and update `Status` and `Result` as the agent progresses — so my team's planning surface (Notion) and execution surface (Helix) stay synced without copy-paste.
+**1. PM driving agents from an existing Notion database (the customer's flow)**
+> As a PM with a Notion database that already has a `Go/NoGo` dropdown column on each row, I want to flip a row to `Go` and have Helix automatically create a spectask in the linked project and embed the live Helix UI directly inside the row's page body — so I can read the row, watch the agent work, and see results in one Notion view. Flipping back to `NoGo` cancels the spectask. Helix never touches my `Go/NoGo` column — I own that.
 
 **2. Knowledge worker triggering an agent on demand (button-driven)**
-> As an engineer with a row of work I want to push to Helix right now, I want to click a `Run on Helix` button on that row (regardless of its current `Status`) and have Helix immediately start the spectask, so I don't have to fiddle with status fields for a one-off.
+> As an engineer with a one-off row of work, I want to click a `Run on Helix` button on that row and have Helix immediately start the spectask, so I don't have to use the action-column mechanism for ad-hoc runs.
 
-**3. Embedding the live agent inside Notion**
-> As a user who has triggered a Helix spectask from a Notion row, I want to paste the row's `Helix Task` URL into a Notion `/embed` block on the same page and see the live Helix UI (logs, video stream of the desktop sandbox, planning artifacts) inside Notion — so the Notion page becomes a single-pane-of-glass for "request → agent doing the work → result". (Notion has no inline-embed property type, so this step is manual; the URL is a normal clickable link in the row.)
+**3. Watching the agent inside the Notion row, not in a separate tab**
+> As a user who triggered a Helix spectask from a Notion row, I want to click into that row in Notion and see the live Helix UI (logs, video stream of the desktop sandbox, planning artifacts) embedded directly in the row's page body — without having to copy a URL or paste anything. Helix should add the embed automatically when it starts the spectask.
 
 **4. Operator wiring up the integration once**
-> As a workspace admin, I want to install a Helix Notion integration once (OAuth grant on the database the team uses), then follow Helix's setup wizard to add the conventional columns and create the Database Automation that POSTs to Helix, so individual users don't each have to manage tokens or webhook URLs.
+> As a workspace admin, I want to install a Helix Notion integration once (OAuth grant on the database the team uses), then point Helix's setup wizard at our existing `Go/NoGo` (or other dropdown) column and have Helix learn the mapping — so individual users don't each have to manage tokens or webhook URLs, and we don't have to redesign our existing database schema.
 
 **5. Coarse "page edited / commented" trigger (secondary)**
 > As a user with a free-form Notion page (no database), I want Helix to receive a coarse "this page was edited" or "a comment was added" event so I can wire less-structured agent flows. (Best-effort — no per-property diff, ~1 min latency.)
@@ -113,23 +119,28 @@ A Notion database becomes Helix-managed by adding the following columns. Helix's
 
 ### Notion → Helix (trigger)
 - [ ] A new `Trigger.Notion` type alongside `Trigger.AzureDevOps` (`helix/api/pkg/types/types.go:1714`) — webhook-driven, configured per Helix App, gives the user a `WebhookURL` they paste into a Notion **Database Automation** or **Button property** "Send webhook" action (and into the general Notion API webhook subscription as a fallback).
-- [ ] A `NotionTrigger` config carries: a webhook **shared secret** (Helix-generated; included as a header by Notion's webhook config OR as a token in the URL — see design.md), an `OAuthConnectionID` for write-back calls, the **target Helix project ID**, the **Notion database ID** this trigger is bound to, the **column-name mapping** (defaults: `Status`, `Prompt`, `Helix Task`, `Result`), and the action mapping (which `Status` value triggers create, which triggers cancel).
+- [ ] A `NotionTrigger` config carries: a webhook **shared secret**, an `OAuthConnectionID` for write-back calls, the **target Helix project ID**, the **Notion database ID** this trigger is bound to, the **column mapping** (which column is the action-driving dropdown; which optional rich-text column is the prompt; which optional rich-text column is the result), and the **action mapping** (which dropdown option triggers create, which triggers cancel). The action column may be `select` or `status` type — both are first-class.
 - [ ] `webhookTriggerHandler` (`helix/api/pkg/server/webhook_trigger_handlers.go:14`) routes Notion-typed trigger configs into a new `notion.ProcessWebhook(ctx, triggerConfig, headers, payload)`.
 - [ ] **Two payload shapes** are handled:
   - **Notion Database Automation / Button webhook payload** (the primary path) — JSON the user configured in the Automation: includes the page ID, the new property values for the fields they selected, and a Helix shared-secret header for verification. Helix dispatches the action (create / cancel / no-op) based on the `Status` value or the explicit "this is a Run-button press" flag.
   - **Notion API webhook subscription payload** (the secondary path, for `comment.created` / coarse `page.content_updated` / free-plan workspaces): HMAC-SHA256 verified via `X-Notion-Signature` against the subscription's `verification_token`. Triggers the agent with the page content as input; no row-state writeback.
-- [ ] On `Status → Ready` (or Run-button press): create a Helix spectask in the trigger's `target_project_id`; `PATCH` the source Notion row to set `Status: Running` and `Helix Task` = the spectask URL.
-- [ ] On `Status → Cancelled` while `Helix Task` is non-empty: cancel the in-flight spectask referenced by that URL.
-- [ ] On spectask completion (existing internal Helix event): `PATCH` the source Notion row to set `Status: Done` and write a summary into `Result`. The mapping from spectask → Notion row is stored on the spectask (new field `external_trigger_ref`) at creation time.
+- [ ] On action column → "create" option (e.g. `Go`) or Run-button press: create a Helix spectask in the trigger's `target_project_id`; append a Notion `embed` block to the source row's page body pointing at `https://app.helix.ml/embed/task/{task_id}?access_token={…}`; record the inserted block ID on the spectask. Helix does **not** write the action column.
+- [ ] On action column → "cancel" option (e.g. `NoGo`) when an `ExternalTriggerRef` exists for that page: cancel the in-flight spectask; best-effort delete the previously inserted embed block (log on failure, do not block cancellation).
+- [ ] On spectask completion (existing internal Helix event): if the trigger has a `Result` column configured, `PATCH` the row's `Result` rich-text property with a summary. Leave the embed block in place. The mapping from spectask → Notion row is stored on the spectask (new field `external_trigger_ref`) at creation time, including the inserted block ID for later cleanup.
+- [ ] Idempotency: re-receiving the same "create" event for a page that already has a live spectask is a no-op (look up by `ExternalTriggerRef.NotionPageID`). Re-receiving "cancel" for a page with no live spectask is a no-op.
 - [ ] Aggregated webhooks (Notion API path only, ~1 min latency) are de-duplicated: a follow-up event on the same page within N seconds replaces the queued execution rather than starting a second one. (Database Automations / Button webhooks don't aggregate, so this only applies to the secondary path.)
 - [ ] One `TriggerExecution` row per processed delivery, surfaced in the existing per-app trigger executions UI, including the Notion event source (Automation / Button / API), database ID, and page ID.
 
 ### Setup UX
 - [ ] The Helix trigger configuration page tells the user, step-by-step:
-  1. Install the Helix Notion integration on the workspace and grant access to the target database.
-  2. Add the four convention columns to that database (with sample names + types).
-  3. Create a Database Automation: trigger = "When `Status` changes" → action = "Send webhook" → URL = (copy from Helix) → fields = (the four columns).
-  4. (Optional) add the `Run` button column with a "Send webhook" action to the same URL.
+  1. Install the Helix Notion integration on the workspace via the OAuth "Connect to Notion" button and grant access to the target database.
+  2. **Pick the action column** — Helix shows every `select` and `status` column in the database; the user picks which one drives the trigger. (Customer's case: their existing `Go/NoGo` select column.)
+  3. **Pick the option-to-action mapping** — Helix shows the dropdown's options; the user picks which option means "create" (e.g. `Go`) and which means "cancel" (e.g. `NoGo`).
+  4. **Pick the optional prompt and result columns** — Helix lists rich-text columns; the user picks one for the prompt (or leaves empty to use the page body) and one for the result (or leaves empty to suppress writeback).
+  5. **Pick the target Helix project**.
+  6. Create a Database Automation in Notion (Helix shows copy-paste URL/secret/headers): trigger = "When `<action column>` is set to `<create option>`" → action = "Send webhook" → URL = Helix-provided.
+  7. Create a second Automation for the cancel direction: trigger = "When `<action column>` is set to `<cancel option>`".
+  8. (Optional) add a `Run` button column with a "Send webhook" action to the same URL but with `X-Helix-Source: notion-button`.
 - [ ] Helix exposes a "Test setup" button that sends a synthetic event through the same path so the user can verify wiring without touching real rows.
 
 ### OAuth provider
