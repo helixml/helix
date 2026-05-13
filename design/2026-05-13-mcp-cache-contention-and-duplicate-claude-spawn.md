@@ -240,7 +240,7 @@ The MCP timeout symptom and the phantom-thread-accumulation symptom are
 
 ### Proposed (this design doc)
 
-#### Fix 1: Stop emitting `UserCreatedThread` for the panel's draft thread (Zed)
+#### Fix 1a: Stop emitting `UserCreatedThread` for the panel's draft thread (Zed, small)
 
 In `conversation_view.rs:1336` and `acp/thread_view.rs:1004`, the
 `UserCreatedThread` WS event is sent for any non-resume `new_session`,
@@ -249,18 +249,52 @@ that thread to exist — Zed created it as scaffolding for the input box.
 
 **Change**: defer `UserCreatedThread` emission until the user actually
 sends their first message in that thread. Concretely, instead of firing in
-the load-task completion handler, fire from the `prompt` handler the first
-time it runs for a thread that has not yet been registered with Helix.
+the load-task completion handler at conversation_view.rs:1336, fire from
+the `prompt` handler the first time it runs for a thread that has not yet
+been registered with Helix.
 
 This is in helixml/zed, not upstream Zed (the emission is gated behind the
 `external_websocket_sync` feature).
 
 **Effect**:
-- No more phantom "New Chat" `helix_session` rows accumulating per restart.
-- Path C still spawns a Claude eagerly (the draft thread is real, just
-  unregistered with Helix until first use). To eliminate THAT extra Claude
-  too, we'd need to make the draft thread lazy on the Zed side — bigger
-  change, deferred.
+- ✅ No more phantom "New Chat" `helix_session` rows accumulating per
+  restart.
+- ❌ Path C still spawns a Claude eagerly. The draft thread's
+  `connection.new_session()` call at `conversation_view.rs:1214` runs
+  inside the load_task (lines 1140-1217), which fires synchronously when
+  ConversationView is created. The `UserCreatedThread` emission happens
+  AFTER that load_task returns — so suppressing the emission stops the
+  phantom Helix session but does **not** stop the spawn. See Fix 1b.
+
+#### Fix 1b: Lazily call `new_session()` for the draft thread (Zed, bigger)
+
+The draft thread's `connection.new_session()` runs eagerly in
+`ConversationView::initial_state`'s spawned load_task as soon as the panel
+restores. This is what spawns the extra Claude process and brings up its
+5 MCP children.
+
+**Change**: when `resume_session_id.is_none()` (draft path), don't run
+`connection.new_session()` in the load_task. Instead, store the connection
+and resume_session_id=None in the ConversationView's state in a
+"pending-new-session" form, and trigger the actual `new_session()` call
+the first time the user submits a message in the draft.
+
+**Caveat**: this changes the semantics of "draft thread is connected and
+ready to receive input." Some UI affordances may rely on the connection
+being live (e.g. autocomplete that hits the agent, model selectors that
+query the connection). Need to enumerate those and decide whether they're
+acceptable losses for a not-yet-used thread.
+
+**Effect**:
+- ✅ Path C no longer spawns a Claude on container restart. Best-case spawn
+  count drops from 2 to 1 (just A or B for the active thread). Worst-case
+  drops from 3 to 2.
+- ✅ MCP startup contention drops correspondingly: 5 fewer concurrent
+  `npm exec` invocations against the `_npx` cache per restart.
+
+This is the bigger, structural fix and probably needs upstream Zed
+discussion since the "draft thread always has a live connection" assumption
+exists in upstream code too.
 
 #### Fix 2: Helix-side dedup guard in `handleUserCreatedThread` (Helix)
 
@@ -294,13 +328,21 @@ immediate fix, but worth tracking.
 
 ## Recommended order
 
-1. Fix 1 in Zed (smallest, targeted). Land + bump `ZED_COMMIT` in
-   `sandbox-versions.txt`.
-2. Fix 2 in Helix (defensive, ~20 lines).
-3. After 1+2 are stable in production for a week, decide whether Fix 3 is
-   still worth doing. Fixes 1+2 should make the duplicate-spawn case rare
-   enough that Fix 3's complexity isn't justified.
-4. Fix 4 is a longer-term roadmap item (separate design doc).
+1. **Fix 1a** in Zed (small, ~20 lines). Stops the phantom-Helix-session
+   accumulation but does not stop the extra Claude spawn. Land + bump
+   `ZED_COMMIT` in `sandbox-versions.txt`. Also land **Fix 2** in Helix
+   alongside as defensive guard.
+2. **Fix 1b** in Zed (bigger, needs UI affordance audit). Stops the extra
+   Claude spawn from path C. Reduces concurrent MCP load by ~5 npx execs
+   per restart. Probably needs upstream Zed discussion.
+3. **Fix 3** (`HELIX_ACP_THREAD_ID` env passthrough) — only worth doing if
+   path A vs B divergence is observed in production after 1a+1b+2. Likely
+   not needed.
+4. **Fix 4** (multiplex MCPs through ACP) is a longer-term roadmap item
+   (separate design doc).
+
+The shipped PR #2418 (npx-cache fixes) plus 1a+2 should be enough for the
+immediate symptom to go away; 1b is the right structural follow-up.
 
 ## Files referenced
 
