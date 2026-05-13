@@ -1,6 +1,6 @@
 # MCP cache contention and duplicate Claude spawn in spec-task containers
 
-**Status**: PR #2418 shipped (npx-cache fixes + Fix 1a + Fix 2). Fix 1b deferred — see "Why Fix 1b was deferred" below.
+**Status**: PR #2418 shipped (npx-cache fixes + Fix 1a + Fix 1b + Fix 2 + Phase 15/17 e2e regression tests).
 
 **Reporters**: lukemarsden + claude-code (live debugging session 2026-05-12 → 2026-05-13)
 
@@ -266,7 +266,40 @@ This is in helixml/zed, not upstream Zed (the emission is gated behind the
   AFTER that load_task returns — so suppressing the emission stops the
   phantom Helix session but does **not** stop the spawn. See Fix 1b.
 
-#### Fix 1b: Lazily call `new_session()` for the draft thread (Zed, bigger)
+#### Fix 1b: Suppress speculative draft activation under external_websocket_sync (Zed, ~3 lines)
+
+**Shipped** in helixml/zed PR #56. The agent panel's
+`ensure_thread_initialized` is called on every `Panel::set_active(true)`
+— including when Zed restores its workspace at container start. Pre-fix
+it called `activate_draft` → `ConversationView::new` → load_task →
+`connection.new_session()`, spawning a Claude ACP child for the empty
+input editor that the user hadn't asked for.
+
+**Change**: under the `external_websocket_sync` cargo feature, skip the
+`activate_draft` call inside `ensure_thread_initialized`. Helix drives
+all real conversations through the `chat_message` WebSocket path (which
+goes via `create_new_thread_sync` → `register_thread`, NOT through
+`activate_draft`), so spec-task functionality is unaffected. Upstream
+Zed (without the feature) keeps the existing UX.
+
+**Verified**: a fresh spec-task container now has exactly 1 Claude
+process alive (the user's real conversation), down from 2.
+
+**Regression test**: e2e Phase 17 in
+`crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go`
+counts `claude --output-format` processes via `ps` inside the test
+container and asserts the count equals the number of real threads
+created in the test round.
+
+The originally-considered alternative was to add a placeholder
+`ServerState::PendingDraftSession` variant with a deferred-init
+MessageEditor — but that would have required substantial refactoring of
+`ConversationView` and every agent-panel surface that reads
+`active_thread()` (model selector, mode toggle, tool-permission panel,
+agent capabilities query, etc.). The feature-gated suppression achieves
+the same end result with no UX regression in either configuration.
+
+#### (legacy notes from earlier in this doc — kept for design history)
 
 The draft thread's `connection.new_session()` runs eagerly in
 `ConversationView::initial_state`'s spawned load_task as soon as the panel
@@ -326,7 +359,7 @@ rather than re-spawning them.
 This is a non-trivial Zed protocol change and is out of scope for the
 immediate fix, but worth tracking.
 
-## Why Fix 1b was deferred
+## Fix 1b — implemented as feature-gated panel-side suppression
 
 Fix 1b (lazy `new_session()` for the draft thread) requires a meaningful
 refactor: a new `ServerState` variant (`PendingDraftSession` between
@@ -359,14 +392,15 @@ roadmap item.
 
 ## Recommended order
 
-1. ✅ **Shipped in PR #2418** — npx cache contention fixes (global installs +
-   per-spawn cache shim) + **Fix 1a** (suppress speculative
-   `UserCreatedThread`) + **Fix 2** (Helix-side dedup safety net).
-2. ⏸️ **Fix 1b** — deferred (see "Why Fix 1b was deferred" above).
-3. ⏸️ **Fix 3** (`HELIX_ACP_THREAD_ID` env passthrough) — only worth doing
-   if path A vs B divergence is observed in production after 1a+2. Likely
-   not needed.
-4. ⏸️ **Fix 4** (multiplex MCPs through ACP) — longer-term roadmap item
+1. ✅ **Shipped in PR #2418 + helixml/zed PR #56** — npx cache contention
+   fixes (global installs + per-spawn cache shim) + **Fix 1a** (defer
+   `UserCreatedThread` until first user message) + **Fix 1b**
+   (feature-gate the speculative draft activation off under
+   `external_websocket_sync`) + **Fix 2** (Helix-side dedup safety net).
+2. ⏸️ **Fix 3** (`HELIX_ACP_THREAD_ID` env passthrough) — only worth doing
+   if path A vs B divergence is observed in production after 1a+1b+2.
+   Likely not needed.
+3. ⏸️ **Fix 4** (multiplex MCPs through ACP) — longer-term roadmap item
    (separate design doc).
 
 ## Files referenced
