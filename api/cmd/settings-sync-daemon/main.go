@@ -1007,6 +1007,33 @@ var HELIX_MANAGED_AGENT_FIELDS = map[string]bool{
 	"thread_summary_model":   true,
 }
 
+// HELIX_OWNED_CONTEXT_SERVERS lists context_server names whose configuration
+// Helix unconditionally owns. The names are the ones hardcoded in
+// api/pkg/external-agent/zed_config.go (chrome-devtools, helix-session,
+// helix-desktop) — i.e. servers that Helix sets up itself (not from a user's
+// project / app MCP config).
+//
+// Why: when these names already exist in the on-disk settings.json from a
+// previous run AND Helix updated their config in zed_config.go since then
+// (e.g. switched chrome-devtools from `npx chrome-devtools-mcp@latest` to
+// the global `/usr/bin/chrome-devtools-mcp` binary in PR #2418), the
+// daemon's deep-merge in `mergeSettings` would treat the on-disk entry as
+// a "user override" and let it win — leaving stale `npx`-based configs in
+// place forever, with the resulting 180s `chrome-devtools context server
+// failed to start: Context server request timeout` reported in
+// helix/design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md.
+//
+// User-configured MCPs (from app or project skills, e.g. drone-ci, github,
+// custom servers) are NOT in this set — those legitimately can be edited by
+// the user in their on-disk settings.json and should round-trip back to the
+// API as overrides. They're also keyed by user-chosen names that we can't
+// enumerate here.
+var HELIX_OWNED_CONTEXT_SERVERS = map[string]bool{
+	"chrome-devtools": true,
+	"helix-session":   true,
+	"helix-desktop":   true,
+}
+
 // helixDefaults returns the static Helix-owned settings that must be present
 // in every settings.json. Both syncFromHelix() and checkHelixUpdates() use
 // this as the base, then layer on API response fields.
@@ -1076,14 +1103,33 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 		merged[k] = v
 	}
 
-	// Deep merge context_servers
+	// Deep merge context_servers — user entries win, EXCEPT for Helix-owned
+	// names where Helix's hardcoded definition unconditionally wins. Without
+	// the latter clause an on-disk settings.json from a previous run pins
+	// the OLD config (stale `npx chrome-devtools-mcp@latest` etc.) forever;
+	// see HELIX_OWNED_CONTEXT_SERVERS for the full reasoning.
 	if userServers, ok := user["context_servers"].(map[string]interface{}); ok {
 		if helixServers, ok := merged["context_servers"].(map[string]interface{}); ok {
 			for name, config := range userServers {
+				if HELIX_OWNED_CONTEXT_SERVERS[name] {
+					log.Printf("dropping user override for helix-owned context_server: %s", name)
+					continue
+				}
 				helixServers[name] = config
 			}
 		} else {
-			merged["context_servers"] = userServers
+			// No helix-side servers at all — adopt user's verbatim, but
+			// still strip helix-owned names so a later API roll-out
+			// adding them isn't pre-empted by a stale on-disk entry.
+			filtered := make(map[string]interface{}, len(userServers))
+			for name, config := range userServers {
+				if HELIX_OWNED_CONTEXT_SERVERS[name] {
+					log.Printf("dropping user override for helix-owned context_server: %s", name)
+					continue
+				}
+				filtered[name] = config
+			}
+			merged["context_servers"] = filtered
 		}
 	}
 
@@ -1171,12 +1217,21 @@ func mergeAgentBlock(helixAgent, userAgent interface{}) interface{} {
 func extractUserOverrides(current, helix map[string]interface{}) map[string]interface{} {
 	overrides := make(map[string]interface{})
 
-	// Deep diff context_servers (per-server)
+	// Deep diff context_servers (per-server). Helix-owned names are never
+	// captured as user overrides — Helix sets them itself in zed_config.go
+	// and any divergence on disk is stale state from a prior run, not a
+	// user customization. Without this guard the daemon would round-trip
+	// the stale value back to the API and the next sync would re-write it
+	// to disk, pinning the old config forever (see
+	// HELIX_OWNED_CONTEXT_SERVERS).
 	if currentServers, ok := current["context_servers"].(map[string]interface{}); ok {
 		helixServers, _ := helix["context_servers"].(map[string]interface{})
 		userServers := make(map[string]interface{})
 
 		for name, config := range currentServers {
+			if HELIX_OWNED_CONTEXT_SERVERS[name] {
+				continue
+			}
 			if helixConfig, inHelix := helixServers[name]; !inHelix {
 				userServers[name] = config
 			} else if !deepEqual(config, helixConfig) {
