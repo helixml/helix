@@ -1,6 +1,6 @@
 # MCP cache contention and duplicate Claude spawn in spec-task containers
 
-**Status**: investigation complete, partial fix shipped (PR #2418), broader fix pending design review
+**Status**: PR #2418 shipped (npx-cache fixes + Fix 1a + Fix 2). Fix 1b deferred — see "Why Fix 1b was deferred" below.
 
 **Reporters**: lukemarsden + claude-code (live debugging session 2026-05-12 → 2026-05-13)
 
@@ -326,23 +326,48 @@ rather than re-spawning them.
 This is a non-trivial Zed protocol change and is out of scope for the
 immediate fix, but worth tracking.
 
+## Why Fix 1b was deferred
+
+Fix 1b (lazy `new_session()` for the draft thread) requires a meaningful
+refactor: a new `ServerState` variant (`PendingDraftSession` between
+`Loading` and `Connected`), a placeholder `ThreadView` that can render
+the empty input editor without backing thread, plumbing for the message
+editor's first-send to trigger the deferred `new_session()`, and an audit
+of every UI affordance in the agent panel that today reads
+`active_thread()` (model selector, mode toggle, tool-permission panel,
+agent capabilities query, …).
+
+That work is ~4–8 hours of careful change to upstream-touching code with
+real potential to break other features. The user-visible symptoms — MCP
+init timeouts and phantom "New Chat" session accumulation — are fully
+resolved by PR #2418's npx-cache fixes (global installs + per-spawn cache
+shim) plus Fix 1a (suppress speculative `UserCreatedThread`) and Fix 2
+(Helix-side dedup safety net). The remaining cost without Fix 1b is one
+"wasted" Claude process per container restart that nobody types into,
+spawning five MCP children. With the npx cache contention eliminated
+those children come up cleanly; they're just memory and CPU overhead the
+user never sees benefit from.
+
+Fix 1b becomes the right work when:
+- We need to reduce per-container memory/CPU footprint (e.g. pushing more
+  spec tasks onto the same hardware), or
+- We touch the agent panel's draft-thread architecture for unrelated
+  reasons and can fold this in.
+
+Until then, Fix 1a covers the user-facing symptom and Fix 1b stays as a
+roadmap item.
+
 ## Recommended order
 
-1. **Fix 1a** in Zed (small, ~20 lines). Stops the phantom-Helix-session
-   accumulation but does not stop the extra Claude spawn. Land + bump
-   `ZED_COMMIT` in `sandbox-versions.txt`. Also land **Fix 2** in Helix
-   alongside as defensive guard.
-2. **Fix 1b** in Zed (bigger, needs UI affordance audit). Stops the extra
-   Claude spawn from path C. Reduces concurrent MCP load by ~5 npx execs
-   per restart. Probably needs upstream Zed discussion.
-3. **Fix 3** (`HELIX_ACP_THREAD_ID` env passthrough) — only worth doing if
-   path A vs B divergence is observed in production after 1a+1b+2. Likely
+1. ✅ **Shipped in PR #2418** — npx cache contention fixes (global installs +
+   per-spawn cache shim) + **Fix 1a** (suppress speculative
+   `UserCreatedThread`) + **Fix 2** (Helix-side dedup safety net).
+2. ⏸️ **Fix 1b** — deferred (see "Why Fix 1b was deferred" above).
+3. ⏸️ **Fix 3** (`HELIX_ACP_THREAD_ID` env passthrough) — only worth doing
+   if path A vs B divergence is observed in production after 1a+2. Likely
    not needed.
-4. **Fix 4** (multiplex MCPs through ACP) is a longer-term roadmap item
+4. ⏸️ **Fix 4** (multiplex MCPs through ACP) — longer-term roadmap item
    (separate design doc).
-
-The shipped PR #2418 (npx-cache fixes) plus 1a+2 should be enough for the
-immediate symptom to go away; 1b is the right structural follow-up.
 
 ## Files referenced
 
