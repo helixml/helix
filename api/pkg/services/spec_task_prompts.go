@@ -53,6 +53,28 @@ Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirNa
 2. design.md - Architecture + key decisions
 3. tasks.md - Checklist of implementation tasks using [ ] format
 
+## CRITICAL: Title Format
+
+Each of the three files MUST start with an H1 in this exact format:
+
+- requirements.md → ` + "`# Requirements: <Descriptive Title>`" + `
+- design.md       → ` + "`# Design: <Descriptive Title>`" + `
+- tasks.md        → ` + "`# Implementation Tasks: <Descriptive Title>`" + `
+
+Use the SAME ` + "`<Descriptive Title>`" + ` across all three files. The descriptive title
+must summarise the actual subject of the task (e.g. "Add Dark Mode Toggle"),
+not the type of document and not a section name.
+
+GOOD: ` + "`# Requirements: Add Dark Mode Toggle to Settings Page`" + `
+BAD:  ` + "`# Requirements`" + `              ← no descriptive title, breaks downstream naming
+BAD:  ` + "`# Background`" + `                ← wrong document-type prefix
+BAD:  ` + "`# Requirements: Background`" + `  ← describes the section, not the task
+
+**Why this matters:** the title from ` + "`requirements.md`" + ` is parsed and used
+for the spec-task name displayed in the UI and for the eventual git feature
+branch name. A missing or generic title produces a meaningless branch name
+(e.g. ` + "`feature/NNNNNN-background`" + `) and a meaningless task in the UI.
+
 ## CRITICAL: Don't Over-Engineer
 
 Match solution complexity to task complexity:
@@ -79,7 +101,7 @@ git pull origin helix-specs --rebase && git push origin helix-specs
 ## tasks.md Format
 
 ` + "```markdown" + `
-# Implementation Tasks
+# Implementation Tasks: <Descriptive Title>
 
 - [ ] First task
 - [ ] Second task
