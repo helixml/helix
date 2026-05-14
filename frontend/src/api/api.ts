@@ -2596,6 +2596,22 @@ export interface TypesExternalStatus {
   commits_behind?: number;
 }
 
+export interface TypesExternalTriggerRef {
+  /**
+   * Payload is opaque to the spectask service. Each source unmarshals its
+   * own shape. For Notion: NotionTriggerPayload. For Sentry/GitHub: tbd.
+   */
+  payload?: number[];
+  trigger_config_id?: string;
+  type?: TypesExternalTriggerSourceType;
+}
+
+export enum TypesExternalTriggerSourceType {
+  ExternalTriggerSourceNotion = "notion",
+  ExternalTriggerSourceSentry = "sentry",
+  ExternalTriggerSourceGitHubIssue = "github_issue",
+}
+
 export enum TypesFeedback {
   FeedbackLike = "like",
   FeedbackDislike = "dislike",
@@ -3414,6 +3430,60 @@ export interface TypesMoveRepositoryPreviewItem {
   new_name?: string;
 }
 
+export interface TypesNotionColumnMap {
+  action_column?: string;
+  /** "select" or "status" */
+  action_column_type?: string;
+  action_option_cancel?: string;
+  action_option_create?: string;
+  /** optional rich-text column; empty = use page body */
+  prompt_column?: string;
+  /** optional rich-text column; empty = no writeback */
+  result_column?: string;
+}
+
+export interface TypesNotionTrigger {
+  /**
+   * ColumnMapping is informational metadata for the wizard's setup
+   * instructions. Dispatch keys off the X-Helix-Action header, not the
+   * column values, so this is not consulted at runtime.
+   */
+  column_mapping?: TypesNotionColumnMap;
+  /**
+   * EmbedAccessToken is the API key used in the embed URL's ?access_token=
+   * query parameter. For MVP this is the trigger creator's own user API key
+   * (consistent with Gatewaze's pattern). All viewers of the Notion embed
+   * see Helix as the trigger creator.
+   */
+  embed_access_token?: string;
+  enabled?: boolean;
+  /**
+   * NotionDatabaseID is the database this trigger is bound to. Informational
+   * (the wizard uses it to validate the schema); dispatch keys off the page
+   * ID in the webhook payload, not this field.
+   */
+  notion_database_id?: string;
+  /**
+   * OAuthConnectionID is the OAuthConnection used for write-back PATCHes
+   * and embed-block insert/delete.
+   */
+  oauth_connection_id?: string;
+  /**
+   * SharedSecret authenticates inbound webhooks from Notion Database
+   * Automations / Button properties. Constant-time-compared against the
+   * X-Helix-Webhook-Secret header.
+   */
+  shared_secret?: string;
+  /** TargetProjectID is the Helix project to create spectasks in. */
+  target_project_id?: string;
+  /**
+   * VerificationToken is the HMAC-SHA256 secret for the secondary path
+   * (Notion API webhook subscription, used for comment.created and free-form
+   * page edits). Optional.
+   */
+  verification_token?: string;
+}
+
 export interface TypesOAuthConnection {
   /** OAuth token fields */
   access_token?: string;
@@ -3478,6 +3548,7 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
   OAuthProviderTypeHubSpot = "hubspot",
+  OAuthProviderTypeNotion = "notion",
   OAuthProviderTypeCustom = "custom",
 }
 
@@ -5132,6 +5203,14 @@ export interface TypesSpecTask {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * External trigger ref — set when this spectask was created by an external
+   * source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+   * embed-block cleanup on completion / cancellation. The Payload is opaque
+   * to the spectask service — each source's own package owns the shape.
+   * See design/tasks/002021_investigate-notion/ "Generalisation".
+   */
+  external_trigger_ref?: TypesExternalTriggerRef;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
@@ -5438,6 +5517,14 @@ export interface TypesSpecTaskWithProject {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * External trigger ref — set when this spectask was created by an external
+   * source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+   * embed-block cleanup on completion / cancellation. The Payload is opaque
+   * to the spectask service — each source's own package owns the shape.
+   * See design/tasks/002021_investigate-notion/ "Generalisation".
+   */
+  external_trigger_ref?: TypesExternalTriggerRef;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
@@ -5933,6 +6020,7 @@ export interface TypesTrigger {
   crisp?: TypesCrispTrigger;
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
+  notion?: TypesNotionTrigger;
   slack?: TypesSlackTrigger;
   teams?: TypesTeamsTrigger;
 }
@@ -5999,6 +6087,7 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeNotion = "notion",
 }
 
 export interface TypesUnifiedSearchResponse {
