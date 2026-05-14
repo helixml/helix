@@ -13,6 +13,7 @@ import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
 import OrgApiKeys from './pages/OrgApiKeys'
 import OrgBilling from './components/orgs/OrgBilling'
+import OrgUsage from './components/orgs/OrgUsage'
 import App from './pages/App'
 import Create from './pages/Create'
 import Home from './pages/Home'
@@ -347,14 +348,36 @@ const routes: IApplicationRoute[] = [
     <Orgs />
   ),
 }, {
-  name: 'org_settings',
-  path: '/orgs/:org_id/settings',
+  name: 'org_general',
+  path: '/orgs/:org_id/general',
   meta: {
     drawer: true,
     menu: 'orgs',
   },
   render: () => (
     <OrgSettings />
+  ),
+}, {
+  // Backward compat: redirect /settings to /general
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_general', { org_id: params.org_id })
+    }, [])
+    return null
+  },
+}, {
+  name: 'org_usage',
+  path: '/orgs/:org_id/usage',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgUsage />
   ),
 }, {
   name: 'org_people',
