@@ -3,6 +3,7 @@ package trigger
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger/crisp"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/trigger/discord"
+	"github.com/helixml/helix/api/pkg/trigger/notion"
 	"github.com/helixml/helix/api/pkg/trigger/project"
 	"github.com/helixml/helix/api/pkg/trigger/slack"
 	"github.com/helixml/helix/api/pkg/trigger/teams"
@@ -32,12 +34,13 @@ type Manager struct {
 	azureDevOps          *azure.AzureDevOps
 	teams                *teams.Teams
 	helixCodeReview      *project.HelixCodeReviewTrigger
+	notion               *notion.Notion
 
 	wg sync.WaitGroup
 }
 
 func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) *Manager {
-	return &Manager{
+	m := &Manager{
 		cfg:             cfg,
 		store:           store,
 		controller:      controller,
@@ -46,12 +49,48 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier not
 		teams:           teams.New(cfg, store, controller),
 		helixCodeReview: project.New(cfg, store, controller),
 	}
+	// Notion gets a partially-constructed handler — the spec-task creator is
+	// wired in via SetSpecTaskCreator after the SpecDrivenTaskService exists.
+	// Until then, create events return a clear error rather than panicking.
+	m.notion = notion.New(cfg, store, nil, nil, nil, &defaultEmbedURLBuilder{cfg: cfg})
+	return m
 }
 
 // SetSpecTaskCreator sets the spec task creator for cron triggers that use the "spec_task" action.
 // This is set after construction because the SpecDrivenTaskService is created later in the init sequence.
 func (t *Manager) SetSpecTaskCreator(specTaskCreator cron.SpecTaskCreator) {
 	t.specTaskCreator = specTaskCreator
+	// Re-wire the Notion handler now that the spec-task creator is available.
+	// Cancel + lookup hooks are wired separately by the spec-task service
+	// once it implements them; for the MVP they remain nil and the trigger
+	// degrades gracefully.
+	t.notion = notion.New(t.cfg, t.store, specTaskCreator, nil, nil, &defaultEmbedURLBuilder{cfg: t.cfg})
+}
+
+// defaultEmbedURLBuilder produces the embed URL pasted into Notion pages by
+// the OnExternalCreate hook. URL pattern matches the EmbedTaskPage route in
+// the frontend (see frontend/src/router.tsx).
+type defaultEmbedURLBuilder struct {
+	cfg *config.ServerConfig
+}
+
+func (b *defaultEmbedURLBuilder) BuildEmbedURL(spectask *types.SpecTask, accessToken string) string {
+	base := b.cfg.WebServer.URL
+	if base == "" {
+		return ""
+	}
+	url := fmt.Sprintf("%s/embed/task/%s", base, spectask.ID)
+	if accessToken != "" {
+		url += "?access_token=" + accessToken
+	}
+	return url
+}
+
+// Notion returns the Notion trigger handler for direct invocation by the
+// spec-task service's completion / cancellation hooks (not currently wired
+// — see TODO in spec_driven_task_service for where this would land).
+func (t *Manager) Notion() *notion.Notion {
+	return t.notion
 }
 
 func (t *Manager) SetExternalAgentStarter(starter cron.ExternalAgentStarter) {
@@ -103,10 +142,12 @@ func (t *Manager) Start(ctx context.Context) {
 	t.wg.Wait()
 }
 
-func (t *Manager) ProcessWebhook(ctx context.Context, triggerConfig *types.TriggerConfiguration, payload []byte) error {
+func (t *Manager) ProcessWebhook(ctx context.Context, triggerConfig *types.TriggerConfiguration, headers http.Header, payload []byte) error {
 	switch {
 	case triggerConfig.Trigger.AzureDevOps != nil:
 		return t.azureDevOps.ProcessWebhook(ctx, triggerConfig, payload)
+	case triggerConfig.Trigger.Notion != nil:
+		return t.notion.ProcessWebhook(ctx, triggerConfig, headers, payload)
 	default:
 		log.Error().Any("trigger_config", triggerConfig).Msg("unknown trigger type")
 		return fmt.Errorf("unknown trigger type")
