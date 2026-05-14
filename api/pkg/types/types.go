@@ -2442,14 +2442,14 @@ type ContextMenuAction struct {
 
 type UsageMetric struct {
 	ID                string    `json:"id" gorm:"primaryKey"`
-	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
+	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
 	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
-	OrganizationID    string    `json:"organization_id"`
-	InteractionID     string    `json:"interaction_id"`
+	OrganizationID    string    `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
+	InteractionID     string    `json:"interaction_id" gorm:"index"`
 	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
 	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	UserID            string    `json:"user_id"`
+	UserID            string    `json:"user_id" gorm:"index"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`
 	PromptTokens      int       `json:"prompt_tokens"`
@@ -2515,6 +2515,86 @@ type AggregatedUsageMetric struct {
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
 	TotalRequests     int     `json:"total_requests"`
+}
+
+type UsageBreakdownRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Email             string     `json:"email,omitempty"`
+	Username          string     `json:"username,omitempty"`
+	Provider          string     `json:"provider,omitempty"`
+	Model             string     `json:"model,omitempty"`
+	SessionID         string     `json:"session_id,omitempty"`
+	InteractionID     string     `json:"interaction_id,omitempty"`
+	PromptTokens      int        `json:"prompt_tokens"`
+	CompletionTokens  int        `json:"completion_tokens"`
+	TotalTokens       int        `json:"total_tokens"`
+	CacheReadTokens   int        `json:"cache_read_tokens"`
+	CacheWriteTokens  int        `json:"cache_write_tokens"`
+	PromptCost        float64    `json:"prompt_cost"`
+	CompletionCost    float64    `json:"completion_cost"`
+	CacheReadCost     float64    `json:"cache_read_cost"`
+	CacheWriteCost    float64    `json:"cache_write_cost"`
+	TotalCost         float64    `json:"total_cost"`
+	LatencyMs         float64    `json:"latency_ms"`
+	RequestSizeBytes  int        `json:"request_size_bytes"`
+	ResponseSizeBytes int        `json:"response_size_bytes"`
+	TotalRequests     int        `json:"total_requests"`
+	SessionCount      int        `json:"session_count"`
+	UniqueUsers       int        `json:"unique_users"`
+	UniqueSessions    int        `json:"unique_sessions"`
+	UniqueProjects    int        `json:"unique_projects"`
+	UniqueApps        int        `json:"unique_apps"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+}
+
+type UsageModelTimeSeries struct {
+	ID       string                  `json:"id"`
+	Name     string                  `json:"name"`
+	Provider string                  `json:"provider"`
+	Model    string                  `json:"model"`
+	Metrics  []AggregatedUsageMetric `json:"metrics"`
+}
+
+type UsageFilterOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email,omitempty"`
+	Username string `json:"username,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+type OrgUsageSummaryResponse struct {
+	Metrics         []*AggregatedUsageMetric `json:"metrics"`
+	Projects        []UsageBreakdownRow      `json:"projects"`
+	ProjectModels   []UsageBreakdownRow      `json:"project_models"`
+	Apps            []UsageBreakdownRow      `json:"apps"`
+	Tasks           []UsageBreakdownRow      `json:"tasks"`
+	Sessions        []UsageBreakdownRow      `json:"sessions"`
+	Models          []UsageBreakdownRow      `json:"models"`
+	ModelTimeSeries []UsageModelTimeSeries   `json:"model_time_series"`
+	Users           []UsageBreakdownRow      `json:"users"`
+	UsersTotal      int64                    `json:"users_total"`
+	ProjectsTotal   int64                    `json:"projects_total"`
+	TasksTotal      int64                    `json:"tasks_total"`
+	SessionsTotal   int64                    `json:"sessions_total"`
+	ActiveUsers     int                      `json:"active_users"`
+	ActiveSessions  int                      `json:"active_sessions"`
+	ActiveProjects  int                      `json:"active_projects"`
+	ActiveApps      int                      `json:"active_apps"`
+	FilterUsers     []UsageFilterOption      `json:"filter_users"`
+	FilterProjects  []UsageFilterOption      `json:"filter_projects"`
+	FilterApps      []UsageFilterOption      `json:"filter_apps"`
+	FilterModels    []UsageFilterOption      `json:"filter_models"`
+	ExportProjects  []UsageBreakdownRow      `json:"export_projects"`
+	ExportApps      []UsageBreakdownRow      `json:"export_apps"`
+	ExportTasks     []UsageBreakdownRow      `json:"export_tasks"`
+	ExportSessions  []UsageBreakdownRow      `json:"export_sessions"`
+	ExportModels    []UsageBreakdownRow      `json:"export_models"`
+	ExportUsers     []UsageBreakdownRow      `json:"export_users"`
 }
 
 // Response for the user access endpoint
