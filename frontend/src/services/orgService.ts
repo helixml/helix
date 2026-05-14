@@ -9,10 +9,22 @@ export const orgQueryNameKey = (name: string) => [
   name
 ];
 
-export const orgUsageQueryKey = (id: string) => [
+export const orgUsageQueryKey = (
+  id: string,
+  from?: string,
+  to?: string,
+  userSearch?: string,
+  userLimit?: number,
+  userOffset?: number,
+) => [
   "org",
   id,
-  "usage"
+  "usage",
+  from,
+  to,
+  userSearch,
+  userLimit,
+  userOffset,
 ];
 
 export function getOrgByIdQueryKey(id: string) {
@@ -88,15 +100,40 @@ export function useDeleteOrg() {
   })
 }
 
-export function useGetOrgUsage(id: string, enabled?: boolean) {
+export function useGetOrgUsage(
+  id: string,
+  options?: {
+    from?: string
+    to?: string
+    userSearch?: string
+    userLimit?: number
+    userOffset?: number
+    enabled?: boolean
+  },
+) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
   return useQuery({
-    queryKey: orgUsageQueryKey(id),
+    queryKey: orgUsageQueryKey(
+      id,
+      options?.from,
+      options?.to,
+      options?.userSearch,
+      options?.userLimit,
+      options?.userOffset,
+    ),
     queryFn: async () => {
-      const response = await apiClient.v1UsageList({ org_id: id })
+      const response = await apiClient.v1UsageOrgSummaryList({
+        org_id: id,
+        from: options?.from,
+        to: options?.to,
+        user_search: options?.userSearch,
+        user_limit: options?.userLimit,
+        user_offset: options?.userOffset,
+      })
       return response.data
     },
+    enabled: options?.enabled ?? true,
   })
 }

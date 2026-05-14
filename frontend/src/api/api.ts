@@ -3563,6 +3563,17 @@ export interface TypesOrgDetails {
   wallet?: TypesWallet;
 }
 
+export interface TypesOrgUsageSummaryResponse {
+  metrics?: TypesAggregatedUsageMetric[];
+  model_time_series?: TypesUsageModelTimeSeries[];
+  models?: TypesUsageBreakdownRow[];
+  project_models?: TypesUsageBreakdownRow[];
+  projects?: TypesUsageBreakdownRow[];
+  tasks?: TypesUsageBreakdownRow[];
+  users?: TypesUsageBreakdownRow[];
+  users_total?: number;
+}
+
 export interface TypesOrganization {
   /**
    * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
@@ -6095,6 +6106,37 @@ export interface TypesUsage {
   duration_ms?: number;
   prompt_tokens?: number;
   total_tokens?: number;
+}
+
+export interface TypesUsageBreakdownRow {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
+  completion_cost?: number;
+  completion_tokens?: number;
+  email?: string;
+  id?: string;
+  latency_ms?: number;
+  model?: string;
+  name?: string;
+  prompt_cost?: number;
+  prompt_tokens?: number;
+  provider?: string;
+  request_size_bytes?: number;
+  response_size_bytes?: number;
+  total_cost?: number;
+  total_requests?: number;
+  total_tokens?: number;
+  username?: string;
+}
+
+export interface TypesUsageModelTimeSeries {
+  id?: string;
+  metrics?: TypesAggregatedUsageMetric[];
+  model?: string;
+  name?: string;
+  provider?: string;
 }
 
 export interface TypesUser {
@@ -14205,6 +14247,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
         path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get organization usage summary with breakdowns by project, task/model, model, and user
+     *
+     * @tags usage
+     * @name V1UsageOrgSummaryList
+     * @summary Get organization usage summary
+     * @request GET:/api/v1/usage/org-summary
+     * @secure
+     */
+    v1UsageOrgSummaryList: (
+      query: {
+        /** Organization ID */
+        org_id: string;
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** User search */
+        user_search?: string;
+        /** User page size */
+        user_limit?: number;
+        /** User page offset */
+        user_offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgUsageSummaryResponse, SystemHTTPError>({
+        path: `/api/v1/usage/org-summary`,
         method: "GET",
         query: query,
         secure: true,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
@@ -57,7 +58,7 @@ func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID strin
 			SUM(total_cost) as total_cost,
 			SUM(cache_read_cost) as cache_read_cost,
 			SUM(cache_write_cost) as cache_write_cost,
-			AVG(duration_ms) as duration_ms,
+			AVG(duration_ms) as latency_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
 			COUNT(DISTINCT interaction_id) as total_requests
@@ -93,7 +94,7 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(cache_read_cost) as cache_read_cost,
 			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
-			AVG(duration_ms) as duration_ms,
+			AVG(duration_ms) as latency_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
 			COUNT(DISTINCT interaction_id) as total_requests
@@ -269,7 +270,7 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_tokens) as total_tokens,
 			SUM(total_cost) as total_cost,
-			AVG(duration_ms) as duration_ms,
+			AVG(duration_ms) as latency_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
 			COUNT(DISTINCT id) as total_requests
@@ -308,6 +309,253 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	}
 
 	return completeMetrics, nil
+}
+
+func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error) {
+	if q == nil {
+		return nil, errors.New("query is required")
+	}
+	if q.OrganizationID == "" {
+		return nil, errors.New("organization_id is required")
+	}
+	userLimit := q.UserLimit
+	if userLimit <= 0 {
+		userLimit = 10
+	}
+	if userLimit > 100 {
+		userLimit = 100
+	}
+	userOffset := q.UserOffset
+	if userOffset < 0 {
+		userOffset = 0
+	}
+
+	metrics, err := s.GetAggregatedUsageMetrics(ctx, &GetAggregatedUsageMetricsQuery{
+		AggregationLevel: AggregationLevelDaily,
+		OrganizationID:   q.OrganizationID,
+		From:             q.From,
+		To:               q.To,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &types.OrgUsageSummaryResponse{
+		Metrics: metrics,
+	}
+
+	if err := s.orgUsageBreakdownQuery(ctx, q, "project").Limit(10).Find(&resp.Projects).Error; err != nil {
+		return nil, err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "project_model").Find(&resp.ProjectModels).Error; err != nil {
+		return nil, err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "task_model").Limit(10).Find(&resp.Tasks).Error; err != nil {
+		return nil, err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "model").Limit(10).Find(&resp.Models).Error; err != nil {
+		return nil, err
+	}
+
+	userQuery := s.orgUsageBreakdownQuery(ctx, q, "user")
+	if err := userQuery.Limit(userLimit).Offset(userOffset).Find(&resp.Users).Error; err != nil {
+		return nil, err
+	}
+
+	countQuery := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Joins("LEFT JOIN users ON users.id = usage_metrics.user_id").
+		Where("usage_metrics.organization_id = ? AND usage_metrics.created >= ? AND usage_metrics.created <= ? AND usage_metrics.user_id <> ''", q.OrganizationID, q.From, q.To)
+	if q.UserSearch != "" {
+		search := "%" + q.UserSearch + "%"
+		countQuery = countQuery.Where(
+			"users.email ILIKE ? OR users.username ILIKE ? OR users.full_name ILIKE ? OR usage_metrics.user_id ILIKE ?",
+			search, search, search, search,
+		)
+	}
+	if err := countQuery.Distinct("usage_metrics.user_id").Count(&resp.UsersTotal).Error; err != nil {
+		return nil, err
+	}
+
+	modelSeries, err := s.getOrgUsageModelTimeSeries(ctx, q, resp.Models)
+	if err != nil {
+		return nil, err
+	}
+	resp.ModelTimeSeries = modelSeries
+
+	return resp, nil
+}
+
+func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsageSummaryQuery, dimension string) *gorm.DB {
+	selectFields := `
+		SUM(usage_metrics.prompt_tokens) as prompt_tokens,
+		SUM(usage_metrics.completion_tokens) as completion_tokens,
+		SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
+		SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+		SUM(usage_metrics.prompt_cost) as prompt_cost,
+		SUM(usage_metrics.completion_cost) as completion_cost,
+		SUM(usage_metrics.cache_read_cost) as cache_read_cost,
+		SUM(usage_metrics.cache_write_cost) as cache_write_cost,
+		SUM(usage_metrics.total_tokens) as total_tokens,
+		SUM(usage_metrics.total_cost) as total_cost,
+		AVG(usage_metrics.duration_ms) as latency_ms,
+		SUM(usage_metrics.request_size_bytes) as request_size_bytes,
+		SUM(usage_metrics.response_size_bytes) as response_size_bytes,
+		COUNT(DISTINCT usage_metrics.id) as total_requests
+	`
+
+	query := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Where("usage_metrics.organization_id = ? AND usage_metrics.created >= ? AND usage_metrics.created <= ?", q.OrganizationID, q.From, q.To)
+
+	switch dimension {
+	case "project":
+		return query.
+			Joins("LEFT JOIN projects ON projects.id = usage_metrics.project_id").
+			Select("usage_metrics.project_id as id, COALESCE(NULLIF(projects.name, ''), NULLIF(usage_metrics.project_id, ''), 'Unassigned') as name, " + selectFields).
+			Group("usage_metrics.project_id, projects.name").
+			Order("total_tokens DESC")
+	case "project_model":
+		return query.
+			Joins("LEFT JOIN projects ON projects.id = usage_metrics.project_id").
+			Where("usage_metrics.model <> ''").
+			Select("usage_metrics.project_id as id, COALESCE(NULLIF(projects.name, ''), NULLIF(usage_metrics.project_id, ''), 'Unassigned') as name, usage_metrics.provider, usage_metrics.model, " + selectFields).
+			Group("usage_metrics.project_id, projects.name, usage_metrics.provider, usage_metrics.model").
+			Order("total_tokens DESC")
+	case "task_model":
+		return query.
+			Joins("LEFT JOIN spec_tasks ON spec_tasks.id = usage_metrics.spec_task_id").
+			Where("usage_metrics.spec_task_id <> ''").
+			Select("usage_metrics.spec_task_id || ':' || usage_metrics.provider || ':' || usage_metrics.model as id, COALESCE(NULLIF(spec_tasks.name, ''), usage_metrics.spec_task_id) as name, usage_metrics.provider, usage_metrics.model, " + selectFields).
+			Group("usage_metrics.spec_task_id, spec_tasks.name, usage_metrics.provider, usage_metrics.model").
+			Order("total_tokens DESC")
+	case "model":
+		return query.
+			Where("usage_metrics.model <> ''").
+			Select("usage_metrics.provider || ':' || usage_metrics.model as id, usage_metrics.model as name, usage_metrics.provider, usage_metrics.model, " + selectFields).
+			Group("usage_metrics.provider, usage_metrics.model").
+			Order("total_tokens DESC")
+	case "user":
+		query = query.
+			Joins("LEFT JOIN users ON users.id = usage_metrics.user_id").
+			Where("usage_metrics.user_id <> ''")
+		if q.UserSearch != "" {
+			search := "%" + q.UserSearch + "%"
+			query = query.Where(
+				"users.email ILIKE ? OR users.username ILIKE ? OR users.full_name ILIKE ? OR usage_metrics.user_id ILIKE ?",
+				search, search, search, search,
+			)
+		}
+		return query.
+			Select("usage_metrics.user_id as id, COALESCE(NULLIF(users.full_name, ''), NULLIF(users.username, ''), NULLIF(users.email, ''), usage_metrics.user_id) as name, users.email, users.username, " + selectFields).
+			Group("usage_metrics.user_id, users.full_name, users.username, users.email").
+			Order("total_tokens DESC")
+	default:
+		return query.Select(selectFields).Order("total_tokens DESC")
+	}
+}
+
+func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOrgUsageSummaryQuery, topModels []types.UsageBreakdownRow) ([]types.UsageModelTimeSeries, error) {
+	if len(topModels) == 0 {
+		return []types.UsageModelTimeSeries{}, nil
+	}
+	topModelIDs := make(map[string]types.UsageBreakdownRow, len(topModels))
+	for _, model := range topModels {
+		topModelIDs[model.Provider+":"+model.Model] = model
+	}
+
+	var rows []struct {
+		Date              time.Time `gorm:"column:date"`
+		Provider          string    `gorm:"column:provider"`
+		Model             string    `gorm:"column:model"`
+		PromptTokens      int       `gorm:"column:prompt_tokens"`
+		CompletionTokens  int       `gorm:"column:completion_tokens"`
+		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
+		TotalTokens       int       `gorm:"column:total_tokens"`
+		PromptCost        float64   `gorm:"column:prompt_cost"`
+		CompletionCost    float64   `gorm:"column:completion_cost"`
+		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
+		TotalCost         float64   `gorm:"column:total_cost"`
+		LatencyMs         float64   `gorm:"column:latency_ms"`
+		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
+		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
+		TotalRequests     int       `gorm:"column:total_requests"`
+	}
+
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select(`
+			date,
+			provider,
+			model,
+			SUM(prompt_tokens) as prompt_tokens,
+			SUM(completion_tokens) as completion_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
+			SUM(total_tokens) as total_tokens,
+			SUM(prompt_cost) as prompt_cost,
+			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
+			SUM(total_cost) as total_cost,
+			AVG(duration_ms) as latency_ms,
+			SUM(request_size_bytes) as request_size_bytes,
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT id) as total_requests
+		`).
+		Where("organization_id = ? AND created >= ? AND created <= ? AND model <> ''", q.OrganizationID, q.From, q.To).
+		Group("date, provider, model").
+		Order("date ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	metricsByModel := make(map[string][]*types.AggregatedUsageMetric, len(topModels))
+	for _, row := range rows {
+		id := row.Provider + ":" + row.Model
+		if _, ok := topModelIDs[id]; !ok {
+			continue
+		}
+		metricsByModel[id] = append(metricsByModel[id], &types.AggregatedUsageMetric{
+			Date:              row.Date,
+			PromptTokens:      row.PromptTokens,
+			CompletionTokens:  row.CompletionTokens,
+			CacheReadTokens:   row.CacheReadTokens,
+			CacheWriteTokens:  row.CacheWriteTokens,
+			TotalTokens:       row.TotalTokens,
+			PromptCost:        row.PromptCost,
+			CompletionCost:    row.CompletionCost,
+			CacheReadCost:     row.CacheReadCost,
+			CacheWriteCost:    row.CacheWriteCost,
+			TotalCost:         row.TotalCost,
+			LatencyMs:         row.LatencyMs,
+			RequestSizeBytes:  row.RequestSizeBytes,
+			ResponseSizeBytes: row.ResponseSizeBytes,
+			TotalRequests:     row.TotalRequests,
+		})
+	}
+
+	series := make([]types.UsageModelTimeSeries, 0, len(topModels))
+	for _, model := range topModels {
+		id := model.Provider + ":" + model.Model
+		complete := fillInMissingDates(metricsByModel[id], q.From, q.To)
+		converted := make([]types.AggregatedUsageMetric, len(complete))
+		for i, metric := range complete {
+			converted[i] = *metric
+		}
+		series = append(series, types.UsageModelTimeSeries{
+			ID:       id,
+			Name:     model.Name,
+			Provider: model.Provider,
+			Model:    model.Model,
+			Metrics:  converted,
+		})
+	}
+
+	return series, nil
 }
 
 func (s *PostgresStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {

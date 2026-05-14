@@ -16,7 +16,6 @@ type ListProjectsQuery struct {
 	IncludeStats   bool
 }
 
-
 type GetProjectsCountQuery struct {
 	UserID         string
 	OrganizationID string
@@ -56,8 +55,8 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
-	SessionRole            string          `json:"session_role"`      // Filter by session role (e.g. "job")
-	ExcludeRoles           []string        `json:"exclude_roles"`     // Exclude sessions with these roles
+	SessionRole            string          `json:"session_role"`  // Filter by session role (e.g. "job")
+	ExcludeRoles           []string        `json:"exclude_roles"` // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
 }
 
@@ -181,6 +180,15 @@ type GetAggregatedUsageMetricsQuery struct {
 	To               time.Time
 }
 
+type GetOrgUsageSummaryQuery struct {
+	OrganizationID string
+	From           time.Time
+	To             time.Time
+	UserSearch     string
+	UserLimit      int
+	UserOffset     int
+}
+
 var _ Store = &PostgresStore{}
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
@@ -247,9 +255,9 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 	ClearStaleStartingSessions(ctx context.Context) (int64, error)
-	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error)           // For cleanup on sandbox disconnect
-	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)               // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
-	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) // Returns one session per desktop that has had no interaction since idleSince
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
+	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
+	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
 
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
@@ -453,6 +461,7 @@ type Store interface {
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error)
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)

@@ -2517,6 +2517,48 @@ type AggregatedUsageMetric struct {
 	TotalRequests     int     `json:"total_requests"`
 }
 
+type UsageBreakdownRow struct {
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Email             string  `json:"email,omitempty"`
+	Username          string  `json:"username,omitempty"`
+	Provider          string  `json:"provider,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	PromptTokens      int     `json:"prompt_tokens"`
+	CompletionTokens  int     `json:"completion_tokens"`
+	TotalTokens       int     `json:"total_tokens"`
+	CacheReadTokens   int     `json:"cache_read_tokens"`
+	CacheWriteTokens  int     `json:"cache_write_tokens"`
+	PromptCost        float64 `json:"prompt_cost"`
+	CompletionCost    float64 `json:"completion_cost"`
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	CacheWriteCost    float64 `json:"cache_write_cost"`
+	TotalCost         float64 `json:"total_cost"`
+	LatencyMs         float64 `json:"latency_ms"`
+	RequestSizeBytes  int     `json:"request_size_bytes"`
+	ResponseSizeBytes int     `json:"response_size_bytes"`
+	TotalRequests     int     `json:"total_requests"`
+}
+
+type UsageModelTimeSeries struct {
+	ID       string                  `json:"id"`
+	Name     string                  `json:"name"`
+	Provider string                  `json:"provider"`
+	Model    string                  `json:"model"`
+	Metrics  []AggregatedUsageMetric `json:"metrics"`
+}
+
+type OrgUsageSummaryResponse struct {
+	Metrics         []*AggregatedUsageMetric `json:"metrics"`
+	Projects        []UsageBreakdownRow      `json:"projects"`
+	ProjectModels   []UsageBreakdownRow      `json:"project_models"`
+	Tasks           []UsageBreakdownRow      `json:"tasks"`
+	Models          []UsageBreakdownRow      `json:"models"`
+	ModelTimeSeries []UsageModelTimeSeries   `json:"model_time_series"`
+	Users           []UsageBreakdownRow      `json:"users"`
+	UsersTotal      int64                    `json:"users_total"`
+}
+
 // Response for the user access endpoint
 type UserAppAccessResponse struct {
 	CanRead  bool `json:"can_read"`

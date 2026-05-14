@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -111,6 +112,91 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 	}
 
 	return metrics, nil
+}
+
+// getOrgUsageSummary godoc
+// @Summary Get organization usage summary
+// @Description Get organization usage summary with breakdowns by project, task/model, model, and user
+// @Accept json
+// @Produce json
+// @Tags    usage
+// @Param   org_id query string true "Organization ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Param   user_search query string false "User search"
+// @Param   user_limit query int false "User page size"
+// @Param   user_offset query int false "User page offset"
+// @Success 200 {object} types.OrgUsageSummaryResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/usage/org-summary [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Request) (*types.OrgUsageSummaryResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		return nil, system.NewHTTPError400("org_id is required")
+	}
+	org, err := s.lookupOrg(r.Context(), orgID)
+	if err != nil {
+		return nil, system.NewHTTPError404(err.Error())
+	}
+	orgID = org.ID
+
+	_, err = s.authorizeOrgMember(r.Context(), user, orgID)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	from := time.Now().Add(-time.Hour * 24 * 7)
+	to := time.Now()
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
+		}
+	}
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse to date: %s", err))
+		}
+	}
+
+	userLimit := 10
+	if rawLimit := r.URL.Query().Get("user_limit"); rawLimit != "" {
+		userLimit, err = strconv.Atoi(rawLimit)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse user_limit: %s", err))
+		}
+	}
+	userOffset := 0
+	if rawOffset := r.URL.Query().Get("user_offset"); rawOffset != "" {
+		userOffset, err = strconv.Atoi(rawOffset)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse user_offset: %s", err))
+		}
+	}
+
+	summary, err := s.Store.GetOrgUsageSummary(r.Context(), &store.GetOrgUsageSummaryQuery{
+		OrganizationID: orgID,
+		From:           from,
+		To:             to,
+		UserSearch:     r.URL.Query().Get("user_search"),
+		UserLimit:      userLimit,
+		UserOffset:     userOffset,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return summary, nil
 }
 
 func mergeSandboxUsageCosts(metrics []*types.AggregatedUsageMetric, sandboxMetrics []*types.AggregatedUsageMetric) {

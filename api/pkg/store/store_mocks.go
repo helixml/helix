@@ -24,6 +24,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -2773,6 +2774,21 @@ func (m *MockStore) GetOrCreateAgentRunner(ctx context.Context, runnerID string)
 func (mr *MockStoreMockRecorder) GetOrCreateAgentRunner(ctx, runnerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAgentRunner", reflect.TypeOf((*MockStore)(nil).GetOrCreateAgentRunner), ctx, runnerID)
+}
+
+// GetOrgUsageSummary mocks base method.
+func (m *MockStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgUsageSummary", ctx, q)
+	ret0, _ := ret[0].(*types.OrgUsageSummaryResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrgUsageSummary indicates an expected call of GetOrgUsageSummary.
+func (mr *MockStoreMockRecorder) GetOrgUsageSummary(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgUsageSummary", reflect.TypeOf((*MockStore)(nil).GetOrgUsageSummary), ctx, q)
 }
 
 // GetOrganization mocks base method.
