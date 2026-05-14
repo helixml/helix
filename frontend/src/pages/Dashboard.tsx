@@ -19,6 +19,7 @@ import Typography from "@mui/material/Typography";
 import React, { FC, useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import LLMCallsTable from "../components/dashboard/LLMCallsTable";
+import UsageDashboard from "../components/usage/UsageDashboard";
 import Interaction from "../components/session/Interaction";
 import SessionBadgeKey from "../components/session/SessionBadgeKey";
 import SessionToolbar from "../components/session/SessionToolbar";
@@ -200,6 +201,12 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                             )}
                         </Box>
                         <LLMCallsTable sessionFilter={sessionFilter} />
+                    </Box>
+                )}
+
+                {tab === "usage" && (
+                    <Box sx={{ width: "100%" }}>
+                        <UsageDashboard />
                     </Box>
                 )}
 

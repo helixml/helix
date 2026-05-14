@@ -2,6 +2,7 @@ import React, { FC } from 'react'
 import Typography from '@mui/material/Typography'
 
 import ApiIcon from '@mui/icons-material/Api'
+import BarChartIcon from '@mui/icons-material/BarChart'
 import DnsIcon from '@mui/icons-material/Dns'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import LinkIcon from '@mui/icons-material/Link'
@@ -34,6 +35,13 @@ const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls'
     {
       title: 'Analytics & Monitoring',
       items: [
+        {
+          id: 'usage',
+          label: 'Usage',
+          icon: <BarChartIcon />,
+          isActive: currentTab === 'usage',
+          onClick: () => handleNavigationClick('usage')
+        },
         {
           id: 'llm_calls',
           label: 'LLM Calls',
