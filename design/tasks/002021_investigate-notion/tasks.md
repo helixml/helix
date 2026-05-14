@@ -84,5 +84,5 @@ These tasks need a real Notion Business workspace + the dev Helix to be reachabl
 - [ ] Capture a short screen recording showing both the table and kanban views driving the same agent
 
 ## Findings doc
-- [ ] Write `findings.md` covering: end-to-end latency observed (Notion → Helix → row write-back round-trip), what worked, what didn't, embed result, recommended GA shape (drop secondary path? keep both?), friction in setup wizard, whether free-plan parity matters
-- [ ] Include screenshots and the demo recording link
+- [x] `findings.md` written covering what shipped, what's deferred (with precise next-step pointers), and what needs human verification (since I can't access a real Notion workspace from this environment)
+- [ ] Add latency observations + screenshots after the user runs the manual e2e demo
