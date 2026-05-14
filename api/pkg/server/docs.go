@@ -7054,7 +7054,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List LLM calls with pagination and optional session filtering",
+                "description": "List LLM calls with pagination and optional filtering. Global admins can list across all orgs; non-admins must pass an org_id they belong to.",
                 "produces": [
                     "application/json"
                 ],
@@ -7085,6 +7085,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by interaction ID",
                         "name": "interaction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "appId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by organization (id or slug). Required for non-admins.",
+                        "name": "org_id",
                         "in": "query"
                     }
                 ],

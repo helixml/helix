@@ -12,17 +12,38 @@ import (
 
 // listLLMCalls godoc
 // @Summary List LLM calls
-// @Description List LLM calls with pagination and optional session filtering
+// @Description List LLM calls with pagination and optional filtering. Global admins can list across all orgs; non-admins must pass an org_id they belong to.
 // @Tags    llm_calls
 // @Produce json
 // @Param   page          query    int     false  "Page number"
 // @Param   pageSize      query    int     false  "Page size"
 // @Param   session       query    string  false  "Filter by session ID"
 // @Param   interaction   query    string  false  "Filter by interaction ID"
+// @Param   appId         query    string  false  "Filter by app ID"
+// @Param   org_id        query    string  false  "Filter by organization (id or slug). Required for non-admins."
 // @Success 200 {object} types.PaginatedLLMCalls
 // @Router /api/v1/llm_calls [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
+	user := getRequestUser(r)
+
+	// Org scoping: global admins may omit org_id to list across all orgs.
+	// Non-admins must pass an org_id matching one they belong to.
+	orgParam := r.URL.Query().Get("org_id")
+	var orgID string
+	if orgParam != "" {
+		org, err := s.lookupOrg(r.Context(), orgParam)
+		if err != nil {
+			return nil, system.NewHTTPError404("organization not found")
+		}
+		if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		orgID = org.ID
+	} else if !isAdmin(user) {
+		return nil, system.NewHTTPError403("org_id is required for non-admin callers")
+	}
+
 	// Parse query parameters
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil || page < 1 {
@@ -39,11 +60,12 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 
 	// Call the ListLLMCalls function from the store with the session filter
 	calls, totalCount, err := s.Store.ListLLMCalls(r.Context(), &store.ListLLMCallsQuery{
-		Page:          page,
-		PerPage:       pageSize,
-		SessionID:     sessionFilter,
-		InteractionID: interactionFilter,
-		AppID:         r.URL.Query().Get("appId"),
+		OrganizationID: orgID,
+		Page:           page,
+		PerPage:        pageSize,
+		SessionID:      sessionFilter,
+		InteractionID:  interactionFilter,
+		AppID:          r.URL.Query().Get("appId"),
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())

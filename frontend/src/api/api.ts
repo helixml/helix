@@ -9730,7 +9730,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List LLM calls with pagination and optional session filtering
+     * @description List LLM calls with pagination and optional filtering. Global admins can list across all orgs; non-admins must pass an org_id they belong to.
      *
      * @tags llm_calls
      * @name V1LlmCallsList
@@ -9748,6 +9748,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         session?: string;
         /** Filter by interaction ID */
         interaction?: string;
+        /** Filter by app ID */
+        appId?: string;
+        /** Filter by organization (id or slug). Required for non-admins. */
+        org_id?: string;
       },
       params: RequestParams = {},
     ) =>

@@ -25,10 +25,11 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 }
 
 type ListLLMCallsQuery struct {
-	AppID         string
-	SessionID     string
-	InteractionID string
-	UserID        string
+	OrganizationID string
+	AppID          string
+	SessionID      string
+	InteractionID  string
+	UserID         string
 
 	Page    int
 	PerPage int
@@ -42,6 +43,10 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 	offset := (q.Page - 1) * q.PerPage
 
 	query := s.gdb.WithContext(ctx).Model(&types.LLMCall{})
+
+	if q.OrganizationID != "" {
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	}
 
 	if q.SessionID != "" {
 		query = query.Where("session_id = ?", q.SessionID)

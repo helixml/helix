@@ -1116,7 +1116,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
 	// endpoints removed — no scheduler, no slots.
-	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
+	//
+	// /llm_calls is on authRouter (not adminRouter) because org members
+	// need it to drill down from the org Usage page into per-call
+	// traces. The handler scopes the result set: global admins may omit
+	// org_id to list across all orgs; everyone else must pass an org_id
+	// they belong to.
+	authRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
 	// Runner profiles (compose-based runner replacement). All routes are
 	// admin-only — operators define and assign profiles.

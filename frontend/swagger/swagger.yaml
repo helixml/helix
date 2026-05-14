@@ -14887,7 +14887,8 @@ paths:
       summary: Set license key
   /api/v1/llm_calls:
     get:
-      description: List LLM calls with pagination and optional session filtering
+      description: List LLM calls with pagination and optional filtering. Global admins
+        can list across all orgs; non-admins must pass an org_id they belong to.
       parameters:
       - description: Page number
         in: query
@@ -14904,6 +14905,14 @@ paths:
       - description: Filter by interaction ID
         in: query
         name: interaction
+        type: string
+      - description: Filter by app ID
+        in: query
+        name: appId
+        type: string
+      - description: Filter by organization (id or slug). Required for non-admins.
+        in: query
+        name: org_id
         type: string
       produces:
       - application/json
