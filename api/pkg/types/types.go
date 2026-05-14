@@ -2607,56 +2607,19 @@ type UsageByModel struct {
 	UniqueProjects int `json:"unique_projects"`
 }
 
-// Paginated wrappers for the by-* endpoints. Generics would be nicer
-// but the swagger generator (swag) doesn't model parameterized types,
-// so we expand by hand.
-//
-// `Total` carries the aggregate totals across all pages (not just the
-// page being returned) so the UI can show whole-result-set numbers
-// alongside per-row data.
-type PaginatedUsageByOrg struct {
-	Rows       []*UsageByOrg `json:"rows"`
-	Total      UsageTotals   `json:"total"`
-	Page       int           `json:"page"`
-	PageSize   int           `json:"page_size"`
-	TotalRows  int           `json:"total_rows"`
-	TotalPages int           `json:"total_pages"`
-}
-
-type PaginatedUsageByUser struct {
-	Rows       []*UsageByUser `json:"rows"`
-	Total      UsageTotals    `json:"total"`
-	Page       int            `json:"page"`
-	PageSize   int            `json:"page_size"`
-	TotalRows  int            `json:"total_rows"`
-	TotalPages int            `json:"total_pages"`
-}
-
-type PaginatedUsageByProject struct {
-	Rows       []*UsageByProject `json:"rows"`
-	Total      UsageTotals       `json:"total"`
-	Page       int               `json:"page"`
-	PageSize   int               `json:"page_size"`
-	TotalRows  int               `json:"total_rows"`
-	TotalPages int               `json:"total_pages"`
-}
-
-type PaginatedUsageBySession struct {
-	Rows       []*UsageBySession `json:"rows"`
-	Total      UsageTotals       `json:"total"`
-	Page       int               `json:"page"`
-	PageSize   int               `json:"page_size"`
-	TotalRows  int               `json:"total_rows"`
-	TotalPages int               `json:"total_pages"`
-}
-
-type PaginatedUsageByModel struct {
-	Rows       []*UsageByModel `json:"rows"`
-	Total      UsageTotals     `json:"total"`
-	Page       int             `json:"page"`
-	PageSize   int             `json:"page_size"`
-	TotalRows  int             `json:"total_rows"`
-	TotalPages int             `json:"total_pages"`
+// UsageGroupedResponse is the unified envelope returned by
+// /api/v1/usage/aggregate/grouped regardless of the `group_by` chosen.
+// `Rows` is a typed slice (UsageByUser, UsageByOrg, etc.) at runtime;
+// the JSON-on-the-wire is an array of objects keyed off `GroupBy`.
+// Frontends switch on GroupBy and cast.
+type UsageGroupedResponse struct {
+	GroupBy    string      `json:"group_by"` // "org" | "user" | "project" | "session" | "model"
+	Rows       any         `json:"rows"`
+	Total      UsageTotals `json:"total"`
+	Page       int         `json:"page"`
+	PageSize   int         `json:"page_size"`
+	TotalRows  int         `json:"total_rows"`
+	TotalPages int         `json:"total_pages"`
 }
 
 // Response for the user access endpoint

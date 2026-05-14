@@ -17118,226 +17118,29 @@
                 }
             }
         },
-        "/api/v1/usage/aggregate/by-model": {
+        "/api/v1/usage/aggregate/grouped": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
+                "description": "One endpoint, five groupings. Pass `group_by` to choose what each row represents. `group_by=org` is global-admin only.\nRow shape per `group_by` (see types/types.go):\n- org: UsageByOrg (organization_id, organization_name, user_count, session_count, top_model, last_activity)\n- user: UsageByUser (user_id, email, organization_id, session_count, top_model, last_activity)\n- project: UsageByProject (project_id, app_id, name, kind, owner_user_id, organization_id, session_count)\n- session: UsageBySession (session_id, name, user_id, project_id, organization_id, provider, model, call_count, started_at, ended_at)\n- model: UsageByModel (provider, model, unique_users, unique_sessions, unique_projects)\nEvery row also carries the shared UsageTotals fields (prompt/completion/cache tokens and costs, total_cost, request_count).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "usage"
                 ],
-                "summary": "Usage grouped by model / provider",
+                "summary": "Aggregate usage grouped by a dimension",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Start of window (RFC3339)",
-                        "name": "from",
-                        "in": "query"
+                        "description": "Grouping: org|user|project|session|model",
+                        "name": "group_by",
+                        "in": "query",
+                        "required": true
                     },
-                    {
-                        "type": "string",
-                        "description": "End of window (RFC3339)",
-                        "name": "to",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Organization id or slug",
-                        "name": "org_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort column",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "asc or desc",
-                        "name": "sort_dir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "page_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedUsageByModel"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/usage/aggregate/by-org": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Global-admin only. One row per organization with tokens, costs, user/session counts and last activity.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "usage"
-                ],
-                "summary": "Usage grouped by organization",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Start of window (RFC3339)",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End of window (RFC3339)",
-                        "name": "to",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort column: total_cost, total_tokens, request_count, last_activity",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "asc or desc",
-                        "name": "sort_dir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page (1-indexed)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size (max 200, default 25)",
-                        "name": "page_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedUsageByOrg"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/usage/aggregate/by-project": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "usage"
-                ],
-                "summary": "Usage grouped by project / app / agent",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Start of window (RFC3339)",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End of window (RFC3339)",
-                        "name": "to",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Organization id or slug",
-                        "name": "org_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by user id",
-                        "name": "user_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort column",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "asc or desc",
-                        "name": "sort_dir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "page_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedUsageByProject"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/usage/aggregate/by-session": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "usage"
-                ],
-                "summary": "Usage grouped by session",
-                "parameters": [
                     {
                         "type": "string",
                         "description": "Start of window (RFC3339)",
@@ -17370,6 +17173,18 @@
                     },
                     {
                         "type": "string",
+                        "description": "Filter by app id",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session id",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by provider",
                         "name": "provider",
                         "in": "query"
@@ -17382,7 +17197,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Sort column",
+                        "description": "Sort column (per-grouping whitelist)",
                         "name": "sort_by",
                         "in": "query"
                     },
@@ -17394,13 +17209,13 @@
                     },
                     {
                         "type": "integer",
-                        "description": "Page",
+                        "description": "Page (1-indexed)",
                         "name": "page",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size",
+                        "description": "Page size (max 200, default 25)",
                         "name": "page_size",
                         "in": "query"
                     }
@@ -17409,76 +17224,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.PaginatedUsageBySession"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/usage/aggregate/by-user": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Org members get rows scoped to their org. Global admins may omit org_id to list across all orgs.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "usage"
-                ],
-                "summary": "Usage grouped by user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Start of window (RFC3339)",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End of window (RFC3339)",
-                        "name": "to",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Organization id or slug. Required for non-admins.",
-                        "name": "org_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort column",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "asc or desc",
-                        "name": "sort_dir",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "page_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedUsageByUser"
+                            "$ref": "#/definitions/types.UsageGroupedResponse"
                         }
                     }
                 }
@@ -17491,7 +17237,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns whole-set totals plus a daily time-series. Org owners must pass org_id matching their org; global admins may omit it to summarize cross-org.",
+                "description": "Returns whole-set totals plus a daily time-series. Org members must pass org_id; global admins may omit it to summarize cross-org.",
                 "produces": [
                     "application/json"
                 ],
@@ -27027,136 +26773,6 @@
                 }
             }
         },
-        "types.PaginatedUsageByModel": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rows": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UsageByModel"
-                    }
-                },
-                "total": {
-                    "$ref": "#/definitions/types.UsageTotals"
-                },
-                "total_pages": {
-                    "type": "integer"
-                },
-                "total_rows": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.PaginatedUsageByOrg": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rows": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UsageByOrg"
-                    }
-                },
-                "total": {
-                    "$ref": "#/definitions/types.UsageTotals"
-                },
-                "total_pages": {
-                    "type": "integer"
-                },
-                "total_rows": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.PaginatedUsageByProject": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rows": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UsageByProject"
-                    }
-                },
-                "total": {
-                    "$ref": "#/definitions/types.UsageTotals"
-                },
-                "total_pages": {
-                    "type": "integer"
-                },
-                "total_rows": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.PaginatedUsageBySession": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rows": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UsageBySession"
-                    }
-                },
-                "total": {
-                    "$ref": "#/definitions/types.UsageTotals"
-                },
-                "total_pages": {
-                    "type": "integer"
-                },
-                "total_rows": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.PaginatedUsageByUser": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rows": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.UsageByUser"
-                    }
-                },
-                "total": {
-                    "$ref": "#/definitions/types.UsageTotals"
-                },
-                "total_pages": {
-                    "type": "integer"
-                },
-                "total_rows": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.PaginatedUsersList": {
             "type": "object",
             "properties": {
@@ -32691,296 +32307,28 @@
                 }
             }
         },
-        "types.UsageByModel": {
+        "types.UsageGroupedResponse": {
             "type": "object",
             "properties": {
-                "cache_read_cost": {
-                    "type": "number"
-                },
-                "cache_read_tokens": {
-                    "type": "integer"
-                },
-                "cache_write_cost": {
-                    "type": "number"
-                },
-                "cache_write_tokens": {
-                    "type": "integer"
-                },
-                "completion_cost": {
-                    "type": "number"
-                },
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "model": {
+                "group_by": {
+                    "description": "\"org\" | \"user\" | \"project\" | \"session\" | \"model\"",
                     "type": "string"
                 },
-                "prompt_cost": {
-                    "type": "number"
-                },
-                "prompt_tokens": {
+                "page": {
                     "type": "integer"
                 },
-                "provider": {
-                    "type": "string"
-                },
-                "request_count": {
+                "page_size": {
                     "type": "integer"
                 },
-                "total_cost": {
-                    "type": "number"
+                "rows": {},
+                "total": {
+                    "$ref": "#/definitions/types.UsageTotals"
                 },
-                "total_tokens": {
+                "total_pages": {
                     "type": "integer"
                 },
-                "unique_projects": {
+                "total_rows": {
                     "type": "integer"
-                },
-                "unique_sessions": {
-                    "type": "integer"
-                },
-                "unique_users": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.UsageByOrg": {
-            "type": "object",
-            "properties": {
-                "cache_read_cost": {
-                    "type": "number"
-                },
-                "cache_read_tokens": {
-                    "type": "integer"
-                },
-                "cache_write_cost": {
-                    "type": "number"
-                },
-                "cache_write_tokens": {
-                    "type": "integer"
-                },
-                "completion_cost": {
-                    "type": "number"
-                },
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "organization_name": {
-                    "type": "string"
-                },
-                "prompt_cost": {
-                    "type": "number"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "request_count": {
-                    "type": "integer"
-                },
-                "session_count": {
-                    "type": "integer"
-                },
-                "top_model": {
-                    "type": "string"
-                },
-                "total_cost": {
-                    "type": "number"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                },
-                "user_count": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.UsageByProject": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "cache_read_cost": {
-                    "type": "number"
-                },
-                "cache_read_tokens": {
-                    "type": "integer"
-                },
-                "cache_write_cost": {
-                    "type": "number"
-                },
-                "cache_write_tokens": {
-                    "type": "integer"
-                },
-                "completion_cost": {
-                    "type": "number"
-                },
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "kind": {
-                    "description": "\"project\" | \"app\" | \"agent\"",
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "owner_user_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "prompt_cost": {
-                    "type": "number"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "request_count": {
-                    "type": "integer"
-                },
-                "session_count": {
-                    "type": "integer"
-                },
-                "total_cost": {
-                    "type": "number"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.UsageBySession": {
-            "type": "object",
-            "properties": {
-                "cache_read_cost": {
-                    "type": "number"
-                },
-                "cache_read_tokens": {
-                    "type": "integer"
-                },
-                "cache_write_cost": {
-                    "type": "number"
-                },
-                "cache_write_tokens": {
-                    "type": "integer"
-                },
-                "call_count": {
-                    "type": "integer"
-                },
-                "completion_cost": {
-                    "type": "number"
-                },
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "ended_at": {
-                    "type": "string"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "prompt_cost": {
-                    "type": "number"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "request_count": {
-                    "type": "integer"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "started_at": {
-                    "type": "string"
-                },
-                "total_cost": {
-                    "type": "number"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.UsageByUser": {
-            "type": "object",
-            "properties": {
-                "cache_read_cost": {
-                    "type": "number"
-                },
-                "cache_read_tokens": {
-                    "type": "integer"
-                },
-                "cache_write_cost": {
-                    "type": "number"
-                },
-                "cache_write_tokens": {
-                    "type": "integer"
-                },
-                "completion_cost": {
-                    "type": "number"
-                },
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "prompt_cost": {
-                    "type": "number"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "request_count": {
-                    "type": "integer"
-                },
-                "session_count": {
-                    "type": "integer"
-                },
-                "top_model": {
-                    "type": "string"
-                },
-                "total_cost": {
-                    "type": "number"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                },
-                "user_id": {
-                    "type": "string"
                 }
             }
         },

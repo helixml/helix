@@ -1118,16 +1118,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// endpoints removed — no scheduler, no slots.
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 
-	// /usage/aggregate/* powers the admin and org-owner Usage dashboards.
-	// On authRouter (not adminRouter) - the handler enforces per-request
-	// scoping: global admins may list cross-org; everyone else must pass
-	// an org_id they belong to.
+	// /usage/aggregate powers the admin and org-owner Usage dashboards.
+	// Two endpoints: /summary for whole-set totals + time series, and
+	// /grouped for per-(org|user|project|session|model) breakdowns.
+	// Both are on authRouter; the handler enforces per-request scoping:
+	// global admins may list cross-org, everyone else must pass an
+	// org_id they belong to, and group_by=org is admin-only.
 	authRouter.HandleFunc("/usage/aggregate/summary", system.Wrapper(apiServer.usageSummary)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/usage/aggregate/by-org", system.Wrapper(apiServer.usageByOrg)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/usage/aggregate/by-user", system.Wrapper(apiServer.usageByUser)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/usage/aggregate/by-project", system.Wrapper(apiServer.usageByProject)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/usage/aggregate/by-session", system.Wrapper(apiServer.usageBySession)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/usage/aggregate/by-model", system.Wrapper(apiServer.usageByModel)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/usage/aggregate/grouped", system.Wrapper(apiServer.usageGrouped)).Methods(http.MethodGet)
 
 	// Runner profiles (compose-based runner replacement). All routes are
 	// admin-only — operators define and assign profiles.

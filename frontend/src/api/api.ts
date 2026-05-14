@@ -3646,51 +3646,6 @@ export interface TypesPaginatedSessionsList {
   totalPages?: number;
 }
 
-export interface TypesPaginatedUsageByModel {
-  page?: number;
-  page_size?: number;
-  rows?: TypesUsageByModel[];
-  total?: TypesUsageTotals;
-  total_pages?: number;
-  total_rows?: number;
-}
-
-export interface TypesPaginatedUsageByOrg {
-  page?: number;
-  page_size?: number;
-  rows?: TypesUsageByOrg[];
-  total?: TypesUsageTotals;
-  total_pages?: number;
-  total_rows?: number;
-}
-
-export interface TypesPaginatedUsageByProject {
-  page?: number;
-  page_size?: number;
-  rows?: TypesUsageByProject[];
-  total?: TypesUsageTotals;
-  total_pages?: number;
-  total_rows?: number;
-}
-
-export interface TypesPaginatedUsageBySession {
-  page?: number;
-  page_size?: number;
-  rows?: TypesUsageBySession[];
-  total?: TypesUsageTotals;
-  total_pages?: number;
-  total_rows?: number;
-}
-
-export interface TypesPaginatedUsageByUser {
-  page?: number;
-  page_size?: number;
-  rows?: TypesUsageByUser[];
-  total?: TypesUsageTotals;
-  total_pages?: number;
-  total_rows?: number;
-}
-
 export interface TypesPaginatedUsersList {
   page?: number;
   pageSize?: number;
@@ -6142,109 +6097,15 @@ export interface TypesUsage {
   total_tokens?: number;
 }
 
-export interface TypesUsageByModel {
-  cache_read_cost?: number;
-  cache_read_tokens?: number;
-  cache_write_cost?: number;
-  cache_write_tokens?: number;
-  completion_cost?: number;
-  completion_tokens?: number;
-  model?: string;
-  prompt_cost?: number;
-  prompt_tokens?: number;
-  provider?: string;
-  request_count?: number;
-  total_cost?: number;
-  total_tokens?: number;
-  unique_projects?: number;
-  unique_sessions?: number;
-  unique_users?: number;
-}
-
-export interface TypesUsageByOrg {
-  cache_read_cost?: number;
-  cache_read_tokens?: number;
-  cache_write_cost?: number;
-  cache_write_tokens?: number;
-  completion_cost?: number;
-  completion_tokens?: number;
-  last_activity?: string;
-  organization_id?: string;
-  organization_name?: string;
-  prompt_cost?: number;
-  prompt_tokens?: number;
-  request_count?: number;
-  session_count?: number;
-  top_model?: string;
-  total_cost?: number;
-  total_tokens?: number;
-  user_count?: number;
-}
-
-export interface TypesUsageByProject {
-  app_id?: string;
-  cache_read_cost?: number;
-  cache_read_tokens?: number;
-  cache_write_cost?: number;
-  cache_write_tokens?: number;
-  completion_cost?: number;
-  completion_tokens?: number;
-  /** "project" | "app" | "agent" */
-  kind?: string;
-  name?: string;
-  organization_id?: string;
-  owner_user_id?: string;
-  project_id?: string;
-  prompt_cost?: number;
-  prompt_tokens?: number;
-  request_count?: number;
-  session_count?: number;
-  total_cost?: number;
-  total_tokens?: number;
-}
-
-export interface TypesUsageBySession {
-  cache_read_cost?: number;
-  cache_read_tokens?: number;
-  cache_write_cost?: number;
-  cache_write_tokens?: number;
-  call_count?: number;
-  completion_cost?: number;
-  completion_tokens?: number;
-  ended_at?: string;
-  model?: string;
-  name?: string;
-  organization_id?: string;
-  project_id?: string;
-  prompt_cost?: number;
-  prompt_tokens?: number;
-  provider?: string;
-  request_count?: number;
-  session_id?: string;
-  started_at?: string;
-  total_cost?: number;
-  total_tokens?: number;
-  user_id?: string;
-}
-
-export interface TypesUsageByUser {
-  cache_read_cost?: number;
-  cache_read_tokens?: number;
-  cache_write_cost?: number;
-  cache_write_tokens?: number;
-  completion_cost?: number;
-  completion_tokens?: number;
-  email?: string;
-  last_activity?: string;
-  organization_id?: string;
-  prompt_cost?: number;
-  prompt_tokens?: number;
-  request_count?: number;
-  session_count?: number;
-  top_model?: string;
-  total_cost?: number;
-  total_tokens?: number;
-  user_id?: string;
+export interface TypesUsageGroupedResponse {
+  /** "org" | "user" | "project" | "session" | "model" */
+  group_by?: string;
+  page?: number;
+  page_size?: number;
+  rows?: any;
+  total?: TypesUsageTotals;
+  total_pages?: number;
+  total_rows?: number;
 }
 
 export interface TypesUsageSummary {
@@ -14398,127 +14259,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description One endpoint, five groupings. Pass `group_by` to choose what each row represents. `group_by=org` is global-admin only. Row shape per `group_by` (see types/types.go): - org: UsageByOrg (organization_id, organization_name, user_count, session_count, top_model, last_activity) - user: UsageByUser (user_id, email, organization_id, session_count, top_model, last_activity) - project: UsageByProject (project_id, app_id, name, kind, owner_user_id, organization_id, session_count) - session: UsageBySession (session_id, name, user_id, project_id, organization_id, provider, model, call_count, started_at, ended_at) - model: UsageByModel (provider, model, unique_users, unique_sessions, unique_projects) Every row also carries the shared UsageTotals fields (prompt/completion/cache tokens and costs, total_cost, request_count).
      *
      * @tags usage
-     * @name V1UsageAggregateByModelList
-     * @summary Usage grouped by model / provider
-     * @request GET:/api/v1/usage/aggregate/by-model
+     * @name V1UsageAggregateGroupedList
+     * @summary Aggregate usage grouped by a dimension
+     * @request GET:/api/v1/usage/aggregate/grouped
      * @secure
      */
-    v1UsageAggregateByModelList: (
-      query?: {
-        /** Start of window (RFC3339) */
-        from?: string;
-        /** End of window (RFC3339) */
-        to?: string;
-        /** Organization id or slug */
-        org_id?: string;
-        /** Sort column */
-        sort_by?: string;
-        /** asc or desc */
-        sort_dir?: string;
-        /** Page */
-        page?: number;
-        /** Page size */
-        page_size?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesPaginatedUsageByModel, any>({
-        path: `/api/v1/usage/aggregate/by-model`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Global-admin only. One row per organization with tokens, costs, user/session counts and last activity.
-     *
-     * @tags usage
-     * @name V1UsageAggregateByOrgList
-     * @summary Usage grouped by organization
-     * @request GET:/api/v1/usage/aggregate/by-org
-     * @secure
-     */
-    v1UsageAggregateByOrgList: (
-      query?: {
-        /** Start of window (RFC3339) */
-        from?: string;
-        /** End of window (RFC3339) */
-        to?: string;
-        /** Sort column: total_cost, total_tokens, request_count, last_activity */
-        sort_by?: string;
-        /** asc or desc */
-        sort_dir?: string;
-        /** Page (1-indexed) */
-        page?: number;
-        /** Page size (max 200, default 25) */
-        page_size?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesPaginatedUsageByOrg, any>({
-        path: `/api/v1/usage/aggregate/by-org`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags usage
-     * @name V1UsageAggregateByProjectList
-     * @summary Usage grouped by project / app / agent
-     * @request GET:/api/v1/usage/aggregate/by-project
-     * @secure
-     */
-    v1UsageAggregateByProjectList: (
-      query?: {
-        /** Start of window (RFC3339) */
-        from?: string;
-        /** End of window (RFC3339) */
-        to?: string;
-        /** Organization id or slug */
-        org_id?: string;
-        /** Filter by user id */
-        user_id?: string;
-        /** Sort column */
-        sort_by?: string;
-        /** asc or desc */
-        sort_dir?: string;
-        /** Page */
-        page?: number;
-        /** Page size */
-        page_size?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesPaginatedUsageByProject, any>({
-        path: `/api/v1/usage/aggregate/by-project`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags usage
-     * @name V1UsageAggregateBySessionList
-     * @summary Usage grouped by session
-     * @request GET:/api/v1/usage/aggregate/by-session
-     * @secure
-     */
-    v1UsageAggregateBySessionList: (
-      query?: {
+    v1UsageAggregateGroupedList: (
+      query: {
+        /** Grouping: org|user|project|session|model */
+        group_by: string;
         /** Start of window (RFC3339) */
         from?: string;
         /** End of window (RFC3339) */
@@ -14529,23 +14281,27 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         user_id?: string;
         /** Filter by project id */
         project_id?: string;
+        /** Filter by app id */
+        app_id?: string;
+        /** Filter by session id */
+        session_id?: string;
         /** Filter by provider */
         provider?: string;
         /** Filter by model */
         model?: string;
-        /** Sort column */
+        /** Sort column (per-grouping whitelist) */
         sort_by?: string;
         /** asc or desc */
         sort_dir?: string;
-        /** Page */
+        /** Page (1-indexed) */
         page?: number;
-        /** Page size */
+        /** Page size (max 200, default 25) */
         page_size?: number;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPaginatedUsageBySession, any>({
-        path: `/api/v1/usage/aggregate/by-session`,
+      this.request<TypesUsageGroupedResponse, any>({
+        path: `/api/v1/usage/aggregate/grouped`,
         method: "GET",
         query: query,
         secure: true,
@@ -14554,44 +14310,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Org members get rows scoped to their org. Global admins may omit org_id to list across all orgs.
-     *
-     * @tags usage
-     * @name V1UsageAggregateByUserList
-     * @summary Usage grouped by user
-     * @request GET:/api/v1/usage/aggregate/by-user
-     * @secure
-     */
-    v1UsageAggregateByUserList: (
-      query?: {
-        /** Start of window (RFC3339) */
-        from?: string;
-        /** End of window (RFC3339) */
-        to?: string;
-        /** Organization id or slug. Required for non-admins. */
-        org_id?: string;
-        /** Sort column */
-        sort_by?: string;
-        /** asc or desc */
-        sort_dir?: string;
-        /** Page */
-        page?: number;
-        /** Page size */
-        page_size?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesPaginatedUsageByUser, any>({
-        path: `/api/v1/usage/aggregate/by-user`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Returns whole-set totals plus a daily time-series. Org owners must pass org_id matching their org; global admins may omit it to summarize cross-org.
+     * @description Returns whole-set totals plus a daily time-series. Org members must pass org_id; global admins may omit it to summarize cross-org.
      *
      * @tags usage
      * @name V1UsageAggregateSummaryList
