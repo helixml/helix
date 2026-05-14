@@ -19,9 +19,9 @@ These tasks need a real Notion Business workspace + the dev Helix to be reachabl
 - [x] Add `TriggerTypeNotion = "notion"` constant
 - [x] Add `ExternalTriggerRef` struct (with `NotionTriggerPayload.EmbedBlockID`) + JSONB column on `SpecTask`. Generic `ExternalTriggerSourceType` discriminator pre-baked for Sentry/GitHub.
 - [x] Add `OAuthProviderTypeNotion = "notion"` in `api/pkg/types/oauth.go`
-- [~] Extend `oauth/oauth2.go` `GetUserInfo` switch with the Notion case (parse `/v1/users/me`)
-- [~] Add `useBasicAuth` flag (or per-provider override) so the Notion token exchange sends client creds via HTTP Basic
-- [~] Set `Notion-Version: 2025-09-03` header on every authorized request
+- [x] Extend `oauth/oauth2.go` `GetUserInfo` switch with the Notion case (parse `/v1/users/me`, see `oauth/notion.go`)
+- [x] Notion token exchange uses HTTP Basic via `oauth2.AuthStyleInHeader` (set in `NewOAuth2Provider` for Notion-typed providers)
+- [x] Set `Notion-Version: 2025-09-03` header on every authorized request (in `MakeAuthorizedRequest` and the user-info fetch)
 
 ## Backend — trigger (primary path: Database Automation + Button)
 - [ ] Create `api/pkg/trigger/notion/notion.go` with `New()` and `ProcessWebhook(ctx, cfg, headers, body)` that branches on `X-Helix-Source` header
