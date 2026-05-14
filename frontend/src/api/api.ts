@@ -3569,6 +3569,12 @@ export interface TypesOrgUsageSummaryResponse {
   active_sessions?: number;
   active_users?: number;
   apps?: TypesUsageBreakdownRow[];
+  export_apps?: TypesUsageBreakdownRow[];
+  export_models?: TypesUsageBreakdownRow[];
+  export_projects?: TypesUsageBreakdownRow[];
+  export_sessions?: TypesUsageBreakdownRow[];
+  export_tasks?: TypesUsageBreakdownRow[];
+  export_users?: TypesUsageBreakdownRow[];
   filter_apps?: TypesUsageFilterOption[];
   filter_models?: TypesUsageFilterOption[];
   filter_projects?: TypesUsageFilterOption[];
@@ -3578,8 +3584,11 @@ export interface TypesOrgUsageSummaryResponse {
   models?: TypesUsageBreakdownRow[];
   project_models?: TypesUsageBreakdownRow[];
   projects?: TypesUsageBreakdownRow[];
+  projects_total?: number;
   sessions?: TypesUsageBreakdownRow[];
+  sessions_total?: number;
   tasks?: TypesUsageBreakdownRow[];
+  tasks_total?: number;
   users?: TypesUsageBreakdownRow[];
   users_total?: number;
 }
@@ -14319,6 +14328,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         user_limit?: number;
         /** User page offset */
         user_offset?: number;
+        /** Project page size */
+        project_limit?: number;
+        /** Project page offset */
+        project_offset?: number;
+        /** Task page size */
+        task_limit?: number;
+        /** Task page offset */
+        task_offset?: number;
+        /** Session page size */
+        session_limit?: number;
+        /** Session page offset */
+        session_offset?: number;
       },
       params: RequestParams = {},
     ) =>

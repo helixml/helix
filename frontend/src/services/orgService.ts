@@ -24,6 +24,12 @@ export const orgUsageQueryKey = (
   userSearch?: string,
   userLimit?: number,
   userOffset?: number,
+  projectLimit?: number,
+  projectOffset?: number,
+  taskLimit?: number,
+  taskOffset?: number,
+  sessionLimit?: number,
+  sessionOffset?: number,
 ) => [
   "org",
   id,
@@ -39,6 +45,12 @@ export const orgUsageQueryKey = (
   userSearch,
   userLimit,
   userOffset,
+  projectLimit,
+  projectOffset,
+  taskLimit,
+  taskOffset,
+  sessionLimit,
+  sessionOffset,
 ];
 
 export function getOrgByIdQueryKey(id: string) {
@@ -128,6 +140,12 @@ export function useGetOrgUsage(
     userSearch?: string
     userLimit?: number
     userOffset?: number
+    projectLimit?: number
+    projectOffset?: number
+    taskLimit?: number
+    taskOffset?: number
+    sessionLimit?: number
+    sessionOffset?: number
     enabled?: boolean
   },
 ) {
@@ -150,6 +168,12 @@ export function useGetOrgUsage(
       options?.userSearch,
       options?.userLimit,
       options?.userOffset,
+      options?.projectLimit,
+      options?.projectOffset,
+      options?.taskLimit,
+      options?.taskOffset,
+      options?.sessionLimit,
+      options?.sessionOffset,
     ),
     queryFn: async () => {
       const response = await apiClient.v1UsageOrgSummaryList({
@@ -165,6 +189,12 @@ export function useGetOrgUsage(
         user_search: options?.userSearch,
         user_limit: options?.userLimit,
         user_offset: options?.userOffset,
+        project_limit: options?.projectLimit,
+        project_offset: options?.projectOffset,
+        task_limit: options?.taskLimit,
+        task_offset: options?.taskOffset,
+        session_limit: options?.sessionLimit,
+        session_offset: options?.sessionOffset,
       })
       return response.data
     },

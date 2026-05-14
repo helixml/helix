@@ -5826,6 +5826,30 @@ definitions:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
+      export_apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
       filter_apps:
         items:
           $ref: '#/definitions/types.UsageFilterOption'
@@ -5862,14 +5886,20 @@ definitions:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
+      projects_total:
+        type: integer
       sessions:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
+      sessions_total:
+        type: integer
       tasks:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
+      tasks_total:
+        type: integer
       users:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
@@ -21573,6 +21603,30 @@ paths:
       - description: User page offset
         in: query
         name: user_offset
+        type: integer
+      - description: Project page size
+        in: query
+        name: project_limit
+        type: integer
+      - description: Project page offset
+        in: query
+        name: project_offset
+        type: integer
+      - description: Task page size
+        in: query
+        name: task_limit
+        type: integer
+      - description: Task page offset
+        in: query
+        name: task_offset
+        type: integer
+      - description: Session page size
+        in: query
+        name: session_limit
+        type: integer
+      - description: Session page offset
+        in: query
+        name: session_offset
         type: integer
       produces:
       - application/json

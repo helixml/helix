@@ -20824,6 +20824,54 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "description": "Project page size",
+                        "name": "project_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Project page offset",
+                        "name": "project_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Task page size",
+                        "name": "task_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Task page offset",
+                        "name": "task_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Session page size",
+                        "name": "session_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Session page offset",
+                        "name": "session_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
                     }
                 ],
                 "responses": {
@@ -30387,6 +30435,42 @@
                             "$ref": "#/components/schemas/types.UsageBreakdownRow"
                         }
                     },
+                    "export_apps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_sessions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_users": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
                     "filter_apps": {
                         "type": "array",
                         "items": {
@@ -30441,17 +30525,26 @@
                             "$ref": "#/components/schemas/types.UsageBreakdownRow"
                         }
                     },
+                    "projects_total": {
+                        "type": "integer"
+                    },
                     "sessions": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/types.UsageBreakdownRow"
                         }
                     },
+                    "sessions_total": {
+                        "type": "integer"
+                    },
                     "tasks": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/types.UsageBreakdownRow"
                         }
+                    },
+                    "tasks_total": {
+                        "type": "integer"
                     },
                     "users": {
                         "type": "array",

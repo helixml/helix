@@ -20,7 +20,7 @@ import { Download, Search, X } from 'lucide-react'
 
 import type { TypesAggregatedUsageMetric, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
-import { useSettingsDialog } from '../../contexts/settingsDialog'
+import useAccount from '../../hooks/useAccount'
 import useDebounce from '../../hooks/useDebounce'
 import Page from '../system/Page'
 import SimpleTable, { ITableField } from '../widgets/SimpleTable'
@@ -28,6 +28,7 @@ import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
 import { useGetOrgUsage } from '../../services/orgService'
 
 type RangeKey = '7d' | '30d' | '90d'
+type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
 
 const TOKEN_SERIES: ShadcnSeries[] = [
   { key: 'input', label: 'Input', color: '#2563eb' },
@@ -57,12 +58,6 @@ const fromURLDate = (value: string | null, fallback: string) => {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return fallback
   return toDateInput(parsed)
-}
-
-const intFromURL = (value: string | null, fallback: number) => {
-  if (!value) return fallback
-  const parsed = parseInt(value, 10)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
 }
 
 const currentSearchParams = () => new URLSearchParams(window.location.search)
@@ -510,7 +505,7 @@ const ProjectModelChart: FC<{
 
 const OrgUsage: FC = () => {
   const router = useRouter()
-  const settingsDialog = useSettingsDialog()
+  const account = useAccount()
   const orgID = router.params.org_id as string
   const today = toDateInput(new Date())
   const initialParams = useMemo(() => currentSearchParams(), [])
@@ -524,8 +519,15 @@ const OrgUsage: FC = () => {
   const [provider, setProvider] = useState(() => initialParams.get('provider') || '')
   const [model, setModel] = useState(() => initialParams.get('model') || '')
   const [userSearchInput, setUserSearchInput] = useState(() => initialParams.get('user_search') || '')
-  const [userPage, setUserPage] = useState(() => intFromURL(initialParams.get('user_page'), 0))
-  const [userRowsPerPage, setUserRowsPerPage] = useState(() => intFromURL(initialParams.get('user_rows'), 10))
+  const [userPage, setUserPage] = useState(0)
+  const [userRowsPerPage, setUserRowsPerPage] = useState(10)
+  const [projectPage, setProjectPage] = useState(0)
+  const [projectRowsPerPage, setProjectRowsPerPage] = useState(10)
+  const [taskPage, setTaskPage] = useState(0)
+  const [taskRowsPerPage, setTaskRowsPerPage] = useState(10)
+  const [sessionPage, setSessionPage] = useState(0)
+  const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10)
+  const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
   const userSearch = useDebounce(userSearchInput.trim(), 300)
 
@@ -544,6 +546,12 @@ const OrgUsage: FC = () => {
     userSearch,
     userLimit: userRowsPerPage,
     userOffset: userPage * userRowsPerPage,
+    projectLimit: projectRowsPerPage,
+    projectOffset: projectPage * projectRowsPerPage,
+    taskLimit: taskRowsPerPage,
+    taskOffset: taskPage * taskRowsPerPage,
+    sessionLimit: sessionRowsPerPage,
+    sessionOffset: sessionPage * sessionRowsPerPage,
     enabled: Boolean(orgID),
   })
 
@@ -566,11 +574,23 @@ const OrgUsage: FC = () => {
     setParam('provider', provider)
     setParam('model', model)
     setParam('user_search', userSearchInput.trim())
-    setParam('user_page', userPage > 0 ? String(userPage) : '')
-    setParam('user_rows', userRowsPerPage !== 10 ? String(userRowsPerPage) : '')
+    url.searchParams.delete('user_page')
+    url.searchParams.delete('user_rows')
+    url.searchParams.delete('project_page')
+    url.searchParams.delete('project_rows')
+    url.searchParams.delete('task_page')
+    url.searchParams.delete('task_rows')
+    url.searchParams.delete('session_page')
+    url.searchParams.delete('session_rows')
 
     window.history.replaceState({}, '', url.toString())
-  }, [from, to, userId, projectId, appId, sessionIdInput, provider, model, userSearchInput, userPage, userRowsPerPage])
+  }, [from, to, userId, projectId, appId, sessionIdInput, provider, model, userSearchInput])
+
+  useEffect(() => {
+    if (!usage.isFetching) {
+      setLoadingScope(null)
+    }
+  }, [usage.isFetching])
 
   const metrics = usage.data?.metrics || []
   const totals = useMemo(() => sumMetrics(metrics), [metrics])
@@ -627,16 +647,31 @@ const OrgUsage: FC = () => {
     return buildProjectModelChart(usage.data?.project_models || [], usage.data?.projects || [])
   }, [usage.data?.project_models, usage.data?.projects])
 
+  const resetPagedTables = () => {
+    setUserPage(0)
+    setProjectPage(0)
+    setTaskPage(0)
+    setSessionPage(0)
+  }
+
+  const markFilterChange = () => {
+    setLoadingScope('filters')
+    resetPagedTables()
+  }
+
+  const isScopedLoading = (scope: UsageLoadingScope) => loadingScope === scope && usage.isFetching && !usage.isLoading
+
   const handleRangeChange = (_: React.MouseEvent<HTMLElement>, next: RangeKey | null) => {
     if (!next) return
+    markFilterChange()
     setRange(next)
     const days = next === '7d' ? 7 : next === '30d' ? 30 : 90
     setFrom(rangeFrom(days))
     setTo(today)
-    setUserPage(0)
   }
 
   const clearFilters = () => {
+    markFilterChange()
     setUserId('')
     setProjectId('')
     setAppId('')
@@ -644,20 +679,25 @@ const OrgUsage: FC = () => {
     setProvider('')
     setModel('')
     setUserSearchInput('')
-    setUserPage(0)
   }
 
-  const openSessionTrace = (row: TypesUsageBreakdownRow) => {
-    const id = row.session_id || row.id
+  const openProject = (row: TypesUsageBreakdownRow) => {
+    const id = row.id
     if (!id) return
-    settingsDialog.openDialog('admin', { tab: 'llm_calls', sessionFilter: id })
+    account.orgNavigate('project-specs', { id })
+  }
+
+  const openAgent = (row: TypesUsageBreakdownRow) => {
+    const id = row.id
+    if (!id) return
+    account.orgNavigate('agent', { app_id: id })
   }
 
   const tableRows = {
-    projects: (usage.data?.projects || []).map(row => rowToTable(row)),
-    apps: (usage.data?.apps || []).map(row => rowToTable(row)),
+    projects: (usage.data?.projects || []).map(row => rowToTable(row, false, openProject)),
+    apps: (usage.data?.apps || []).map(row => rowToTable(row, false, openAgent)),
     tasks: (usage.data?.tasks || []).map(row => rowToTable(row)),
-    sessions: (usage.data?.sessions || []).map(row => rowToTable(row, false, openSessionTrace)),
+    sessions: (usage.data?.sessions || []).map(row => rowToTable(row)),
     models: (usage.data?.models || []).map(row => rowToTable(row, true)),
     users: (usage.data?.users || []).map(row => rowToTable(row)),
   }
@@ -689,8 +729,8 @@ const OrgUsage: FC = () => {
                   <ToggleButton value="30d">30D</ToggleButton>
                   <ToggleButton value="90d">90D</ToggleButton>
                 </ToggleButtonGroup>
-                <TextField size="small" label="From" type="date" value={from} onChange={e => { setFrom(e.target.value); setRange(null); setUserPage(0) }} InputLabelProps={{ shrink: true }} />
-                <TextField size="small" label="To" type="date" value={to} onChange={e => { setTo(e.target.value); setRange(null); setUserPage(0) }} InputLabelProps={{ shrink: true }} />
+                <TextField size="small" label="From" type="date" value={from} onChange={e => { markFilterChange(); setFrom(e.target.value); setRange(null) }} InputLabelProps={{ shrink: true }} />
+                <TextField size="small" label="To" type="date" value={to} onChange={e => { markFilterChange(); setTo(e.target.value); setRange(null) }} InputLabelProps={{ shrink: true }} />
               </Stack>
             </Stack>
 
@@ -702,7 +742,7 @@ const OrgUsage: FC = () => {
 
             <Paper variant="outlined" sx={{ px: 2, pt: 1.25, pb: 2, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
               <Box sx={{ height: 6, mb: 1.5 }}>
-                {usage.isFetching && !usage.isLoading && (
+                {isScopedLoading('filters') && (
                   <LinearProgress sx={{ borderRadius: 1 }} />
                 )}
               </Box>
@@ -711,44 +751,44 @@ const OrgUsage: FC = () => {
                   label="User"
                   options={userOptions}
                   value={selectedUser}
-                  loading={usage.isFetching}
-                  onChange={option => { setUserId(option?.id || ''); setUserPage(0) }}
+                  loading={isScopedLoading('filters')}
+                  onChange={option => { markFilterChange(); setUserId(option?.id || '') }}
                 />
                 <FilterAutocomplete
                   label="Project"
                   options={projectOptions}
                   value={selectedProject}
-                  loading={usage.isFetching}
-                  onChange={option => { setProjectId(option?.id || ''); setUserPage(0) }}
+                  loading={isScopedLoading('filters')}
+                  onChange={option => { markFilterChange(); setProjectId(option?.id || '') }}
                 />
                 <FilterAutocomplete
-                  label="App / Agent"
+                  label="Agent"
                   options={appOptions}
                   value={selectedApp}
-                  loading={usage.isFetching}
-                  onChange={option => { setAppId(option?.id || ''); setUserPage(0) }}
+                  loading={isScopedLoading('filters')}
+                  onChange={option => { markFilterChange(); setAppId(option?.id || '') }}
                 />
-                <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { setSessionIdInput(e.target.value); setUserPage(0) }} />
+                <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { markFilterChange(); setSessionIdInput(e.target.value) }} />
                 <FilterAutocomplete
                   label="Provider"
                   options={providerOptions}
                   value={selectedProvider}
-                  loading={usage.isFetching}
+                  loading={isScopedLoading('filters')}
                   onChange={option => {
+                    markFilterChange()
                     setProvider(option?.id || '')
                     setModel('')
-                    setUserPage(0)
                   }}
                 />
                 <FilterAutocomplete
                   label="Model"
                   options={filteredModelOptions}
                   value={selectedModel}
-                  loading={usage.isFetching}
+                  loading={isScopedLoading('filters')}
                   onChange={option => {
+                    markFilterChange()
                     setProvider(option?.provider || '')
                     setModel(option?.model || '')
-                    setUserPage(0)
                   }}
                 />
                 <Button size="small" variant="outlined" startIcon={<X size={16} />} onClick={clearFilters} sx={{ minHeight: 40 }}>
@@ -800,35 +840,87 @@ const OrgUsage: FC = () => {
                 <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
 
                 <Stack spacing={3} sx={{ width: '100%' }}>
-                  <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.projects || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact />
+                  <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
+                    <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
+                    <TablePagination
+                      component="div"
+                      count={usage.data?.projects_total || 0}
+                      page={projectPage}
+                      rowsPerPage={projectRowsPerPage}
+                      onPageChange={(_, nextPage) => {
+                        setLoadingScope('projects')
+                        setProjectPage(nextPage)
+                      }}
+                      onRowsPerPageChange={event => {
+                        setLoadingScope('projects')
+                        setProjectRowsPerPage(parseInt(event.target.value, 10))
+                        setProjectPage(0)
+                      }}
+                      rowsPerPageOptions={[10, 25, 50, 100]}
+                    />
                   </Section>
 
-                  <Section title="Apps / Agents" action={<ExportButtons filename={`org-${orgID}-apps-usage`} rows={usage.data?.apps || []} />}>
+                  <Section title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
                     <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
                   </Section>
 
-                  <Section title="Top Tasks By Model" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.tasks || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact />
+                  <Section title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
+                    <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
+                    <TablePagination
+                      component="div"
+                      count={usage.data?.tasks_total || 0}
+                      page={taskPage}
+                      rowsPerPage={taskRowsPerPage}
+                      onPageChange={(_, nextPage) => {
+                        setLoadingScope('tasks')
+                        setTaskPage(nextPage)
+                      }}
+                      onRowsPerPageChange={event => {
+                        setLoadingScope('tasks')
+                        setTaskRowsPerPage(parseInt(event.target.value, 10))
+                        setTaskPage(0)
+                      }}
+                      rowsPerPageOptions={[10, 25, 50, 100]}
+                    />
                   </Section>
 
-                  <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.sessions || []} />}>
-                    <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact />
+                  <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
+                    <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
+                    <TablePagination
+                      component="div"
+                      count={usage.data?.sessions_total || 0}
+                      page={sessionPage}
+                      rowsPerPage={sessionRowsPerPage}
+                      onPageChange={(_, nextPage) => {
+                        setLoadingScope('sessions')
+                        setSessionPage(nextPage)
+                      }}
+                      onRowsPerPageChange={event => {
+                        setLoadingScope('sessions')
+                        setSessionRowsPerPage(parseInt(event.target.value, 10))
+                        setSessionPage(0)
+                      }}
+                      rowsPerPageOptions={[10, 25, 50, 100]}
+                    />
                   </Section>
 
-                  <Section title="Model / Provider" action={<ExportButtons filename={`org-${orgID}-models-usage`} rows={usage.data?.models || []} />}>
+                  <Section title="Model / Provider" action={<ExportButtons filename={`org-${orgID}-models-usage`} rows={usage.data?.export_models || usage.data?.models || []} />}>
                     <SimpleTable authenticated fields={modelFields} data={tableRows.models} compact />
                   </Section>
 
                   <Section
                     title="Users"
-                    action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.users || []} />}
+                    action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
                   >
                     <TextField
                       size="small"
                       placeholder="Search username or email"
                       value={userSearchInput}
-                      onChange={e => { setUserSearchInput(e.target.value); setUserPage(0) }}
+                      onChange={e => {
+                        setLoadingScope('users')
+                        setUserSearchInput(e.target.value)
+                        setUserPage(0)
+                      }}
                       sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
                       InputProps={{
                         startAdornment: (
@@ -838,14 +930,18 @@ const OrgUsage: FC = () => {
                         ),
                       }}
                     />
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={usage.isFetching && !usage.isLoading} />
+                    <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
                     <TablePagination
                       component="div"
                       count={usage.data?.users_total || 0}
                       page={userPage}
                       rowsPerPage={userRowsPerPage}
-                      onPageChange={(_, nextPage) => setUserPage(nextPage)}
+                      onPageChange={(_, nextPage) => {
+                        setLoadingScope('users')
+                        setUserPage(nextPage)
+                      }}
                       onRowsPerPageChange={event => {
+                        setLoadingScope('users')
                         setUserRowsPerPage(parseInt(event.target.value, 10))
                         setUserPage(0)
                       }}
