@@ -15,9 +15,9 @@ These tasks need a real Notion Business workspace + the dev Helix to be reachabl
 - [ ] Inspect the response headers Helix returns on `/embed/*` (X-Frame-Options, CSP) and document in the findings doc
 
 ## Backend — types & OAuth
-- [ ] Add `NotionTrigger`, `NotionColumnMap` structs + `Notion` field on `Trigger` in `api/pkg/types/types.go`
-- [ ] Add `TriggerTypeNotion = "notion"` constant
-- [ ] Add `ExternalTriggerRef` struct (with `NotionEmbedBlockID` field) + JSONB column on `SpecTask`
+- [~] Add `NotionTrigger`, `NotionColumnMap` structs + `Notion` field on `Trigger` in `api/pkg/types/types.go`
+- [~] Add `TriggerTypeNotion = "notion"` constant
+- [~] Add `ExternalTriggerRef` struct (with `NotionEmbedBlockID` field) + JSONB column on `SpecTask`
 - [ ] Add `OAuthProviderTypeNotion = "notion"` in `api/pkg/types/oauth.go`
 - [ ] Extend `oauth/oauth2.go` `GetUserInfo` switch with the Notion case (parse `/v1/users/me`)
 - [ ] Add `useBasicAuth` flag (or per-provider override) so the Notion token exchange sends client creds via HTTP Basic
