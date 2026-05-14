@@ -1,9 +1,10 @@
 # Implementation Tasks
 
-## Coordination (do first)
-- [ ] Sync with the Sentry-integration workstream owner before writing code: agree on the names of the lifecycle methods (`OnExternalCreate` / `OnSpecTaskCompleted` / `OnSpecTaskCancelled`), the shape of `ExternalTriggerRef.Payload` (`json.RawMessage` opaque to the spectask service, owned by each source's own package), and the discriminator value (`type: "notion"` vs `"sentry"`) so the future `SpecTaskSource` interface extraction is mechanical. Drop a note in #engineering linking both spec tasks. Capture the agreement at the top of the findings doc.
+## Coordination
+- [x] Sync with the Sentry-integration workstream owner before writing code (reviewer confirmed: message sent to Priya 2026-05-14 — proposal in `pull_request_helix.md` notes section)
 
-## Discovery (do first)
+## User prerequisites (require real Notion paid-plan workspace — flag for human)
+These tasks need a real Notion Business workspace + the dev Helix to be reachable from Notion's webhook senders. Cannot run autonomously. Findings doc captures results.
 - [ ] Register a Notion **internal integration** in a paid-plan test workspace; capture client ID, client secret, and an integration-token PAT for solo testing
 - [ ] Create a `Go/NoGo` select column in a test database. Manually create a Database Automation that fires "When `Go/NoGo` is set to `Go`" with action "Send webhook" → confirm payload shape (which fields land, that custom headers like `X-Helix-Action: create` come through) using webhook.site
 - [ ] Repeat for the `NoGo` direction with `X-Helix-Action: cancel`
