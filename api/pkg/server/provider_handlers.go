@@ -236,7 +236,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				models, staleErr, err := s.getProviderModels(ctx, providerEndpoints[idx])
+				result, err := s.getProviderModels(ctx, providerEndpoints[idx])
 				if err != nil {
 					log.Err(err).
 						Str("provider", providerEndpoints[idx].Name).
@@ -251,16 +251,16 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 				}
 
 				mu.Lock()
-				if staleErr != nil {
+				if result.Degraded != nil {
 					// Upstream is currently unreachable but we have a previous
 					// successful snapshot — surface "degraded" without dropping
 					// the model list so the picker keeps working.
 					providerEndpoints[idx].Status = types.ProviderEndpointStatusError
-					providerEndpoints[idx].Error = staleErr.Error()
+					providerEndpoints[idx].Error = result.Degraded.Error()
 				} else {
 					providerEndpoints[idx].Status = types.ProviderEndpointStatusOK
 				}
-				providerEndpoints[idx].AvailableModels = models
+				providerEndpoints[idx].AvailableModels = result.Models
 				mu.Unlock()
 			}(idx)
 		}
@@ -271,70 +271,95 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	writeResponse(rw, providerEndpoints, http.StatusOK)
 }
 
-// staleModelCacheTTL is how long we keep a "fallback" copy of a provider's
-// model list around after the fresh copy expires. Used so that a transient
-// upstream outage doesn't empty the model picker for every UI page across the
-// stack.
-const staleModelCacheTTL = 1 * time.Hour
+// modelCacheTTL is how long a cached model list lives in the cache. It is
+// deliberately longer than the freshness window so a transient upstream outage
+// doesn't empty the model picker for every UI page — see getProviderModels.
+const modelCacheTTL = 1 * time.Hour
 
-// freshModelCacheKey returns the key for the short-TTL "fresh" entry. A hit on
-// this key means we trust the result without re-fetching.
-func freshModelCacheKey(name, owner string) string {
+// errUpstreamUnreachable marks refresh failures that came from the upstream
+// /v1/models call itself (not from provider client construction). Callers use
+// errors.Is to decide whether falling back to a cached payload is safe: an
+// upstream timeout is, a config error is not.
+var errUpstreamUnreachable = errors.New("upstream models endpoint unreachable")
+
+// modelCacheKey is the single source of truth for the per-provider models cache
+// key. Anything that mutates a provider (delete, rename, URL/key/Models change)
+// must invalidate the entry under the OLD name and let the next read repopulate.
+func modelCacheKey(name, owner string) string {
 	return fmt.Sprintf("%s:%s", name, owner)
 }
 
-// staleModelCacheKey returns the key for the long-TTL "stale" entry. We only
-// read this when the fresh entry is missing AND the upstream fetch failed — it
-// is a fallback, not a primary source.
-func staleModelCacheKey(name, owner string) string {
-	return fmt.Sprintf("stale:%s:%s", name, owner)
-}
-
-// invalidateProviderModelCache clears both fresh and stale cached model lists
-// for the given provider so subsequent reads refetch from upstream. Call this
-// whenever a provider's identity (name) or content (BaseURL, Models, APIKey,
-// billing flags) changes, including deletes. Without this, a deleted/renamed/
-// edited provider continues serving stale models for up to staleModelCacheTTL.
+// invalidateProviderModelCache clears the cached model list for the given
+// provider so subsequent reads refetch from upstream. Call this whenever a
+// provider's identity (name) or content (BaseURL, Models, APIKey, billing
+// flags) changes, including deletes. Without this, a deleted/renamed/edited
+// provider continues serving stale models for up to modelCacheTTL.
 func (s *HelixAPIServer) invalidateProviderModelCache(name, owner string) {
-	s.cache.Del(freshModelCacheKey(name, owner))
-	s.cache.Del(staleModelCacheKey(name, owner))
+	s.cache.Del(modelCacheKey(name, owner))
 }
 
-// providerModelsResult is the singleflight payload — a model list plus the
-// upstream error that caused us to fall back to the long-TTL stale cache, if
-// any. Callers use staleErr to mark the provider as degraded in API responses
-// while still serving the previously known model list.
-type providerModelsResult struct {
-	models   []types.OpenAIModel
-	staleErr error // upstream error that triggered stale fallback (nil for fresh hits)
+// cachedModels is the cache payload — a model list plus the time it was
+// fetched. Freshness is decided by the timestamp on read, not by the cache
+// entry's TTL, so a single entry can serve as both the "fresh" copy and the
+// stale-while-revalidate fallback. This keeps invalidation atomic (one key)
+// and avoids the race window in a fresh-key / stale-key split.
+type cachedModels struct {
+	Models    []types.OpenAIModel `json:"models"`
+	FetchedAt time.Time           `json:"fetched_at"`
 }
 
-// getProviderModels returns a provider's model list. The middle return value
-// is non-nil when the list came from the long-TTL stale cache (i.e. upstream
-// failed but we had a previously cached snapshot) — callers should mark the
-// provider's Status as degraded in that case. The third return value is set
-// only when no models could be served at all.
-func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) ([]types.OpenAIModel, error, error) {
-	freshKey := freshModelCacheKey(providerEndpoint.Name, providerEndpoint.Owner)
-	staleKey := staleModelCacheKey(providerEndpoint.Name, providerEndpoint.Owner)
+// ProviderModels is the result of getProviderModels.
+type ProviderModels struct {
+	Models []types.OpenAIModel
+	// Degraded is non-nil when Models came from the cache after an upstream
+	// refresh failed. The picker stays populated and the API response carries
+	// Status=error + Error=<reason> so the UI can show a degraded marker.
+	Degraded error
+}
 
-	if cached, found := s.cache.Get(freshKey); found {
-		var models []types.OpenAIModel
-		if err := json.Unmarshal([]byte(cached), &models); err == nil {
-			return models, nil, nil
-		}
+// getProviderModels returns a provider's model list with stale-while-revalidate
+// semantics:
+//
+//   - If a cached payload exists and is younger than ModelsCacheTTL, return it
+//     as fresh (Degraded=nil).
+//   - Otherwise refresh from upstream. On success, cache and return.
+//   - On a transient upstream failure, fall back to the cached payload if one
+//     exists and mark Degraded with the underlying error.
+//   - Provider-client construction errors are NOT considered transient — they
+//     mean the provider is misconfigured (missing key, bad URL, deleted row)
+//     and serving cached models would mask the real failure. Those propagate
+//     as a hard error even if we have cached data.
+func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint) (ProviderModels, error) {
+	key := modelCacheKey(providerEndpoint.Name, providerEndpoint.Owner)
+	cached, hit := s.loadCachedModels(key)
+	if hit && time.Since(cached.FetchedAt) < s.Cfg.WebServer.ModelsCacheTTL {
+		return ProviderModels{Models: cached.Models}, nil
 	}
 
-	// Use singleflight keyed on BaseURL to deduplicate concurrent fetches hitting
+	fresh, refreshErr := s.refreshProviderModels(ctx, providerEndpoint, key)
+	switch {
+	case refreshErr == nil:
+		return ProviderModels{Models: fresh}, nil
+	case hit && errors.Is(refreshErr, errUpstreamUnreachable):
+		return ProviderModels{Models: cached.Models, Degraded: refreshErr}, nil
+	default:
+		return ProviderModels{}, refreshErr
+	}
+}
+
+// refreshProviderModels fetches a fresh model list from upstream and writes
+// it to the cache. Returns the fetched list on success. On failure, the
+// returned error wraps errUpstreamUnreachable iff the failure was in the
+// /v1/models call itself (so callers may fall back to the cache); other
+// errors (provider construction, JSON marshal) are hard failures.
+func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndpoint *types.ProviderEndpoint, key string) ([]types.OpenAIModel, error) {
+	// Singleflight keyed on BaseURL deduplicates concurrent fetches hitting
 	// the same provider — different endpoints (names/owners) can share a URL.
 	flightKey := providerEndpoint.BaseURL
 	result, err, _ := s.modelFetchGroup.Do(flightKey, func() (interface{}, error) {
 		// Double-check cache inside singleflight — another caller may have populated it.
-		if cached, found := s.cache.Get(freshKey); found {
-			var models []types.OpenAIModel
-			if err := json.Unmarshal([]byte(cached), &models); err == nil {
-				return providerModelsResult{models: models}, nil
-			}
+		if cached, hit := s.loadCachedModels(key); hit && time.Since(cached.FetchedAt) < s.Cfg.WebServer.ModelsCacheTTL {
+			return cached.Models, nil
 		}
 
 		provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
@@ -346,9 +371,9 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 				Str("provider", providerEndpoint.Name).
 				Str("owner", providerEndpoint.Owner).
 				Msg("error getting provider")
-			if stale, ok := s.loadStaleProviderModels(staleKey); ok {
-				return providerModelsResult{models: stale, staleErr: err}, nil
-			}
+			// Not wrapped as errUpstreamUnreachable: this is a config problem,
+			// not a transient outage. Falling back to cached models here would
+			// hide a misconfigured/deleted provider from the user.
 			return nil, err
 		}
 
@@ -356,37 +381,28 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 		fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 
-		models, err := provider.ListModels(fetchCtx)
-		if err != nil {
+		models, listErr := provider.ListModels(fetchCtx)
+		if listErr != nil {
 			// Custom endpoints often don't expose /v1/models. If a static Models
 			// list is configured, treat that as the source of truth so the picker
 			// and chat-completions routing both work.
 			if len(providerEndpoint.Models) > 0 {
 				log.Debug().
-					Err(err).
+					Err(listErr).
 					Str("provider", providerEndpoint.Name).
 					Str("owner", providerEndpoint.Owner).
 					Strs("static_models", providerEndpoint.Models).
 					Msg("upstream /v1/models failed; using static Models list")
 				models = synthesizeModelsFromStaticList(providerEndpoint)
 			} else {
-				// Fall back to the long-TTL stale entry before giving up. A
-				// briefly-unreachable provider should not empty the model
-				// picker for every UI page that consumes /api/v1/provider-endpoints.
-				if stale, ok := s.loadStaleProviderModels(staleKey); ok {
-					log.Debug().
-						Err(err).
-						Str("provider", providerEndpoint.Name).
-						Str("owner", providerEndpoint.Owner).
-						Int("stale_models", len(stale)).
-						Msg("upstream /v1/models failed; serving stale cache")
-					return providerModelsResult{models: stale, staleErr: err}, nil
-				}
-				log.Err(err).
+				log.Err(listErr).
 					Str("provider", providerEndpoint.Name).
 					Str("owner", providerEndpoint.Owner).
 					Msg("error listing models")
-				return nil, err
+				// Wrap as errUpstreamUnreachable so the caller may serve from
+				// cache. fmt.Errorf with two %w preserves both sentinels for
+				// errors.Is checks.
+				return nil, fmt.Errorf("%w: %w", errUpstreamUnreachable, listErr)
 			}
 		}
 
@@ -423,38 +439,35 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 			}
 		}
 
-		// Cache the models under both fresh and stale keys. The stale entry is
-		// the fallback we serve from on subsequent upstream failures.
-		modelsJSON, err := json.Marshal(models)
+		payload, err := json.Marshal(cachedModels{Models: models, FetchedAt: time.Now()})
 		if err != nil {
 			return nil, err
 		}
-		s.cache.SetWithTTL(freshKey, string(modelsJSON), 1, s.Cfg.WebServer.ModelsCacheTTL)
-		s.cache.SetWithTTL(staleKey, string(modelsJSON), 1, staleModelCacheTTL)
+		s.cache.SetWithTTL(key, string(payload), 1, modelCacheTTL)
 
-		return providerModelsResult{models: models}, nil
+		return models, nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	r := result.(providerModelsResult)
-	return r.models, r.staleErr, nil
+	return result.([]types.OpenAIModel), nil
 }
 
-// loadStaleProviderModels reads the long-TTL stale entry. Returns false if the
-// entry is absent or unparseable so the caller can fall back to surfacing the
-// upstream error.
-func (s *HelixAPIServer) loadStaleProviderModels(staleKey string) ([]types.OpenAIModel, bool) {
-	cached, found := s.cache.Get(staleKey)
+// loadCachedModels reads and parses the cache payload. A corrupt entry is
+// deleted so the next read can repopulate it cleanly rather than tripping the
+// same unmarshal error forever.
+func (s *HelixAPIServer) loadCachedModels(key string) (cachedModels, bool) {
+	raw, found := s.cache.Get(key)
 	if !found {
-		return nil, false
+		return cachedModels{}, false
 	}
-	var models []types.OpenAIModel
-	if err := json.Unmarshal([]byte(cached), &models); err != nil {
-		return nil, false
+	var c cachedModels
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		log.Warn().Err(err).Str("cache_key", key).Msg("provider models cache entry corrupt; dropping")
+		s.cache.Del(key)
+		return cachedModels{}, false
 	}
-	return models, true
+	return c, true
 }
 
 // synthesizeModelsFromStaticList builds OpenAIModel entries from the endpoint's
@@ -569,7 +582,7 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	go func() {
 		warmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if _, _, err := s.getProviderModels(warmCtx, &endpointForWarm); err != nil {
+		if _, err := s.getProviderModels(warmCtx, &endpointForWarm); err != nil {
 			log.Warn().Err(err).Str("provider", endpointForWarm.Name).Msg("model cache warm failed after provider create (provider may not be reachable yet)")
 		}
 	}()
@@ -1071,7 +1084,7 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 				continue
 			}
 
-			_, _, err := s.getProviderModels(ctx, endpoint)
+			_, err := s.getProviderModels(ctx, endpoint)
 			if err != nil {
 				log.Debug().
 					Err(err).
@@ -1099,7 +1112,7 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		log.Warn().Err(err).Msg("failed to list database providers for cache refresh")
 	} else {
 		for _, provider := range dbProviders {
-			_, _, err := s.getProviderModels(ctx, provider)
+			_, err := s.getProviderModels(ctx, provider)
 			if err != nil {
 				log.Debug().
 					Err(err).

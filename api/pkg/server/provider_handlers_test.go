@@ -256,11 +256,11 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_Singleflight() {
 	for _, ep := range endpoints {
 		go func() {
 			defer wg.Done()
-			models, staleErr, err := s.server.getProviderModels(context.Background(), ep)
+			result, err := s.server.getProviderModels(context.Background(), ep)
 			s.NoError(err)
-			s.NoError(staleErr)
-			s.Require().Len(models, 1)
-			s.Equal("llama3", models[0].ID)
+			s.NoError(result.Degraded)
+			s.Require().Len(result.Models, 1)
+			s.Equal("llama3", result.Models[0].ID)
 		}()
 	}
 	wg.Wait()
@@ -374,14 +374,14 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListO
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("404 not found"))
 	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
 
-	models, staleErr, err := s.server.getProviderModels(context.Background(), endpoint)
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
-	s.NoError(staleErr)
-	s.Require().Len(models, 1)
-	s.Equal("hermes-agent", models[0].ID)
-	s.Equal("chat", models[0].Type)
-	s.True(models[0].Enabled)
-	s.Equal("hermes", models[0].OwnedBy)
+	s.NoError(result.Degraded)
+	s.Require().Len(result.Models, 1)
+	s.Equal("hermes-agent", result.Models[0].ID)
+	s.Equal("chat", result.Models[0].Type)
+	s.True(result.Models[0].Enabled)
+	s.Equal("hermes", result.Models[0].OwnedBy)
 }
 
 // Upstream returning an empty list with a static Models list configured should
@@ -399,20 +399,20 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListO
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{}, nil)
 	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).Times(2)
 
-	models, staleErr, err := s.server.getProviderModels(context.Background(), endpoint)
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
-	s.NoError(staleErr)
-	s.Require().Len(models, 2)
-	s.Equal("hermes-agent", models[0].ID)
-	s.Equal("hermes-mini", models[1].ID)
-	for _, m := range models {
+	s.NoError(result.Degraded)
+	s.Require().Len(result.Models, 2)
+	s.Equal("hermes-agent", result.Models[0].ID)
+	s.Equal("hermes-mini", result.Models[1].ID)
+	for _, m := range result.Models {
 		s.Equal("chat", m.Type)
 		s.True(m.Enabled)
 	}
 }
 
-// When upstream errors AND no static Models list is set AND no stale cache
-// exists, the call still errors (hard failure path).
+// When upstream errors AND no static Models list is set AND no cache entry
+// exists, the call must error (hard failure — nothing to serve).
 func (s *ProviderHandlersSuite) TestGetProviderModels_ErrorsWhenNoStaticListAndUpstreamFails() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "broken",
@@ -423,42 +423,109 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_ErrorsWhenNoStaticListAndU
 	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("connection refused"))
 
-	_, _, err := s.server.getProviderModels(context.Background(), endpoint)
+	_, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().Error(err)
 }
 
-// When upstream errors but a previously-cached "stale" snapshot exists, the
-// handler must serve the stale models with a non-nil staleErr so the caller
-// can mark the provider as degraded without dropping the model list. This is
-// the core stale-while-revalidate behaviour that keeps the UI responsive when
-// an intermittent provider goes briefly unreachable.
-func (s *ProviderHandlersSuite) TestGetProviderModels_FallsBackToStaleOnUpstreamError() {
+// Core SWR behaviour: when a cached payload exists but its FetchedAt is older
+// than ModelsCacheTTL, the next read triggers a refresh. If the refresh fails
+// with an upstream-unreachable error, the handler serves the cached models
+// and marks Degraded so the API response can show "error" status without
+// dropping the picker. This is the user-reported scenario the PR fixes.
+func (s *ProviderHandlersSuite) TestGetProviderModels_ServesCachedWhenRefreshFailsTransiently() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "intermittent",
 		Owner:   "user_id_4",
 		BaseURL: "http://intermittent.local",
 	}
 
-	// Seed the long-TTL stale cache as if a previous successful fetch had populated it.
-	staleKey := staleModelCacheKey(endpoint.Name, endpoint.Owner)
-	s.server.cache.SetWithTTL(staleKey, `[{"id":"cached-model","object":"model"}]`, 1, time.Hour)
+	// Seed an expired-but-present cache entry.
+	key := modelCacheKey(endpoint.Name, endpoint.Owner)
+	expired, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "cached-model", Object: "model"}},
+		FetchedAt: time.Now().Add(-10 * time.Minute), // older than ModelsCacheTTL (1m)
+	})
+	s.server.cache.SetWithTTL(key, string(expired), 1, time.Hour)
 	s.server.cache.Wait()
 
-	// Fresh entry is absent (TTL expired in the user's scenario).
 	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("connection refused"))
 
-	models, staleErr, err := s.server.getProviderModels(context.Background(), endpoint)
-	s.Require().NoError(err, "served from stale cache, no hard error")
-	s.Require().Error(staleErr, "staleErr must surface the underlying upstream failure")
-	s.Contains(staleErr.Error(), "connection refused")
-	s.Require().Len(models, 1, "stale cache models must be served")
-	s.Equal("cached-model", models[0].ID)
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err, "served from cache, no hard error")
+	s.Require().Error(result.Degraded, "Degraded must surface the underlying upstream failure")
+	s.True(errors.Is(result.Degraded, errUpstreamUnreachable),
+		"Degraded must wrap errUpstreamUnreachable so the failure class is identifiable")
+	s.Contains(result.Degraded.Error(), "connection refused")
+	s.Require().Len(result.Models, 1)
+	s.Equal("cached-model", result.Models[0].ID)
 }
 
-// A successful fresh fetch must populate BOTH the short-TTL fresh entry and
-// the long-TTL stale entry, otherwise the next outage has nothing to serve.
-func (s *ProviderHandlersSuite) TestGetProviderModels_PopulatesBothFreshAndStaleOnSuccess() {
+// A provider-client construction failure (misconfigured/deleted provider) must
+// NOT be masked by serving cached models, even when a cached payload exists.
+// Otherwise editing a provider into a broken state silently keeps the old
+// models around for up to modelCacheTTL.
+func (s *ProviderHandlersSuite) TestGetProviderModels_GetClientErrorIsHardFailure() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "broken-config",
+		Owner:   "user_id_3b",
+		BaseURL: "http://broken-config.local",
+	}
+
+	// Seed a stale cache entry that MUST NOT be served on a config error.
+	key := modelCacheKey(endpoint.Name, endpoint.Owner)
+	stale, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "stale-model"}},
+		FetchedAt: time.Now().Add(-10 * time.Minute),
+	})
+	s.server.cache.SetWithTTL(key, string(stale), 1, time.Hour)
+	s.server.cache.Wait()
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("provider not found"))
+
+	_, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().Error(err, "config errors must propagate, not be masked by cache")
+	s.False(errors.Is(err, errUpstreamUnreachable),
+		"config errors must not be tagged as upstream-unreachable")
+}
+
+// Static Models list takes precedence over both the upstream call AND a stale
+// cache entry — if the operator explicitly configured a model list, that's the
+// declared source of truth. Captures the priority for the cross-axis case the
+// previous tests didn't cover.
+func (s *ProviderHandlersSuite) TestGetProviderModels_StaticListBeatsCacheOnUpstreamError() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "static-wins",
+		Owner:   "user_id_4b",
+		BaseURL: "http://static-wins.local",
+		Models:  []string{"explicit-model"},
+	}
+
+	key := modelCacheKey(endpoint.Name, endpoint.Owner)
+	stale, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "old-cached-model"}},
+		FetchedAt: time.Now().Add(-10 * time.Minute),
+	})
+	s.server.cache.SetWithTTL(key, string(stale), 1, time.Hour)
+	s.server.cache.Wait()
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("404"))
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.NoError(result.Degraded, "static list is the source of truth — not a degraded fallback")
+	s.Require().Len(result.Models, 1)
+	s.Equal("explicit-model", result.Models[0].ID,
+		"static list must win over stale cache when upstream errors")
+}
+
+// A successful fresh fetch must persist to the cache so future refreshes can
+// serve from it on transient outages. Verifies the entry is present and
+// parseable.
+func (s *ProviderHandlersSuite) TestGetProviderModels_PersistsToCacheOnSuccess() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "healthy",
 		Owner:   "user_id_5",
@@ -469,38 +536,95 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_PopulatesBothFreshAndStale
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{{ID: "good-model"}}, nil)
 	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
 
-	_, _, err := s.server.getProviderModels(context.Background(), endpoint)
+	_, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
 
 	s.server.cache.Wait()
 
-	freshKey := freshModelCacheKey(endpoint.Name, endpoint.Owner)
-	staleKey := staleModelCacheKey(endpoint.Name, endpoint.Owner)
-	_, foundFresh := s.server.cache.Get(freshKey)
-	s.True(foundFresh, "fresh cache entry must be populated on success")
-	_, foundStale := s.server.cache.Get(staleKey)
-	s.True(foundStale, "stale cache entry must be populated on success so future outages have a fallback")
+	key := modelCacheKey(endpoint.Name, endpoint.Owner)
+	raw, found := s.server.cache.Get(key)
+	s.Require().True(found, "cache entry must be persisted on success")
+
+	var payload cachedModels
+	s.Require().NoError(json.Unmarshal([]byte(raw), &payload))
+	s.Require().Len(payload.Models, 1)
+	s.Equal("good-model", payload.Models[0].ID)
+	s.WithinDuration(time.Now(), payload.FetchedAt, 5*time.Second,
+		"FetchedAt should reflect the fetch time so freshness can be evaluated on read")
 }
 
-// invalidateProviderModelCache must clear BOTH cache keys — otherwise editing
-// or deleting a provider could leave a stale entry alive for the long TTL,
-// re-surfacing the wrong models on the next upstream blip.
-func (s *ProviderHandlersSuite) TestInvalidateProviderModelCache_ClearsBothFreshAndStale() {
-	name, owner := "to-invalidate", "user_id_6"
-	freshKey := freshModelCacheKey(name, owner)
-	staleKey := staleModelCacheKey(name, owner)
+// A fresh cache hit (FetchedAt within ModelsCacheTTL) must skip the upstream
+// entirely — including the mock provider client. If GetClient gets called when
+// the cache is fresh, we'd be paying the network cost on every request.
+func (s *ProviderHandlersSuite) TestGetProviderModels_FreshHitSkipsUpstream() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "fresh-hit",
+		Owner:   "user_id_5b",
+		BaseURL: "http://fresh-hit.local",
+	}
 
-	s.server.cache.SetWithTTL(freshKey, `[{"id":"fresh"}]`, 1, time.Minute)
-	s.server.cache.SetWithTTL(staleKey, `[{"id":"stale"}]`, 1, time.Hour)
+	key := modelCacheKey(endpoint.Name, endpoint.Owner)
+	fresh, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "cached-fresh"}},
+		FetchedAt: time.Now(), // within ModelsCacheTTL
+	})
+	s.server.cache.SetWithTTL(key, string(fresh), 1, time.Hour)
+	s.server.cache.Wait()
+
+	// No EXPECT on the provider manager — calling GetClient here would fail the test.
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.NoError(result.Degraded)
+	s.Require().Len(result.Models, 1)
+	s.Equal("cached-fresh", result.Models[0].ID)
+}
+
+// invalidateProviderModelCache must clear the cache entry so a subsequent read
+// refetches. Without this, deleting/renaming a provider leaves a payload alive
+// for up to modelCacheTTL and resurfaces the wrong models on the next call.
+func (s *ProviderHandlersSuite) TestInvalidateProviderModelCache_ClearsEntry() {
+	name, owner := "to-invalidate", "user_id_6"
+	key := modelCacheKey(name, owner)
+
+	payload, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "to-clear"}},
+		FetchedAt: time.Now(),
+	})
+	s.server.cache.SetWithTTL(key, string(payload), 1, time.Hour)
 	s.server.cache.Wait()
 
 	s.server.invalidateProviderModelCache(name, owner)
 	s.server.cache.Wait()
 
-	_, foundFresh := s.server.cache.Get(freshKey)
-	s.False(foundFresh, "fresh cache entry must be cleared")
-	_, foundStale := s.server.cache.Get(staleKey)
-	s.False(foundStale, "stale cache entry must also be cleared (otherwise a deleted provider keeps serving for hours)")
+	_, found := s.server.cache.Get(key)
+	s.False(found, "cache entry must be cleared so a deleted/renamed provider stops serving")
+}
+
+// A cache entry containing malformed JSON must be dropped so the next read
+// repopulates cleanly, rather than tripping the same unmarshal error every
+// call. Verifies the corrupted-entry recovery path in loadCachedModels.
+func (s *ProviderHandlersSuite) TestGetProviderModels_DropsCorruptCacheEntry() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "corrupt",
+		Owner:   "user_id_6b",
+		BaseURL: "http://corrupt.local",
+	}
+
+	key := modelCacheKey(endpoint.Name, endpoint.Owner)
+	s.server.cache.SetWithTTL(key, `{not valid json`, 1, time.Hour)
+	s.server.cache.Wait()
+
+	// Corrupt entry should be dropped and the refresh path entered.
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{{ID: "refetched"}}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.NoError(result.Degraded)
+	s.Require().Len(result.Models, 1)
+	s.Equal("refetched", result.Models[0].ID)
 }
 
 func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() {
@@ -651,8 +775,12 @@ func (s *ProviderHandlersSuite) TestDeleteProviderEndpoint_InvalidatesModelCache
 	}
 
 	// Pre-populate the cache as if a prior /providers/models call had filled it.
-	cacheKey := freshModelCacheKey(existing.Name, existing.Owner)
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"qwen3-coder"}]`, 1, time.Minute)
+	cacheKey := modelCacheKey(existing.Name, existing.Owner)
+	payload, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "qwen3-coder"}},
+		FetchedAt: time.Now(),
+	})
+	s.server.cache.SetWithTTL(cacheKey, string(payload), 1, time.Hour)
 	s.server.cache.Wait()
 	if _, found := s.server.cache.Get(cacheKey); !found {
 		s.Fail("precondition: cache should be populated before delete")
@@ -697,10 +825,12 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RenameInvalidatesOldK
 		EndpointType: types.ProviderEndpointTypeUser,
 	}
 
-	oldKey := freshModelCacheKey("old-name", "user_id")
-	newKey := freshModelCacheKey("new-name", "user_id")
-	s.server.cache.SetWithTTL(oldKey, `[{"id":"m1"}]`, 1, time.Minute)
-	s.server.cache.SetWithTTL(newKey, `[{"id":"m2-stale"}]`, 1, time.Minute)
+	oldKey := modelCacheKey("old-name", "user_id")
+	newKey := modelCacheKey("new-name", "user_id")
+	oldPayload, _ := json.Marshal(cachedModels{Models: []types.OpenAIModel{{ID: "m1"}}, FetchedAt: time.Now()})
+	newPayload, _ := json.Marshal(cachedModels{Models: []types.OpenAIModel{{ID: "m2-stale"}}, FetchedAt: time.Now()})
+	s.server.cache.SetWithTTL(oldKey, string(oldPayload), 1, time.Hour)
+	s.server.cache.SetWithTTL(newKey, string(newPayload), 1, time.Hour)
 	s.server.cache.Wait()
 
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
@@ -754,8 +884,9 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NoRenameStillInvalida
 		EndpointType: types.ProviderEndpointTypeUser,
 	}
 
-	key := freshModelCacheKey("stable-name", "user_id")
-	s.server.cache.SetWithTTL(key, `[{"id":"old-host-model"}]`, 1, time.Minute)
+	key := modelCacheKey("stable-name", "user_id")
+	payload, _ := json.Marshal(cachedModels{Models: []types.OpenAIModel{{ID: "old-host-model"}}, FetchedAt: time.Now()})
+	s.server.cache.SetWithTTL(key, string(payload), 1, time.Hour)
 	s.server.cache.Wait()
 
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{

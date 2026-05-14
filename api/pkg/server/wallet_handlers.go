@@ -216,7 +216,10 @@ func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.O
 	org, err := s.Store.GetOrganization(ctx, query)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("organization %q not found: %w", orgStr, store.ErrNotFound)
+			// Wrap the original err (not the bare sentinel) so any context the
+			// store layer added survives. errors.Is(err, store.ErrNotFound)
+			// still works because %w preserves the chain.
+			return nil, fmt.Errorf("organization %q not found: %w", orgStr, err)
 		}
 		return nil, fmt.Errorf("failed to get organization: %w", err)
 	}
