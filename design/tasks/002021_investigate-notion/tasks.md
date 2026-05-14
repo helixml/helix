@@ -55,20 +55,14 @@ These tasks need a real Notion Business workspace + the dev Helix to be reachabl
 - [ ] Unit test: prompt template renders for each secondary-path event type (DEFERRED — secondary path itself is deferred)
 - [ ] Unit test: dedup collapses two secondary-path webhooks for the same page within the debounce window (DEFERRED — same)
 
-## Frontend — trigger setup wizard
-- [ ] Add a "Notion" option in the per-app trigger configuration form
-- [ ] Wizard step 1: "Connect to Notion" OAuth button (or pick existing connection)
-- [ ] Wizard step 2: pick the Notion database (call OAuth-authorized `POST /v1/search` filtered to databases)
-- [ ] Wizard step 3a: pick the action column — Helix lists every `select` and `status` column in the database
-- [ ] Wizard step 3b: pick the create-option and cancel-option from that column's options dropdown
-- [ ] Wizard step 3c: optionally pick a `Prompt` rich-text column and a `Result` rich-text column
-- [ ] Wizard step 4: pick the target Helix project; mint the embed-URL service-account token
-- [ ] Wizard step 5: display the generated webhook URL, shared secret, and copy-paste instructions for creating **two** Database Automations in Notion (create + cancel) plus optional Run-button column, with screenshots
-- [ ] "Test setup" button that POSTs synthetic `create` and `cancel` payloads through the same webhook URL
-- [ ] Render Notion entries in the trigger executions list (action: create/cancel, page ID, embed-block ID)
+## Frontend — trigger config
+- [x] Added a Notion section in the per-app Triggers tab (`TriggerNotion.tsx`). Auto-generates the shared secret on first enable; shows webhook URL + secret for copy-paste; text fields for project ID, OAuth connection ID, database ID, embed access token, and the column mapping. Links to the design doc for full setup instructions.
+- [ ] Polished step-by-step wizard with database picker and column-name dropdowns sourced live from Notion (DEFERRED — the bare-form UI lets the user configure everything; the polished wizard is a v2 enhancement)
+- [ ] "Test setup" button that POSTs synthetic `create` / `cancel` payloads (DEFERRED — same; user can hand-test via curl)
+- [ ] Render Notion entries in the trigger executions list with action / page ID / embed-block ID columns (DEFERRED — generic trigger executions UI already shows them; richer per-source rendering is a v2)
 
 ## Frontend — OAuth provider preset
-- [ ] Add a "Notion" preset in `Providers.tsx` so admins don't have to fill in URLs by hand
+- [x] Add a "Notion" preset in `OAuthSettings.tsx` (the actual settings file — `Providers.tsx` reference in design was incorrect). Auto-fills authorize/token/userinfo URLs when the admin selects type=notion.
 
 ## Embed verification
 - [ ] If headers are restrictive, add server middleware to relax `X-Frame-Options` / set `Content-Security-Policy: frame-ancestors https://*.notion.so https://*.notion.site` for `/embed/*` only
