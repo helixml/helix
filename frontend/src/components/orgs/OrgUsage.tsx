@@ -29,6 +29,7 @@ import { useGetOrgUsage } from '../../services/orgService'
 
 type RangeKey = '7d' | '30d' | '90d'
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
+type UsageChartRow = { date: string; [key: string]: number | string }
 
 const TOKEN_SERIES: ShadcnSeries[] = [
   { key: 'input', label: 'Input', color: '#2563eb' },
@@ -366,7 +367,7 @@ const LatencyChart: FC<{ data: Array<{ date: string; latency: number }> }> = ({ 
               tickFormatter={(v: string) => new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             />
             <YAxis tickLine={false} axisLine={false} tickMargin={10} width={80} tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={(v: number) => `${Math.round(v)}ms`} />
-            <Tooltip content={<LatencyTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.2)' }} />
+            <Tooltip content={React.createElement(LatencyTooltip)} cursor={{ stroke: 'rgba(255,255,255,0.2)' }} />
             <Line type="monotone" dataKey="latency" stroke="#14b8a6" strokeWidth={2} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -379,8 +380,8 @@ const LatencyChart: FC<{ data: Array<{ date: string; latency: number }> }> = ({ 
   )
 }
 
-const buildModelChart = (series: TypesUsageModelTimeSeries[] = []) => {
-  const dates = new Map<string, Record<string, number | string>>()
+const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRow[] => {
+  const dates = new Map<string, UsageChartRow>()
   series.slice(0, MODEL_COLORS.length).forEach(model => {
     model.metrics?.forEach(metric => {
       if (!metric.date) return
@@ -487,7 +488,7 @@ const ProjectModelChart: FC<{
               tick={{ fill: '#94A3B8', fontSize: 12 }}
             />
             <YAxis tickLine={false} axisLine={false} tickMargin={10} width={72} tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={formatCompact} />
-            <Tooltip content={<ProjectModelTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+            <Tooltip content={React.createElement(ProjectModelTooltip)} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
             <Legend wrapperStyle={{ fontSize: '0.75rem' }} />
             {series.map(item => (
               <Bar key={item.key} dataKey={item.key} name={item.label} stackId="tokens" fill={item.color} isAnimationActive={false} />

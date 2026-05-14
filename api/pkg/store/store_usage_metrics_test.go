@@ -220,6 +220,8 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 		{ID: "ses_" + system.GenerateID(), Name: "Low session", Created: from.AddDate(0, 0, 2), Updated: from.AddDate(0, 0, 2).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[2].ID, ParentApp: apps[2].ID, Owner: users[2].ID},
 	}
 	suite.insertOrgUsageDimensions(users, projects, apps, tasks, sessions)
+	cronTask := suite.insertTriggerConfiguration(orgID, users[0].ID, apps[0].ID, "High cron task")
+	suite.insertTriggerExecution(cronTask.ID, sessions[0].ID, "High cron task", from.AddDate(0, 0, 1))
 
 	rows := []struct {
 		day          time.Time
@@ -240,12 +242,18 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 	for index, row := range rows {
 		interactionID := "int_" + system.GenerateID()
 		suite.insertInteraction(interactionID, row.day, row.user.ID, row.app.ID, row.session.ID)
+		specTaskID := row.task.ID
+		if index == 0 {
+			// Recurring agent tasks do not stamp usage_metrics.spec_task_id; attribution
+			// comes from trigger_executions.session_id -> trigger_configurations.
+			specTaskID = ""
+		}
 		suite.insertUsageMetric(&types.UsageMetric{
 			OrganizationID:   orgID,
 			UserID:           row.user.ID,
 			ProjectID:        row.project.ID,
 			AppID:            row.app.ID,
-			SpecTaskID:       row.task.ID,
+			SpecTaskID:       specTaskID,
 			InteractionID:    interactionID,
 			Created:          row.day.Add(time.Duration(index) * time.Hour),
 			Provider:         row.provider,
@@ -283,6 +291,7 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 
 	suite.EqualValues(3, resp.TasksTotal)
 	suite.Require().Len(resp.Tasks, 1)
+	suite.Equal("High cron task", resp.Tasks[0].Name)
 	suite.Len(resp.ExportTasks, 3)
 
 	suite.EqualValues(3, resp.SessionsTotal)
@@ -470,6 +479,42 @@ func (suite *UsageMetricsTestSuite) insertInteraction(id string, created time.Ti
 		SessionID:    sessionID,
 	}
 	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(interaction).Error)
+}
+
+func (suite *UsageMetricsTestSuite) insertTriggerConfiguration(orgID, userID, appID, name string) *types.TriggerConfiguration {
+	triggerConfig := &types.TriggerConfiguration{
+		ID:             "trgc_" + system.GenerateID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Enabled:        true,
+		AppID:          appID,
+		OrganizationID: orgID,
+		Owner:          userID,
+		OwnerType:      types.OwnerTypeUser,
+		Name:           name,
+		TriggerType:    types.TriggerTypeCron,
+		Trigger: types.Trigger{
+			Cron: &types.CronTrigger{
+				Schedule: "0 9 * * 0",
+				Input:    "weekly run",
+			},
+		},
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(triggerConfig).Error)
+	return triggerConfig
+}
+
+func (suite *UsageMetricsTestSuite) insertTriggerExecution(triggerConfigurationID, sessionID, name string, created time.Time) {
+	execution := &types.TriggerExecution{
+		ID:                     system.GenerateUUID(),
+		Created:                created,
+		Updated:                created.Add(time.Minute),
+		TriggerConfigurationID: triggerConfigurationID,
+		Name:                   name,
+		Status:                 types.TriggerExecutionStatusSuccess,
+		SessionID:              sessionID,
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(execution).Error)
 }
 
 func (suite *UsageMetricsTestSuite) insertUsageMetric(metric *types.UsageMetric) {

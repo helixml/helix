@@ -33,6 +33,18 @@ const usageInteractionsJoin = `
 	) usage_interactions ON true
 `
 
+const usageTriggerExecutionsJoin = `
+	LEFT JOIN LATERAL (
+		SELECT
+			trigger_configuration_id
+		FROM trigger_executions
+		WHERE trigger_executions.session_id = usage_interactions.session_id
+		  AND usage_interactions.session_id <> ''
+		ORDER BY trigger_executions.created DESC
+		LIMIT 1
+	) usage_trigger_executions ON true
+`
+
 func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 	if metric.ID == "" {
 		metric.ID = system.GenerateUsageMetricID()
@@ -566,11 +578,15 @@ func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsa
 			Group(appIDExpr + ", apps.id").
 			Order("total_tokens DESC")
 	case "task_model":
+		taskIDExpr := "COALESCE(NULLIF(usage_trigger_executions.trigger_configuration_id, ''), NULLIF(usage_metrics.spec_task_id, ''))"
+		taskNameExpr := "COALESCE(NULLIF(trigger_configurations.name, ''), NULLIF(spec_tasks.name, ''), " + taskIDExpr + ")"
 		return query.
+			Joins(usageTriggerExecutionsJoin).
 			Joins("LEFT JOIN spec_tasks ON spec_tasks.id = usage_metrics.spec_task_id").
-			Where("usage_metrics.spec_task_id <> ''").
-			Select("usage_metrics.spec_task_id || ':' || usage_metrics.provider || ':' || usage_metrics.model as id, COALESCE(NULLIF(spec_tasks.name, ''), usage_metrics.spec_task_id) as name, usage_metrics.provider, usage_metrics.model, " + selectFields).
-			Group("usage_metrics.spec_task_id, spec_tasks.name, usage_metrics.provider, usage_metrics.model").
+			Joins("LEFT JOIN trigger_configurations ON trigger_configurations.id = usage_trigger_executions.trigger_configuration_id").
+			Where(taskIDExpr + " <> ''").
+			Select(taskIDExpr + " || ':' || usage_metrics.provider || ':' || usage_metrics.model as id, " + taskNameExpr + " as name, usage_metrics.provider, usage_metrics.model, " + selectFields).
+			Group(taskIDExpr + ", trigger_configurations.name, spec_tasks.name, usage_metrics.provider, usage_metrics.model").
 			Order("total_tokens DESC")
 	case "session":
 		return query.
