@@ -3564,11 +3564,21 @@ export interface TypesOrgDetails {
 }
 
 export interface TypesOrgUsageSummaryResponse {
+  active_apps?: number;
+  active_projects?: number;
+  active_sessions?: number;
+  active_users?: number;
+  apps?: TypesUsageBreakdownRow[];
+  filter_apps?: TypesUsageFilterOption[];
+  filter_models?: TypesUsageFilterOption[];
+  filter_projects?: TypesUsageFilterOption[];
+  filter_users?: TypesUsageFilterOption[];
   metrics?: TypesAggregatedUsageMetric[];
   model_time_series?: TypesUsageModelTimeSeries[];
   models?: TypesUsageBreakdownRow[];
   project_models?: TypesUsageBreakdownRow[];
   projects?: TypesUsageBreakdownRow[];
+  sessions?: TypesUsageBreakdownRow[];
   tasks?: TypesUsageBreakdownRow[];
   users?: TypesUsageBreakdownRow[];
   users_total?: number;
@@ -6116,7 +6126,10 @@ export interface TypesUsageBreakdownRow {
   completion_cost?: number;
   completion_tokens?: number;
   email?: string;
+  ended_at?: string;
   id?: string;
+  interaction_id?: string;
+  last_activity_at?: string;
   latency_ms?: number;
   model?: string;
   name?: string;
@@ -6125,9 +6138,25 @@ export interface TypesUsageBreakdownRow {
   provider?: string;
   request_size_bytes?: number;
   response_size_bytes?: number;
+  session_count?: number;
+  session_id?: string;
+  started_at?: string;
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+  unique_apps?: number;
+  unique_projects?: number;
+  unique_sessions?: number;
+  unique_users?: number;
+  username?: string;
+}
+
+export interface TypesUsageFilterOption {
+  email?: string;
+  id?: string;
+  model?: string;
+  name?: string;
+  provider?: string;
   username?: string;
 }
 
@@ -14256,7 +14285,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get organization usage summary with breakdowns by project, task/model, model, and user
+     * @description Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider
      *
      * @tags usage
      * @name V1UsageOrgSummaryList
@@ -14272,6 +14301,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         from?: string;
         /** End date */
         to?: string;
+        /** User ID */
+        user_id?: string;
+        /** Project ID */
+        project_id?: string;
+        /** App ID */
+        app_id?: string;
+        /** Session ID */
+        session_id?: string;
+        /** Provider */
+        provider?: string;
+        /** Model */
+        model?: string;
         /** User search */
         user_search?: string;
         /** User page size */

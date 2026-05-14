@@ -115,7 +115,7 @@ const SettingsDialogs: FC = () => {
             <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
           </Box>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard tab={adminTab} />
+            <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
           </Box>
         </Box>
       </FullScreenDialog>

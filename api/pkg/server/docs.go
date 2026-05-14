@@ -17129,7 +17129,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get organization usage summary with breakdowns by project, task/model, model, and user",
+                "description": "Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider",
                 "consumes": [
                     "application/json"
                 ],
@@ -17158,6 +17158,42 @@ const docTemplate = `{
                         "type": "string",
                         "description": "End date",
                         "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Provider",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Model",
+                        "name": "model",
                         "in": "query"
                     },
                     {
@@ -26478,6 +26514,48 @@ const docTemplate = `{
         "types.OrgUsageSummaryResponse": {
             "type": "object",
             "properties": {
+                "active_apps": {
+                    "type": "integer"
+                },
+                "active_projects": {
+                    "type": "integer"
+                },
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "active_users": {
+                    "type": "integer"
+                },
+                "apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "filter_apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
                 "metrics": {
                     "type": "array",
                     "items": {
@@ -26503,6 +26581,12 @@ const docTemplate = `{
                     }
                 },
                 "projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "sessions": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.UsageBreakdownRow"
@@ -32289,7 +32373,16 @@ const docTemplate = `{
                 "email": {
                     "type": "string"
                 },
+                "ended_at": {
+                    "type": "string"
+                },
                 "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "last_activity_at": {
                     "type": "string"
                 },
                 "latency_ms": {
@@ -32316,6 +32409,15 @@ const docTemplate = `{
                 "response_size_bytes": {
                     "type": "integer"
                 },
+                "session_count": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
                 "total_cost": {
                     "type": "number"
                 },
@@ -32324,6 +32426,41 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                },
+                "unique_apps": {
+                    "type": "integer"
+                },
+                "unique_projects": {
+                    "type": "integer"
+                },
+                "unique_sessions": {
+                    "type": "integer"
+                },
+                "unique_users": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UsageFilterOption": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
                 },
                 "username": {
                     "type": "string"

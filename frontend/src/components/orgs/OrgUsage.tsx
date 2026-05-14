@@ -12,12 +12,16 @@ import TablePagination from '@mui/material/TablePagination'
 import InputAdornment from '@mui/material/InputAdornment'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
+import Autocomplete from '@mui/material/Autocomplete'
+import LinearProgress from '@mui/material/LinearProgress'
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
-import { Download, Search } from 'lucide-react'
+import { Download, Search, X } from 'lucide-react'
 
-import type { TypesAggregatedUsageMetric, TypesUsageBreakdownRow, TypesUsageModelTimeSeries } from '../../api/api'
+import type { TypesAggregatedUsageMetric, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
+import useDebounce from '../../hooks/useDebounce'
 import Page from '../system/Page'
 import SimpleTable, { ITableField } from '../widgets/SimpleTable'
 import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
@@ -66,6 +70,34 @@ const formatCost = (value?: number) => {
 
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
 
+const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString() : '-'
+
+const filterOptionLabel = (option: TypesUsageFilterOption) => {
+  const label = option.name || option.model || option.provider || option.id || ''
+  if (option.email && option.email !== label) return `${label} (${option.email})`
+  if (option.provider && option.model) return `${option.provider} / ${option.model}`
+  return label
+}
+
+const FilterAutocomplete: FC<{
+  label: string
+  options: TypesUsageFilterOption[]
+  value: TypesUsageFilterOption | null
+  onChange: (option: TypesUsageFilterOption | null) => void
+  loading?: boolean
+}> = ({ label, options, value, onChange, loading }) => (
+  <Autocomplete
+    size="small"
+    options={options}
+    value={value}
+    loading={loading}
+    onChange={(_, option) => onChange(option)}
+    getOptionLabel={filterOptionLabel}
+    isOptionEqualToValue={(option, selected) => option.id === selected.id}
+    renderInput={(params) => <TextField {...params} label={label} />}
+  />
+)
+
 const sumMetrics = (metrics: TypesAggregatedUsageMetric[] = []) => metrics.reduce((acc, metric) => ({
   prompt: acc.prompt + (metric.prompt_tokens ?? 0),
   completion: acc.completion + (metric.completion_tokens ?? 0),
@@ -79,26 +111,72 @@ const sumMetrics = (metrics: TypesAggregatedUsageMetric[] = []) => metrics.reduc
 const csvEscape = (value: string | number | undefined) => `"${String(value ?? '').replace(/"/g, '""')}"`
 
 const exportRows = (filename: string, rows: TypesUsageBreakdownRow[]) => {
-  const headers = ['name', 'email', 'username', 'provider', 'model', 'requests', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'total_tokens', 'total_cost', 'latency_ms']
+  const headers = [
+    'id',
+    'name',
+    'email',
+    'username',
+    'provider',
+    'model',
+    'session_id',
+    'requests',
+    'sessions',
+    'unique_users',
+    'unique_projects',
+    'unique_apps',
+    'input_tokens',
+    'output_tokens',
+    'cache_read_tokens',
+    'cache_write_tokens',
+    'total_tokens',
+    'input_cost',
+    'output_cost',
+    'cache_read_cost',
+    'cache_write_cost',
+    'total_cost',
+    'latency_ms',
+    'last_activity_at',
+  ]
   const lines = [
     headers.join(','),
     ...rows.map(row => [
+      row.id,
       row.name,
       row.email,
       row.username,
       row.provider,
       row.model,
+      row.session_id,
       row.total_requests,
+      row.session_count,
+      row.unique_users,
+      row.unique_projects,
+      row.unique_apps,
       row.prompt_tokens,
       row.completion_tokens,
       row.cache_read_tokens,
       row.cache_write_tokens,
       row.total_tokens,
+      row.prompt_cost,
+      row.completion_cost,
+      row.cache_read_cost,
+      row.cache_write_cost,
       row.total_cost,
       row.latency_ms,
+      row.last_activity_at,
     ].map(csvEscape).join(',')),
   ]
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+const exportJSON = (filename: string, rows: TypesUsageBreakdownRow[]) => {
+  const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -144,21 +222,32 @@ const Section: FC<{ title: string; action?: React.ReactNode; children: React.Rea
   </Box>
 )
 
-const ExportButton: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
-  <Button
-    size="small"
-    variant="outlined"
-    startIcon={<Download size={16} />}
-    onClick={() => exportRows(filename, rows)}
-    disabled={!rows.length}
-  >
-    CSV
-  </Button>
+const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
+  <Stack direction="row" spacing={1}>
+    <Button
+      size="small"
+      variant="outlined"
+      startIcon={<Download size={16} />}
+      onClick={() => exportRows(`${filename}.csv`, rows)}
+      disabled={!rows.length}
+    >
+      CSV
+    </Button>
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={() => exportJSON(`${filename}.json`, rows)}
+      disabled={!rows.length}
+    >
+      JSON
+    </Button>
+  </Stack>
 )
 
 const baseFields: ITableField[] = [
   { name: 'name', title: 'Name' },
   { name: 'requests', title: 'LLM calls', numeric: true },
+  { name: 'sessions', title: 'Sessions', numeric: true },
   { name: 'input', title: 'Input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache', numeric: true },
@@ -170,15 +259,44 @@ const baseFields: ITableField[] = [
 const modelFields: ITableField[] = [
   { name: 'name', title: 'Model' },
   { name: 'provider', title: 'Provider' },
+  { name: 'users', title: 'Users', numeric: true },
+  { name: 'projects', title: 'Projects', numeric: true },
   ...baseFields.slice(1),
 ]
 
-const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false) => ({
+const sessionFields: ITableField[] = [
+  { name: 'name', title: 'Session' },
+  { name: 'users', title: 'Users', numeric: true },
+  { name: 'projects', title: 'Projects', numeric: true },
+  { name: 'requests', title: 'LLM calls', numeric: true },
+  { name: 'input', title: 'Input', numeric: true },
+  { name: 'output', title: 'Output', numeric: true },
+  { name: 'cache', title: 'Cache', numeric: true },
+  { name: 'total', title: 'Total', numeric: true },
+  { name: 'cost', title: 'Cost', numeric: true },
+  { name: 'lastActivity', title: 'Last activity' },
+]
+
+const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameClick?: (row: TypesUsageBreakdownRow) => void) => ({
   id: row.id,
   _data: row,
   name: (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.name || row.id || 'Unknown'}</Typography>
+      {onNameClick ? (
+        <a
+          href="#"
+          onClick={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            onNameClick(row)
+          }}
+          style={{ color: 'inherit', textDecoration: 'none' }}
+        >
+          <Typography variant="body2" sx={{ fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}>{row.name || row.id || 'Unknown'}</Typography>
+        </a>
+      ) : (
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.name || row.id || 'Unknown'}</Typography>
+      )}
       {(row.email || row.username) && (
         <Typography variant="caption" color="text.secondary">
           {[row.email, row.username].filter(Boolean).join(' · ')}
@@ -192,6 +310,9 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false) => ({
     </Box>
   ),
   provider: <Typography variant="body2" color="text.secondary">{row.provider || '-'}</Typography>,
+  users: <Typography variant="body2">{formatNumber(row.unique_users)}</Typography>,
+  projects: <Typography variant="body2">{formatNumber(row.unique_projects)}</Typography>,
+  sessions: <Typography variant="body2">{formatNumber(row.session_count)}</Typography>,
   requests: <Typography variant="body2">{formatNumber(row.total_requests)}</Typography>,
   input: <Typography variant="body2">{formatNumber(row.prompt_tokens)}</Typography>,
   output: <Typography variant="body2">{formatNumber(row.completion_tokens)}</Typography>,
@@ -199,6 +320,7 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false) => ({
   total: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatNumber(row.total_tokens)}</Typography>,
   cost: <Typography variant="body2">{formatCost(row.total_cost)}</Typography>,
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
+  lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
 
 const LatencyTooltip: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
@@ -372,14 +494,23 @@ const ProjectModelChart: FC<{
 
 const OrgUsage: FC = () => {
   const router = useRouter()
+  const settingsDialog = useSettingsDialog()
   const orgID = router.params.org_id as string
   const today = toDateInput(new Date())
   const [range, setRange] = useState<RangeKey | null>('7d')
   const [from, setFrom] = useState(rangeFrom(7))
   const [to, setTo] = useState(today)
-  const [userSearch, setUserSearch] = useState('')
+  const [userId, setUserId] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [appId, setAppId] = useState('')
+  const [sessionIdInput, setSessionIdInput] = useState('')
+  const [provider, setProvider] = useState('')
+  const [model, setModel] = useState('')
+  const [userSearchInput, setUserSearchInput] = useState('')
   const [userPage, setUserPage] = useState(0)
   const [userRowsPerPage, setUserRowsPerPage] = useState(10)
+  const sessionId = useDebounce(sessionIdInput.trim(), 400)
+  const userSearch = useDebounce(userSearchInput.trim(), 300)
 
   const fromRFC = useMemo(() => toRFC3339(from), [from])
   const toRFC = useMemo(() => toRFC3339(to, true), [to])
@@ -387,6 +518,12 @@ const OrgUsage: FC = () => {
   const usage = useGetOrgUsage(orgID, {
     from: fromRFC,
     to: toRFC,
+    userId: userId || undefined,
+    projectId: projectId || undefined,
+    appId: appId || undefined,
+    sessionId: sessionId || undefined,
+    provider: provider || undefined,
+    model: model || undefined,
     userSearch,
     userLimit: userRowsPerPage,
     userOffset: userPage * userRowsPerPage,
@@ -419,6 +556,31 @@ const OrgUsage: FC = () => {
     date: metric.date || '',
     latency: metric.latency_ms ?? 0,
   })), [metrics])
+  const userOptions = usage.data?.filter_users || []
+  const projectOptions = usage.data?.filter_projects || []
+  const appOptions = usage.data?.filter_apps || []
+  const modelOptions = usage.data?.filter_models || []
+  const providerOptions = useMemo(() => {
+    const providers = new Map<string, TypesUsageFilterOption>()
+    modelOptions.forEach(option => {
+      if (!option.provider) return
+      providers.set(option.provider, {
+        id: option.provider,
+        name: option.provider,
+        provider: option.provider,
+      })
+    })
+    return Array.from(providers.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  }, [modelOptions])
+  const filteredModelOptions = useMemo(() => {
+    if (!provider) return modelOptions
+    return modelOptions.filter(option => option.provider === provider)
+  }, [modelOptions, provider])
+  const selectedUser = userOptions.find(option => option.id === userId) || null
+  const selectedProject = projectOptions.find(option => option.id === projectId) || null
+  const selectedApp = appOptions.find(option => option.id === appId) || null
+  const selectedProvider = providerOptions.find(option => option.id === provider) || null
+  const selectedModel = filteredModelOptions.find(option => option.provider === provider && option.model === model) || null
   const projectModelChart = useMemo(() => {
     return buildProjectModelChart(usage.data?.project_models || [], usage.data?.projects || [])
   }, [usage.data?.project_models, usage.data?.projects])
@@ -432,9 +594,28 @@ const OrgUsage: FC = () => {
     setUserPage(0)
   }
 
+  const clearFilters = () => {
+    setUserId('')
+    setProjectId('')
+    setAppId('')
+    setSessionIdInput('')
+    setProvider('')
+    setModel('')
+    setUserSearchInput('')
+    setUserPage(0)
+  }
+
+  const openSessionTrace = (row: TypesUsageBreakdownRow) => {
+    const id = row.session_id || row.id
+    if (!id) return
+    settingsDialog.openDialog('admin', { tab: 'llm_calls', sessionFilter: id })
+  }
+
   const tableRows = {
     projects: (usage.data?.projects || []).map(row => rowToTable(row)),
+    apps: (usage.data?.apps || []).map(row => rowToTable(row)),
     tasks: (usage.data?.tasks || []).map(row => rowToTable(row)),
+    sessions: (usage.data?.sessions || []).map(row => rowToTable(row, false, openSessionTrace)),
     models: (usage.data?.models || []).map(row => rowToTable(row, true)),
     users: (usage.data?.users || []).map(row => rowToTable(row)),
   }
@@ -477,12 +658,74 @@ const OrgUsage: FC = () => {
               </Alert>
             )}
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' }, gap: 1.5 }}>
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
+              {usage.isFetching && !usage.isLoading && (
+                <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />
+              )}
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 1.5 }}>
+                <FilterAutocomplete
+                  label="User"
+                  options={userOptions}
+                  value={selectedUser}
+                  loading={usage.isFetching}
+                  onChange={option => { setUserId(option?.id || ''); setUserPage(0) }}
+                />
+                <FilterAutocomplete
+                  label="Project"
+                  options={projectOptions}
+                  value={selectedProject}
+                  loading={usage.isFetching}
+                  onChange={option => { setProjectId(option?.id || ''); setUserPage(0) }}
+                />
+                <FilterAutocomplete
+                  label="App / Agent"
+                  options={appOptions}
+                  value={selectedApp}
+                  loading={usage.isFetching}
+                  onChange={option => { setAppId(option?.id || ''); setUserPage(0) }}
+                />
+                <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { setSessionIdInput(e.target.value); setUserPage(0) }} />
+                <FilterAutocomplete
+                  label="Provider"
+                  options={providerOptions}
+                  value={selectedProvider}
+                  loading={usage.isFetching}
+                  onChange={option => {
+                    setProvider(option?.id || '')
+                    setModel('')
+                    setUserPage(0)
+                  }}
+                />
+                <FilterAutocomplete
+                  label="Model"
+                  options={filteredModelOptions}
+                  value={selectedModel}
+                  loading={usage.isFetching}
+                  onChange={option => {
+                    setProvider(option?.provider || '')
+                    setModel(option?.model || '')
+                    setUserPage(0)
+                  }}
+                />
+                <Button size="small" variant="outlined" startIcon={<X size={16} />} onClick={clearFilters} sx={{ minHeight: 40 }}>
+                  Clear
+                </Button>
+              </Box>
+            </Paper>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 1.5 }}>
               <UsageCard label="LLM calls" value={formatNumber(totals.requests)} />
-              <UsageCard label="Total tokens" value={formatCompact(totals.total)} sublabel={`${formatCompact(totals.prompt)} input / ${formatCompact(totals.completion)} output`} />
+              <UsageCard label="Input tokens" value={formatCompact(totals.prompt)} sublabel={formatCost(metrics.reduce((sum, metric) => sum + (metric.prompt_cost ?? 0), 0))} />
+              <UsageCard label="Output tokens" value={formatCompact(totals.completion)} sublabel={formatCost(metrics.reduce((sum, metric) => sum + (metric.completion_cost ?? 0), 0))} />
               <UsageCard label="Cache tokens" value={formatCompact(totals.cacheRead + totals.cacheWrite)} sublabel={`${formatCompact(totals.cacheRead)} read / ${formatCompact(totals.cacheWrite)} write`} />
+              <UsageCard label="Total tokens" value={formatCompact(totals.total)} />
               <UsageCard label="Estimated cost" value={formatCost(totals.cost)} />
+              <UsageCard label="Active users" value={formatNumber(usage.data?.active_users)} sublabel={`${formatNumber(usage.data?.active_sessions)} sessions`} />
+              <UsageCard label="Active projects/apps" value={`${formatNumber(usage.data?.active_projects)} / ${formatNumber(usage.data?.active_apps)}`} />
             </Box>
+            <Typography variant="caption" color="text.secondary">
+              Estimated cost uses Helix stored cost fields and separates input, output, cache read, and cache write categories where data exists.
+            </Typography>
 
             {usage.isLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -502,7 +745,7 @@ const OrgUsage: FC = () => {
                 </Box>
 
                 <ShadcnAreaChart
-                  title="TOP MODELS OVER TIME"
+                  title="MODEL USAGE OVER TIME"
                   headline={`${modelSeries.length} models`}
                   data={modelChartData}
                   series={modelChartSeries}
@@ -513,27 +756,35 @@ const OrgUsage: FC = () => {
                 <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
 
                 <Stack spacing={3} sx={{ width: '100%' }}>
-                  <Section title="Projects" action={<ExportButton filename={`org-${orgID}-projects-usage.csv`} rows={usage.data?.projects || []} />}>
+                  <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.projects || []} />}>
                     <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact />
                   </Section>
 
-                  <Section title="Top Tasks By Model" action={<ExportButton filename={`org-${orgID}-tasks-usage.csv`} rows={usage.data?.tasks || []} />}>
+                  <Section title="Apps / Agents" action={<ExportButtons filename={`org-${orgID}-apps-usage`} rows={usage.data?.apps || []} />}>
+                    <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
+                  </Section>
+
+                  <Section title="Top Tasks By Model" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.tasks || []} />}>
                     <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact />
                   </Section>
 
-                  <Section title="Models" action={<ExportButton filename={`org-${orgID}-models-usage.csv`} rows={usage.data?.models || []} />}>
+                  <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.sessions || []} />}>
+                    <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact />
+                  </Section>
+
+                  <Section title="Model / Provider" action={<ExportButtons filename={`org-${orgID}-models-usage`} rows={usage.data?.models || []} />}>
                     <SimpleTable authenticated fields={modelFields} data={tableRows.models} compact />
                   </Section>
 
                   <Section
                     title="Users"
-                    action={<ExportButton filename={`org-${orgID}-users-usage.csv`} rows={usage.data?.users || []} />}
+                    action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.users || []} />}
                   >
                     <TextField
                       size="small"
                       placeholder="Search username or email"
-                      value={userSearch}
-                      onChange={e => { setUserSearch(e.target.value); setUserPage(0) }}
+                      value={userSearchInput}
+                      onChange={e => { setUserSearchInput(e.target.value); setUserPage(0) }}
                       sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
                       InputProps={{
                         startAdornment: (

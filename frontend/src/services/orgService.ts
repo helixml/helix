@@ -13,6 +13,14 @@ export const orgUsageQueryKey = (
   id: string,
   from?: string,
   to?: string,
+  filters?: {
+    userId?: string
+    projectId?: string
+    appId?: string
+    sessionId?: string
+    provider?: string
+    model?: string
+  },
   userSearch?: string,
   userLimit?: number,
   userOffset?: number,
@@ -22,6 +30,12 @@ export const orgUsageQueryKey = (
   "usage",
   from,
   to,
+  filters?.userId,
+  filters?.projectId,
+  filters?.appId,
+  filters?.sessionId,
+  filters?.provider,
+  filters?.model,
   userSearch,
   userLimit,
   userOffset,
@@ -105,6 +119,12 @@ export function useGetOrgUsage(
   options?: {
     from?: string
     to?: string
+    userId?: string
+    projectId?: string
+    appId?: string
+    sessionId?: string
+    provider?: string
+    model?: string
     userSearch?: string
     userLimit?: number
     userOffset?: number
@@ -119,6 +139,14 @@ export function useGetOrgUsage(
       id,
       options?.from,
       options?.to,
+      {
+        userId: options?.userId,
+        projectId: options?.projectId,
+        appId: options?.appId,
+        sessionId: options?.sessionId,
+        provider: options?.provider,
+        model: options?.model,
+      },
       options?.userSearch,
       options?.userLimit,
       options?.userOffset,
@@ -128,12 +156,19 @@ export function useGetOrgUsage(
         org_id: id,
         from: options?.from,
         to: options?.to,
+        user_id: options?.userId,
+        project_id: options?.projectId,
+        app_id: options?.appId,
+        session_id: options?.sessionId,
+        provider: options?.provider,
+        model: options?.model,
         user_search: options?.userSearch,
         user_limit: options?.userLimit,
         user_offset: options?.userOffset,
       })
       return response.data
     },
+    placeholderData: (previousData) => previousData,
     enabled: options?.enabled ?? true,
   })
 }

@@ -5814,6 +5814,34 @@ definitions:
     type: object
   types.OrgUsageSummaryResponse:
     properties:
+      active_apps:
+        type: integer
+      active_projects:
+        type: integer
+      active_sessions:
+        type: integer
+      active_users:
+        type: integer
+      apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      filter_apps:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_models:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_projects:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_users:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
       metrics:
         items:
           $ref: '#/definitions/types.AggregatedUsageMetric'
@@ -5831,6 +5859,10 @@ definitions:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
       projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      sessions:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
@@ -10022,7 +10054,13 @@ definitions:
         type: integer
       email:
         type: string
+      ended_at:
+        type: string
       id:
+        type: string
+      interaction_id:
+        type: string
+      last_activity_at:
         type: string
       latency_ms:
         type: number
@@ -10040,12 +10078,41 @@ definitions:
         type: integer
       response_size_bytes:
         type: integer
+      session_count:
+        type: integer
+      session_id:
+        type: string
+      started_at:
+        type: string
       total_cost:
         type: number
       total_requests:
         type: integer
       total_tokens:
         type: integer
+      unique_apps:
+        type: integer
+      unique_projects:
+        type: integer
+      unique_sessions:
+        type: integer
+      unique_users:
+        type: integer
+      username:
+        type: string
+    type: object
+  types.UsageFilterOption:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
       username:
         type: string
     type: object
@@ -21455,8 +21522,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get organization usage summary with breakdowns by project, task/model,
-        model, and user
+      description: Get organization usage summary with breakdowns by user, project,
+        app, session, task/model, and model/provider
       parameters:
       - description: Organization ID
         in: query
@@ -21470,6 +21537,30 @@ paths:
       - description: End date
         in: query
         name: to
+        type: string
+      - description: User ID
+        in: query
+        name: user_id
+        type: string
+      - description: Project ID
+        in: query
+        name: project_id
+        type: string
+      - description: App ID
+        in: query
+        name: app_id
+        type: string
+      - description: Session ID
+        in: query
+        name: session_id
+        type: string
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      - description: Model
+        in: query
+        name: model
         type: string
       - description: User search
         in: query

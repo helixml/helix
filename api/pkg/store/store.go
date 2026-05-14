@@ -176,6 +176,10 @@ type GetAggregatedUsageMetricsQuery struct {
 	OrganizationID   string
 	ProjectID        string
 	SpecTaskID       string
+	AppID            string
+	SessionID        string
+	Provider         string
+	Model            string
 	From             time.Time
 	To               time.Time
 }
@@ -184,6 +188,12 @@ type GetOrgUsageSummaryQuery struct {
 	OrganizationID string
 	From           time.Time
 	To             time.Time
+	UserID         string
+	ProjectID      string
+	AppID          string
+	SessionID      string
+	Provider       string
+	Model          string
 	UserSearch     string
 	UserLimit      int
 	UserOffset     int

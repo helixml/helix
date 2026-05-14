@@ -116,13 +116,19 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 
 // getOrgUsageSummary godoc
 // @Summary Get organization usage summary
-// @Description Get organization usage summary with breakdowns by project, task/model, model, and user
+// @Description Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider
 // @Accept json
 // @Produce json
 // @Tags    usage
 // @Param   org_id query string true "Organization ID"
 // @Param   from query string false "Start date"
 // @Param   to query string false "End date"
+// @Param   user_id query string false "User ID"
+// @Param   project_id query string false "Project ID"
+// @Param   app_id query string false "App ID"
+// @Param   session_id query string false "Session ID"
+// @Param   provider query string false "Provider"
+// @Param   model query string false "Model"
 // @Param   user_search query string false "User search"
 // @Param   user_limit query int false "User page size"
 // @Param   user_offset query int false "User page offset"
@@ -188,6 +194,12 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 		OrganizationID: orgID,
 		From:           from,
 		To:             to,
+		UserID:         r.URL.Query().Get("user_id"),
+		ProjectID:      r.URL.Query().Get("project_id"),
+		AppID:          r.URL.Query().Get("app_id"),
+		SessionID:      r.URL.Query().Get("session_id"),
+		Provider:       r.URL.Query().Get("provider"),
+		Model:          r.URL.Query().Get("model"),
 		UserSearch:     r.URL.Query().Get("user_search"),
 		UserLimit:      userLimit,
 		UserOffset:     userOffset,
