@@ -573,19 +573,10 @@ const Layout: FC<{
                 py: 0,
                 ...(shouldShowSidebar
                   ? {
-                      // Activity-bar pattern: in light mode the rail is a
-                      // slightly darker panel color (vs the white secondary
-                      // nav). Without this, the empty space below the icons
-                      // (caused by the inner column's justifyContent:
-                      // space-between in UserOrgSelector — icons pinned top,
-                      // user trigger pinned bottom) reads as a 250px hole of
-                      // pure white. Dark mode is unaffected (panelColor maps
-                      // to darkPanel which already blends with the drawer).
                       borderRight: lightTheme.border,
-                      bgcolor: lightTheme.panelColor,
+                      bgcolor: lightTheme.backgroundColor,
                     }
                   : {
-                      // When sidebar is hidden, no border and background
                       bgcolor: lightTheme.backgroundColor,
                     }),
               }}
