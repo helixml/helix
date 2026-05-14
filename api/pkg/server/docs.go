@@ -17213,6 +17213,42 @@ const docTemplate = `{
                         "description": "User page offset",
                         "name": "user_offset",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Project page size",
+                        "name": "project_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Project page offset",
+                        "name": "project_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Task page size",
+                        "name": "task_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Task page offset",
+                        "name": "task_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session page size",
+                        "name": "session_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session page offset",
+                        "name": "session_offset",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -26532,6 +26568,42 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.UsageBreakdownRow"
                     }
                 },
+                "export_apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
                 "filter_apps": {
                     "type": "array",
                     "items": {
@@ -26586,17 +26658,26 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.UsageBreakdownRow"
                     }
                 },
+                "projects_total": {
+                    "type": "integer"
+                },
                 "sessions": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.UsageBreakdownRow"
                     }
                 },
+                "sessions_total": {
+                    "type": "integer"
+                },
                 "tasks": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.UsageBreakdownRow"
                     }
+                },
+                "tasks_total": {
+                    "type": "integer"
                 },
                 "users": {
                     "type": "array",

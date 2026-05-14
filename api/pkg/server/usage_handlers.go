@@ -132,6 +132,12 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 // @Param   user_search query string false "User search"
 // @Param   user_limit query int false "User page size"
 // @Param   user_offset query int false "User page offset"
+// @Param   project_limit query int false "Project page size"
+// @Param   project_offset query int false "Project page offset"
+// @Param   task_limit query int false "Task page size"
+// @Param   task_offset query int false "Task page offset"
+// @Param   session_limit query int false "Session page size"
+// @Param   session_offset query int false "Session page offset"
 // @Success 200 {object} types.OrgUsageSummaryResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
@@ -189,6 +195,48 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse user_offset: %s", err))
 		}
 	}
+	projectLimit := 10
+	if rawLimit := r.URL.Query().Get("project_limit"); rawLimit != "" {
+		projectLimit, err = strconv.Atoi(rawLimit)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse project_limit: %s", err))
+		}
+	}
+	projectOffset := 0
+	if rawOffset := r.URL.Query().Get("project_offset"); rawOffset != "" {
+		projectOffset, err = strconv.Atoi(rawOffset)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse project_offset: %s", err))
+		}
+	}
+	taskLimit := 10
+	if rawLimit := r.URL.Query().Get("task_limit"); rawLimit != "" {
+		taskLimit, err = strconv.Atoi(rawLimit)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse task_limit: %s", err))
+		}
+	}
+	taskOffset := 0
+	if rawOffset := r.URL.Query().Get("task_offset"); rawOffset != "" {
+		taskOffset, err = strconv.Atoi(rawOffset)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse task_offset: %s", err))
+		}
+	}
+	sessionLimit := 10
+	if rawLimit := r.URL.Query().Get("session_limit"); rawLimit != "" {
+		sessionLimit, err = strconv.Atoi(rawLimit)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse session_limit: %s", err))
+		}
+	}
+	sessionOffset := 0
+	if rawOffset := r.URL.Query().Get("session_offset"); rawOffset != "" {
+		sessionOffset, err = strconv.Atoi(rawOffset)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse session_offset: %s", err))
+		}
+	}
 
 	summary, err := s.Store.GetOrgUsageSummary(r.Context(), &store.GetOrgUsageSummaryQuery{
 		OrganizationID: orgID,
@@ -203,6 +251,12 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 		UserSearch:     r.URL.Query().Get("user_search"),
 		UserLimit:      userLimit,
 		UserOffset:     userOffset,
+		ProjectLimit:   projectLimit,
+		ProjectOffset:  projectOffset,
+		TaskLimit:      taskLimit,
+		TaskOffset:     taskOffset,
+		SessionLimit:   sessionLimit,
+		SessionOffset:  sessionOffset,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
