@@ -1,9 +1,11 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -22,6 +24,10 @@ func (s *HelixAPIServer) getQuotasHandler(rw http.ResponseWriter, req *http.Requ
 
 	org, err := s.lookupOrg(req.Context(), orgID)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, err.Error(), http.StatusNotFound)
+			return
+		}
 		http.Error(rw, fmt.Sprintf("failed to lookup org: %s", err), http.StatusInternalServerError)
 		return
 	}
