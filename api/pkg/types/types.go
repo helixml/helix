@@ -2442,14 +2442,14 @@ type ContextMenuAction struct {
 
 type UsageMetric struct {
 	ID                string    `json:"id" gorm:"primaryKey"`
-	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
+	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
 	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
-	OrganizationID    string    `json:"organization_id"`
-	InteractionID     string    `json:"interaction_id"`
+	OrganizationID    string    `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
+	InteractionID     string    `json:"interaction_id" gorm:"index"`
 	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
 	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	UserID            string    `json:"user_id"`
+	UserID            string    `json:"user_id" gorm:"index"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`
 	PromptTokens      int       `json:"prompt_tokens"`

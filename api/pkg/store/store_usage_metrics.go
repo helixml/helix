@@ -3,12 +3,35 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
+
+// usageInteractionsJoin is a per-row LATERAL lookup that fetches the
+// session/app/user/timestamps for the interaction referenced by a usage_metrics
+// row. It avoids the previous approach of aggregating the entire `interactions`
+// table on every breakdown query — with the (id, generation_id) PK index this
+// is an O(log N) index seek per matched usage_metrics row, so it scales with
+// the size of the org+date window instead of the whole interactions table.
+const usageInteractionsJoin = `
+	LEFT JOIN LATERAL (
+		SELECT
+			MAX(session_id) AS session_id,
+			MAX(app_id)     AS app_id,
+			MAX(user_id)    AS user_id,
+			MIN(created)    AS created,
+			MAX(updated)    AS updated,
+			MAX(completed)  AS completed
+		FROM interactions
+		WHERE interactions.id = usage_metrics.interaction_id
+		  AND usage_metrics.interaction_id <> ''
+	) usage_interactions ON true
+`
 
 func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 	if metric.ID == "" {
@@ -277,13 +300,7 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 		`)
 
 	if q.SessionID != "" || q.AppID != "" {
-		query = query.Joins(`
-			LEFT JOIN (
-				SELECT id, MAX(session_id) as session_id, MAX(app_id) as app_id
-				FROM interactions
-				GROUP BY id
-			) usage_interactions ON usage_interactions.id = usage_metrics.interaction_id
-		`)
+		query = query.Joins(usageInteractionsJoin)
 	}
 	if q.ProjectID != "" {
 		query = query.Where("usage_metrics.project_id = ?", q.ProjectID)
@@ -372,85 +389,108 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 		sessionOffset = 0
 	}
 
-	metrics, err := s.GetAggregatedUsageMetrics(ctx, &GetAggregatedUsageMetricsQuery{
-		AggregationLevel: AggregationLevelDaily,
-		OrganizationID:   q.OrganizationID,
-		From:             q.From,
-		To:               q.To,
-		UserID:           q.UserID,
-		ProjectID:        q.ProjectID,
-		AppID:            q.AppID,
-		SessionID:        q.SessionID,
-		Provider:         q.Provider,
-		Model:            q.Model,
+	resp := &types.OrgUsageSummaryResponse{}
+
+	// Phase 1: fan out independent breakdown queries. Each call into
+	// orgUsageBreakdownQuery / orgUsageBaseQuery starts a fresh gorm chain
+	// from s.gdb, so the goroutines do not share builder state; the pgx
+	// connection pool isolates them per-query. We cap concurrency to keep
+	// the connection pool from being monopolised by one summary request.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(6)
+
+	g.Go(func() error {
+		metrics, err := s.GetAggregatedUsageMetrics(gctx, &GetAggregatedUsageMetricsQuery{
+			AggregationLevel: AggregationLevelDaily,
+			OrganizationID:   q.OrganizationID,
+			From:             q.From,
+			To:               q.To,
+			UserID:           q.UserID,
+			ProjectID:        q.ProjectID,
+			AppID:            q.AppID,
+			SessionID:        q.SessionID,
+			Provider:         q.Provider,
+			Model:            q.Model,
+		})
+		if err != nil {
+			return err
+		}
+		resp.Metrics = metrics
+		return nil
 	})
-	if err != nil {
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "project").Limit(projectLimit).Offset(projectOffset).Find(&resp.Projects).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "project_model").Find(&resp.ProjectModels).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "app").Limit(10).Find(&resp.Apps).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "task_model").Limit(taskLimit).Offset(taskOffset).Find(&resp.Tasks).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "session").Limit(sessionLimit).Offset(sessionOffset).Find(&resp.Sessions).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "model").Limit(10).Find(&resp.Models).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "user").Limit(userLimit).Offset(userOffset).Find(&resp.Users).Error
+	})
+	g.Go(func() error {
+		countQuery := s.orgUsageBaseQuery(gctx, q).
+			Joins("LEFT JOIN users ON users.id = usage_metrics.user_id").
+			Where("usage_metrics.user_id <> ''")
+		if q.UserSearch != "" {
+			search := "%" + q.UserSearch + "%"
+			countQuery = countQuery.Where(
+				"users.email ILIKE ? OR users.username ILIKE ? OR users.full_name ILIKE ? OR usage_metrics.user_id ILIKE ?",
+				search, search, search, search,
+			)
+		}
+		return countQuery.Distinct("usage_metrics.user_id").Count(&resp.UsersTotal).Error
+	})
+	g.Go(func() error {
+		count, err := s.countOrgUsageBreakdownRows(gctx, q, "project")
+		if err != nil {
+			return err
+		}
+		resp.ProjectsTotal = count
+		return nil
+	})
+	g.Go(func() error {
+		count, err := s.countOrgUsageBreakdownRows(gctx, q, "task_model")
+		if err != nil {
+			return err
+		}
+		resp.TasksTotal = count
+		return nil
+	})
+	g.Go(func() error {
+		count, err := s.countOrgUsageBreakdownRows(gctx, q, "session")
+		if err != nil {
+			return err
+		}
+		resp.SessionsTotal = count
+		return nil
+	})
+	g.Go(func() error {
+		return s.orgUsageActiveCounts(gctx, q, resp)
+	})
+	g.Go(func() error {
+		return s.orgUsageFilterOptions(gctx, q, resp)
+	})
+	g.Go(func() error {
+		return s.orgUsageExportRows(gctx, q, resp)
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	resp := &types.OrgUsageSummaryResponse{
-		Metrics: metrics,
-	}
-
-	if err := s.orgUsageBreakdownQuery(ctx, q, "project").Limit(projectLimit).Offset(projectOffset).Find(&resp.Projects).Error; err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "project_model").Find(&resp.ProjectModels).Error; err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "app").Limit(10).Find(&resp.Apps).Error; err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "task_model").Limit(taskLimit).Offset(taskOffset).Find(&resp.Tasks).Error; err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "session").Limit(sessionLimit).Offset(sessionOffset).Find(&resp.Sessions).Error; err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "model").Limit(10).Find(&resp.Models).Error; err != nil {
-		return nil, err
-	}
-
-	userQuery := s.orgUsageBreakdownQuery(ctx, q, "user")
-	if err := userQuery.Limit(userLimit).Offset(userOffset).Find(&resp.Users).Error; err != nil {
-		return nil, err
-	}
-
-	countQuery := s.orgUsageBaseQuery(ctx, q).
-		Joins("LEFT JOIN users ON users.id = usage_metrics.user_id").
-		Where("usage_metrics.user_id <> ''")
-	if q.UserSearch != "" {
-		search := "%" + q.UserSearch + "%"
-		countQuery = countQuery.Where(
-			"users.email ILIKE ? OR users.username ILIKE ? OR users.full_name ILIKE ? OR usage_metrics.user_id ILIKE ?",
-			search, search, search, search,
-		)
-	}
-	if err := countQuery.Distinct("usage_metrics.user_id").Count(&resp.UsersTotal).Error; err != nil {
-		return nil, err
-	}
-	resp.ProjectsTotal, err = s.countOrgUsageBreakdownRows(ctx, q, "project")
-	if err != nil {
-		return nil, err
-	}
-	resp.TasksTotal, err = s.countOrgUsageBreakdownRows(ctx, q, "task_model")
-	if err != nil {
-		return nil, err
-	}
-	resp.SessionsTotal, err = s.countOrgUsageBreakdownRows(ctx, q, "session")
-	if err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageActiveCounts(ctx, q, resp); err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageFilterOptions(ctx, q, resp); err != nil {
-		return nil, err
-	}
-	if err := s.orgUsageExportRows(ctx, q, resp); err != nil {
-		return nil, err
-	}
-
+	// Phase 2: model time series depends on which models came out on top.
 	modelSeries, err := s.getOrgUsageModelTimeSeries(ctx, q, resp.Models)
 	if err != nil {
 		return nil, err
@@ -574,20 +614,7 @@ func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsa
 func (s *PostgresStore) orgUsageBaseQuery(ctx context.Context, q *GetOrgUsageSummaryQuery) *gorm.DB {
 	query := s.gdb.WithContext(ctx).
 		Model(&types.UsageMetric{}).
-		Joins(`
-			LEFT JOIN (
-				SELECT
-					id,
-					MAX(session_id) as session_id,
-					MAX(app_id) as app_id,
-					MAX(user_id) as user_id,
-					MIN(created) as created,
-					MAX(updated) as updated,
-					MAX(completed) as completed
-				FROM interactions
-				GROUP BY id
-			) usage_interactions ON usage_interactions.id = usage_metrics.interaction_id
-		`).
+		Joins(usageInteractionsJoin).
 		Where("usage_metrics.organization_id = ? AND usage_metrics.created >= ? AND usage_metrics.created <= ?", q.OrganizationID, q.From, q.To)
 
 	if q.UserID != "" {
@@ -647,93 +674,101 @@ func (s *PostgresStore) orgUsageFilterOptions(ctx context.Context, q *GetOrgUsag
 	optionQuery.Model = ""
 	optionQuery.UserSearch = ""
 
-	if err := s.orgUsageBaseQuery(ctx, &optionQuery).
-		Joins("LEFT JOIN users ON users.id = usage_metrics.user_id").
-		Where("usage_metrics.user_id <> ''").
-		Select(`
-			usage_metrics.user_id as id,
-			COALESCE(NULLIF(users.full_name, ''), NULLIF(users.username, ''), NULLIF(users.email, ''), usage_metrics.user_id) as name,
-			users.email,
-			users.username
-		`).
-		Group("usage_metrics.user_id, users.full_name, users.username, users.email").
-		Order("name ASC").
-		Limit(1000).
-		Find(&resp.FilterUsers).Error; err != nil {
-		return err
-	}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(4)
 
-	if err := s.orgUsageBaseQuery(ctx, &optionQuery).
-		Joins("LEFT JOIN projects ON projects.id = usage_metrics.project_id").
-		Where("usage_metrics.project_id <> ''").
-		Select("usage_metrics.project_id as id, COALESCE(NULLIF(projects.name, ''), usage_metrics.project_id) as name").
-		Group("usage_metrics.project_id, projects.name").
-		Order("name ASC").
-		Limit(1000).
-		Find(&resp.FilterProjects).Error; err != nil {
-		return err
-	}
+	g.Go(func() error {
+		return s.orgUsageBaseQuery(gctx, &optionQuery).
+			Joins("LEFT JOIN users ON users.id = usage_metrics.user_id").
+			Where("usage_metrics.user_id <> ''").
+			Select(`
+				usage_metrics.user_id as id,
+				COALESCE(NULLIF(users.full_name, ''), NULLIF(users.username, ''), NULLIF(users.email, ''), usage_metrics.user_id) as name,
+				users.email,
+				users.username
+			`).
+			Group("usage_metrics.user_id, users.full_name, users.username, users.email").
+			Order("name ASC").
+			Limit(1000).
+			Find(&resp.FilterUsers).Error
+	})
 
-	appIDExpr := "COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id)"
-	appNameExpr := "COALESCE(MAX(NULLIF(apps.config->'helix'->>'name', '')), NULLIF(apps.id, ''), " + appIDExpr + ")"
-	if err := s.orgUsageBaseQuery(ctx, &optionQuery).
-		Joins("LEFT JOIN apps ON apps.id = " + appIDExpr).
-		Where(appIDExpr + " <> ''").
-		Select(appIDExpr + " as id, " + appNameExpr + " as name").
-		Group(appIDExpr + ", apps.id").
-		Order("name ASC").
-		Limit(1000).
-		Find(&resp.FilterApps).Error; err != nil {
-		return err
-	}
+	g.Go(func() error {
+		return s.orgUsageBaseQuery(gctx, &optionQuery).
+			Joins("LEFT JOIN projects ON projects.id = usage_metrics.project_id").
+			Where("usage_metrics.project_id <> ''").
+			Select("usage_metrics.project_id as id, COALESCE(NULLIF(projects.name, ''), usage_metrics.project_id) as name").
+			Group("usage_metrics.project_id, projects.name").
+			Order("name ASC").
+			Limit(1000).
+			Find(&resp.FilterProjects).Error
+	})
 
-	if err := s.orgUsageBaseQuery(ctx, &optionQuery).
-		Where("usage_metrics.model <> ''").
-		Select("usage_metrics.provider || ':' || usage_metrics.model as id, usage_metrics.model as name, usage_metrics.provider, usage_metrics.model").
-		Group("usage_metrics.provider, usage_metrics.model").
-		Order("usage_metrics.provider ASC, usage_metrics.model ASC").
-		Limit(1000).
-		Find(&resp.FilterModels).Error; err != nil {
-		return err
-	}
+	g.Go(func() error {
+		appIDExpr := "COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id)"
+		appNameExpr := "COALESCE(MAX(NULLIF(apps.config->'helix'->>'name', '')), NULLIF(apps.id, ''), " + appIDExpr + ")"
+		return s.orgUsageBaseQuery(gctx, &optionQuery).
+			Joins("LEFT JOIN apps ON apps.id = " + appIDExpr).
+			Where(appIDExpr + " <> ''").
+			Select(appIDExpr + " as id, " + appNameExpr + " as name").
+			Group(appIDExpr + ", apps.id").
+			Order("name ASC").
+			Limit(1000).
+			Find(&resp.FilterApps).Error
+	})
 
-	return nil
+	g.Go(func() error {
+		return s.orgUsageBaseQuery(gctx, &optionQuery).
+			Where("usage_metrics.model <> ''").
+			Select("usage_metrics.provider || ':' || usage_metrics.model as id, usage_metrics.model as name, usage_metrics.provider, usage_metrics.model").
+			Group("usage_metrics.provider, usage_metrics.model").
+			Order("usage_metrics.provider ASC, usage_metrics.model ASC").
+			Limit(1000).
+			Find(&resp.FilterModels).Error
+	})
+
+	return g.Wait()
 }
 
 func (s *PostgresStore) orgUsageExportRows(ctx context.Context, q *GetOrgUsageSummaryQuery, resp *types.OrgUsageSummaryResponse) error {
 	const exportLimit = 10000
 
-	if err := s.orgUsageBreakdownQuery(ctx, q, "project").Limit(exportLimit).Find(&resp.ExportProjects).Error; err != nil {
-		return err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "app").Limit(exportLimit).Find(&resp.ExportApps).Error; err != nil {
-		return err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "task_model").Limit(exportLimit).Find(&resp.ExportTasks).Error; err != nil {
-		return err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "session").Limit(exportLimit).Find(&resp.ExportSessions).Error; err != nil {
-		return err
-	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "model").Limit(exportLimit).Find(&resp.ExportModels).Error; err != nil {
-		return err
-	}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(6)
 
-	userQuery := s.orgUsageBreakdownQuery(ctx, q, "user")
-	if err := userQuery.Limit(exportLimit).Find(&resp.ExportUsers).Error; err != nil {
-		return err
-	}
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "project").Limit(exportLimit).Find(&resp.ExportProjects).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "app").Limit(exportLimit).Find(&resp.ExportApps).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "task_model").Limit(exportLimit).Find(&resp.ExportTasks).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "session").Limit(exportLimit).Find(&resp.ExportSessions).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "model").Limit(exportLimit).Find(&resp.ExportModels).Error
+	})
+	g.Go(func() error {
+		return s.orgUsageBreakdownQuery(gctx, q, "user").Limit(exportLimit).Find(&resp.ExportUsers).Error
+	})
 
-	return nil
+	return g.Wait()
 }
 
 func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOrgUsageSummaryQuery, topModels []types.UsageBreakdownRow) ([]types.UsageModelTimeSeries, error) {
 	if len(topModels) == 0 {
 		return []types.UsageModelTimeSeries{}, nil
 	}
-	topModelIDs := make(map[string]types.UsageBreakdownRow, len(topModels))
+	topModelKeys := make(map[string]struct{}, len(topModels))
+	conditions := make([]string, 0, len(topModels))
+	args := make([]interface{}, 0, len(topModels)*2)
 	for _, model := range topModels {
-		topModelIDs[model.Provider+":"+model.Model] = model
+		topModelKeys[model.Provider+":"+model.Model] = struct{}{}
+		conditions = append(conditions, "(usage_metrics.provider = ? AND usage_metrics.model = ?)")
+		args = append(args, model.Provider, model.Model)
 	}
 
 	var rows []struct {
@@ -756,6 +791,9 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 		TotalRequests     int       `gorm:"column:total_requests"`
 	}
 
+	// Restrict to the (provider, model) pairs we actually need to chart.
+	// Without this filter Postgres would aggregate every model in the org's
+	// window and we'd then discard most of the result in Go.
 	err := s.orgUsageBaseQuery(ctx, q).
 		Select(`
 			usage_metrics.date,
@@ -777,6 +815,7 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 			COUNT(DISTINCT usage_metrics.id) as total_requests
 		`).
 		Where("usage_metrics.model <> ''").
+		Where(strings.Join(conditions, " OR "), args...).
 		Group("usage_metrics.date, usage_metrics.provider, usage_metrics.model").
 		Order("usage_metrics.date ASC").
 		Find(&rows).Error
@@ -787,7 +826,7 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 	metricsByModel := make(map[string][]*types.AggregatedUsageMetric, len(topModels))
 	for _, row := range rows {
 		id := row.Provider + ":" + row.Model
-		if _, ok := topModelIDs[id]; !ok {
+		if _, ok := topModelKeys[id]; !ok {
 			continue
 		}
 		metricsByModel[id] = append(metricsByModel[id], &types.AggregatedUsageMetric{
