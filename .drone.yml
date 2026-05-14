@@ -1797,24 +1797,33 @@ steps:
         if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
           echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
+      # Cache dir is on the external drive via Docker Desktop virtiofs (fakeowner).
+      # `git init <path>` does an internal mkdir → chdir → getcwd, which races
+      # against virtiofs metadata sync after the preceding `rm -rf` and produces
+      # `fatal: unable to get current working directory: No such file or directory`.
+      # Driving the mkdir/cd from the shell first sidesteps that race.
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning Zed at commit $${ZED_COMMIT}..."
-        cd /
         rm -rf /drone/src/cache/zed-source
-        git init /drone/src/cache/zed-source
-        git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-        git -C /drone/src/cache/zed-source checkout FETCH_HEAD
-        echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
+        mkdir -p /drone/src/cache/zed-source
+        sync
+        cd /drone/src/cache/zed-source
+        git init -q .
+        git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+        git checkout FETCH_HEAD
+        echo "✓ Zed source at $$(git rev-parse HEAD)"
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
-        cd /
         rm -rf /drone/src/cache/qwen-source
-        git init /drone/src/cache/qwen-source
-        git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-        git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
-        echo "✓ qwen-code source at $$(git -C /drone/src/cache/qwen-source rev-parse HEAD)"
+        mkdir -p /drone/src/cache/qwen-source
+        sync
+        cd /drone/src/cache/qwen-source
+        git init -q .
+        git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+        git checkout FETCH_HEAD
+        echo "✓ qwen-code source at $$(git rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
