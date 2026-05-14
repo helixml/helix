@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react'
+import React, { FC, useEffect, useMemo, useState } from 'react'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
@@ -50,6 +50,22 @@ const toRFC3339 = (value: string, endOfDay = false) => {
   if (!value) return undefined
   return new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`).toISOString()
 }
+
+const fromURLDate = (value: string | null, fallback: string) => {
+  if (!value) return fallback
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return fallback
+  return toDateInput(parsed)
+}
+
+const intFromURL = (value: string | null, fallback: number) => {
+  if (!value) return fallback
+  const parsed = parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+const currentSearchParams = () => new URLSearchParams(window.location.search)
 
 const formatCompact = (value?: number) => {
   const n = value ?? 0
@@ -497,18 +513,19 @@ const OrgUsage: FC = () => {
   const settingsDialog = useSettingsDialog()
   const orgID = router.params.org_id as string
   const today = toDateInput(new Date())
-  const [range, setRange] = useState<RangeKey | null>('7d')
-  const [from, setFrom] = useState(rangeFrom(7))
-  const [to, setTo] = useState(today)
-  const [userId, setUserId] = useState('')
-  const [projectId, setProjectId] = useState('')
-  const [appId, setAppId] = useState('')
-  const [sessionIdInput, setSessionIdInput] = useState('')
-  const [provider, setProvider] = useState('')
-  const [model, setModel] = useState('')
-  const [userSearchInput, setUserSearchInput] = useState('')
-  const [userPage, setUserPage] = useState(0)
-  const [userRowsPerPage, setUserRowsPerPage] = useState(10)
+  const initialParams = useMemo(() => currentSearchParams(), [])
+  const [range, setRange] = useState<RangeKey | null>(() => (initialParams.has('from') || initialParams.has('to') ? null : '7d'))
+  const [from, setFrom] = useState(() => fromURLDate(initialParams.get('from'), rangeFrom(7)))
+  const [to, setTo] = useState(() => fromURLDate(initialParams.get('to'), today))
+  const [userId, setUserId] = useState(() => initialParams.get('user_id') || '')
+  const [projectId, setProjectId] = useState(() => initialParams.get('project_id') || '')
+  const [appId, setAppId] = useState(() => initialParams.get('app_id') || '')
+  const [sessionIdInput, setSessionIdInput] = useState(() => initialParams.get('session_id') || '')
+  const [provider, setProvider] = useState(() => initialParams.get('provider') || '')
+  const [model, setModel] = useState(() => initialParams.get('model') || '')
+  const [userSearchInput, setUserSearchInput] = useState(() => initialParams.get('user_search') || '')
+  const [userPage, setUserPage] = useState(() => intFromURL(initialParams.get('user_page'), 0))
+  const [userRowsPerPage, setUserRowsPerPage] = useState(() => intFromURL(initialParams.get('user_rows'), 10))
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
   const userSearch = useDebounce(userSearchInput.trim(), 300)
 
@@ -529,6 +546,31 @@ const OrgUsage: FC = () => {
     userOffset: userPage * userRowsPerPage,
     enabled: Boolean(orgID),
   })
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const setParam = (key: string, value: string, defaultValue = '') => {
+      if (value && value !== defaultValue) {
+        url.searchParams.set(key, value)
+      } else {
+        url.searchParams.delete(key)
+      }
+    }
+
+    setParam('from', from)
+    setParam('to', to)
+    setParam('user_id', userId)
+    setParam('project_id', projectId)
+    setParam('app_id', appId)
+    setParam('session_id', sessionIdInput.trim())
+    setParam('provider', provider)
+    setParam('model', model)
+    setParam('user_search', userSearchInput.trim())
+    setParam('user_page', userPage > 0 ? String(userPage) : '')
+    setParam('user_rows', userRowsPerPage !== 10 ? String(userRowsPerPage) : '')
+
+    window.history.replaceState({}, '', url.toString())
+  }, [from, to, userId, projectId, appId, sessionIdInput, provider, model, userSearchInput, userPage, userRowsPerPage])
 
   const metrics = usage.data?.metrics || []
   const totals = useMemo(() => sumMetrics(metrics), [metrics])
@@ -658,10 +700,12 @@ const OrgUsage: FC = () => {
               </Alert>
             )}
 
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
-              {usage.isFetching && !usage.isLoading && (
-                <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />
-              )}
+            <Paper variant="outlined" sx={{ px: 2, pt: 1.25, pb: 2, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
+              <Box sx={{ height: 6, mb: 1.5 }}>
+                {usage.isFetching && !usage.isLoading && (
+                  <LinearProgress sx={{ borderRadius: 1 }} />
+                )}
+              </Box>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 1.5 }}>
                 <FilterAutocomplete
                   label="User"
