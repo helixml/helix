@@ -60,12 +60,16 @@ func (s *UsageAggregateTestSuite) seedRow(orgID, userID, projectID, appID, sessi
 
 	if sessionID != "" {
 		// Seed a minimal interaction row so the SUBSELECT for session_id
-		// resolves. Using GORM Create directly to avoid the heavyweight
-		// CreateInteraction logic.
-		err := s.db.gdb.WithContext(s.ctx).Exec(
-			"INSERT INTO interactions (id, session_id, created_at, updated_at) VALUES (?, ?, NOW(), NOW())",
-			interactionID, sessionID,
-		).Error
+		// resolves. Use GORM Create rather than raw SQL so column names
+		// stay in sync with the model (`created`/`updated`, not the
+		// GORM-default `created_at`/`updated_at`).
+		err := s.db.gdb.WithContext(s.ctx).Create(&types.Interaction{
+			ID:           interactionID,
+			GenerationID: 0,
+			SessionID:    sessionID,
+			Created:      time.Now(),
+			Updated:      time.Now(),
+		}).Error
 		s.Require().NoError(err)
 	}
 }
