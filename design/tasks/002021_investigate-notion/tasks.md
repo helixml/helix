@@ -24,16 +24,16 @@ These tasks need a real Notion Business workspace + the dev Helix to be reachabl
 - [x] Set `Notion-Version: 2025-09-03` header on every authorized request (in `MakeAuthorizedRequest` and the user-info fetch)
 
 ## Backend — trigger (primary path: Database Automation + Button)
-- [ ] Create `api/pkg/trigger/notion/notion.go` with `New()` and `ProcessWebhook(ctx, cfg, headers, body)` that branches on `X-Helix-Source` header
-- [ ] Implement shared-secret verification (constant-time compare on `X-Helix-Webhook-Secret` header)
-- [ ] Implement `events.go` payload parser for the Automation/Button shape (Notion's webhook-action JSON)
-- [ ] Implement `dispatch.go`: dispatch on `X-Helix-Action` header (`create` / `cancel`); idempotency via `ExternalTriggerRef` lookup keyed on `NotionPageID`
-- [ ] Implement `client.go`: `GetPage`, `PatchPageProperty` (Result column only — never the action column), `AppendEmbedBlock`, `DeleteBlock` using the OAuth connection
-- [ ] Implement embed-URL minting: per-trigger service-account API key (read-only on the target project); stored on the trigger config; used in `?access_token=`
-- [ ] Hook spectask completion in `api/pkg/services/spec_driven_task_service.go` to invoke `notion.WriteResultBack` when `ExternalTriggerRef.Type == "notion"` and a `ResultColumn` is configured
-- [ ] On spectask cancel, invoke best-effort `notion.DeleteBlock(EmbedBlockID)`
-- [ ] Wire `notion.ProcessWebhook` into `trigger.ProcessWebhook` switch
-- [ ] Update `webhookTriggerHandler` to pass request headers through to `trigger.ProcessWebhook`
+- [x] Create `api/pkg/trigger/notion/notion.go` with `New()` and `ProcessWebhook(ctx, cfg, headers, body)` that branches on `X-Helix-Source` header
+- [x] Implement shared-secret verification (constant-time compare on `X-Helix-Webhook-Secret` header)
+- [x] Implement `events.go` payload parser for the Automation/Button shape (Notion's webhook-action JSON)
+- [x] Implement dispatch in `notion.go`: dispatch on `X-Helix-Action` header (`create` / `cancel`); idempotency via `ExternalTriggerRef` lookup interface (impl deferred to spec-task service)
+- [x] Implement `client.go`: `GetPage`, `PatchRichTextProperty` (Result column only), `AppendEmbedBlock`, `DeleteBlock`
+- [x] Embed-URL minting: design changed per reviewer feedback — use the trigger creator's user API key (consistent with Gatewaze, simpler than the per-trigger service account). Stored as `NotionTrigger.EmbedAccessToken`; the trigger config wizard will paste it in. `defaultEmbedURLBuilder` in trigger.go stitches the URL.
+- [ ] Hook spectask completion in `api/pkg/services/spec_driven_task_service.go` to invoke `notion.OnSpecTaskCompleted` when `ExternalTriggerRef.Type == "notion"` and a `ResultColumn` is configured (DEFERRED — spec-task service is large, the hook surface exists; needs a small switch added at completion-finalisation point. Documented in design as the seam for the future SpecTaskSource interface.)
+- [ ] On spectask cancel, invoke best-effort `notion.OnSpecTaskCancelled` (DEFERRED — same reason as above)
+- [x] Wire `notion.ProcessWebhook` into `trigger.ProcessWebhook` switch
+- [x] Update `webhookTriggerHandler` to pass request headers through to `trigger.ProcessWebhook`
 
 ## Backend — trigger (secondary path: API webhook subscription)
 - [ ] Implement HMAC-SHA256 verification against `verification_token` in `events.go`
