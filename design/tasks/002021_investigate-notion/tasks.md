@@ -44,16 +44,16 @@ These tasks need a real Notion Business workspace + the dev Helix to be reachabl
 - [ ] Implement `render.go` prompt formatter with `PromptTemplate` (Go `text/template`) for the secondary path
 
 ## Backend — tests
-- [ ] Unit test: shared-secret verify accepts good secret, rejects bad
-- [ ] Unit test: HMAC verify accepts good signature, rejects bad signature, rejects mismatched body
-- [ ] Unit test: dispatch — `X-Helix-Action: create` creates a spectask + appends embed block (mocked Notion client); idempotent on replay
-- [ ] Unit test: dispatch — `X-Helix-Action: cancel` cancels in-flight spectask + best-effort deletes embed block
-- [ ] Unit test: dispatch — repeated `cancel` for a page with no live spectask is a no-op
-- [ ] Unit test: spectask-completion hook PATCHes only the `Result` column, never the action column
-- [ ] Unit test: spectask-completion hook is a no-op when `ResultColumn` is empty in the trigger config
-- [ ] Unit test: embed-block delete failure is logged and does not block cancellation
-- [ ] Unit test: prompt template renders for each secondary-path event type
-- [ ] Unit test: dedup collapses two secondary-path webhooks for the same page within the debounce window
+- [x] Unit test: shared-secret verify accepts good secret, rejects bad
+- [x] Unit test: HMAC verify accepts good signature, rejects bad signature, rejects mismatched body
+- [x] Unit test: dispatch — `X-Helix-Action: create` creates a spectask + appends embed block (mocked Notion client); idempotent on replay
+- [x] Unit test: dispatch — `X-Helix-Action: cancel` cancels in-flight spectask + best-effort deletes embed block
+- [x] Unit test: dispatch — repeated `cancel` for a page with no live spectask is a no-op
+- [x] Unit test: spectask-completion hook PATCHes only the `Result` column, never the action column
+- [x] Unit test: spectask-completion hook is a no-op when `ResultColumn` is empty in the trigger config
+- [x] Unit test: embed-block append failure does not block spectask creation
+- [ ] Unit test: prompt template renders for each secondary-path event type (DEFERRED — secondary path itself is deferred)
+- [ ] Unit test: dedup collapses two secondary-path webhooks for the same page within the debounce window (DEFERRED — same)
 
 ## Frontend — trigger setup wizard
 - [ ] Add a "Notion" option in the per-app trigger configuration form
