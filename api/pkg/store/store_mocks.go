@@ -24,6 +24,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -3598,6 +3599,101 @@ func (m *MockStore) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID
 func (mr *MockStoreMockRecorder) GetUnresolvedCommentsForTask(ctx, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnresolvedCommentsForTask", reflect.TypeOf((*MockStore)(nil).GetUnresolvedCommentsForTask), ctx, specTaskID)
+}
+
+// GetUsageGroupedByModel mocks base method.
+func (m *MockStore) GetUsageGroupedByModel(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByModel, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageGroupedByModel", ctx, q)
+	ret0, _ := ret[0].([]*types.UsageByModel)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetUsageGroupedByModel indicates an expected call of GetUsageGroupedByModel.
+func (mr *MockStoreMockRecorder) GetUsageGroupedByModel(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageGroupedByModel", reflect.TypeOf((*MockStore)(nil).GetUsageGroupedByModel), ctx, q)
+}
+
+// GetUsageGroupedByOrg mocks base method.
+func (m *MockStore) GetUsageGroupedByOrg(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByOrg, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageGroupedByOrg", ctx, q)
+	ret0, _ := ret[0].([]*types.UsageByOrg)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetUsageGroupedByOrg indicates an expected call of GetUsageGroupedByOrg.
+func (mr *MockStoreMockRecorder) GetUsageGroupedByOrg(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageGroupedByOrg", reflect.TypeOf((*MockStore)(nil).GetUsageGroupedByOrg), ctx, q)
+}
+
+// GetUsageGroupedByProject mocks base method.
+func (m *MockStore) GetUsageGroupedByProject(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByProject, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageGroupedByProject", ctx, q)
+	ret0, _ := ret[0].([]*types.UsageByProject)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetUsageGroupedByProject indicates an expected call of GetUsageGroupedByProject.
+func (mr *MockStoreMockRecorder) GetUsageGroupedByProject(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageGroupedByProject", reflect.TypeOf((*MockStore)(nil).GetUsageGroupedByProject), ctx, q)
+}
+
+// GetUsageGroupedBySession mocks base method.
+func (m *MockStore) GetUsageGroupedBySession(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageBySession, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageGroupedBySession", ctx, q)
+	ret0, _ := ret[0].([]*types.UsageBySession)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetUsageGroupedBySession indicates an expected call of GetUsageGroupedBySession.
+func (mr *MockStoreMockRecorder) GetUsageGroupedBySession(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageGroupedBySession", reflect.TypeOf((*MockStore)(nil).GetUsageGroupedBySession), ctx, q)
+}
+
+// GetUsageGroupedByUser mocks base method.
+func (m *MockStore) GetUsageGroupedByUser(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByUser, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageGroupedByUser", ctx, q)
+	ret0, _ := ret[0].([]*types.UsageByUser)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetUsageGroupedByUser indicates an expected call of GetUsageGroupedByUser.
+func (mr *MockStoreMockRecorder) GetUsageGroupedByUser(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageGroupedByUser", reflect.TypeOf((*MockStore)(nil).GetUsageGroupedByUser), ctx, q)
+}
+
+// GetUsageSummary mocks base method.
+func (m *MockStore) GetUsageSummary(ctx context.Context, q *GroupedUsageQuery) (*types.UsageSummary, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsageSummary", ctx, q)
+	ret0, _ := ret[0].(*types.UsageSummary)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUsageSummary indicates an expected call of GetUsageSummary.
+func (mr *MockStoreMockRecorder) GetUsageSummary(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsageSummary", reflect.TypeOf((*MockStore)(nil).GetUsageSummary), ctx, q)
 }
 
 // GetUser mocks base method.

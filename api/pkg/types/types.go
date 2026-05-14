@@ -2517,6 +2517,148 @@ type AggregatedUsageMetric struct {
 	TotalRequests     int     `json:"total_requests"`
 }
 
+// UsageTotals is the common token/cost shape returned by every aggregate
+// usage row, regardless of grouping.
+type UsageTotals struct {
+	PromptTokens     int     `json:"prompt_tokens"`
+	CompletionTokens int     `json:"completion_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
+	TotalTokens      int     `json:"total_tokens"`
+	PromptCost       float64 `json:"prompt_cost"`
+	CompletionCost   float64 `json:"completion_cost"`
+	CacheReadCost    float64 `json:"cache_read_cost"`
+	CacheWriteCost   float64 `json:"cache_write_cost"`
+	TotalCost        float64 `json:"total_cost"`
+	RequestCount     int     `json:"request_count"`
+}
+
+// UsageSummary is the platform/org-level overview returned by
+// /api/v1/usage/aggregate/summary.
+type UsageSummary struct {
+	From            time.Time                `json:"from"`
+	To              time.Time                `json:"to"`
+	UsageTotals     `json:",inline"`
+	ActiveUsers     int                      `json:"active_users"`
+	ActiveSessions  int                      `json:"active_sessions"`
+	ActiveProjects  int                      `json:"active_projects"`
+	TimeSeries      []*AggregatedUsageMetric `json:"time_series"`
+}
+
+// UsageByOrg is one row of /api/v1/usage/aggregate/by-org (global admin only).
+type UsageByOrg struct {
+	OrganizationID   string    `json:"organization_id"`
+	OrganizationName string    `json:"organization_name"`
+	UsageTotals      `json:",inline"`
+	UserCount        int       `json:"user_count"`
+	SessionCount     int       `json:"session_count"`
+	TopModel         string    `json:"top_model,omitempty"`
+	LastActivity     time.Time `json:"last_activity"`
+}
+
+// UsageByUser is one row of /api/v1/usage/aggregate/by-user.
+type UsageByUser struct {
+	UserID         string    `json:"user_id"`
+	Email          string    `json:"email"`
+	OrganizationID string    `json:"organization_id"`
+	UsageTotals    `json:",inline"`
+	SessionCount   int       `json:"session_count"`
+	TopModel       string    `json:"top_model,omitempty"`
+	LastActivity   time.Time `json:"last_activity"`
+}
+
+// UsageByProject is one row of /api/v1/usage/aggregate/by-project. Covers
+// projects, apps, and agents - the Kind field distinguishes which kind of
+// resource this row represents.
+type UsageByProject struct {
+	ProjectID      string `json:"project_id"`
+	AppID          string `json:"app_id,omitempty"`
+	Name           string `json:"name"`
+	Kind           string `json:"kind"` // "project" | "app" | "agent"
+	OwnerUserID    string `json:"owner_user_id,omitempty"`
+	OrganizationID string `json:"organization_id"`
+	UsageTotals    `json:",inline"`
+	SessionCount   int `json:"session_count"`
+}
+
+// UsageBySession is one row of /api/v1/usage/aggregate/by-session.
+type UsageBySession struct {
+	SessionID      string    `json:"session_id"`
+	Name           string    `json:"name,omitempty"`
+	UserID         string    `json:"user_id"`
+	ProjectID      string    `json:"project_id,omitempty"`
+	OrganizationID string    `json:"organization_id"`
+	Provider       string    `json:"provider"`
+	Model          string    `json:"model"`
+	UsageTotals    `json:",inline"`
+	CallCount      int       `json:"call_count"`
+	StartedAt      time.Time `json:"started_at"`
+	EndedAt        time.Time `json:"ended_at"`
+}
+
+// UsageByModel is one row of /api/v1/usage/aggregate/by-model. Aggregates
+// across (provider, model) pairs within the filtered scope.
+type UsageByModel struct {
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	UsageTotals  `json:",inline"`
+	UniqueUsers    int `json:"unique_users"`
+	UniqueSessions int `json:"unique_sessions"`
+	UniqueProjects int `json:"unique_projects"`
+}
+
+// Paginated wrappers for the by-* endpoints. Generics would be nicer
+// but the swagger generator (swag) doesn't model parameterized types,
+// so we expand by hand.
+//
+// `Total` carries the aggregate totals across all pages (not just the
+// page being returned) so the UI can show whole-result-set numbers
+// alongside per-row data.
+type PaginatedUsageByOrg struct {
+	Rows       []*UsageByOrg `json:"rows"`
+	Total      UsageTotals   `json:"total"`
+	Page       int           `json:"page"`
+	PageSize   int           `json:"page_size"`
+	TotalRows  int           `json:"total_rows"`
+	TotalPages int           `json:"total_pages"`
+}
+
+type PaginatedUsageByUser struct {
+	Rows       []*UsageByUser `json:"rows"`
+	Total      UsageTotals    `json:"total"`
+	Page       int            `json:"page"`
+	PageSize   int            `json:"page_size"`
+	TotalRows  int            `json:"total_rows"`
+	TotalPages int            `json:"total_pages"`
+}
+
+type PaginatedUsageByProject struct {
+	Rows       []*UsageByProject `json:"rows"`
+	Total      UsageTotals       `json:"total"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"page_size"`
+	TotalRows  int               `json:"total_rows"`
+	TotalPages int               `json:"total_pages"`
+}
+
+type PaginatedUsageBySession struct {
+	Rows       []*UsageBySession `json:"rows"`
+	Total      UsageTotals       `json:"total"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"page_size"`
+	TotalRows  int               `json:"total_rows"`
+	TotalPages int               `json:"total_pages"`
+}
+
+type PaginatedUsageByModel struct {
+	Rows       []*UsageByModel `json:"rows"`
+	Total      UsageTotals     `json:"total"`
+	Page       int             `json:"page"`
+	PageSize   int             `json:"page_size"`
+	TotalRows  int             `json:"total_rows"`
+	TotalPages int             `json:"total_pages"`
+}
+
 // Response for the user access endpoint
 type UserAppAccessResponse struct {
 	CanRead  bool `json:"can_read"`

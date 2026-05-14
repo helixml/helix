@@ -5959,6 +5959,91 @@ definitions:
       totalPages:
         type: integer
     type: object
+  types.PaginatedUsageByModel:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rows:
+        items:
+          $ref: '#/definitions/types.UsageByModel'
+        type: array
+      total:
+        $ref: '#/definitions/types.UsageTotals'
+      total_pages:
+        type: integer
+      total_rows:
+        type: integer
+    type: object
+  types.PaginatedUsageByOrg:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rows:
+        items:
+          $ref: '#/definitions/types.UsageByOrg'
+        type: array
+      total:
+        $ref: '#/definitions/types.UsageTotals'
+      total_pages:
+        type: integer
+      total_rows:
+        type: integer
+    type: object
+  types.PaginatedUsageByProject:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rows:
+        items:
+          $ref: '#/definitions/types.UsageByProject'
+        type: array
+      total:
+        $ref: '#/definitions/types.UsageTotals'
+      total_pages:
+        type: integer
+      total_rows:
+        type: integer
+    type: object
+  types.PaginatedUsageBySession:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rows:
+        items:
+          $ref: '#/definitions/types.UsageBySession'
+        type: array
+      total:
+        $ref: '#/definitions/types.UsageTotals'
+      total_pages:
+        type: integer
+      total_rows:
+        type: integer
+    type: object
+  types.PaginatedUsageByUser:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rows:
+        items:
+          $ref: '#/definitions/types.UsageByUser'
+        type: array
+      total:
+        $ref: '#/definitions/types.UsageTotals'
+      total_pages:
+        type: integer
+      total_rows:
+        type: integer
+    type: object
   types.PaginatedUsersList:
     properties:
       page:
@@ -9970,6 +10055,264 @@ definitions:
         type: integer
       prompt_tokens:
         type: integer
+      total_tokens:
+        type: integer
+    type: object
+  types.UsageByModel:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      model:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      request_count:
+        type: integer
+      total_cost:
+        type: number
+      total_tokens:
+        type: integer
+      unique_projects:
+        type: integer
+      unique_sessions:
+        type: integer
+      unique_users:
+        type: integer
+    type: object
+  types.UsageByOrg:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      last_activity:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_count:
+        type: integer
+      session_count:
+        type: integer
+      top_model:
+        type: string
+      total_cost:
+        type: number
+      total_tokens:
+        type: integer
+      user_count:
+        type: integer
+    type: object
+  types.UsageByProject:
+    properties:
+      app_id:
+        type: string
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      kind:
+        description: '"project" | "app" | "agent"'
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner_user_id:
+        type: string
+      project_id:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_count:
+        type: integer
+      session_count:
+        type: integer
+      total_cost:
+        type: number
+      total_tokens:
+        type: integer
+    type: object
+  types.UsageBySession:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      call_count:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      ended_at:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      request_count:
+        type: integer
+      session_id:
+        type: string
+      started_at:
+        type: string
+      total_cost:
+        type: number
+      total_tokens:
+        type: integer
+      user_id:
+        type: string
+    type: object
+  types.UsageByUser:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      email:
+        type: string
+      last_activity:
+        type: string
+      organization_id:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_count:
+        type: integer
+      session_count:
+        type: integer
+      top_model:
+        type: string
+      total_cost:
+        type: number
+      total_tokens:
+        type: integer
+      user_id:
+        type: string
+    type: object
+  types.UsageSummary:
+    properties:
+      active_projects:
+        type: integer
+      active_sessions:
+        type: integer
+      active_users:
+        type: integer
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      from:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_count:
+        type: integer
+      time_series:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      to:
+        type: string
+      total_cost:
+        type: number
+      total_tokens:
+        type: integer
+    type: object
+  types.UsageTotals:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      request_count:
+        type: integer
+      total_cost:
+        type: number
       total_tokens:
         type: integer
     type: object
@@ -21358,6 +21701,290 @@ paths:
       security:
       - BearerAuth: []
       summary: Get daily usage
+      tags:
+      - usage
+  /api/v1/usage/aggregate/by-model:
+    get:
+      parameters:
+      - description: Start of window (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End of window (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: Organization id or slug
+        in: query
+        name: org_id
+        type: string
+      - description: Sort column
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedUsageByModel'
+      security:
+      - BearerAuth: []
+      summary: Usage grouped by model / provider
+      tags:
+      - usage
+  /api/v1/usage/aggregate/by-org:
+    get:
+      description: Global-admin only. One row per organization with tokens, costs,
+        user/session counts and last activity.
+      parameters:
+      - description: Start of window (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End of window (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: 'Sort column: total_cost, total_tokens, request_count, last_activity'
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page (1-indexed)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (max 200, default 25)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedUsageByOrg'
+      security:
+      - BearerAuth: []
+      summary: Usage grouped by organization
+      tags:
+      - usage
+  /api/v1/usage/aggregate/by-project:
+    get:
+      parameters:
+      - description: Start of window (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End of window (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: Organization id or slug
+        in: query
+        name: org_id
+        type: string
+      - description: Filter by user id
+        in: query
+        name: user_id
+        type: string
+      - description: Sort column
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedUsageByProject'
+      security:
+      - BearerAuth: []
+      summary: Usage grouped by project / app / agent
+      tags:
+      - usage
+  /api/v1/usage/aggregate/by-session:
+    get:
+      parameters:
+      - description: Start of window (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End of window (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: Organization id or slug
+        in: query
+        name: org_id
+        type: string
+      - description: Filter by user id
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by project id
+        in: query
+        name: project_id
+        type: string
+      - description: Filter by provider
+        in: query
+        name: provider
+        type: string
+      - description: Filter by model
+        in: query
+        name: model
+        type: string
+      - description: Sort column
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedUsageBySession'
+      security:
+      - BearerAuth: []
+      summary: Usage grouped by session
+      tags:
+      - usage
+  /api/v1/usage/aggregate/by-user:
+    get:
+      description: Org members get rows scoped to their org. Global admins may omit
+        org_id to list across all orgs.
+      parameters:
+      - description: Start of window (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End of window (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: Organization id or slug. Required for non-admins.
+        in: query
+        name: org_id
+        type: string
+      - description: Sort column
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedUsageByUser'
+      security:
+      - BearerAuth: []
+      summary: Usage grouped by user
+      tags:
+      - usage
+  /api/v1/usage/aggregate/summary:
+    get:
+      description: Returns whole-set totals plus a daily time-series. Org owners must
+        pass org_id matching their org; global admins may omit it to summarize cross-org.
+      parameters:
+      - description: Start of window (RFC3339). Defaults to 7 days ago.
+        in: query
+        name: from
+        type: string
+      - description: End of window (RFC3339). Defaults to now.
+        in: query
+        name: to
+        type: string
+      - description: Organization id or slug. Required for non-admins.
+        in: query
+        name: org_id
+        type: string
+      - description: Filter by user id
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by project id
+        in: query
+        name: project_id
+        type: string
+      - description: Filter by app id
+        in: query
+        name: app_id
+        type: string
+      - description: Filter by provider
+        in: query
+        name: provider
+        type: string
+      - description: Filter by model
+        in: query
+        name: model
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UsageSummary'
+      security:
+      - BearerAuth: []
+      summary: Aggregate usage summary
       tags:
       - usage
   /api/v1/users:

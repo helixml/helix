@@ -455,6 +455,14 @@ type Store interface {
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
+	// Aggregate usage dashboard backends. See store_usage_aggregate.go.
+	GetUsageSummary(ctx context.Context, q *GroupedUsageQuery) (*types.UsageSummary, error)
+	GetUsageGroupedByOrg(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByOrg, int, error)
+	GetUsageGroupedByUser(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByUser, int, error)
+	GetUsageGroupedByProject(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByProject, int, error)
+	GetUsageGroupedBySession(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageBySession, int, error)
+	GetUsageGroupedByModel(ctx context.Context, q *GroupedUsageQuery) ([]*types.UsageByModel, int, error)
+
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error)
