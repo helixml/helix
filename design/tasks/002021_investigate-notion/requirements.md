@@ -177,6 +177,7 @@ A Notion database becomes Helix-managed by designating one **action column** (a 
 
 ## Out of Scope (this task)
 
+- A general `SpecTaskSource` Go interface that unifies Notion + GitHub Issues + Sentry + future spec-task-producing integrations. This is part of a recognised broader pattern (a colleague is exploring Sentry on the same shape). The right time to extract the interface is when the second implementation lands, not now — see design.md "Generalisation" for the lifecycle-method names that Notion will use to make the future refactor mechanical, and the coordination note with the Sentry workstream.
 - A first-party Notion app/listing in the Notion integration gallery (requires a security review at Notion's end — separate workstream).
 - Notion as a **knowledge source** for RAG (different code path, `helix/api/pkg/rag/`); this task is about triggers + embed only.
 - Polling fallback for fine-grained text-edit detection (called out in findings; deferred until we know whether webhooks alone are sufficient).

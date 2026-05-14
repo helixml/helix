@@ -222,15 +222,18 @@ To complete the round-trip (spectask → write back to the originating Notion ro
 
 ```go
 type ExternalTriggerRef struct {
-    Type              string `json:"type"`                // "notion"
+    Type              string `json:"type"`                // "notion" | "github_issue" | "sentry" | …
     TriggerConfigID   string `json:"trigger_config_id"`
-    NotionPageID      string `json:"notion_page_id,omitempty"`
-    NotionDatabaseID  string `json:"notion_database_id,omitempty"`
-    NotionEmbedBlockID string `json:"notion_embed_block_id,omitempty"` // For best-effort cleanup on cancel
+
+    // Source-specific opaque payload. Each source defines its own shape.
+    // For Notion: page_id, database_id, embed_block_id.
+    // For GitHub Issues (future): repo, issue_number, embed_comment_id.
+    // For Sentry (future): issue_id, organization, embed_comment_id.
+    Payload json.RawMessage `json:"payload,omitempty"`
 }
 ```
 
-This is generic enough to extend later (e.g. ADO work-item refs).
+`Payload` deliberately stays opaque to the spectask service — only the source's own code unmarshals it. This is the seam along which a future `SpecTaskSource` interface will be lifted (see "Generalisation" below).
 
 ### No new tables
 
@@ -241,8 +244,8 @@ This is generic enough to extend later (e.g. ADO work-item refs).
 | New file                                                  | Purpose                                            |
 | --------------------------------------------------------- | -------------------------------------------------- |
 | `api/pkg/trigger/notion/notion.go`                        | `New()`, `ProcessWebhook(ctx, cfg, headers, body)` — branches on payload shape |
-| `api/pkg/trigger/notion/dispatch.go`                      | `dispatchRowEvent(cfg, row)` — Status/Button → create/cancel; spectask-completion hook → row write-back |
-| `api/pkg/trigger/notion/client.go`                        | Thin Notion API client: `GetPage`, `PatchPage`, post-comment (uses OAuth connection) |
+| `api/pkg/trigger/notion/lifecycle.go`                     | `OnExternalCreate`, `OnSpecTaskCompleted`, `OnSpecTaskCancelled` — the generically-named hooks the future `SpecTaskSource` interface will demand. Spectask service calls these via the `ref.Type == "notion"` switch. |
+| `api/pkg/trigger/notion/client.go`                        | Thin Notion API client: `GetPage`, `PatchPageProperty`, `AppendEmbedBlock`, `DeleteBlock` (uses OAuth connection) |
 | `api/pkg/trigger/notion/events.go`                        | Payload structs for both shapes + signature verify helpers |
 | `api/pkg/trigger/notion/render.go`                        | Format Notion event → prompt string (secondary path only; the primary path uses `Prompt` column directly) |
 | `api/pkg/trigger/notion/notion_test.go`                   | Signature verification, dispatch logic, write-back, dedup |
@@ -255,9 +258,44 @@ This is generic enough to extend later (e.g. ADO work-item refs).
 | `api/pkg/oauth/oauth2.go`                                 | Notion case in `GetUserInfo`; HTTP-Basic flag, `Notion-Version` header |
 | `api/pkg/trigger/trigger.go`                              | `case triggerConfig.Trigger.Notion != nil:` in `ProcessWebhook` |
 | `api/pkg/server/webhook_trigger_handlers.go`              | Pass `r.Header` through to `trigger.ProcessWebhook` |
-| `api/pkg/services/spec_driven_task_service.go`            | On spectask completion, if `ExternalTriggerRef.Type == "notion"`, invoke `notion.WriteResultBack` |
+| `api/pkg/services/spec_driven_task_service.go`            | On spectask completion / cancellation, dispatch via a small `switch ref.Type` — the only place the spectask service knows about specific external sources. For `"notion"` → invoke `notion.OnSpecTaskCompleted` / `notion.OnSpecTaskCancelled`. Future sources (Sentry, GitHub) extend the same switch. |
 | `frontend/src/components/app/triggers/...` (existing trigger config UI) | Add Notion trigger config form: project picker, database ID, column mapping (4 fields), action mapping (4 status values), shared-secret display + setup wizard |
 | `frontend/src/pages/Providers.tsx`                        | Add "Notion" preset for the OAuth provider create form |
+
+## Generalisation: spec-task sources
+
+Notion is one instance of a broader pattern — **external systems that surface work items as spectasks on a Helix project**. The same conceptual surface applies to GitHub Issues / GitHub Projects, Sentry (a colleague is exploring this in parallel), Linear, Jira. Each one has the same five lifecycle hooks:
+
+| Lifecycle hook    | Notion (this spec)                  | GitHub Issues (future)      | Sentry (future)              |
+| ----------------- | ----------------------------------- | --------------------------- | ---------------------------- |
+| Inbound trigger   | Database Automation webhook (`X-Helix-Action: create`) | `issues/labeled` webhook (label = `helix`) | `issue.created` webhook (severity ≥ threshold) |
+| Action dispatch   | header → create / cancel            | label add/remove → create / cancel | new vs resolved → create / cancel |
+| Embed live UI     | append `embed` block to row's page  | post comment with embed URL | post comment with embed URL  |
+| Write result back | PATCH rich-text `Result` column     | post comment with summary   | post comment / linked issue update |
+| Cancel cleanup    | best-effort delete embed block      | edit/delete the embed comment | edit/delete the embed comment |
+
+**For the MVP we do NOT extract a Go `SpecTaskSource` interface.** Two implementations isn't enough to know the right shape; "abstract on the third instance" is healthier than designing in a vacuum. But we structure Notion's code so that the abstraction surface is visible and the future refactor is mechanical:
+
+1. **Lifecycle methods are explicit and named generically.** Notion's package exposes `OnExternalCreate`, `OnSpecTaskCompleted`, `OnSpecTaskCancelled` — not `dispatchNotionRowCreate`, etc. When the second source lands, those names lift directly into an interface.
+2. **`ExternalTriggerRef.Type` is the dispatch discriminator.** The spectask service has one tiny switch:
+   ```go
+   switch ref.Type {
+   case "notion": notion.OnSpecTaskCompleted(ctx, ref, st, result)
+   // future: case "github_issue": github.OnSpecTaskCompleted(...)
+   }
+   ```
+   This is the only spectask-service code that knows about specific sources. Everything else is inside the source's own package.
+3. **`ExternalTriggerRef.Payload` is opaque** (`json.RawMessage`). Each source unmarshals its own shape. The spectask service never reads it.
+4. **Webhook routing is already shared.** `webhookTriggerHandler` + `Trigger.ProcessWebhook` already dispatches by `Trigger.<Source>` field; GitHub / Sentry will add their own fields the same way Notion does.
+
+When the **second** implementation lands (probably Sentry, given the colleague's interest), the refactor is:
+- Lift `OnExternalCreate` / `OnSpecTaskCompleted` / `OnSpecTaskCancelled` into a `SpecTaskSource` Go interface.
+- Replace the `switch ref.Type` with a registry lookup.
+- The Notion-specific logic and tests don't move; only the dispatch glue.
+
+By the **third** implementation we have a stable interface; document it as a contract for any further integrations and put it under its own design doc.
+
+**Coordination with the Sentry workstream:** before implementation starts, agree on the lifecycle method names and the shape of `ExternalTriggerRef.Payload` (whether it carries the embed-comment ID directly or a discriminated sub-shape) with whoever is building Sentry. A short async sync (Slack thread or 30-min call) will make the eventual interface extraction trivial. Drop a note in #engineering linking both spec tasks before either of us starts implementation.
 
 ## Embed Path
 
