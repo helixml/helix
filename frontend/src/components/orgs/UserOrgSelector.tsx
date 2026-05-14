@@ -460,7 +460,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_billing',
             'org_usage',
             'org_api_keys',
-            'org_providers',
           ]),
           onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
