@@ -443,14 +443,26 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       })
     }
 
-    // Add org settings button when we have an org context
+    // Add org settings button when we have an org context.
+    // Highlights for any of the grouped admin pages (general, members,
+    // cost, access), and lands on General by default since that's the
+    // canonical "settings" leaf.
     if (currentOrgSlug) {
       baseButtons.push(
         {
           icon: <Settings size={NAV_BUTTON_SIZE} />,
           tooltip: "Organization settings",
-          isActive: isActive('org_people'),
-          onClick: () => orgNavigateTo('org_people', { org_id: currentOrgSlug }),
+          isActive: isActive([
+            'org_general',
+            'org_settings',
+            'org_people',
+            'org_teams',
+            'org_billing',
+            'org_usage',
+            'org_api_keys',
+            'org_providers',
+          ]),
+          onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
         }
       )
