@@ -126,6 +126,69 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 8th
 }
 
+func (suite *UsageMetricsTestSuite) TestGetAggregatedUsageMetrics_IncludesCacheFields() {
+	// Regression test: the aggregate SELECT used to omit cache_read_*,
+	// cache_write_*, prompt_cost, completion_cost; rows came back with
+	// zeros in those columns even though the underlying data had them.
+	// Anthropic traffic shows the bug most clearly because Anthropic
+	// reports cache_read/cache_write as separate buckets.
+	orgID := "org_" + system.GenerateID()
+	userID := "user_" + system.GenerateID()
+	day := time.Date(2026, 5, 14, 0, 0, 0, 0, time.UTC)
+
+	metric := &types.UsageMetric{
+		OrganizationID:   orgID,
+		UserID:           userID,
+		Created:          day.Add(2 * time.Hour),
+		Date:             day,
+		Provider:         string(types.ProviderAnthropic),
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+		CacheReadTokens:  4000,
+		CacheWriteTokens: 800,
+		TotalTokens:      6300,
+		PromptCost:       0.01,
+		CompletionCost:   0.03,
+		CacheReadCost:    0.002,
+		CacheWriteCost:   0.004,
+		TotalCost:        0.046,
+	}
+	_, err := suite.db.CreateUsageMetric(suite.ctx, metric)
+	suite.Require().NoError(err)
+
+	from := day.Add(-24 * time.Hour)
+	to := day.Add(24 * time.Hour)
+	metrics, err := suite.db.GetAggregatedUsageMetrics(suite.ctx, &GetAggregatedUsageMetricsQuery{
+		OrganizationID: orgID,
+		From:           from,
+		To:             to,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(metrics)
+
+	// Locate the row for our seeded day. fillInMissingDates pads other
+	// days with zeros, which is fine - we just need our day to land.
+	var got *types.AggregatedUsageMetric
+	for _, m := range metrics {
+		if m.Date.Year() == day.Year() && m.Date.YearDay() == day.YearDay() {
+			got = m
+			break
+		}
+	}
+	suite.Require().NotNil(got, "expected an aggregate row for the seeded day")
+
+	suite.Equal(1000, got.PromptTokens)
+	suite.Equal(500, got.CompletionTokens)
+	suite.Equal(4000, got.CacheReadTokens, "cache_read_tokens must be summed")
+	suite.Equal(800, got.CacheWriteTokens, "cache_write_tokens must be summed")
+	suite.Equal(6300, got.TotalTokens)
+	suite.InDelta(0.01, got.PromptCost, 1e-9)
+	suite.InDelta(0.03, got.CompletionCost, 1e-9)
+	suite.InDelta(0.002, got.CacheReadCost, 1e-9, "cache_read_cost must be summed")
+	suite.InDelta(0.004, got.CacheWriteCost, 1e-9, "cache_write_cost must be summed")
+	suite.InDelta(0.046, got.TotalCost, 1e-9)
+}
+
 func (suite *UsageMetricsTestSuite) TestGetUserMonthlyTokenUsage_User() {
 	appID := "test-" + system.GenerateAppID()
 	userID := system.GenerateID()
