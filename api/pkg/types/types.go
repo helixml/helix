@@ -2578,6 +2578,9 @@ type OrgUsageSummaryResponse struct {
 	ModelTimeSeries []UsageModelTimeSeries   `json:"model_time_series"`
 	Users           []UsageBreakdownRow      `json:"users"`
 	UsersTotal      int64                    `json:"users_total"`
+	ProjectsTotal   int64                    `json:"projects_total"`
+	TasksTotal      int64                    `json:"tasks_total"`
+	SessionsTotal   int64                    `json:"sessions_total"`
 	ActiveUsers     int                      `json:"active_users"`
 	ActiveSessions  int                      `json:"active_sessions"`
 	ActiveProjects  int                      `json:"active_projects"`
@@ -2586,6 +2589,12 @@ type OrgUsageSummaryResponse struct {
 	FilterProjects  []UsageFilterOption      `json:"filter_projects"`
 	FilterApps      []UsageFilterOption      `json:"filter_apps"`
 	FilterModels    []UsageFilterOption      `json:"filter_models"`
+	ExportProjects  []UsageBreakdownRow      `json:"export_projects"`
+	ExportApps      []UsageBreakdownRow      `json:"export_apps"`
+	ExportTasks     []UsageBreakdownRow      `json:"export_tasks"`
+	ExportSessions  []UsageBreakdownRow      `json:"export_sessions"`
+	ExportModels    []UsageBreakdownRow      `json:"export_models"`
+	ExportUsers     []UsageBreakdownRow      `json:"export_users"`
 }
 
 // Response for the user access endpoint

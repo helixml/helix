@@ -350,6 +350,27 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 	if userOffset < 0 {
 		userOffset = 0
 	}
+	projectLimit := boundedUsageLimit(q.ProjectLimit)
+	projectOffset := q.ProjectOffset
+	if projectOffset < 0 {
+		projectOffset = 0
+	}
+	taskLimit := boundedUsageLimit(q.TaskLimit)
+	taskOffset := q.TaskOffset
+	if taskOffset < 0 {
+		taskOffset = 0
+	}
+	sessionLimit := q.SessionLimit
+	if sessionLimit <= 0 {
+		sessionLimit = 10
+	}
+	if sessionLimit > 100 {
+		sessionLimit = 100
+	}
+	sessionOffset := q.SessionOffset
+	if sessionOffset < 0 {
+		sessionOffset = 0
+	}
 
 	metrics, err := s.GetAggregatedUsageMetrics(ctx, &GetAggregatedUsageMetricsQuery{
 		AggregationLevel: AggregationLevelDaily,
@@ -371,7 +392,7 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 		Metrics: metrics,
 	}
 
-	if err := s.orgUsageBreakdownQuery(ctx, q, "project").Limit(10).Find(&resp.Projects).Error; err != nil {
+	if err := s.orgUsageBreakdownQuery(ctx, q, "project").Limit(projectLimit).Offset(projectOffset).Find(&resp.Projects).Error; err != nil {
 		return nil, err
 	}
 	if err := s.orgUsageBreakdownQuery(ctx, q, "project_model").Find(&resp.ProjectModels).Error; err != nil {
@@ -380,10 +401,10 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 	if err := s.orgUsageBreakdownQuery(ctx, q, "app").Limit(10).Find(&resp.Apps).Error; err != nil {
 		return nil, err
 	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "task_model").Limit(10).Find(&resp.Tasks).Error; err != nil {
+	if err := s.orgUsageBreakdownQuery(ctx, q, "task_model").Limit(taskLimit).Offset(taskOffset).Find(&resp.Tasks).Error; err != nil {
 		return nil, err
 	}
-	if err := s.orgUsageBreakdownQuery(ctx, q, "session").Limit(10).Find(&resp.Sessions).Error; err != nil {
+	if err := s.orgUsageBreakdownQuery(ctx, q, "session").Limit(sessionLimit).Offset(sessionOffset).Find(&resp.Sessions).Error; err != nil {
 		return nil, err
 	}
 	if err := s.orgUsageBreakdownQuery(ctx, q, "model").Limit(10).Find(&resp.Models).Error; err != nil {
@@ -408,10 +429,25 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 	if err := countQuery.Distinct("usage_metrics.user_id").Count(&resp.UsersTotal).Error; err != nil {
 		return nil, err
 	}
+	resp.ProjectsTotal, err = s.countOrgUsageBreakdownRows(ctx, q, "project")
+	if err != nil {
+		return nil, err
+	}
+	resp.TasksTotal, err = s.countOrgUsageBreakdownRows(ctx, q, "task_model")
+	if err != nil {
+		return nil, err
+	}
+	resp.SessionsTotal, err = s.countOrgUsageBreakdownRows(ctx, q, "session")
+	if err != nil {
+		return nil, err
+	}
 	if err := s.orgUsageActiveCounts(ctx, q, resp); err != nil {
 		return nil, err
 	}
 	if err := s.orgUsageFilterOptions(ctx, q, resp); err != nil {
+		return nil, err
+	}
+	if err := s.orgUsageExportRows(ctx, q, resp); err != nil {
 		return nil, err
 	}
 
@@ -422,6 +458,23 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 	resp.ModelTimeSeries = modelSeries
 
 	return resp, nil
+}
+
+func boundedUsageLimit(limit int) int {
+	if limit <= 0 {
+		return 10
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func (s *PostgresStore) countOrgUsageBreakdownRows(ctx context.Context, q *GetOrgUsageSummaryQuery, dimension string) (int64, error) {
+	var count int64
+	subquery := s.orgUsageBreakdownQuery(ctx, q, dimension).Limit(-1).Offset(-1)
+	err := s.gdb.WithContext(ctx).Table("(?) as usage_breakdown_rows", subquery).Count(&count).Error
+	return count, err
 }
 
 func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsageSummaryQuery, dimension string) *gorm.DB {
@@ -641,6 +694,33 @@ func (s *PostgresStore) orgUsageFilterOptions(ctx context.Context, q *GetOrgUsag
 		Order("usage_metrics.provider ASC, usage_metrics.model ASC").
 		Limit(1000).
 		Find(&resp.FilterModels).Error; err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) orgUsageExportRows(ctx context.Context, q *GetOrgUsageSummaryQuery, resp *types.OrgUsageSummaryResponse) error {
+	const exportLimit = 10000
+
+	if err := s.orgUsageBreakdownQuery(ctx, q, "project").Limit(exportLimit).Find(&resp.ExportProjects).Error; err != nil {
+		return err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "app").Limit(exportLimit).Find(&resp.ExportApps).Error; err != nil {
+		return err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "task_model").Limit(exportLimit).Find(&resp.ExportTasks).Error; err != nil {
+		return err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "session").Limit(exportLimit).Find(&resp.ExportSessions).Error; err != nil {
+		return err
+	}
+	if err := s.orgUsageBreakdownQuery(ctx, q, "model").Limit(exportLimit).Find(&resp.ExportModels).Error; err != nil {
+		return err
+	}
+
+	userQuery := s.orgUsageBreakdownQuery(ctx, q, "user")
+	if err := userQuery.Limit(exportLimit).Find(&resp.ExportUsers).Error; err != nil {
 		return err
 	}
 

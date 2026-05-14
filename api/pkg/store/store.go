@@ -197,6 +197,12 @@ type GetOrgUsageSummaryQuery struct {
 	UserSearch     string
 	UserLimit      int
 	UserOffset     int
+	ProjectLimit   int
+	ProjectOffset  int
+	TaskLimit      int
+	TaskOffset     int
+	SessionLimit   int
+	SessionOffset  int
 }
 
 var _ Store = &PostgresStore{}
