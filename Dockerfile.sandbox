@@ -276,7 +276,8 @@ ENV HELIX_API_URL="" \
     ZED_IMAGE="helix-sway:latest" \
     HYDRA_ENABLED="true" \
     HELIX_KEEP_DEAD_CONTAINERS="false" \
-    HELIX_SANDBOX_REGISTRY=""
+    HELIX_SANDBOX_REGISTRY="" \
+    HELIX_EXPERIMENTAL_DESKTOPS=""
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/sandbox/

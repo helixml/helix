@@ -103,6 +103,15 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
+**Experimental desktop pulls.** The sandbox startup script
+(`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
+(`helix-ubuntu`) on every container start. Experimental desktops
+(`helix-sway`, `helix-zorin`, `helix-xfce`, `helix-kde`) are gated behind
+the `HELIX_EXPERIMENTAL_DESKTOPS` env var (space-separated, default
+empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
+to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
+Docker the first time someone launches a sway desktop session.
+
 ### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
 
 `sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
