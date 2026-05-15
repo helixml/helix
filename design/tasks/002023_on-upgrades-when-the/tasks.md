@@ -56,8 +56,10 @@
 - [x] Add a one-paragraph note to `CLAUDE.md` (sandbox / Build Pipeline
   section) documenting `HELIX_EXPERIMENTAL_DESKTOPS`, default empty, and
   the lazy-pull fallback behavior.
-- [ ] Open the PR against `helixml/helix` with the conventional commit
-  prefix `fix(sandbox):` and reference this spec task in the description.
-- [ ] After pushing, watch CI (`gh pr checks` / Drone MCP) and confirm
-  the sandbox-build pipeline still passes — no `.drone.yml` change is
-  expected, but the sandbox image rebuild needs to succeed.
+- [x] Push `feature/002023-skip-helix-sway-pull-at` with the
+  `fix(sandbox):` commit. (PR creation handled by the Helix platform —
+  user clicks "Open PR" in the UI; description lives in
+  `pull_request_helix.md`.)
+- [ ] After the PR opens, watch CI (Drone) and confirm the
+  sandbox-build pipeline still passes — no `.drone.yml` change is
+  expected, but the sandbox image rebuild exercises the script.
