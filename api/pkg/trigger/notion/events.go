@@ -73,27 +73,45 @@ func VerifyNotionSignature(headers http.Header, rawBody []byte, verificationToke
 }
 
 // AutomationEvent is the shape of the JSON body Notion sends from a Database
-// Automation / Button property "Send webhook" action. The user picks which
-// fields land in the body when they configure the automation; we deliberately
-// only depend on `data.id` (the page ID — Notion always includes it) plus
-// whatever properties the user chose.
+// Automation / Button property "Send webhook" action. Verified live on
+// 2026-05-15 against Luke's Notion (Business plan); a captured fixture lives
+// at testdata/automation_webhook_create.json.
 //
-// Properties is the raw map of field-name → property value as Notion serialises
-// it; consumers pull values out via Property* helpers.
+// Properties is the raw map of field-name → property value as Notion
+// serialises it; consumers pull values out via Property* helpers.
 type AutomationEvent struct {
-	Source string         `json:"source"`         // "automation" | "button" | "..."
-	Data   AutomationData `json:"data,omitempty"` // Notion's wrapper around the page payload
+	Source AutomationSource `json:"source"`         // metadata about the firing automation
+	Data   AutomationData   `json:"data,omitempty"` // Notion's wrapper around the page payload
+}
+
+// AutomationSource identifies which Notion automation produced the delivery.
+// Notion sends this as an object (not a string — initial design assumed a
+// string and was wrong). Useful for logging / debugging only; dispatch keys
+// off the X-Helix-Action header instead.
+type AutomationSource struct {
+	Type         string `json:"type"`          // "automation"
+	AutomationID string `json:"automation_id"` // the automation's UUID
+	ActionID     string `json:"action_id"`     // the specific action (Notion automations can have multiple)
+	EventID      string `json:"event_id"`      // unique per delivery (use for de-dup if needed)
+	Attempt      int    `json:"attempt"`       // 1 on first attempt; >1 on retries
 }
 
 // AutomationData wraps the page identity and the property snapshot Notion
-// includes in the webhook body. Notion's exact field names here are
-// conservative best-effort and may need adjusting after live discovery — see
-// the prerequisite manual webhook.site capture in tasks.md.
+// includes in the webhook body.
+//
+// Note on Parent: Notion's API version 2025-09-03 introduces "data sources",
+// and even databases created against the older 2022-06-28 endpoint surface
+// both `database_id` and `data_source_id` here. We extract `database_id` for
+// our purposes; data_source_id is recorded for forward compatibility.
 type AutomationData struct {
-	ID         string                     `json:"id"`           // page ID
-	Object     string                     `json:"object"`       // "page"
-	Parent     map[string]json.RawMessage `json:"parent"`       // contains database_id
-	Properties map[string]json.RawMessage `json:"properties"`   // user-selected fields
+	ID              string                     `json:"id"`                          // page ID
+	Object          string                     `json:"object"`                      // "page"
+	Parent          map[string]json.RawMessage `json:"parent"`                      // see DatabaseIDFromParent
+	Properties      map[string]json.RawMessage `json:"properties"`                  // user-selected fields, fully populated
+	CreatedTime     string                     `json:"created_time,omitempty"`
+	LastEditedTime  string                     `json:"last_edited_time,omitempty"`
+	InTrash         bool                       `json:"in_trash,omitempty"`
+	IsArchived      bool                       `json:"is_archived,omitempty"`
 }
 
 // ParseAutomationEvent unmarshals a primary-path webhook body. Returns the

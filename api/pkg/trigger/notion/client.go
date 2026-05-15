@@ -15,7 +15,9 @@ const notionAPIBase = "https://api.notion.com"
 // notionAPIVersion mirrors api/pkg/oauth.notionAPIVersion. Kept as a string
 // constant here too so this package stays free of an oauth import (this file
 // only builds requests; the bearer token is supplied by the caller).
-const notionAPIVersion = "2025-09-03"
+//
+// Pinned to 2022-06-28; see api/pkg/oauth/notion.go for the rationale.
+const notionAPIVersion = "2022-06-28"
 
 // Client is a thin Notion HTTP client. It uses a caller-supplied access token
 // (typically pulled out of the user's OAuthConnection) and the pinned

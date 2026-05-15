@@ -125,12 +125,24 @@ func newTestNotion(t *testing.T, opts ...func(*Notion)) (*Notion, *fakeNotionAPI
 
 func makeAutomationBody(t *testing.T, pageID, prompt, dbID string) []byte {
 	t.Helper()
+	// Mirrors the real Notion shape captured at
+	// testdata/automation_webhook_create.json.
 	body := map[string]any{
-		"source": "automation",
+		"source": map[string]any{
+			"type":          "automation",
+			"automation_id": "auto-test",
+			"action_id":     "action-test",
+			"event_id":      "event-test",
+			"attempt":       1,
+		},
 		"data": map[string]any{
 			"id":     pageID,
 			"object": "page",
-			"parent": map[string]any{"database_id": dbID},
+			"parent": map[string]any{
+				"type":           "data_source_id",
+				"database_id":    dbID,
+				"data_source_id": "ds-test",
+			},
 			"properties": map[string]any{
 				"Name": map[string]any{
 					"type":  "title",

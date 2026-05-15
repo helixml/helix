@@ -1,0 +1,144 @@
+{
+  "headers": {
+    "host": [
+      "webhook.site"
+    ],
+    "traceparent": [
+      "00-23e7b5d89a4de227415f57f1f06c5656-8df9f2b88cf9f287-00"
+    ],
+    "content-length": [
+      "2057"
+    ],
+    "x-helix-action": [
+      "create"
+    ],
+    "x-helix-source": [
+      "notion-automation"
+    ],
+    "x-helix-webhook-secret": [
+      "helix-test-secret-12345"
+    ],
+    "content-type": [
+      "application/json"
+    ],
+    "user-agent": [
+      "NotionAutomation"
+    ]
+  },
+  "body": {
+    "source": {
+      "type": "automation",
+      "automation_id": "36100975-e919-803a-8ac9-004d4e58081f",
+      "action_id": "36100975-e919-808a-a219-005aa41fdbce",
+      "event_id": "bc16e6e0-5276-492c-87e6-923b02770357",
+      "attempt": 1
+    },
+    "data": {
+      "object": "page",
+      "id": "36100975-e919-81bb-a013-e800f1c31aa7",
+      "created_time": "2026-05-15T09:21:00.000Z",
+      "last_edited_time": "2026-05-15T09:27:00.000Z",
+      "created_by": {
+        "object": "user",
+        "id": "36100975-e919-818d-984e-0027de3ac79e"
+      },
+      "last_edited_by": {
+        "object": "user",
+        "id": "36100975-e919-818d-984e-0027de3ac79e"
+      },
+      "cover": null,
+      "icon": null,
+      "parent": {
+        "type": "data_source_id",
+        "data_source_id": "36100975-e919-815a-b6ae-000b00e9b9ac",
+        "database_id": "36100975-e919-81c8-9d72-d7ee85ed47c2"
+      },
+      "in_trash": false,
+      "is_archived": false,
+      "is_locked": false,
+      "properties": {
+        "Go/NoGo": {
+          "id": "J%7C%3F%7C",
+          "type": "select",
+          "select": {
+            "id": "863cbc66-be08-4621-a02e-c9fb674688eb",
+            "name": "Go",
+            "color": "green"
+          }
+        },
+        "Result": {
+          "id": "YaPi",
+          "type": "rich_text",
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "\u2713 Helix wrote this back via PatchRichTextProperty",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "\u2713 Helix wrote this back via PatchRichTextProperty",
+              "href": null
+            }
+          ]
+        },
+        "Prompt": {
+          "id": "i%5DOl",
+          "type": "rich_text",
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "Test row for verifying the Helix \u2192 Notion webhook flow",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "Test row for verifying the Helix \u2192 Notion webhook flow",
+              "href": null
+            }
+          ]
+        },
+        "Name": {
+          "id": "title",
+          "type": "title",
+          "title": [
+            {
+              "type": "text",
+              "text": {
+                "content": "Investigate Notion integration",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "Investigate Notion integration",
+              "href": null
+            }
+          ]
+        }
+      },
+      "url": "https://www.notion.so/Investigate-Notion-integration-36100975e91981bba013e800f1c31aa7",
+      "public_url": null,
+      "request_id": "a9083a1f-68a7-43b7-8447-3a7496f6ea4f"
+    }
+  }
+}

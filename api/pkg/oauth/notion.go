@@ -11,7 +11,16 @@ import (
 // notionAPIVersion is sent on every Notion API request via the Notion-Version
 // header. Notion versions its API by date string and rejects calls without
 // this header. Bump centrally when we upgrade.
-const notionAPIVersion = "2025-09-03"
+//
+// We pin to 2022-06-28 deliberately. The newer 2025-09-03 introduces a
+// breaking "data_sources" concept where a database's properties live on a
+// nested data source rather than the database itself, which would require
+// rewriting our database-create + property-PATCH paths. Verified live on
+// 2026-05-15 against Luke's Notion that 2022-06-28 still works for everything
+// we need (page CRUD, embed-block append, rich-text PATCH, data-source-free
+// `POST /v1/databases` with the properties inline). When we adopt
+// data_sources, bump this in one place.
+const notionAPIVersion = "2022-06-28"
 
 // notionUsersMeResponse is the shape Notion returns from GET /v1/users/me when
 // called with an OAuth-integration access token. The token belongs to a bot,

@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 )
 
@@ -81,9 +83,62 @@ func TestVerifyNotionSignature(t *testing.T) {
 	})
 }
 
+// TestParseAutomationEvent_LiveFixture parses the actual webhook body Notion
+// sent during live verification on 2026-05-15. Captured at
+// testdata/automation_webhook_create.json. If Notion changes their wire
+// format this test will catch it before users hit it in production.
+func TestParseAutomationEvent_LiveFixture(t *testing.T) {
+	raw, err := os.ReadFile("testdata/automation_webhook_create.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var fixture struct {
+		Headers map[string][]string `json:"headers"`
+		Body    json.RawMessage     `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode fixture wrapper: %v", err)
+	}
+
+	ev, pageID, err := ParseAutomationEvent(fixture.Body)
+	if err != nil {
+		t.Fatalf("ParseAutomationEvent on live fixture: %v", err)
+	}
+	if pageID != "36100975-e919-81bb-a013-e800f1c31aa7" {
+		t.Errorf("pageID = %q", pageID)
+	}
+	if ev.Source.Type != "automation" {
+		t.Errorf("source.type = %q, want automation", ev.Source.Type)
+	}
+	if ev.Source.AutomationID == "" || ev.Source.ActionID == "" || ev.Source.EventID == "" {
+		t.Errorf("source IDs missing: %+v", ev.Source)
+	}
+	if got := DatabaseIDFromParent(ev.Data.Parent); got != "36100975-e919-81c8-9d72-d7ee85ed47c2" {
+		t.Errorf("DatabaseIDFromParent = %q", got)
+	}
+	if got := extractTitle(ev); got != "Investigate Notion integration" {
+		t.Errorf("extractTitle = %q", got)
+	}
+	if got := extractPrompt(ev, "Prompt"); got != "Test row for verifying the Helix → Notion webhook flow" {
+		t.Errorf("extractPrompt = %q", got)
+	}
+	// Sanity-check the Helix headers Notion forwarded.
+	wantHeaders := map[string]string{
+		"x-helix-action":         "create",
+		"x-helix-source":         "notion-automation",
+		"x-helix-webhook-secret": "helix-test-secret-12345",
+	}
+	for k, want := range wantHeaders {
+		got := fixture.Headers[k]
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("header %s = %v, want [%s]", k, got, want)
+		}
+	}
+}
+
 func TestParseAutomationEvent(t *testing.T) {
 	body := []byte(`{
-		"source": "automation",
+		"source": {"type": "automation", "automation_id": "a1", "action_id": "x1", "event_id": "e1", "attempt": 1},
 		"data": {
 			"id": "page-abc-123",
 			"object": "page",
