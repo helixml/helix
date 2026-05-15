@@ -1,12 +1,12 @@
 # Implementation Tasks: Skip helix-sway Pull at Sandbox Startup Unless Enabled
 
-- [ ] In `sandbox/04-start-dockerd.sh`, replace the hardcoded
+- [~] In `sandbox/04-start-dockerd.sh`, replace the hardcoded
   `load_desktop_image "sway|zorin|ubuntu|kde"` block (lines 247–251)
   with a production/experimental split: always load
   `PRODUCTION_DESKTOPS=(ubuntu)`, only load entries from
   `AVAILABLE_EXPERIMENTAL_DESKTOPS=(sway zorin xfce kde)` when listed in
   the `HELIX_EXPERIMENTAL_DESKTOPS` env var.
-- [ ] For each experimental desktop that is skipped, log an `ℹ️ … skipping
+- [~] For each experimental desktop that is skipped, log an `ℹ️ … skipping
   pull (set HELIX_EXPERIMENTAL_DESKTOPS="<name> ...") to enable` line so
   operators can see why the pull didn't happen.
 - [ ] In `Dockerfile.sandbox` (env block around lines 270–279), add
