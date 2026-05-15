@@ -144,6 +144,18 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			wantMisconfig:    false,
 			why:              "runner-side callers without a manager handle opt out of resolution and pass through verbatim",
 		},
+		{
+			name: "subscription_agent_no_default_model_written",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			}},
+			snapshot:         []ProviderRef{globalAnthropic},
+			wantDefaultModel: nil,
+			wantMisconfig:    false,
+			why:              "subscription agents auth upstream directly; Zed must use its built-in defaults rather than a Helix-routed model. wantMisconfig=false so the spec-task entry handler does not 422.",
+		},
 	}
 
 	for _, tc := range cases {
@@ -483,7 +495,7 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 		name      string
 		assistant types.AssistantConfig
 		snapshot  []ProviderRef
-		wantEmpty bool // true = no error returned (config considered valid)
+		wantValid bool // true = no error returned (config considered valid)
 		why       string
 	}{
 		{
@@ -494,7 +506,7 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
 			snapshot:  []ProviderRef{globalAnthropic},
-			wantEmpty: true,
+			wantValid: true,
 			why:       "subscription agents auth upstream directly; empty provider/model is the documented shape",
 		},
 		{
@@ -507,7 +519,7 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 				GenerationModel:         "claude-sonnet-4-5",
 			},
 			snapshot:  []ProviderRef{globalAnthropic},
-			wantEmpty: true,
+			wantValid: true,
 			why:       "even with stored fields, subscription bypass short-circuits validation",
 		},
 		{
@@ -518,7 +530,7 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
 			},
 			snapshot:  []ProviderRef{globalAnthropic},
-			wantEmpty: false,
+			wantValid: false,
 			why:       "regression guard: api_key runtimes must still surface missing provider/model",
 		},
 		{
@@ -528,7 +540,7 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
 			},
 			snapshot:  []ProviderRef{globalAnthropic},
-			wantEmpty: false,
+			wantValid: false,
 			why:       "default (empty) credential type is api_key per the type docs; validator must still catch misconfig",
 		},
 	}
@@ -544,7 +556,7 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 				},
 			}
 			got := ValidateAssistantModelConfig(app, tc.snapshot)
-			if tc.wantEmpty {
+			if tc.wantValid {
 				assert.Empty(t, got, tc.why)
 			} else {
 				assert.NotEmpty(t, got, tc.why)
