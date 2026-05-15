@@ -9,12 +9,13 @@
 - [x] For each experimental desktop that is skipped, log an `ℹ️ … skipping
   pull (set HELIX_EXPERIMENTAL_DESKTOPS="<name> ...") to enable` line so
   operators can see why the pull didn't happen.
-- [~] In `Dockerfile.sandbox` (env block around lines 270–279), add
+- [x] In `Dockerfile.sandbox` (env block around lines 270–279), add
   `HELIX_EXPERIMENTAL_DESKTOPS=""` as the default.
-- [ ] In `docker-compose.dev.yaml`, plumb
+- [x] In `docker-compose.dev.yaml`, plumb
   `HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}` through
-  to every sandbox service (`sandbox-nvidia`, plus any sibling services
-  like `sandbox` / `sandbox-macos` that use the same image).
+  to every sandbox service (4 instances: `sandbox-nvidia`, `sandbox-amd`,
+  `sandbox-cpu` and `sandbox-macos` all use the same `helix-sandbox`
+  image and need the var passed in).
 - [ ] Run `./stack build-sandbox` and start a fresh sandbox container with
   no `HELIX_EXPERIMENTAL_DESKTOPS` set. Confirm `helix-ubuntu` pulls as
   today and `helix-sway` does NOT pull (info message instead).
