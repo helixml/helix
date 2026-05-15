@@ -16,7 +16,7 @@
   to every sandbox service (4 instances: `sandbox-nvidia`, `sandbox-amd`,
   `sandbox-cpu` and `sandbox-macos` all use the same `helix-sandbox`
   image and need the var passed in).
-- [ ] Run `./stack build-sandbox` and start a fresh sandbox container with
+- [~] Run `./stack build-sandbox` and start a fresh sandbox container with
   no `HELIX_EXPERIMENTAL_DESKTOPS` set. Confirm `helix-ubuntu` pulls as
   today and `helix-sway` does NOT pull (info message instead).
 - [ ] Restart the sandbox with `HELIX_EXPERIMENTAL_DESKTOPS="sway"` and
