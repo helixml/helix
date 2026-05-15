@@ -706,6 +706,15 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if assistant == nil {
 		return ""
 	}
+	// Subscription-credential agents (e.g. Claude Code with OAuth) auth
+	// directly with the upstream provider and do not route inference through
+	// a Helix provider, so empty provider/model is the documented shape
+	// (see types.CodeAgentCredentialTypeSubscription). Validating against a
+	// Helix provider snapshot would be meaningless and incorrectly 422s any
+	// task started on such an agent.
+	if assistant.CodeAgentCredentialType.IsSubscription() {
+		return ""
+	}
 	provider := assistant.GenerationModelProvider
 	if provider == "" {
 		provider = assistant.Provider

@@ -469,3 +469,86 @@ func TestBuildLanguageModels(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateAssistantModelConfig_SubscriptionBypass guards the carve-out for
+// subscription-credential agents (e.g. Claude Code with OAuth). These agents
+// deliberately ship empty provider/model — the upstream auth lives in the
+// container, not in a Helix provider — so the validator must not 422 them.
+// The api_key cases stay as regression guards so we don't silently widen the
+// bypass to runtimes that DO need a Helix-routed provider.
+func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
+	globalAnthropic := ProviderRef{ID: "", Name: "anthropic"}
+
+	cases := []struct {
+		name      string
+		assistant types.AssistantConfig
+		snapshot  []ProviderRef
+		wantEmpty bool // true = no error returned (config considered valid)
+		why       string
+	}{
+		{
+			name: "subscription_empty_fields_ok",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantEmpty: true,
+			why:       "subscription agents auth upstream directly; empty provider/model is the documented shape",
+		},
+		{
+			name: "subscription_populated_fields_also_ok",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+				GenerationModelProvider: "anthropic",
+				GenerationModel:         "claude-sonnet-4-5",
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantEmpty: true,
+			why:       "even with stored fields, subscription bypass short-circuits validation",
+		},
+		{
+			name: "api_key_empty_fields_still_errors",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantEmpty: false,
+			why:       "regression guard: api_key runtimes must still surface missing provider/model",
+		},
+		{
+			name: "empty_credential_type_treated_as_api_key",
+			assistant: types.AssistantConfig{
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantEmpty: false,
+			why:       "default (empty) credential type is api_key per the type docs; validator must still catch misconfig",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &types.App{
+				ID: "test-app",
+				Config: types.AppConfig{
+					Helix: types.AppHelixConfig{
+						Assistants: []types.AssistantConfig{tc.assistant},
+					},
+				},
+			}
+			got := ValidateAssistantModelConfig(app, tc.snapshot)
+			if tc.wantEmpty {
+				assert.Empty(t, got, tc.why)
+			} else {
+				assert.NotEmpty(t, got, tc.why)
+			}
+		})
+	}
+}
