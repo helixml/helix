@@ -3,8 +3,18 @@
 ## Coordination
 - [x] Sync with the Sentry-integration workstream owner before writing code (reviewer confirmed: message sent to Priya 2026-05-14 — proposal in `pull_request_helix.md` notes section)
 
-## Live verification (in progress — Luke upgraded Luke's Notion to Business plan for testing)
-- [x] Register a Notion **internal integration** in a paid-plan test workspace; capture client ID, client secret, and an integration-token PAT for solo testing (token saved to `~/work/.secrets/notion.env`, workspace=Luke's Notion now on Business plan)
+## Live verification (done — see findings.md "Live verification — what we proved")
+- [x] Register a Notion **internal integration** in a paid-plan test workspace
+- [x] Share test page with the integration via Actions → Connections
+- [x] Create a `Helix Tasks (legacy)` test database with `Name`/`Go/NoGo`/`Prompt`/`Result` columns via API
+- [x] Create a Database Automation that fires "When Go/NoGo is set to Go" → Send webhook → webhook.site URL with `X-Helix-Webhook-Secret` / `X-Helix-Source` / `X-Helix-Action: create` custom headers
+- [x] Flip a row to Go via API; confirm webhook fired with all 3 custom headers received intact
+- [x] Capture real payload at `api/pkg/trigger/notion/testdata/automation_webhook_create.json`
+- [x] Update `events.go` to match real shape (`Source` is an object, not a string)
+- [x] Add `TestParseAutomationEvent_LiveFixture` that asserts the parser handles the captured payload
+- [x] Verify embed-block insert + delete via API (live)
+- [x] Verify Result-column rich-text writeback via API; confirm Go/NoGo column untouched
+- [x] Pin Notion-Version to `2022-06-28` (newer `2025-09-03` introduces breaking `data_sources` concept)
 - [ ] Create a `Go/NoGo` select column in a test database. Manually create a Database Automation that fires "When `Go/NoGo` is set to `Go`" with action "Send webhook" → confirm payload shape (which fields land, that custom headers like `X-Helix-Action: create` come through) using webhook.site
 - [ ] Repeat for the `NoGo` direction with `X-Helix-Action: cancel`
 - [ ] Manually add a Button property column with a "Send webhook" action → confirm payload shape and that we can distinguish it from the Automation payload via `X-Helix-Source: notion-button`
