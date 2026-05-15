@@ -15,6 +15,12 @@
 - [x] Verify embed-block insert + delete via API (live)
 - [x] Verify Result-column rich-text writeback via API; confirm Go/NoGo column untouched
 - [x] Pin Notion-Version to `2022-06-28` (newer `2025-09-03` introduces breaking `data_sources` concept)
+- [x] Set up cloudflared quick tunnel exposing inner Helix to public internet (added note to CLAUDE.md so future agents skip this discovery)
+- [x] Login to inner Helix as `test@helix.ml`, complete onboarding (testorg + testproj), navigate to Optimus agent's Triggers tab, see new Notion trigger card render
+- [x] Create a Notion `TriggerConfiguration` via `POST /api/v1/triggers` (caught 2 bugs: missing Notion case in store switch + missing webhook_url population — both fixed)
+- [x] Replay captured Notion payload at `${TUNNEL}/api/v1/webhooks/${TRIGGER_ID}` → spec task created in inner Helix Backlog with title from Notion `Prompt` column
+- [x] Verify `external_trigger_ref` JSONB column persisted with correct `type:notion` discriminator + opaque `payload` shape (proves the design generalisation works in production)
+- [x] Verify graceful embed-block failure when no OAuth connection wired (logs warning, spectask still created)
 - [ ] Create a `Go/NoGo` select column in a test database. Manually create a Database Automation that fires "When `Go/NoGo` is set to `Go`" with action "Send webhook" → confirm payload shape (which fields land, that custom headers like `X-Helix-Action: create` come through) using webhook.site
 - [ ] Repeat for the `NoGo` direction with `X-Helix-Action: cancel`
 - [ ] Manually add a Button property column with a "Send webhook" action → confirm payload shape and that we can distinguish it from the Automation payload via `X-Helix-Source: notion-button`

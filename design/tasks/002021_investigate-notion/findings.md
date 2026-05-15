@@ -2,7 +2,29 @@
 
 Status as of 2026-05-15 (live verification done in Luke's Notion, Business plan). This file records what shipped in the MVP, what was deferred, and what's confirmed against a real Notion workspace.
 
-## Live verification — what we proved
+## Live verification — full end-to-end through Helix
+
+On 2026-05-15 Luke upgraded his personal Notion to Business and we ran the full loop:
+**Notion DB Automation → cloudflared tunnel → inner Helix → spectask created in testproj kanban → ExternalTriggerRef persisted in DB**.
+
+Walkthrough:
+1. Notion's real Database Automation webhook payload was captured (see `api/pkg/trigger/notion/testdata/automation_webhook_create.json`).
+2. cloudflared quick tunnel exposed `localhost:8080` at `https://safe-zope-diagram-threatening.trycloudflare.com` (process running on dev box; see CLAUDE.md "Exposing the inner Helix to public webhooks").
+3. Helix App `app_01krpaje1xywa8pwqgzm6bmm7j` (Optimus, in `testorg/testproj`) had a Notion trigger configuration created via `POST /api/v1/triggers` → `trgc_01krpb81r1v5fqtp76jt90jh5n`. Trigger config persisted to DB with `trigger_type: notion`.
+4. Replay of the captured Notion payload at `${TUNNEL}/api/v1/webhooks/${TRIGGER_ID}` with the three custom headers Notion would send (`X-Helix-Webhook-Secret`, `X-Helix-Source: notion-automation`, `X-Helix-Action: create`) → HTTP 200.
+5. API logs show: `Received webhook trigger` → `Created spec task: project_id=prj_01krpajdx1dykt9nysqcc97v60 status=backlog task_id=spt_01krpbe235mtwkaqp1pxqgqemt`.
+6. Inner Helix kanban (`/orgs/testorg/projects/.../specs`) shows the new task in **Backlog**, titled **"Test row for verifying the Helix → Notion webhook flow"** — extracted live from the Notion `Prompt` column.
+7. DB row inspected: `external_trigger_ref = {"type":"notion","payload":{"page_id":"…","database_id":"…"},"trigger_config_id":"trgc_…"}` — exactly the shape the design specifies, exactly what the Sentry workstream needs to mirror.
+
+Two bugs caught and fixed during this run (commits on `feature/002021-notion-integration-for`):
+- `store_trigger_configurations.go` was missing the `Trigger.Notion != nil` case in its trigger-type switch → `POST /api/v1/triggers` returned 500 "trigger type not specified". Added.
+- `app_trigger_handlers.go` only populated `WebhookURL` for Azure DevOps → Notion triggers came back with empty `webhook_url`. Added the Notion case in both the list and create handlers.
+
+Embed-block append failed gracefully as designed: log line `notion: append embed block failed (spectask still created): "notion: oauth connection id missing — embed block not inserted"` — the spectask was created and the failure was logged, never blocking. Validates `TestOnExternalCreate_AppendEmbedFailureDoesNotBlockSpecTask` running for real.
+
+The Notion-side UI demo (drag a card on a kanban view → fire the automation through the tunnel) needs the user's email-verification code to log back into Notion. The replay test above runs the same code path; the outstanding piece is purely the front-end of the Notion side.
+
+## Live verification — what we proved (subsystem-by-subsystem)
 
 On 2026-05-15 Luke upgraded his personal Notion to Business and ran end-to-end verification with a `Helix Tasks (legacy)` test database (`Name`/`Go/NoGo`/`Prompt`/`Result` columns, integration shared with the parent page). All four Notion API operations + the Database Automation webhook were exercised against the live API. Results:
 
