@@ -780,6 +780,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
       "PromotionalTabsEnabled": false,
       "SyncDisabled": true,
       "PasswordManagerEnabled": true,
+      "RestoreOnStartup": 1,
       "BookmarkBarEnabled": false
     }' > /etc/chromium/policies/managed/helix.json
 
@@ -804,7 +805,7 @@ else
       "ImportHistory": false,
       "ImportSavedPasswords": false,
       "ImportSearchEngine": false,
-      "RestoreOnStartup": 5,
+      "RestoreOnStartup": 1,
       "PasswordManagerEnabled": true,
       "PrivacySandboxPromptEnabled": false,
       "PrivacySandboxAdTopicsEnabled": false,
