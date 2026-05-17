@@ -86,6 +86,17 @@ No new Go code, no new packages, no docker-compose changes.
 - Repeat with Chrome explicitly closed before container restart — confirm Chrome stays closed.
 - Check `ls -la /home/retro/.config/google-chrome` inside the container — must be a symlink.
 
+### Why manual verification can't run from the implementing agent
+
+The implementation runs inside an existing container started from the *old*
+image — `RestoreOnStartup: 5` is still in effect, `/etc/chromium/policies/managed/helix.json`
+doesn't exist (this host is amd64/Chrome), and `/home/retro/work/.chrome-state`
+hasn't been created (helix-workspace-setup.sh runs at session start). The
+end-to-end flow only kicks in after `./stack build-ubuntu` + sway equivalent
+and starting a brand new session. Verifying it requires terminating the
+current session, which would kill the implementing agent. Reviewer to run
+the manual checks after merging or in a separate fresh session.
+
 ## Notes for future agents working on similar tasks
 
 - The `.claude-state` block in `helix-workspace-setup.sh:535-567` is the **canonical persistence template** in this repo. Copy its structure — including the "preserve any files written before the symlink was set up" cp step — for any new symlinked state dir.
