@@ -1,6 +1,7 @@
 # Implementation Tasks: Persist Browser State and Auto-Restore on Session Resume
 
-- [~] In `desktop/shared/helix-workspace-setup.sh`, add a `~/.config/google-chrome` and `~/.config/chromium` symlink block targeting `$WORK_DIR/.chrome-state`, mirroring the existing `.claude` block (lines 535-567). Include the "preserve existing ephemeral files before symlinking" cp step. Seed first-run sentinels on initial setup so the "skip welcome dialog" behaviour still works.
+- [x] In `desktop/shared/helix-workspace-setup.sh`, add a `~/.config/google-chrome` and `~/.config/chromium` symlink block targeting `$WORK_DIR/.chrome-state`, mirroring the existing `.claude` block (lines 535-567). Include the "preserve existing ephemeral files before symlinking" cp step. Seed first-run sentinels on initial setup so the "skip welcome dialog" behaviour still works.
+- [~] In `Dockerfile.sway-helix`, change `"RestoreOnStartup": 5` → `1` in the Chrome policy JSON (line 707) and add `"RestoreOnStartup":1` to the arm64 Chromium policy JSON (line 687 — currently has no RestoreOnStartup field).
 - [ ] In `Dockerfile.sway-helix`, change `"RestoreOnStartup": 5` → `1` in the Chrome policy JSON (line 707) and in the arm64 Chromium policy JSON (line 687).
 - [ ] In `Dockerfile.ubuntu-helix`, make the same `RestoreOnStartup` change in the equivalent Chrome policy block.
 - [ ] In `desktop/sway-config/startup-app.sh`, add (after Sway is up and Chrome workspace assignment rules are written, around line 469):
