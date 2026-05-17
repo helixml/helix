@@ -4,7 +4,7 @@
 - [x] In `Dockerfile.sway-helix`, change `"RestoreOnStartup": 5` → `1` in the Chrome policy JSON and add `"RestoreOnStartup":1` to the arm64 Chromium policy JSON.
 - [x] In `Dockerfile.ubuntu-helix`, make the same `RestoreOnStartup` changes (Chrome and Chromium policy blocks).
 - [x] In `desktop/sway-config/startup-app.sh`, add an auto-launch block + heartbeat-touch loop for Chrome (after Sway is up and Chrome workspace assignment rules are written).
-- [~] Mirror the same auto-launch + heartbeat-touch block in `desktop/ubuntu-config/startup-app.sh`.
+- [x] Mirror the same auto-launch + heartbeat-touch block in `desktop/ubuntu-config/startup-app.sh`.
 - [ ] Manual test on `helix-sway`: open Chrome with 3 distinct tabs, restart container, verify tabs restored and Chrome is up on workspace 3 without user action.
 - [ ] Manual test on `helix-ubuntu` (GNOME): same scenario.
 - [ ] Manual test: close Chrome before container restart, verify Chrome stays closed on next session.
