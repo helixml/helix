@@ -3,12 +3,12 @@
 - [x] In `frontend/src/services/projectService.ts:103-105`, update
       `useDeleteProject` `onSuccess` to `async` and `await Promise.all([…])`
       invalidating `['projects']` and `['pinned-projects']`.
-- [~] In `frontend/src/pages/ProjectSettings.tsx:2022-2025`, gate the dialog's
+- [x] In `frontend/src/pages/ProjectSettings.tsx:2022-2025`, gate the dialog's
       `onClose` callback so it is a no-op when
       `deleteProjectMutation.isPending` is true.
-- [ ] In `frontend/src/pages/ProjectSettings.tsx:2061-2068`, add
+- [x] In `frontend/src/pages/ProjectSettings.tsx:2061-2068`, add
       `disabled={deleteProjectMutation.isPending}` to the **Cancel** button.
-- [ ] Run `cd frontend && yarn build` and fix any type errors.
+- [~] Run `cd frontend && yarn build` and fix any type errors.
 - [ ] Manually verify the scenario in `design.md`'s "Manual Test Plan" against
       the inner Helix at `http://localhost:8080` (register `test@helix.ml` /
       `helixtest`, create org, create a project, delete it, confirm it is gone
