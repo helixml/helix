@@ -2,13 +2,13 @@
 
 ## Backend — delete the field
 
-- [ ] Remove `MaxConcurrentDesktops int` from `SystemSettings` in `api/pkg/types/system_settings.go:37`
-- [ ] Remove `MaxConcurrentDesktops *int` from `SystemSettingsRequest` in `api/pkg/types/system_settings.go:79`
-- [ ] Remove `MaxConcurrentDesktops int` from `SystemSettingsResponse` in `api/pkg/types/system_settings.go:131`
-- [ ] Remove the field assignment in `ToResponseWithSource` at `api/pkg/types/system_settings.go:190`
-- [ ] Remove the patch branch in `api/pkg/store/store_system_settings.go:86-88` (`if req.MaxConcurrentDesktops != nil { ... }`)
-- [ ] Remove the `max_concurrent_desktops_updated` log key in `api/pkg/server/system_settings_handlers.go:97`
-- [ ] Update `api/pkg/store/store_system_settings_test.go` to drop the three assertions on `MaxConcurrentDesktops` (lines 95, 166, 211)
+- [~] Remove `MaxConcurrentDesktops int` from `SystemSettings` in `api/pkg/types/system_settings.go:37`
+- [~] Remove `MaxConcurrentDesktops *int` from `SystemSettingsRequest` in `api/pkg/types/system_settings.go:79`
+- [~] Remove `MaxConcurrentDesktops int` from `SystemSettingsResponse` in `api/pkg/types/system_settings.go:131`
+- [~] Remove the field assignment in `ToResponseWithSource` at `api/pkg/types/system_settings.go:190`
+- [~] Remove the patch branch in `api/pkg/store/store_system_settings.go:86-88` (`if req.MaxConcurrentDesktops != nil { ... }`)
+- [~] Remove the `max_concurrent_desktops_updated` log key in `api/pkg/server/system_settings_handlers.go:97`
+- [~] Update `api/pkg/store/store_system_settings_test.go` to drop the three assertions on `MaxConcurrentDesktops` (lines 95, 166, 211)
 
 ## Backend — fix `/api/v1/config`
 
