@@ -58,8 +58,8 @@ TypeScript build (`yarn tsc`) passes clean. `yarn build-frontend` (vite) fails o
 
 ## Ship
 
-- [~] Push, open PR using full URL format per `helix/CLAUDE.md` (`https://github.com/helixml/helix/pull/<n>`), reference this spec task. Call out in the PR body that admins who previously used the System Settings slider should switch to the env vars and that `-1` means unlimited
-- [ ] Check CI green via `gh pr checks <n>` or Drone MCP tools per `helix/CLAUDE.md`
+- [x] Push the feature branch — pushed as `feature/002031-remove-the-phantom-max` on the helix repo. PR description lives in `pull_request_helix.md`. The Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI per spec-task workflow rules
+- [ ] CI green check — pending; PR not yet open. Will check via `gh pr checks <n>` / Drone MCP tools once the PR exists
 
 ## Follow-up (out of scope here, log as separate spec)
 
