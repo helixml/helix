@@ -1,4 +1,4 @@
-# Design: Honour "0 = Unlimited" for Max Concurrent Desktops
+# Design: Honour Explicit Unlimited for Max Concurrent Desktops
 
 ## Problem Recap
 
@@ -8,105 +8,77 @@ tier", but the System Settings UI label promises `0 = unlimited`. The two
 meanings collide on the same value, so the user-visible behaviour silently
 contradicts the help text.
 
-This must be resolved so that the field's three meaningful states map to
-distinct, predictable runtime behaviour.
+## Chosen Approach: `-1` Means Unlimited
 
-## State Model
+Per colleague feedback, **use `-1` as the explicit sentinel for "unlimited"**.
+This keeps the field as a plain `int` (no nullable column / migration) and
+aligns with the existing convention in `api/pkg/quota/quota.go:58`/`129`/`268`,
+where `MaxConcurrentDesktops: -1` already means "no limit".
 
-| UI / DB value           | Intended meaning                                | Effective `MaxConcurrentDesktops` returned by `/api/v1/config` |
-|-------------------------|-------------------------------------------------|----------------------------------------------------------------|
-| `0` (UI: `Unlimited`)   | Admin explicitly chose unlimited                | `-1` (the project-wide convention for unlimited; see `quota.go:268`) |
-| `N > 0`                 | Admin chose a finite cap                        | `N`                                                            |
-| Field never set / fresh install | Use the operator-configured Free-tier default | `Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (default `2`, env `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS`) |
+### Value Semantics (target state)
 
-The challenge: `SystemSettings.MaxConcurrentDesktops` is a plain `int`, so
-states #1 and #3 currently look identical to the server.
-
-## Decision: Promote `MaxConcurrentDesktops` to `*int`
-
-Choose **Option A** below: change the field to a nullable pointer so the three
-states become distinguishable. Then update the handler to map them as in the
-table above.
+| Stored value | Meaning                                          | Effective `MaxConcurrentDesktops` returned by `/api/v1/config` |
+|--------------|--------------------------------------------------|----------------------------------------------------------------|
+| `-1`         | Admin explicitly chose **Unlimited**             | `-1`                                                           |
+| `0`          | Unset — fall back to server default              | `Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (currently `2`, env `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS`) |
+| `N > 0`      | Explicit finite cap                              | `N`                                                            |
 
 ### Why this option, not the alternatives
 
-**Option A — `*int` on `SystemSettings.MaxConcurrentDesktops`** ✅ *chosen*
+**`-1` sentinel (chosen)** ✅
+- No schema change — column stays a plain `int`.
+- Reuses the convention already used by `quota.go`, so the "unlimited" path
+  is consistent end-to-end.
+- Existing rows storing `0` keep their current behaviour after upgrade
+  (free-tier default) — no silent flip to unlimited. Admins who actually want
+  unlimited explicitly re-select it.
+- Cost: requires the UI to be updated so admins can produce the `-1` value
+  (today they can only enter `>= 0`), and the displayed help text / chip need
+  updating.
 
-- Pros: matches `SystemSettingsRequest.MaxConcurrentDesktops` which is already
-  `*int` (`system_settings.go:79`); aligns with how the rest of the codebase
-  (`quota.go`) already treats "unlimited" as a distinct concept; preserves
-  upgrade behaviour for instances that never touched the setting.
-- Cons: requires a DB column shape that allows NULL, a small migration, and a
-  one-time touch of the persistence + response-mapping code. JSON shape of the
-  response is unaffected (`int` field still serialises as a number).
+**`*int` pointer (previously proposed, now rejected)**
+- More mechanical work (DB migration to allow NULL, type change, request /
+  store glue) for the same observable outcome.
+- Three meanings (unset / `0` / `>0`) mapped onto `nil` / `*int(0)` / `*int(N)`
+  works but adds nullability to a column that doesn't otherwise need it.
 
-**Option B — Use a sentinel like `-1` for unlimited**
+**Drop the fallback entirely; treat `0` as unlimited**
+- Silently flips existing instances that have `0` saved from "capped at 2" to
+  "unlimited" on upgrade — resource-exposure risk on shared deployments.
+  Rejected on safety grounds.
 
-- Pros: no schema change.
-- Cons: the **UI already saves `0`** as the "unlimited" sentinel, so we'd be
-  redefining the semantics of values currently in production DBs and changing
-  the frontend storage model. Two sentinels (`0` and `-1`) competing for the
-  same meaning is worse than the current bug.
-
-**Option C — Drop the fallback entirely; treat any `0` as unlimited**
-
-- Pros: one-line change in `handlers.go`.
-- Cons: breaks instances that have never touched System Settings — they'd
-  silently flip from "2 desktops" to "unlimited" on upgrade. This is a
-  meaningful regression for shared deployments. Rejected on safety grounds.
-
-**Option D — Change only the UI label to "0 = use server default"**
-
-- Pros: zero server change.
-- Cons: closes the bug by giving up on the feature. There is genuine demand
-  for "unlimited" — that's why the help text was written that way in the first
-  place. Rejected as user-hostile.
+**Change only the UI label to "use server default"**
+- Closes the bug by removing the feature. Rejected — admins legitimately want
+  an "Unlimited" mode.
 
 ## Architecture Changes
 
-### 1. Type change (`api/pkg/types/system_settings.go`)
+### 1. Resolution helper (`api/pkg/types/system_settings.go`)
+
+Add a method next to the existing `EffectiveMaxConcurrentHeadlessSandboxes` /
+`EffectiveMaxConcurrentDesktopSandboxes` helpers (`system_settings.go:219-231`):
 
 ```go
-// before
-MaxConcurrentDesktops int `json:"max_concurrent_desktops,omitempty"`
-
-// after
-MaxConcurrentDesktops *int `json:"max_concurrent_desktops,omitempty"`
-```
-
-Update:
-- `SystemSettings.MaxConcurrentDesktops` → `*int`.
-- `SystemSettingsResponse.MaxConcurrentDesktops` already serialises an `int`;
-  derive it from a helper that returns the *resolved effective value* (one of
-  the three rows above). This way the admin UI shows what the server actually
-  enforces, not the raw DB value, which keeps the displayed `Unlimited` chip
-  honest.
-
-### 2. Resolution helper
-
-Add a single method on `SystemSettings` (parallel to the existing
-`EffectiveMaxConcurrentHeadlessSandboxes` / `…DesktopSandboxes` helpers at
-`system_settings.go:219-231`):
-
-```go
-// EffectiveMaxConcurrentDesktops resolves the three states to the int the
-// rest of the system should enforce. Returns -1 to mean unlimited.
+// EffectiveMaxConcurrentDesktops resolves the three states.
+// Returns -1 to mean unlimited (consistent with quota.go convention).
 func (s *SystemSettings) EffectiveMaxConcurrentDesktops(freeTierDefault int) int {
-    if s.MaxConcurrentDesktops == nil {
+    if s.MaxConcurrentDesktops < 0 {
+        return -1
+    }
+    if s.MaxConcurrentDesktops == 0 {
         return freeTierDefault
     }
-    if *s.MaxConcurrentDesktops == 0 {
-        return -1 // unlimited
-    }
-    return *s.MaxConcurrentDesktops
+    return s.MaxConcurrentDesktops
 }
 ```
 
-Putting it on the type keeps the resolution logic next to the data and means
-every caller (current handler, future API endpoints, future quota code paths)
-gets the same answer.
+Field type stays `int`. **No DB migration.** **No change to
+`SystemSettingsRequest.MaxConcurrentDesktops`** (it's already `*int`, which
+correctly distinguishes "patch with -1" from "field absent from request").
 
-### 3. Handler change (`api/pkg/server/handlers.go:117-123`)
+### 2. Handler change (`api/pkg/server/handlers.go:117-123`)
+
+Replace the inline fallback with the helper:
 
 ```go
 config.MaxConcurrentDesktops = systemSettings.EffectiveMaxConcurrentDesktops(
@@ -114,87 +86,132 @@ config.MaxConcurrentDesktops = systemSettings.EffectiveMaxConcurrentDesktops(
 )
 ```
 
-Delete the old branch entirely. The helper does the right thing.
+Delete the old branch entirely (`NO FALLBACKS` rule from `helix/CLAUDE.md` —
+one path, fix properly).
 
-### 4. Client-side gate (`helix-org/helix/helixclient/client.go`)
+### 3. Response mapping (`SystemSettings.ToResponseWithSource`)
+
+`SystemSettingsResponse.MaxConcurrentDesktops` should reflect the **stored
+raw value** (`-1` / `0` / `N`), not the resolved one. Admin UI needs to know
+the raw stored intent to render the three distinct states correctly. The
+*effective* resolved value lives on `ServerConfigForFrontend` and that's what
+consumers like helix-org read.
+
+So `ToResponseWithSource` simply passes `s.MaxConcurrentDesktops` through —
+no change to current behaviour beyond accepting `-1` as a valid value.
+
+### 4. Frontend (`frontend/src/components/dashboard/SystemSettingsTable.tsx`)
+
+Multiple changes required — the current implementation is the source of the
+"saved `0` thinking it meant unlimited" trap.
+
+**`handleSaveMaxDesktops` (line 113-132)**: current guard rejects negatives:
+
+```ts
+if (isNaN(value) || value < 0) { snackbar.error('…non-negative number'); return }
+```
+
+Update to allow `-1` (and only `-1`) as a negative value, since that is now
+the unlimited sentinel. Alternative (better UX): replace the free-form
+number input with a small mode picker: `Unlimited` / `Use server default` /
+`Custom cap (N)`, where the picker writes `-1` / `0` / `N` respectively. The
+admin never needs to know that `-1` is the sentinel.
+
+**Chip display (line 738-742)**:
+
+```ts
+label={settings?.max_concurrent_desktops ? `Limit: ${settings.max_concurrent_desktops}` : 'Unlimited'}
+```
+
+This is broken under the new model. Rewrite as:
+
+```ts
+const v = settings?.max_concurrent_desktops ?? 0
+const label =
+  v < 0  ? 'Unlimited' :
+  v === 0 ? `Default (${serverDefault})` :
+            `Limit: ${v}`
+```
+
+(`serverDefault` is the effective free-tier number — either expose it from
+the backend or, simpler, drop the parenthetical and just display
+`'Default'`.)
+
+**Help text (line 733-734)**: rewrite from `0 = unlimited` to something like
+`-1 = unlimited, 0 = use server default` — or, if the picker UX is adopted,
+the help text becomes redundant.
+
+### 5. Quota / desktop enforcement path
+
+Verify (do not change) that `StartDesktop` and any quota gate handle `-1`
+correctly. `api/pkg/quota/quota.go:268` already does:
+
+```go
+if limit < 0 { return &QuotaLimitReachedResponse{LimitReached: false, …} }
+```
+
+So passing `-1` through is harmless. **Spot-check there isn't a separate
+enforcement path that reads `ServerConfigForFrontend.MaxConcurrentDesktops`
+and does its own `>= limit` check without the `< 0` guard.** If one exists,
+add the guard.
+
+### 6. helix-org client (`helix-org/helix/helixclient/client.go`)
 
 Already correct — `HasDesktopRoom` (per earlier investigation) treats
-`Max <= 0` as unlimited. No change required, but **must be verified during
-implementation** in case the field name or semantics drift.
-
-### 5. Persistence layer (`api/pkg/store/store_system_settings.go`)
-
-Inspect the column definition and read/write paths:
-- GORM AutoMigrate will need to accept NULLs for the column.
-- `Update` / `Patch` paths must preserve "explicit 0" (saved value) versus
-  "field absent in request" (no change). Since `SystemSettingsRequest`
-  already uses `*int`, the patch path likely just needs the destination type
-  to match.
-- `Get` defaults: when reading an existing row with no value, the pointer is
-  `nil` — which the helper interprets as "fall back to free tier". This is
-  the desired upgrade behaviour.
-
-### 6. Test additions
-
-Targeted Go table-test on `EffectiveMaxConcurrentDesktops`:
-
-| Input (pointer)   | Free-tier default | Expected output |
-|-------------------|-------------------|-----------------|
-| `nil`             | `2`               | `2`             |
-| `nil`             | `10`              | `10`            |
-| ptr(`0`)          | `2`               | `-1`            |
-| ptr(`5`)          | `2`               | `5`             |
-| ptr(`5`)          | `10`              | `5`             |
-
-Plus a handler-level test confirming the JSON returned by `/api/v1/config`
-respects each case.
+`Max <= 0` as unlimited. **Re-verify during implementation** in case the
+field semantics or name have drifted. Note: with our new model, `Max == 0`
+should never appear on the wire (the resolver always converts `0` → the
+free-tier default before returning), so the `<= 0` check is more permissive
+than strictly needed. Leave it as-is — it's harmlessly tolerant.
 
 ## Compatibility & Migration
 
-- **DB migration**: change the column to nullable. Existing rows that have
-  `0` get migrated to `NULL` *only if* we want to preserve their current
-  behaviour (cap of 2). This is a judgement call — see "Open question" below.
-- **API JSON shape**: unchanged for consumers. `ServerConfigForFrontend.MaxConcurrentDesktops`
-  remains `int`; only its resolution changes.
-- **helix-org**: no change needed; existing `HasDesktopRoom` already treats
-  `≤ 0` as unlimited (verify during implementation).
-- **Existing deployments**: must keep current "do nothing → cap of 2"
-  behaviour. The `nil` pointer case handles this.
+- **DB**: no migration. Column stays `int NOT NULL DEFAULT 0`.
+- **Existing rows with `0`**: continue to mean "fall back to free-tier
+  default". Behaviour preserved across upgrade.
+- **API JSON shape**: unchanged. `int` fields. The only new wire value is
+  `-1`, which is just a number.
+- **helix-org**: unchanged. `HasDesktopRoom` already tolerates `<= 0`.
 
-## Open Question for Implementation
+## Testing Plan
 
-When migrating existing rows: should every existing `0` value become `NULL`
-(preserves today's "fall back to 2" behaviour) **or** stay as `0` (immediately
-flips those instances to unlimited, matching the UI label they've been
-staring at)?
+Targeted Go table-test on `EffectiveMaxConcurrentDesktops`:
 
-Recommendation: **migrate `0` → `NULL`**. Reasoning: any admin who saw the
-UI saying `Unlimited` and got 2 anyway has been living with the bug; they
-have a workaround (set a high number). Flipping them silently to unlimited
-on upgrade could open up resource exposure on shared instances. Preserving
-the current effective behaviour is the safer default. If they actually want
-unlimited, the chip will still say `Unlimited` post-upgrade (the displayed
-value comes from the resolver), and they can re-save `0` to make it real.
+| Input | Free-tier default | Expected output |
+|-------|-------------------|-----------------|
+| `-1`  | `2`               | `-1`            |
+| `-1`  | `10`              | `-1`            |
+| `0`   | `2`               | `2`             |
+| `0`   | `10`              | `10`            |
+| `5`   | `2`               | `5`             |
+| `5`   | `10`              | `5`             |
 
-Confirm this with the user before running the migration.
+Handler-level test confirming `GET /api/v1/config` returns the resolved value
+for each of the three states.
+
+End-to-end in the inner Helix at `http://localhost:8080`
+(per `helix/CLAUDE.md` testing rules):
+
+1. Log in, save `Unlimited` in the admin UI; confirm DB stores `-1`.
+2. `curl /api/v1/config | jq '.max_concurrent_desktops'` returns `-1`.
+3. Open more than 2 desktop sessions; confirm none are rejected for quota.
+4. Save a positive number (say `1`); confirm 2nd session is rejected.
+5. Save `0` (or "Use server default"); confirm cap reverts to the free-tier
+   default.
 
 ## Notes for the Implementing Agent
 
-- The `quota.go` code already uses `-1` for unlimited — do not invent a new
-  sentinel.
-- The `SystemSettingsRequest.MaxConcurrentDesktops` field is *already* `*int`,
-  so the API request shape needs no change.
-- The frontend `SystemSettingsTable.tsx` chip logic `settings?.max_concurrent_desktops ? 'Limit' : 'Unlimited'`
-  works correctly if the response returns `0` when the resolved cap is
-  unlimited — but since we're returning the *effective* value, we should
-  instead return `-1` for unlimited and update the frontend to display
-  `Unlimited` for `≤ 0`. Or, simpler: have the resolver return `0` for
-  unlimited in the response payload so the existing frontend conditional keeps
-  working. Pick **whichever is the smaller diff** and document the choice in
-  the PR.
-- Test end-to-end in the inner Helix at `http://localhost:8080` per
-  `helix/CLAUDE.md` testing rules: set Max Concurrent Desktops to 0 in the
-  admin UI, then check `curl http://localhost:8080/api/v1/config | jq
-  '.max_concurrent_desktops, .active_concurrent_desktops'` returns a value
-  that downstream consumers (and an actual `StartDesktop` call) accept as
-  unlimited.
+- **Do not migrate existing `0` rows** to `-1`. That would silently flip
+  capped instances to unlimited.
+- The `quota.go` code already uses `-1` for unlimited — reuse the convention,
+  don't invent a new sentinel.
+- `SystemSettingsRequest.MaxConcurrentDesktops` is already `*int`, so it
+  correctly distinguishes "patch with -1" (admin chose unlimited) from
+  "field absent from request" (don't change). No change needed there.
+- Frontend changes are the largest surface area in this fix — don't ship the
+  backend change without the matching UI update, or admins will be stuck
+  again (this time unable to express the `-1` state through the UI at all).
+- Test end-to-end in the inner Helix per `helix/CLAUDE.md` — do not rely on
+  unit tests alone.
+- Use full PR URL (`https://github.com/helixml/helix/pull/<n>`) per
+  `helix/CLAUDE.md` communication rules.
