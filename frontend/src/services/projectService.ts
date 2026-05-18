@@ -100,8 +100,15 @@ export const useDeleteProject = () => {
       const response = await apiClient.v1ProjectsDelete(projectId);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
+    onSuccess: async () => {
+      // Use the short prefix ['projects'] so every per-org variant of
+      // projectsListQueryKey(orgId) is invalidated. Passing
+      // projectsListQueryKey() would produce ['projects', undefined] and
+      // would NOT match ['projects', 'org_xxx'].
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        queryClient.invalidateQueries({ queryKey: pinnedProjectsQueryKey() }),
+      ]);
     },
   });
 };
