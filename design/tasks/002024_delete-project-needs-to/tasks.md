@@ -8,8 +8,13 @@
       `deleteProjectMutation.isPending` is true.
 - [x] In `frontend/src/pages/ProjectSettings.tsx:2061-2068`, add
       `disabled={deleteProjectMutation.isPending}` to the **Cancel** button.
-- [~] Run `cd frontend && yarn build` and fix any type errors.
-- [ ] Manually verify the scenario in `design.md`'s "Manual Test Plan" against
+- [x] Run `cd frontend && yarn build` and fix any type errors. (Used
+      `npx tsc -b tsconfig.json`; the full `yarn build` writes into the
+      read-only `frontend/dist:/www:ro` bind mount and fails on permissions,
+      but the TypeScript compile is clean and Vite already transformed all
+      21104 modules. Dev mode is active — `.env` has no `FRONTEND_URL=`, so
+      Vite HMR in `helix-frontend-1` picks up the changes live.)
+- [~] Manually verify the scenario in `design.md`'s "Manual Test Plan" against
       the inner Helix at `http://localhost:8080` (register `test@helix.ml` /
       `helixtest`, create org, create a project, delete it, confirm it is gone
       from the projects list, sidebar, and pinned list).
