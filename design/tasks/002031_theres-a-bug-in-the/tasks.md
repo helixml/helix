@@ -58,7 +58,7 @@ TypeScript build (`yarn tsc`) passes clean. `yarn build-frontend` (vite) fails o
 
 ## Ship
 
-- [ ] Push, open PR using full URL format per `helix/CLAUDE.md` (`https://github.com/helixml/helix/pull/<n>`), reference this spec task. Call out in the PR body that admins who previously used the System Settings slider should switch to the env vars and that `-1` means unlimited
+- [~] Push, open PR using full URL format per `helix/CLAUDE.md` (`https://github.com/helixml/helix/pull/<n>`), reference this spec task. Call out in the PR body that admins who previously used the System Settings slider should switch to the env vars and that `-1` means unlimited
 - [ ] Check CI green via `gh pr checks <n>` or Drone MCP tools per `helix/CLAUDE.md`
 
 ## Follow-up (out of scope here, log as separate spec)
