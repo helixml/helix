@@ -12,13 +12,15 @@
 
 ## Backend — fix `/api/v1/config`
 
-- [~] Replace the phantom-read at `api/pkg/server/handlers.go:117-123` with a call to `apiServer.quotaManager.GetQuotas(ctx, &types.QuotaRequest{UserID: ..., OrganizationID: ...})`, then `config.MaxConcurrentDesktops = quotas.MaxConcurrentDesktops`
-- [~] If extracting the caller's user from `req.Context()` inside `getConfig` proves invasive, fall back to returning `apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (the Free-tier floor) and document this in a code comment
+- [x] Replace the phantom-read at `api/pkg/server/handlers.go:117-123` with a call to `apiServer.quotaManager.GetQuotas(ctx, &types.QuotaRequest{UserID: ..., OrganizationID: ...})`, then `config.MaxConcurrentDesktops = quotas.MaxConcurrentDesktops`
+- [x] If extracting the caller's user from `req.Context()` inside `getConfig` proves invasive, fall back to returning `apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (the Free-tier floor) and document this in a code comment
+
+**Implementation note**: `/config` is registered on `insecureRouter` (`server.go:756`) with no auth middleware — the user is never in context. Went with the Free-tier floor fallback and documented why in the handler comment.
 
 ## Backend — documentation strings
 
-- [ ] Add a one-line description to `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS` and `PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS` in `api/pkg/config/config.go:551,557`: "Enforced per organisation when the session has an org, per user otherwise. -1 = unlimited."
-- [ ] Update Swagger annotation on `ServerConfigForFrontend.MaxConcurrentDesktops` (`api/pkg/types/types.go:1065`) and `QuotaResponse.MaxConcurrentDesktops` (`api/pkg/types/quota.go:13`) with the same one-liner
+- [x] Add a one-line description to `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS` and `PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS` in `api/pkg/config/config.go:551,557`: "Enforced per organisation when the session has an org, per user otherwise. -1 = unlimited."
+- [x] Update Swagger annotation on `ServerConfigForFrontend.MaxConcurrentDesktops` (`api/pkg/types/types.go:1065`) and `QuotaResponse.MaxConcurrentDesktops` (`api/pkg/types/quota.go:13`) with the same one-liner
 
 ## Frontend — drop the UI row
 
