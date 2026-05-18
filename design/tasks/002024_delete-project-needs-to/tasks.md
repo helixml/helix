@@ -34,4 +34,5 @@
       open). The new `onClose` gating only blocks dismissal while `isPending`
       is true; on `mutateAsync` rejection `isPending` returns to `false`, so
       the user regains full control of the dialog.
-- [~] Push the feature branch.
+- [x] Push the feature branch
+      (`origin/feature/002024-synchronous-project`, commit `32faa59c9`).
