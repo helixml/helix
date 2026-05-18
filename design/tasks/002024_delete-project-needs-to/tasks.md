@@ -1,9 +1,9 @@
 # Implementation Tasks: Synchronous Project Delete with Visible Spinner
 
-- [~] In `frontend/src/services/projectService.ts:103-105`, update
+- [x] In `frontend/src/services/projectService.ts:103-105`, update
       `useDeleteProject` `onSuccess` to `async` and `await Promise.all([…])`
       invalidating `['projects']` and `['pinned-projects']`.
-- [ ] In `frontend/src/pages/ProjectSettings.tsx:2022-2025`, gate the dialog's
+- [~] In `frontend/src/pages/ProjectSettings.tsx:2022-2025`, gate the dialog's
       `onClose` callback so it is a no-op when
       `deleteProjectMutation.isPending` is true.
 - [ ] In `frontend/src/pages/ProjectSettings.tsx:2061-2068`, add
