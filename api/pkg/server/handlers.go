@@ -113,14 +113,15 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	if err != nil {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
-	// Override the config with the system settings
 	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
-	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
 
-	// If system settings doesn't have a max, fall back to the free tier config
-	if config.MaxConcurrentDesktops == 0 {
-		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
-	}
+	// /config is unauthenticated (registered on insecureRouter), so we don't
+	// know which user is calling and can't ask the quota manager for their
+	// resolved cap. Return the Free-tier env value as the floor. Real
+	// enforcement still happens server-side in StartDesktop via the quota
+	// manager, which picks the correct Free or Pro tier per wallet. -1 in
+	// the env means unlimited.
+	config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
 
 	// Check if any global AI providers are configured on this deployment
 	globalProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{

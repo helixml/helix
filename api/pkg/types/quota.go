@@ -10,7 +10,10 @@ type QuotaResponse struct {
 	OrganizationID string `json:"organization_id"` // If applicable
 
 	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
-	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
+	// MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+	// organisation when the session has an org, per user otherwise.
+	// -1 = unlimited.
+	MaxConcurrentDesktops int `json:"max_concurrent_desktops"`
 
 	// Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
 	// that one counts external_agent sessions (the spec-task desktop stack),

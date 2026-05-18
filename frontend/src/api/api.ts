@@ -4230,6 +4230,11 @@ export interface TypesQuotaResponse {
    */
   active_desktop_sandboxes?: number;
   active_headless_sandboxes?: number;
+  /**
+   * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+   * organisation when the session has an org, per user otherwise.
+   * -1 = unlimited.
+   */
   max_concurrent_desktops?: number;
   max_desktop_sandboxes?: number;
   max_headless_sandboxes?: number;
@@ -4672,6 +4677,12 @@ export interface TypesServerConfigForFrontend {
   has_providers?: boolean;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
+  /**
+   * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+   * organisation when the session has an org, per user otherwise.
+   * -1 = unlimited. Note: /config is unauthenticated, so this is the
+   * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
+   */
   max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
@@ -5690,7 +5701,6 @@ export interface TypesSystemSettingsRequest {
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
-  max_concurrent_desktops?: number;
   max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -5730,8 +5740,6 @@ export interface TypesSystemSettingsResponse {
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
-  /** Per user */
-  max_concurrent_desktops?: number;
   max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
