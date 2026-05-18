@@ -1,4 +1,4 @@
-# Requirements: Make Desktop Quota Settings Coherent and Honest
+# Requirements: Remove the Phantom Max Concurrent Desktops Setting
 
 ## Background
 
@@ -7,185 +7,158 @@ with the help text:
 
 > Maximum number of concurrent desktop sessions per user (0 = unlimited)
 
-Three things are wrong with this:
+After investigation, this setting is a **phantom**: it has no effect on
+real enforcement.
 
-1. **`0` does not mean unlimited.** The API treats `0` as "fall back to the
-   Free-tier env-var default", which is `2`. So an admin who picks the
-   "Unlimited" option silently gets capped at 2.
-2. **"Per user" is at best half-true.** The real enforcement path
-   (`api/pkg/external-agent/hydra_executor.go:checkLimits` → `api/pkg/quota/quota.go`)
-   counts and caps **per-org when the session has an `OrganizationID`**, and
-   only falls back to per-user when it doesn't. The help text never says
-   this.
-3. **The system setting is effectively dead in real enforcement.** It is
-   only read by `/api/v1/config` (`api/pkg/server/handlers.go:117-123`),
-   which the UI and the helix-org pre-flight check consume. The actual
-   `LimitReached` call in `api/pkg/quota/quota.go:32-37` looks up the cap
-   from `Cfg.SubscriptionQuotas.Projects.{Free,Pro}.MaxConcurrentDesktops`
-   based on the Stripe subscription on the wallet, and **never consults
-   `SystemSettings.MaxConcurrentDesktops`**. So an admin tweaking the
-   System Settings slider changes what helix-org's pre-flight rejects, but
-   never what `StartDesktop` itself enforces. The two layers can disagree.
+### Proof
 
-## Where the "Free" cap comes from
+A full grep across `api/` for `SystemSettings.MaxConcurrentDesktops` shows
+exactly one production read:
 
-Located in `api/pkg/config/config.go:548-562`:
+```
+api/pkg/server/handlers.go:118
+    config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
+```
+
+That single read populates the `MaxConcurrentDesktops` field on the
+`GET /api/v1/config` response, which is consumed by the frontend and by the
+helix-org pre-flight check (`helix-org/helix/helixclient/client.go:560`).
+
+The **actual desktop quota enforcement** lives elsewhere:
+
+```
+api/pkg/external-agent/hydra_executor.go:checkLimits (line 1448-1471)
+    → quotaManager.LimitReached(Resource: ResourceDesktop)
+api/pkg/quota/quota.go:LimitReached
+    → getOrgQuotas / getUserQuotas
+    → getFreeQuotas / getProQuotas
+    → reads cfg.SubscriptionQuotas.Projects.{Free,Pro}.MaxConcurrentDesktops
+```
+
+The quota manager **never reads `SystemSettings.MaxConcurrentDesktops`**.
+The only source of truth for the actual cap is the pair of env vars:
 
 ```go
+// api/pkg/config/config.go:551-562
 Projects struct {
-    Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true"`
-    Free    struct {
+    Free struct {
         MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
-        MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
-        MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
-        MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"`
+        ...
     }
     Pro struct {
         MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
-        MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
-        MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`
-        MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"50000"`
+        ...
     }
 }
 ```
 
-So:
-- **Free tier default = 2 desktops**, override via env
-  `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS`.
-- **Pro tier default = 30 desktops**, override via env
-  `PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS`.
-- Whether you get Free or Pro is decided by whether your **wallet has an
-  active Stripe subscription** (`api/pkg/quota/quota.go:64`/`134`). User
-  wallet for user-context sessions; org wallet for org-context sessions.
+Whether a caller gets the Free or Pro cap depends on whether their wallet
+has an active Stripe subscription (user wallet for user-context sessions,
+org wallet for org-context sessions). This is set at the env-var layer per
+deployment.
 
-## How this setting relates to the other "desktop" settings
+### Consequence
 
-There are **three different "desktop"-ish caps** in System Settings. They
-look similar but mean very different things — admins reasonably get confused.
+The admin slider in the UI does change what `/api/v1/config` returns, which
+in turn changes what helix-org's pre-flight check rejects. But it does **not**
+change what the server itself rejects in `StartDesktop`. If anything bypasses
+the pre-flight, the env-var cap is what bites. Two layers, two answers — and
+the admin-visible knob is the wrong one.
 
-| System Settings field                       | Help text says                                                          | What's actually capped                                                                    | Currently enforced where                                                                                          | Default if unset |
-|---------------------------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|------------------|
-| `MaxConcurrentDesktops`                     | "concurrent desktop sessions **per user** (0 = unlimited)"              | Classic external-agent / Zed desktop sessions tied to a chat session                      | **NOWHERE in real enforcement.** Only displayed via `/api/v1/config`, consumed by UI and helix-org pre-flight.   | env `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS` (2) via the `handlers.go` fallback that the spec is fixing |
-| `MaxConcurrentHeadlessSandboxes`            | "Maximum concurrent headless and custom-image sandboxes **per organization**" | Newer sandbox-API headless containers (`api/pkg/sandbox/`)                                | `api/pkg/quota/quota.go:97-104` (org path only)                                                                  | 10 (`DefaultMaxConcurrentHeadlessSandboxes`) |
-| `MaxConcurrentDesktopSandboxes`             | "Maximum concurrent ubuntu-desktop sandboxes **per organization**"      | Newer sandbox-API `ubuntu-desktop` runtime containers (a separate path from #1)           | `api/pkg/quota/quota.go:97-104` (org path only)                                                                  | 10 (`DefaultMaxConcurrentDesktopSandboxes`) |
-
-Observations the implementing agent needs to keep in mind:
-
-- The other two (`MaxConcurrentHeadlessSandboxes` / `MaxConcurrentDesktopSandboxes`) are correctly described as **per-organisation**, and the code agrees.
-- They use a `<= 0` → default convention (see `EffectiveMaxConcurrentHeadlessSandboxes` / `EffectiveMaxConcurrentDesktopSandboxes` at `api/pkg/types/system_settings.go:219-231`), which conflicts with the convention being introduced here (`-1` = explicit unlimited). Resolving this consistently across all three settings is **explicitly in scope**.
-- The "per user" label on `MaxConcurrentDesktops` is wrong: real enforcement is "per org when session has an `OrganizationID`, otherwise per user".
+The colleague's earlier instinct (use `-1` for unlimited) is correct as a
+convention, but the cleaner fix is to **delete the phantom setting entirely**
+and rely on the env-var tiers, which are already the source of truth.
 
 ## Chosen Direction
 
-1. **Make `SystemSettings.MaxConcurrentDesktops` actually enforce.** Wire it
-   through `quota.go` as the authoritative operator-wide cap. The Free/Pro
-   subscription tiers from env vars become defaults that the operator can
-   override from the UI.
-2. **`-1` means explicit unlimited.** Consistent with the convention already
-   used by `api/pkg/quota/quota.go:58/129/268`. `0` continues to mean "unset
-   — fall back to the subscription-tier default". `N > 0` means an explicit
-   finite cap that overrides the subscription tier.
-3. **Fix the help text** to say "per user, or per organisation if the
-   session belongs to one". Same correction applies to the chip and tooltip.
-4. **Apply the same `-1`/`0`/`N` convention to `MaxConcurrentHeadlessSandboxes`
-   and `MaxConcurrentDesktopSandboxes`** so admins don't have to memorise
-   three different conventions. (Today they use `<= 0` → default-of-10; new
-   model: `-1` → unlimited, `0` → default-of-10, `N` → explicit cap.)
-
-## Value Semantics (target state, all three settings)
-
-| Stored value | Meaning                                          | Effective cap returned by the resolver                            |
-|--------------|--------------------------------------------------|-------------------------------------------------------------------|
-| `-1`         | Admin explicitly chose **Unlimited**             | `-1`                                                              |
-| `0`          | Unset — fall back to operator default            | For `MaxConcurrentDesktops`: subscription-tier value (Free or Pro env var). For sandbox limits: `Default{Headless,Desktop}Sandboxes` constant (10) |
-| `N > 0`      | Explicit finite cap, overrides tier              | `N`                                                               |
+1. **Remove `SystemSettings.MaxConcurrentDesktops`.** The field, the DB
+   column read, the System Settings UI row, the request/response wiring.
+2. **Have `/api/v1/config` get its `MaxConcurrentDesktops` number from the
+   quota manager** for the calling user, so the displayed cap matches what
+   enforcement will actually do.
+3. **Document the env-var control surface.** To raise the cap for everyone,
+   set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS` (and/or `PROJECTS_PRO_…`).
+   Setting either to `-1` yields unlimited (the quota manager already
+   short-circuits `limit < 0` at `api/pkg/quota/quota.go:268`).
+4. **Fix the per-user / per-org confusion** by updating the help text /
+   documentation for the env vars and the `/api/v1/config` response: the
+   cap is enforced per-org when the session has an `OrganizationID`,
+   per-user otherwise.
 
 ## User Stories
 
-### Story 1: Admin sets desktops to Unlimited
+### Story 1: Operator wants unlimited desktops
 
-**As an** admin operator
-**I want** selecting `Unlimited` for Max Concurrent Desktops to actually
-allow unlimited desktops, in both the pre-flight check AND the server-side
-enforcement
-**So that** the UI and the server agree, and large demos / teams aren't
-unexpectedly blocked.
+**As an** operator of a Helix deployment
+**I want** a documented, working way to allow unlimited desktops
+**So that** I can run demos / large teams without hitting an unexpected
+quota wall.
 
 **Acceptance Criteria**
-- Selecting `Unlimited` stores `-1` in `system_settings.max_concurrent_desktops`.
-- `GET /api/v1/config` returns `max_concurrent_desktops: -1`.
-- `POST` to start a new desktop session via `StartDesktop` is **not** rejected
-  for desktop quota reasons, regardless of how many sessions are active, for
-  both user-context and org-context sessions.
-- helix-org's `HasDesktopRoom` pre-flight permits the open.
+- Setting `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=-1` (and optionally
+  `PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS=-1`) and restarting the API
+  container causes `GET /api/v1/config` to return
+  `max_concurrent_desktops: -1` for affected users.
+- Opening any number of desktop sessions for those users succeeds — no
+  rejection from `StartDesktop` and no pre-flight rejection from
+  helix-org.
+- Verification step in the docs: `curl /api/v1/config | jq
+  '.max_concurrent_desktops'` returns `-1`.
 
-### Story 2: Admin sets a finite cap (overrides Free / Pro tier)
+### Story 2: Operator wants a specific cap
 
-**As an** admin
-**I want** setting a positive value (e.g. `5`) to enforce that cap regardless
-of whether the user is on Free or Pro tier
-**So that** I have a single operator-controlled cap that I can reason about,
-rather than two layers fighting each other.
-
-**Acceptance Criteria**
-- Saving `5` makes `GET /api/v1/config` return `max_concurrent_desktops: 5`.
-- A 6th `StartDesktop` call for the same user (no org) fails with `desktop
-  limit reached (5)`.
-- Same applies in an org context: 6th desktop in the same org fails.
-- A user on a Pro subscription (default tier limit 30) still gets the cap of
-  `5`, because the admin override wins.
-
-### Story 3: Admin has never touched the setting
-
-**As an** operator of a brand-new or upgraded instance
-**I want** sensible defaults that match the existing Free / Pro tier
-behaviour
-**So that** upgrading does not silently change my enforcement.
+**As an** operator
+**I want** to set a finite cap that applies consistently
+**So that** what helix-org's pre-flight rejects matches what the server
+itself rejects.
 
 **Acceptance Criteria**
-- Fresh install (DB value `0`): cap = Free tier env var
-  (`PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS`, default 2) for users without an
-  active Stripe subscription; Pro tier env var
-  (`PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS`, default 30) for those with one.
-- Existing installs upgrading with the value previously left at `0` see the
-  same behaviour they had before the fix.
-- Existing installs that previously saved `0` *thinking it meant unlimited*
-  continue to be capped (no silent flip to unlimited — admin must
-  re-select `Unlimited` to make `-1` real).
+- Setting `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=N` makes
+  `/api/v1/config` return `N` for Free-tier callers, and the `(N+1)`th
+  `StartDesktop` is rejected with `desktop limit reached (N)`.
+- Same applies for Pro-tier with `PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS=N`.
 
-### Story 4: Per-user vs per-org semantics are honest
+### Story 3: Admin opening System Settings
 
-**As an** admin reading the help text
-**I want** the text to explain that the cap is per-org if the session has
-an org, otherwise per-user
-**So that** I can predict how the cap will apply in mixed environments.
+**As an** admin of an existing deployment
+**I want** the misleading "Max Concurrent Desktops" row removed from the
+System Settings UI
+**So that** I'm not tempted to set a value that the server ignores.
 
 **Acceptance Criteria**
-- The help text under "Max Concurrent Desktops" reads (or equivalent): "Cap
-  on concurrent desktop sessions per organisation (or per user if the
-  session has no org). Overrides the subscription-tier default."
-- The same correction is applied to any associated tooltip / chip.
+- The System Settings page no longer shows a "Max Concurrent Desktops" row.
+- No request to `PATCH /api/v1/system_settings` carries a
+  `max_concurrent_desktops` field after the change.
+- Upgrade does not break for instances that previously saved a value: the
+  DB column may remain as orphan data; nothing in the app reads it.
 
-### Story 5: All three desktop-related settings use the same convention
+### Story 4: Per-user / per-org semantics are explicit
 
-**As an** admin who has more than one desktop-ish limit to tune
-**I want** `MaxConcurrentDesktops`, `MaxConcurrentHeadlessSandboxes`, and
-`MaxConcurrentDesktopSandboxes` to use the same value convention
-(`-1` / `0` / `N`)
-**So that** I don't have to memorise different rules for each.
+**As an** operator reading the docs / response schema
+**I want** the description of the cap to say that enforcement is per-org
+when the session has an org, otherwise per-user
+**So that** I can predict behaviour in mixed environments.
 
 **Acceptance Criteria**
-- All three settings accept `-1` for unlimited.
-- All three settings interpret `0` as "use operator default" (sub-tier env
-  var for `MaxConcurrentDesktops`; constant `10` for the sandbox limits).
-- Their UI controls and help text use the same wording pattern.
+- The Swagger description for `max_concurrent_desktops` on
+  `ServerConfigForFrontend` (and `QuotaResponse`) says: "Cap on concurrent
+  desktop sessions, enforced per organisation when the session has an org,
+  per user otherwise. -1 = unlimited."
+- The env vars in `api/pkg/config/config.go` have a matching one-line
+  comment.
 
-## Out of Scope
+## Out of Scope (but related — flag for follow-up)
 
-- Re-architecting Free / Pro / Enterprise tier resolution.
-- Per-user or per-org *individual overrides* of the operator cap (today
-  it's effectively system-wide).
-- Changing the way `helix-org` provisions one desktop per Worker chat —
-  that's a separate, larger refactor.
-- Auto-migrating existing `0` rows to `-1` (rejected: silent flip to
-  unlimited is a resource-exposure risk on shared instances).
+- **`SystemSettings.MaxConcurrentHeadlessSandboxes` and
+  `SystemSettings.MaxConcurrentDesktopSandboxes`.** These are *real* — they
+  are read and enforced by `api/pkg/quota/quota.go:97-104` for the newer
+  sandbox-API. They have a related but separate ambiguity (`<= 0 →
+  default 10`, no way to express "unlimited"). Not touched in this fix —
+  worth a separate spec.
+- Migrating away from a per-user / per-org cap split, per-tier quotas, or
+  any subscription-billing changes.
+- The way helix-org provisions one desktop per Worker chat — separate
+  refactor.
+- Auto-dropping the orphan DB column. GORM AutoMigrate only adds, never
+  removes; an explicit migration would be needed if we wanted clean
+  schema. Acceptable to leave as orphan for now.

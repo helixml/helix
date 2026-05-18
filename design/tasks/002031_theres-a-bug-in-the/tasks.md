@@ -1,56 +1,58 @@
-# Implementation Tasks: Make Desktop Quota Settings Coherent and Honest
+# Implementation Tasks: Remove the Phantom Max Concurrent Desktops Setting
 
-## Backend — type helpers
+## Backend — delete the field
 
-- [ ] Add `EffectiveMaxConcurrentDesktops(tierDefault int) int` on `SystemSettings` in `api/pkg/types/system_settings.go` — returns `-1` for negative input (unlimited), `tierDefault` for `0` (unset), and the input value otherwise
-- [ ] Refactor `EffectiveMaxConcurrentHeadlessSandboxes` and `EffectiveMaxConcurrentDesktopSandboxes` (`system_settings.go:219-231`) to the same three-state convention: `< 0 → -1` (unlimited), `== 0 → DefaultMaxConcurrent…Sandboxes`, `> 0 → value`
-- [ ] Grep all callers of the two `Effective…Sandboxes` helpers to confirm none rely on the old `<= 0 → default` behaviour for negative inputs (any caller saving negative values today is a bug regardless)
+- [ ] Remove `MaxConcurrentDesktops int` from `SystemSettings` in `api/pkg/types/system_settings.go:37`
+- [ ] Remove `MaxConcurrentDesktops *int` from `SystemSettingsRequest` in `api/pkg/types/system_settings.go:79`
+- [ ] Remove `MaxConcurrentDesktops int` from `SystemSettingsResponse` in `api/pkg/types/system_settings.go:131`
+- [ ] Remove the field assignment in `ToResponseWithSource` at `api/pkg/types/system_settings.go:190`
+- [ ] Remove the patch branch in `api/pkg/store/store_system_settings.go:86-88` (`if req.MaxConcurrentDesktops != nil { ... }`)
+- [ ] Remove the `max_concurrent_desktops_updated` log key in `api/pkg/server/system_settings_handlers.go:97`
+- [ ] Update `api/pkg/store/store_system_settings_test.go` to drop the three assertions on `MaxConcurrentDesktops` (lines 95, 166, 211)
 
-## Backend — quota resolver
+## Backend — fix `/api/v1/config`
 
-- [ ] Add `getTierDesktopCap(isPro bool) int` helper in `api/pkg/quota/quota.go` that returns the Pro env-var value when `isPro`, Free env-var value otherwise
-- [ ] In `getOrgQuotas` and `getUserQuotas` (`quota.go:39-166`), after the tier is decided, set `quotas.MaxConcurrentDesktops = systemSettings.EffectiveMaxConcurrentDesktops(getTierDesktopCap(isPro))` — replaces the direct `getFreeQuotas` / `getProQuotas` use for this field. Other tier-default fields (`MaxProjects`, etc.) stay untouched
-- [ ] Keep the `!EnforceQuotas → -1` short-circuit at the top of both functions intact
+- [ ] Replace the phantom-read at `api/pkg/server/handlers.go:117-123` with a call to `apiServer.quotaManager.GetQuotas(ctx, &types.QuotaRequest{UserID: ..., OrganizationID: ...})`, then `config.MaxConcurrentDesktops = quotas.MaxConcurrentDesktops`
+- [ ] If extracting the caller's user from `req.Context()` inside `getConfig` proves invasive, fall back to returning `apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (the Free-tier floor) and document this in a code comment
 
-## Backend — `/api/v1/config` handler
+## Backend — documentation strings
 
-- [ ] In `api/pkg/server/handlers.go:117-123`, replace the inline `MaxConcurrentDesktops` fallback with a call to the quota manager for the calling user/org so the response reflects what enforcement will actually do. If the caller user is not currently in scope in `getConfig`, extract from `req` (called via `config` at line 144) or document a fallback to Free-tier resolution
-- [ ] Delete the dead `if config.MaxConcurrentDesktops == 0 { … }` branch entirely (no fallbacks per `helix/CLAUDE.md`)
+- [ ] Add a one-line description to `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS` and `PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS` in `api/pkg/config/config.go:551,557`: "Enforced per organisation when the session has an org, per user otherwise. -1 = unlimited."
+- [ ] Update Swagger annotation on `ServerConfigForFrontend.MaxConcurrentDesktops` (`api/pkg/types/types.go:1065`) and `QuotaResponse.MaxConcurrentDesktops` (`api/pkg/types/quota.go:13`) with the same one-liner
 
-## Backend — verification (no change unless needed)
+## Frontend — drop the UI row
 
-- [ ] Verify `api/pkg/external-agent/hydra_executor.go:checkLimits` (`hydra_executor.go:1448-1471`) needs no change — it already routes through `quotaManager.LimitReached(ResourceDesktop)`
-- [ ] Verify `api/pkg/quota/quota.go:268` `limit < 0` guard still handles the new resolved-`-1` value (it does)
-- [ ] Verify `helix-org/helix/helixclient/client.go:560` `HasDesktopRoom` still treats `Max <= 0` as unlimited; no change if so
+- [ ] In `frontend/src/components/dashboard/SystemSettingsTable.tsx`, remove the entire "Max Concurrent Desktops" `<TableRow>` and the surrounding state hooks (`maxDesktopsValue`, `editingMaxDesktops`, `setMaxDesktopsValue`, `setEditingMaxDesktops`) and the `handleSaveMaxDesktops` handler (lines ~113-132 and ~731-790 — confirm exact lines when editing)
+- [ ] Grep the frontend for any remaining references to `max_concurrent_desktops` in the System Settings flow; remove them. Note: the field on `ServerConfigForFrontend` (consumed by other components) is NOT removed — only the System Settings request/response field is
 
-## Frontend — Max Concurrent Desktops row
+## Regenerate generated artefacts
 
-- [ ] Update `handleSaveMaxDesktops` in `frontend/src/components/dashboard/SystemSettingsTable.tsx:113-132` to accept `-1` as a valid value (current guard `value < 0` rejects it). Preferred UX: replace the free-form `TextField` with a three-mode picker (`Unlimited` / `Use server default` / `Custom cap N`) that writes `-1` / `0` / `N`
-- [ ] Update the chip display at `SystemSettingsTable.tsx:738-742` to render three distinct states: `Unlimited` for `< 0`, `Default` for `== 0`, `Limit: N` for `> 0`
-- [ ] Update the help text at `SystemSettingsTable.tsx:731-734` from "Maximum number of concurrent desktop sessions per user (0 = unlimited)" to "Cap on concurrent desktop sessions per organisation (or per user if the session has no org). Overrides the subscription-tier default. -1 = unlimited, 0 = use server default."
-
-## Frontend — Headless Sandbox Limit and Desktop Sandbox Limit rows
-
-- [ ] Apply the same three-mode picker / `-1`-accepting validator to `handleSaveSandboxLimit` (`SystemSettingsTable.tsx` around line 217)
-- [ ] Update both chip displays (`SystemSettingsTable.tsx:1024-1028`, `1088-1092`) to render the three-state model
-- [ ] Update both help texts (`SystemSettingsTable.tsx:1019-1021`, `1083-1085`) to mention the new `-1` / `0` / `N` convention
+- [ ] Run `./stack update_openapi` to regenerate swagger JSON / YAML, `docs.go`, and frontend API typings; commit the result alongside the source changes
+- [ ] Verify the generated frontend `api.ts` no longer carries the field on the system-settings types
 
 ## Tests
 
-- [ ] Add `TestEffectiveMaxConcurrentDesktops` in `api/pkg/types/system_settings_test.go` (create if needed) — table-test covering: `-1` / `0` / `N` × tier defaults `2` / `10` / `30`
-- [ ] Add `TestEffectiveSandboxLimits` in the same file covering the refactored helpers (both headless and desktop variants), `-1` / `0` / `N` × defaults
-- [ ] Add `TestQuotaDesktopResolution` in `api/pkg/quota/quota_test.go` — table-test covering all 17 rows of the truth table in `design.md` (`enforce`, `sys`, `tier`, `ctx`, `active` → `effective_limit`, `allowed`)
-- [ ] Add a handler-level test that `GET /api/v1/config` returns the **resolved** `max_concurrent_desktops` for the calling user (cases: unset Free, unset Pro, admin-overridden, admin-unlimited)
+- [ ] Add `TestQuotaDesktopResolution` in `api/pkg/quota/quota_test.go` implementing all 15 rows of the truth table in `design.md` (`enforce × freeEnv × proEnv × subscribed × ctx × active → effective_limit, allowed`). Extend / refactor existing tests at `quota_test.go:121-650` rather than duplicating
+- [ ] Add a handler test for `getConfig` confirming `ServerConfigForFrontend.MaxConcurrentDesktops` matches what the quota manager returns for the caller (unsubscribed → Free env; subscribed → Pro env; env `-1` → `-1`)
+
+## Verification — local builds
+
+- [ ] `cd api && CGO_ENABLED=1 go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/quota/ ./pkg/external-agent/`
+- [ ] `cd frontend && yarn build`
 
 ## End-to-end (per `helix/CLAUDE.md`)
 
-- [ ] In inner Helix at `http://localhost:8080`: register / log in, save `Unlimited` → DB shows `-1`, `/api/v1/config` returns `-1`, can open more than 2 desktops without rejection
-- [ ] Save `1` → second desktop attempt rejected with `desktop limit reached (1)`
-- [ ] Save `0` (or "Use server default") → DB shows `0`, cap reverts to Free-tier default (`2`), third desktop attempt rejected
-- [ ] Repeat the same trio with an **org-scoped** session and confirm the cap is enforced per-org (a second user in the same org counts toward the same limit)
+- [ ] In inner Helix at `http://localhost:8080`: log in, navigate to System Settings, confirm the "Max Concurrent Desktops" row is gone
+- [ ] Set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=-1` in `.env`, `docker compose -f docker-compose.dev.yaml up -d api`, confirm `curl http://localhost:8080/api/v1/config | jq '.max_concurrent_desktops'` returns `-1` and that opening more than 2 desktops succeeds
+- [ ] Set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=1`, restart, confirm the 2nd `StartDesktop` is rejected with `desktop limit reached (1)`
+- [ ] Repeat the `-1` and `1` cases with an org-scoped session, confirming the per-org behaviour
 
 ## Ship
 
-- [ ] Run `go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/quota/ ./pkg/external-agent/` and `cd frontend && yarn build` before push
-- [ ] Push, open PR with full URL format per `helix/CLAUDE.md` (`https://github.com/helixml/helix/pull/<n>`), reference this spec task
+- [ ] Push, open PR using full URL format per `helix/CLAUDE.md` (`https://github.com/helixml/helix/pull/<n>`), reference this spec task. Call out in the PR body that admins who previously used the System Settings slider should switch to the env vars and that `-1` means unlimited
 - [ ] Check CI green via `gh pr checks <n>` or Drone MCP tools per `helix/CLAUDE.md`
+
+## Follow-up (out of scope here, log as separate spec)
+
+- [ ] Sandbox limit settings (`MaxConcurrentHeadlessSandboxes`, `MaxConcurrentDesktopSandboxes`) have a related but distinct issue: their `<= 0 → default 10` convention gives no way to express "unlimited" and conflates "unset" with "explicit zero". Worth a separate spec to align with `-1`-means-unlimited convention
+- [ ] If the orphan DB column `system_settings.max_concurrent_desktops` is found to cause noise (e.g. in `pg_dump` diffs), add an explicit drop migration in a follow-up PR
