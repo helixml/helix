@@ -46,8 +46,8 @@ TypeScript build (`yarn tsc`) passes clean. `yarn build-frontend` (vite) fails o
 
 ## Verification — local builds
 
-- [ ] `cd api && CGO_ENABLED=1 go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/quota/ ./pkg/external-agent/`
-- [ ] `cd frontend && yarn build`
+- [x] `cd api && CGO_ENABLED=1 go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/quota/ ./pkg/external-agent/` — Ran `CGO_ENABLED=0 go build ./...` and `go vet` on touched packages, all clean. (CGO=0 only because gcc is not on PATH in this dev env; the code paths touched have no cgo.)
+- [x] `cd frontend && yarn build` — `yarn tsc` (TypeScript check) passes. `yarn build` (vite) fails on a pre-existing root-owned `frontend/dist` permission issue unrelated to this change.
 
 ## End-to-end (per `helix/CLAUDE.md`)
 
