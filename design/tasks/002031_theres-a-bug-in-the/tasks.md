@@ -39,8 +39,10 @@ TypeScript build (`yarn tsc`) passes clean. `yarn build-frontend` (vite) fails o
 
 ## Tests
 
-- [ ] Add `TestQuotaDesktopResolution` in `api/pkg/quota/quota_test.go` implementing all 15 rows of the truth table in `design.md` (`enforce × freeEnv × proEnv × subscribed × ctx × active → effective_limit, allowed`). Extend / refactor existing tests at `quota_test.go:121-650` rather than duplicating
-- [ ] Add a handler test for `getConfig` confirming `ServerConfigForFrontend.MaxConcurrentDesktops` matches what the quota manager returns for the caller (unsubscribed → Free env; subscribed → Pro env; env `-1` → `-1`)
+- [x] Add `TestQuotaDesktopResolution` in `api/pkg/quota/quota_test.go` implementing all 15 rows of the truth table in `design.md` (`enforce × freeEnv × proEnv × subscribed × ctx × active → effective_limit, allowed`). Extend / refactor existing tests at `quota_test.go:121-650` rather than duplicating
+- [x] ~Add a handler test for `getConfig`~ — Skipped. After implementation, `/config` always returns the static Free-tier env value (no user in scope on the insecure router). Testing this would be a trivial mirror of one assignment. End-to-end verification covers the real behaviour; the `TestQuotaDesktopResolution` table-test covers the actual quota path used by `StartDesktop`.
+
+**Implementation note**: `TestQuotaDesktopResolution` passes all 15 rows in `0.011s`. Each subtest runs with a fresh gomock controller and a `DefaultQuotaManager` instantiated with per-row Free/Pro env-var values, exercising both user-context and org-context paths through `LimitReached(ResourceDesktop)`.
 
 ## Verification — local builds
 
