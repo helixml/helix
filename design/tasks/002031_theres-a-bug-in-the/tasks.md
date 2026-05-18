@@ -2,18 +2,18 @@
 
 ## Backend — delete the field
 
-- [~] Remove `MaxConcurrentDesktops int` from `SystemSettings` in `api/pkg/types/system_settings.go:37`
-- [~] Remove `MaxConcurrentDesktops *int` from `SystemSettingsRequest` in `api/pkg/types/system_settings.go:79`
-- [~] Remove `MaxConcurrentDesktops int` from `SystemSettingsResponse` in `api/pkg/types/system_settings.go:131`
-- [~] Remove the field assignment in `ToResponseWithSource` at `api/pkg/types/system_settings.go:190`
-- [~] Remove the patch branch in `api/pkg/store/store_system_settings.go:86-88` (`if req.MaxConcurrentDesktops != nil { ... }`)
-- [~] Remove the `max_concurrent_desktops_updated` log key in `api/pkg/server/system_settings_handlers.go:97`
-- [~] Update `api/pkg/store/store_system_settings_test.go` to drop the three assertions on `MaxConcurrentDesktops` (lines 95, 166, 211)
+- [x] Remove `MaxConcurrentDesktops int` from `SystemSettings` in `api/pkg/types/system_settings.go:37`
+- [x] Remove `MaxConcurrentDesktops *int` from `SystemSettingsRequest` in `api/pkg/types/system_settings.go:79`
+- [x] Remove `MaxConcurrentDesktops int` from `SystemSettingsResponse` in `api/pkg/types/system_settings.go:131`
+- [x] Remove the field assignment in `ToResponseWithSource` at `api/pkg/types/system_settings.go:190`
+- [x] Remove the patch branch in `api/pkg/store/store_system_settings.go:86-88` (`if req.MaxConcurrentDesktops != nil { ... }`)
+- [x] Remove the `max_concurrent_desktops_updated` log key in `api/pkg/server/system_settings_handlers.go:97`
+- [x] Update `api/pkg/store/store_system_settings_test.go` to drop the three assertions on `MaxConcurrentDesktops` (lines 95, 166, 211)
 
 ## Backend — fix `/api/v1/config`
 
-- [ ] Replace the phantom-read at `api/pkg/server/handlers.go:117-123` with a call to `apiServer.quotaManager.GetQuotas(ctx, &types.QuotaRequest{UserID: ..., OrganizationID: ...})`, then `config.MaxConcurrentDesktops = quotas.MaxConcurrentDesktops`
-- [ ] If extracting the caller's user from `req.Context()` inside `getConfig` proves invasive, fall back to returning `apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (the Free-tier floor) and document this in a code comment
+- [~] Replace the phantom-read at `api/pkg/server/handlers.go:117-123` with a call to `apiServer.quotaManager.GetQuotas(ctx, &types.QuotaRequest{UserID: ..., OrganizationID: ...})`, then `config.MaxConcurrentDesktops = quotas.MaxConcurrentDesktops`
+- [~] If extracting the caller's user from `req.Context()` inside `getConfig` proves invasive, fall back to returning `apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops` (the Free-tier floor) and document this in a code comment
 
 ## Backend — documentation strings
 
