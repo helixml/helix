@@ -34,8 +34,8 @@ TypeScript build (`yarn tsc`) passes clean. `yarn build-frontend` (vite) fails o
 
 ## Regenerate generated artefacts
 
-- [ ] Run `./stack update_openapi` to regenerate swagger JSON / YAML, `docs.go`, and frontend API typings; commit the result alongside the source changes
-- [ ] Verify the generated frontend `api.ts` no longer carries the field on the system-settings types
+- [x] Run `./stack update_openapi` to regenerate swagger JSON / YAML, `docs.go`, and frontend API typings; commit the result alongside the source changes
+- [x] Verify the generated frontend `api.ts` no longer carries the field on the system-settings types
 
 ## Tests
 
