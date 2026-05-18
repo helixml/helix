@@ -172,6 +172,30 @@ complaining about. Leave it.
 7. **Error path**: temporarily kill the API container, repeat — confirm the
    dialog stays open and a "Failed to delete project" toast appears.
 
+## Implementation Notes (filled in during work)
+
+- **Verified end-to-end** in the inner Helix at `http://localhost:8080`.
+  Registered `test@helix.ml`, created `testorg` and `testproj-delete`,
+  opened Project Settings → Danger Zone, typed the name, clicked
+  **DELETE PROJECT**. The a11y snapshot during the in-flight state showed
+  `uid=14_13 button "CANCEL" disableable disabled` and
+  `uid=14_14 button "DELETING..." disableable disabled` — both new
+  guards confirmed working. Escape did not dismiss the dialog while pending.
+  After the request resolved, the dialog closed and the projects list page
+  rendered "No projects yet" (no stale entry — the cache fix worked).
+  Screenshots: `screenshots/01-danger-zone-tab.png`,
+  `screenshots/02-confirm-dialog.png`, `screenshots/03-deleting-spinner.png`,
+  `screenshots/04-after-delete-list-empty.png`.
+- **Frontend build verification:** the dist directory is a `:ro` bind-mount
+  (per CLAUDE.md), so `yarn build` fails on `mkdir dist/external-libs` even
+  though `21104 modules transformed` cleanly. Used
+  `npx tsc -b tsconfig.json` instead (exit 0, no output) — TypeScript check
+  is the meaningful gate. Vite HMR in `helix-frontend-1` picked up changes
+  live.
+- **Pre-existing pattern reused.** `pinnedProjectsQueryKey()` already
+  existed at line 389 of `projectService.ts`, so the new invalidation uses
+  the named export rather than a raw literal.
+
 ## Learnings to Carry Forward
 
 - **TanStack Query gotcha**: `invalidateQueries({ queryKey: ['x', undefined] })`

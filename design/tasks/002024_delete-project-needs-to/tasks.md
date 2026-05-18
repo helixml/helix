@@ -14,15 +14,24 @@
       but the TypeScript compile is clean and Vite already transformed all
       21104 modules. Dev mode is active — `.env` has no `FRONTEND_URL=`, so
       Vite HMR in `helix-frontend-1` picks up the changes live.)
-- [~] Manually verify the scenario in `design.md`'s "Manual Test Plan" against
-      the inner Helix at `http://localhost:8080` (register `test@helix.ml` /
-      `helixtest`, create org, create a project, delete it, confirm it is gone
-      from the projects list, sidebar, and pinned list).
-- [ ] Manually verify the error path by temporarily stopping the API container
-      (`docker compose -f docker-compose.dev.yaml stop api`) and confirming
-      the dialog stays open with a "Failed to delete project" toast.
-- [ ] Commit using conventional format, e.g.
-      `fix(frontend): make project delete synchronous and refresh list`,
-      and push.
-- [ ] Open PR against `helixml/helix` `main`; paste full URL into the spec
-      task; watch CI (`gh pr checks <num>`) until green.
+- [x] Manually verify the scenario in `design.md`'s "Manual Test Plan" against
+      the inner Helix at `http://localhost:8080`. Verified end-to-end:
+      registered `test@helix.ml`, created `testorg` and `testproj-delete`,
+      opened Project Settings → Danger Zone, typed the name, clicked
+      **DELETE PROJECT**. Observed: spinner + "DELETING…", **CANCEL** went
+      to `disabled` state (a11y snapshot confirms `disabled` attribute),
+      pressing Escape did not dismiss the dialog while pending. Once the
+      mutation resolved the dialog closed and the projects list showed
+      "No projects yet" — the cache invalidation fix is working
+      (previously the stale entry was still rendered). Screenshots in
+      `screenshots/`.
+- [-] ~~Manually verify the error path by temporarily stopping the API
+      container.~~ **Skipped:** stopping the shared API container would
+      disrupt other in-flight spec-task agents in this dev environment. The
+      change is frontend-only and the `catch` branch in
+      `handleDeleteProject` is unchanged (still calls
+      `snackbar.error("Failed to delete project")` and leaves the dialog
+      open). The new `onClose` gating only blocks dismissal while `isPending`
+      is true; on `mutateAsync` rejection `isPending` returns to `false`, so
+      the user regains full control of the dialog.
+- [~] Push the feature branch.
