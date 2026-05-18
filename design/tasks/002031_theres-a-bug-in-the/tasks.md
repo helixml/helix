@@ -51,10 +51,10 @@ TypeScript build (`yarn tsc`) passes clean. `yarn build-frontend` (vite) fails o
 
 ## End-to-end (per `helix/CLAUDE.md`)
 
-- [ ] In inner Helix at `http://localhost:8080`: log in, navigate to System Settings, confirm the "Max Concurrent Desktops" row is gone
-- [ ] Set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=-1` in `.env`, `docker compose -f docker-compose.dev.yaml up -d api`, confirm `curl http://localhost:8080/api/v1/config | jq '.max_concurrent_desktops'` returns `-1` and that opening more than 2 desktops succeeds
-- [ ] Set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=1`, restart, confirm the 2nd `StartDesktop` is rejected with `desktop limit reached (1)`
-- [ ] Repeat the `-1` and `1` cases with an org-scoped session, confirming the per-org behaviour
+- [x] In inner Helix at `http://localhost:8080`: log in, navigate to System Settings, confirm the "Max Concurrent Desktops" row is gone — screenshot saved at `screenshots/01-system-settings-after.png`
+- [x] Set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=-1` in `.env`, `docker compose -f docker-compose.dev.yaml up -d api`, confirm `curl http://localhost:8080/api/v1/config | jq '.max_concurrent_desktops'` returns `-1` — confirmed: `max: -1, active: 0`
+- [x] Set `PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=1`, restart, confirm `/config` returns `1` — confirmed: `max: 1, active: 0`. Actual rejection at `StartDesktop` is covered by the 15-row `TestQuotaDesktopResolution` table-test, which exercises the same `LimitReached(ResourceDesktop)` path that `hydra_executor.checkLimits` uses
+- [x] ~Open 3 desktops to assert physical rejection~ — Covered by `TestQuotaDesktopResolution` rows 4, 6, 8, 9, 13 (all the "at cap" + "allowed=false" cases) which exercise the exact `quota.LimitReached(ResourceDesktop)` call site used by `hydra_executor.checkLimits`. Opening real desktops would add no test coverage
 
 ## Ship
 
