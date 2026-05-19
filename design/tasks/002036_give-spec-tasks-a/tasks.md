@@ -2,7 +2,7 @@
 
 ## Backend — store layer
 
-- [ ] Add `UpdateSpecTaskShortTitle(ctx, id, title string) error` to the `Store` interface and the postgres implementation in `api/pkg/store/store_spec_tasks.go`. Use a conditional UPDATE so it only sets `short_title` when the current value is empty/NULL, avoiding races with the agent-driven H1 path.
+- [~] Add `UpdateSpecTaskShortTitle(ctx, id, title string) error` to the `Store` interface and the postgres implementation in `api/pkg/store/store_spec_tasks.go`. Use a conditional UPDATE so it only sets `short_title` when the current value is empty/NULL, avoiding races with the agent-driven H1 path.
 - [ ] Regenerate the gomock store mock so `UpdateSpecTaskShortTitle` is available in tests.
 
 ## Backend — title generation
