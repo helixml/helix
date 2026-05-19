@@ -666,8 +666,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const hasRestoredRef = useRef(false);
   const userHasScrolledRef = useRef(false);
   const isRestoringRef = useRef(false);
-  const horizRafRef = useRef<number | null>(null);
-  const columnRafsRef = useRef<Map<string, number>>(new Map());
 
   const getColumnRefSetter = useCallback(
     (columnId: string) => {
@@ -684,6 +682,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     [],
   );
 
+  // Saves happen synchronously on every scroll event — Map.set is trivially
+  // cheap, and any throttling would risk losing the last value when the user
+  // scrolls then immediately navigates away (an rAF would be cancelled on
+  // unmount before firing).
   const handleOuterScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const scrollLeft = e.currentTarget.scrollLeft;
@@ -691,13 +693,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         userHasScrolledRef.current = true;
       }
       if (!projectId) return;
-      if (horizRafRef.current !== null) {
-        cancelAnimationFrame(horizRafRef.current);
-      }
-      horizRafRef.current = requestAnimationFrame(() => {
-        saveKanbanHorizontalScroll(projectId, scrollLeft);
-        horizRafRef.current = null;
-      });
+      saveKanbanHorizontalScroll(projectId, scrollLeft);
     },
     [projectId],
   );
@@ -709,13 +705,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         userHasScrolledRef.current = true;
       }
       if (!projectId) return;
-      const existing = columnRafsRef.current.get(columnId);
-      if (existing !== undefined) cancelAnimationFrame(existing);
-      const id = requestAnimationFrame(() => {
-        saveKanbanColumnScroll(projectId, columnId, scrollTop);
-        columnRafsRef.current.delete(columnId);
-      });
-      columnRafsRef.current.set(columnId, id);
+      saveKanbanColumnScroll(projectId, columnId, scrollTop);
     },
     [projectId],
   );
@@ -726,16 +716,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     hasRestoredRef.current = false;
     userHasScrolledRef.current = false;
   }, [projectId]);
-
-  // Clean up any pending rAF writes on unmount.
-  useEffect(
-    () => () => {
-      if (horizRafRef.current !== null) cancelAnimationFrame(horizRafRef.current);
-      columnRafsRef.current.forEach((id) => cancelAnimationFrame(id));
-      columnRafsRef.current.clear();
-    },
-    [],
-  );
 
   const [mobileColumnIndex, setMobileColumnIndex] = useState(0);
 
@@ -1132,9 +1112,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   });
 
   // Restore saved scroll positions once the board has rendered with data.
-  // Runs at most once per mount per project; bails if the user has already
-  // scrolled, or if containers aren't laid out yet (re-runs when columns or
-  // loading change).
+  // Re-runs on every render until all saved targets have been satisfied; this
+  // matters because on remount with a warm react-query cache, render 1 has
+  // empty columns (local `tasks` state hasn't been populated from cache yet)
+  // — column bodies have no scrollable height. Render 2 has the data; we
+  // satisfy then.
   useLayoutEffect(() => {
     if (!projectId) return;
     if (hasRestoredRef.current) return;
@@ -1156,22 +1138,46 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     // 0 — skip this run and wait for a re-render where layout is real.
     if (outer && outer.scrollWidth === 0) return;
 
+    // Distinguish "data not loaded yet" from "data loaded but column shrunk".
+    // If at least one visible column has tasks, we trust that data has
+    // populated and clamp to current max instead of deferring forever.
+    const dataLoaded = columns.some((c) => c.tasks.length > 0);
+
     isRestoringRef.current = true;
+    let allSatisfied = true;
     try {
       if (outer && !isMobile && saved.horizontal > 0) {
         const max = Math.max(0, outer.scrollWidth - outer.clientWidth);
-        outer.scrollLeft = Math.min(saved.horizontal, max);
+        if (max >= saved.horizontal) {
+          outer.scrollLeft = saved.horizontal;
+        } else if (dataLoaded) {
+          outer.scrollLeft = max; // clamp
+        } else {
+          allSatisfied = false;
+        }
       }
       for (const col of columns) {
         const savedTop = saved.columns[col.id];
         if (savedTop === undefined || savedTop <= 0) continue;
         const node = columnBodyRefs.current.get(col.id);
-        if (!node) continue;
+        if (!node) {
+          allSatisfied = false;
+          continue;
+        }
         const max = Math.max(0, node.scrollHeight - node.clientHeight);
-        node.scrollTop = Math.min(savedTop, max);
+        if (max >= savedTop) {
+          node.scrollTop = savedTop;
+        } else if (dataLoaded) {
+          node.scrollTop = max; // clamp to current bottom
+        } else {
+          // Wait for tasks state to populate.
+          allSatisfied = false;
+        }
       }
     } finally {
-      hasRestoredRef.current = true;
+      if (allSatisfied) {
+        hasRestoredRef.current = true;
+      }
       // Clear isRestoring after the scroll events triggered by our
       // programmatic writes have settled.
       requestAnimationFrame(() => {
