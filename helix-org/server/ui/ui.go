@@ -71,6 +71,7 @@ func Handler(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ui/{$}", u.handleChat)
 	mux.HandleFunc("GET /ui/org", u.handleOrg)
+	mux.HandleFunc("GET /ui/org/chart", u.handleOrgChart)
 	mux.HandleFunc("GET /ui/settings", u.handleSettings)
 	mux.HandleFunc("POST /ui/settings/set", u.handleSettingsSet)
 	mux.HandleFunc("POST /ui/settings/delete", u.handleSettingsDelete)
@@ -202,6 +203,36 @@ func (u *uiHandler) handleOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render(w, orgTpl, page)
+}
+
+// handleOrgChart serves just the inner contents of #org-chart-section
+// for the polling refresh loop. The full /ui/org template re-runs
+// every 5-30s would force htmx to re-process the entire chart SVG;
+// returning the chart fragment alone lets the polling div keep its
+// stable identity (no timer leak) and only re-bind the SVG's hx-*
+// attributes once per real change.
+func (u *uiHandler) handleOrgChart(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	positions, err := u.deps.Store.Positions.List(ctx)
+	if err != nil {
+		http.Error(w, "list positions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	workers, err := u.deps.Store.Workers.List(ctx)
+	if err != nil {
+		http.Error(w, "list workers: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	frag := &OrgChartFragment{}
+	if svg := renderOrgChart(positions, workers); svg != "" {
+		frag.ChartSVG = template.HTML(svg) //nolint:gosec // renderOrgChart escapes all dynamic content via html.EscapeString
+		frag.HasChart = true
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := orgChartTpl.Render(w, frag); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleOrgDetail renders the right-hand detail fragment for the

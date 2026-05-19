@@ -20,26 +20,26 @@
                 </div>
                 {{ end }}
 
+                {{/*
+                  The polling shell stays in the DOM across refreshes —
+                  hx-swap="innerHTML" on a stable element means the
+                  single "every 30s" timer never gets replaced (and
+                  therefore never duplicates). Previously this used
+                  hx-swap="outerHTML" which replaced the polling div on
+                  every tick, leaking timers and causing htmx to
+                  re-process the entire chart SVG (hundreds of nodes,
+                  each scanned for hx-* attributes) on every tick —
+                  enough load to stall click events for ~20s under
+                  Chrome. Polling interval also bumped 5s → 30s; the
+                  org graph rarely changes that often and the chart is
+                  CPU-expensive to re-bind.
+                */}}
                 <div id="org-chart-section"
-                     hx-get="/ui/org"
-                     hx-trigger="every 5s"
-                     hx-select="#org-chart-section"
-                     hx-swap="outerHTML"
+                     hx-get="/ui/org/chart"
+                     hx-trigger="every 30s"
+                     hx-swap="innerHTML"
                      hx-disinherit="*">
-                {{ if .HasChart }}
-                <section class="mt-8 card-soft p-6">
-                    <header class="flex items-center justify-between mb-4">
-                        <h2 class="font-display text-[20px] font-light" style="color: var(--ink);">Org chart</h2>
-                        <span class="font-mono text-[11px]" style="color: var(--ink-muted);">click a node to inspect · live</span>
-                    </header>
-                    <div class="overflow-x-auto">{{ .ChartSVG }}</div>
-                </section>
-                {{ else }}
-                <section class="mt-8 card-soft px-6 py-12 text-center">
-                    <p class="font-display text-[20px] font-light" style="color: var(--ink);">The org is empty.</p>
-                    <p class="font-mono text-[12px] mt-2" style="color: var(--ink-muted);">Open the <a href="/ui/" style="color: var(--accent);">chat</a> and try “hire me a CEO”.</p>
-                </section>
-                {{ end }}
+                {{ template "org_chart" . }}
                 </div>
 
                 <section id="org-detail" class="rise rise-4 mt-6 card-soft p-6 mb-12">

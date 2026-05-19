@@ -34,6 +34,9 @@ var streamsHTML string
 //go:embed templates/org_detail.html
 var orgDetailHTML string
 
+//go:embed templates/org_chart.html
+var orgChartHTML string
+
 // Head fills the document <head>. Title is the page-specific suffix
 // rendered before the site name.
 type Head struct {
@@ -116,7 +119,23 @@ type OrgPage struct {
 }
 
 // TemplateText returns the org page body.
-func (*OrgPage) TemplateText() string { return orgHTML }
+func (*OrgPage) TemplateText() string { return orgHTML + orgChartHTML }
+
+// OrgChartFragment is the polling-target template — the same chart
+// section embedded in OrgPage, served standalone by /ui/org/chart so
+// the 30s polling loop only re-renders the chart, not the entire
+// page (head, sidebar, flash banner, detail panel).
+type OrgChartFragment struct {
+	ChartSVG template.HTML
+	HasChart bool
+}
+
+// TemplateText returns the chart fragment body. The wrapper invokes
+// the same `org_chart` named template the full page uses, so both
+// renders produce identical markup.
+func (*OrgChartFragment) TemplateText() string {
+	return `{{ template "org_chart" . }}` + orgChartHTML
+}
 
 // OrgDetail is the htmx fragment rendered in #org-detail. Exactly one
 // of IsPosition / IsWorker / IsHint is true. Position fragments carry
@@ -270,6 +289,7 @@ type EventCard struct {
 var (
 	chatTpl      = tmpl.MustCompile(&ChatPage{})
 	orgTpl       = tmpl.MustCompile(&OrgPage{})
+	orgChartTpl  = tmpl.MustCompile(&OrgChartFragment{})
 	orgDetailTpl = tmpl.MustCompile(&OrgDetail{})
 	settingsTpl  = tmpl.MustCompile(&SettingsPage{})
 	streamsTpl   = tmpl.MustCompile(&StreamsPage{})
