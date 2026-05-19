@@ -49,6 +49,13 @@ type HelixBridge struct {
 	logger      *slog.Logger
 	prompts     *prompts.Registry
 
+	// loadSessionID / saveSessionID persist the owner-chat session
+	// pointer so it survives process restarts. Optional — see
+	// HelixConfig.LoadSessionID / SaveSessionID.
+	loadSessionID func(ctx context.Context, workerID domain.WorkerID) (string, error)
+	saveSessionID func(ctx context.Context, workerID domain.WorkerID, sessionID string) error
+	loadOnce      sync.Once
+
 	mu           sync.Mutex // guards sessionID, listeners, ws, freshFromBlank
 	sessionID    string     // current Helix session ID; "" means "next Send creates one"
 	listeners    map[chan string]struct{}
@@ -106,6 +113,17 @@ type HelixConfig struct {
 	// picked yet — in that case the bridge returns a clear error to
 	// the caller instead of starting a session.
 	AppIDFunc func(context.Context) (string, error)
+
+	// LoadSessionID / SaveSessionID are optional persistence hooks for
+	// the owner-chat session pointer. Without them the bridge's
+	// sessionID lives in process memory only, so every restart opens
+	// a fresh session (and boots a fresh Zed sandbox) instead of
+	// continuing where the user left off. With them, the bridge
+	// looks up the persisted ID on first send and writes it on each
+	// attach. Both fields opt-in — leaving them nil keeps the legacy
+	// in-memory-only behaviour for tests and standalone deploys.
+	LoadSessionID func(ctx context.Context, workerID domain.WorkerID) (string, error)
+	SaveSessionID func(ctx context.Context, workerID domain.WorkerID, sessionID string) error
 }
 
 // NewHelix returns a HelixBridge bound to the supplied Helix client.
@@ -152,6 +170,8 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 		model:          cfg.Model,
 		cwd:            cfg.CWD,
 		logger:         logger,
+		loadSessionID:  cfg.LoadSessionID,
+		saveSessionID:  cfg.SaveSessionID,
 		listeners:      make(map[chan string]struct{}),
 		seen:           make(map[string]struct{}),
 		orgIDByProject: make(map[string]string),
@@ -359,6 +379,26 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		}
 	}
 
+	// On the bridge's first send after process boot, recover the
+	// previously persisted session pointer (if any) so we continue
+	// the same Helix session — and the same warm Zed sandbox — that
+	// the user was last interacting with. Without this each restart
+	// orphans the prior session and boots a fresh container.
+	b.loadOnce.Do(func() {
+		if b.loadSessionID == nil {
+			return
+		}
+		persisted, err := b.loadSessionID(ctx, b.ownerID)
+		if err != nil {
+			b.logger.Warn("chat helix: load persisted session id", "worker", b.ownerID, "err", err)
+			return
+		}
+		if persisted != "" {
+			b.attachSession(persisted)
+			b.logger.Info("chat helix: recovered persisted session", "worker", b.ownerID, "sid", persisted)
+		}
+	})
+
 	b.mu.Lock()
 	sid := b.sessionID
 	b.mu.Unlock()
@@ -518,6 +558,19 @@ func (b *HelixBridge) attachSession(sid string) {
 	b.mu.Unlock()
 	b.wsWG.Add(1)
 	go b.runWebsocket(ctx, sid)
+	// Persist the new pointer so a restart can pick the same session
+	// up. Best-effort: a save failure doesn't break the live attach,
+	// it just means the user gets a fresh sandbox on next process
+	// boot.
+	if b.saveSessionID != nil {
+		persistCtx, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
+		go func() {
+			defer cancelPersist()
+			if err := b.saveSessionID(persistCtx, b.ownerID, sid); err != nil {
+				b.logger.Warn("chat helix: persist session id", "worker", b.ownerID, "sid", sid, "err", err)
+			}
+		}()
+	}
 }
 
 // runWebsocket subscribes to /api/v1/ws/user for sid, applies each

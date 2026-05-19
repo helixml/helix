@@ -181,9 +181,20 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (
 	// public tunnel URL.
 	if resp.AgentAppID != "" && a.HelixOrgURL != "" {
 		mcpURL := strings.TrimRight(a.HelixOrgURL, "/") + "/workers/" + string(workerID) + "/mcp"
+		// Prefer the per-request bearer from ctx so the attached MCP
+		// entry authenticates as the actual user who triggered this
+		// project apply — the chat-bridge path carries the logged-in
+		// user's bearer via withHelixUserBearer; the spawner path
+		// carries the hiring user's bearer via BearerForUser. Falling
+		// back to the static MCPAuthBearer keeps the original
+		// service-key behaviour for standalone deploys.
+		bearer := helixclient.BearerFromContext(ctx)
+		if bearer == "" {
+			bearer = a.MCPAuthBearer
+		}
 		var headers map[string]string
-		if a.MCPAuthBearer != "" {
-			headers = map[string]string{"Authorization": "Bearer " + a.MCPAuthBearer}
+		if bearer != "" {
+			headers = map[string]string{"Authorization": "Bearer " + bearer}
 		}
 		if err := helixclient.AttachMCPToAppWithHeaders(ctx, a.Client, resp.AgentAppID, "helix", "http", mcpURL, headers); err != nil {
 			if a.Logger != nil {

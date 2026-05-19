@@ -82,6 +82,21 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 		OwnerID:     "w-owner",
 		CWD:         cwd,
 		Logger:      logger,
+		// Persist the live owner-chat session pointer on the same
+		// WorkerRuntimeState row the Spawner uses, so a process
+		// restart (or a parallel UI like Helix's own project page)
+		// can pick up the warm Zed sandbox instead of booting a
+		// fresh one.
+		LoadSessionID: func(ctx context.Context, workerID domain.WorkerID) (string, error) {
+			state, err := agenthelix.LoadState(ctx, applier.Store, workerID)
+			if err != nil {
+				return "", err
+			}
+			return state.SessionID, nil
+		},
+		SaveSessionID: func(ctx context.Context, workerID domain.WorkerID, sessionID string) error {
+			return agenthelix.SaveSession(ctx, applier.Store, workerID, sessionID)
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build helix chat bridge: %w", err)
