@@ -144,6 +144,12 @@ export default function DesignReviewContent({
   const documentRef = useRef<HTMLDivElement>(null);
   const markdownRef = useRef<HTMLDivElement>(null);
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Ref to the in-progress new-comment form so we can measure its rendered
+  // height and feed it into the bubble-stacking algorithm.
+  const commentFormRef = useRef<HTMLDivElement | null>(null);
+  // Bump to force re-stacking after the form mounts/unmounts and we have its
+  // measured height (offsetHeight isn't reactive on its own).
+  const [commentFormMeasureTick, setCommentFormMeasureTick] = useState(0);
 
   // Refs and state for highlight preservation and hover button
   const savedRangeRef = useRef<Range | null>(null);
@@ -703,10 +709,30 @@ export default function DesignReviewContent({
   const positionRetryRef = useRef(0);
   const maxPositionRetries = 5;
 
+  // Sentinel id used to represent the in-progress new-comment form inside
+  // the bubble-stacking algorithm so the form participates in collision
+  // resolution alongside existing comment bubbles.
+  const NEW_COMMENT_FORM_KEY = "__new_comment_form__";
+
+  // Stable callback so passing it as a ref prop doesn't cause repeated
+  // null/node toggling and infinite re-renders.
+  const handleCommentFormRef = useCallback((el: HTMLDivElement | null) => {
+    commentFormRef.current = el;
+    // The form just mounted/unmounted — trigger a re-stack so the
+    // algorithm can pick up the real measured height.
+    setCommentFormMeasureTick((t) => t + 1);
+  }, []);
+
   useEffect(() => {
+    // On narrow viewports bubbles render inline (position: relative) and
+    // the form is a bottom-sheet (position: fixed). Stacking math is
+    // irrelevant in that mode.
+    const formActive =
+      !isNarrowViewport && showCommentForm && !!selectedText;
+
     if (
       !documentRef.current ||
-      inlineComments.length === 0 ||
+      (inlineComments.length === 0 && !formActive) ||
       !documentContent
     ) {
       setCommentPositions((prev) => (prev.size === 0 ? prev : new Map()));
@@ -737,6 +763,22 @@ export default function DesignReviewContent({
 
         positions.push({ id: comment.id!, baseY, height });
       });
+
+      if (formActive) {
+        // 220 is a sensible default matching the form's typical rendered
+        // height with a 3-line TextField; the real value replaces it once
+        // the form has mounted and the ref callback bumps the tick.
+        const formHeight = commentFormRef.current?.offsetHeight || 220;
+        positions.push({
+          id: NEW_COMMENT_FORM_KEY,
+          baseY: commentFormPosition.y,
+          height: formHeight,
+        });
+      }
+
+      // Sort top-to-bottom so the item with the higher anchor wins its
+      // preferred slot; later items get pushed down to avoid overlap.
+      positions.sort((a, b) => a.baseY - b.baseY);
 
       if (hasInvalidPositions && retryCount < maxPositionRetries) {
         return false;
@@ -802,7 +844,16 @@ export default function DesignReviewContent({
     const timeoutId = scheduleCalculation(0);
 
     return () => clearTimeout(timeoutId);
-  }, [inlineCommentIds, activeTab, documentContent]);
+  }, [
+    inlineCommentIds,
+    activeTab,
+    documentContent,
+    showCommentForm,
+    selectedText,
+    commentFormPosition.y,
+    commentFormMeasureTick,
+    isNarrowViewport,
+  ]);
 
   // Helper to find the Y position of quoted text
   const findQuotedTextPosition = (quotedText: string): number | null => {
@@ -1563,7 +1614,10 @@ export default function DesignReviewContent({
               {/* New Comment Form (Inline) */}
               <InlineCommentForm
                 show={showCommentForm}
-                yPos={commentFormPosition.y}
+                yPos={
+                  commentPositions.get(NEW_COMMENT_FORM_KEY) ??
+                  commentFormPosition.y
+                }
                 selectedText={selectedText}
                 commentText={commentText}
                 onCommentChange={setCommentText}
@@ -1576,6 +1630,7 @@ export default function DesignReviewContent({
                 }}
                 isNarrowViewport={isNarrowViewport}
                 isSubmitting={createCommentMutation.isPending}
+                outerRef={handleCommentFormRef}
               />
             </Box>
           </Box>
