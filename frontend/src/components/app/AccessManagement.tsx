@@ -32,7 +32,7 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
-import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesRole } from '../../api/api'
+import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationMembership, TypesRole } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
 import useTheme from '@mui/material/styles/useTheme'
@@ -42,6 +42,7 @@ interface AccessManagementProps {
   accessGrants: TypesAccessGrant[];
   isLoading: boolean;
   isReadOnly: boolean;
+  organizationId?: string;
   currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
   projectOwnerId?: string;
   onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
@@ -53,6 +54,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   accessGrants,
   isLoading,
   isReadOnly,
+  organizationId,
   currentUser,
   projectOwnerId,
   onCreateGrant,
@@ -75,6 +77,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const [selectedRole, setSelectedRole] = useState('app_user'); // Default role
   const [deleteGrantId, setDeleteGrantId] = useState<string | null>(null);
   const [orgAddSnackbar, setOrgAddSnackbar] = useState<string | null>(null);
+  const [dialogOrgMembers, setDialogOrgMembers] = useState<TypesOrganizationMembership[] | null>(null);
+  const [membersLoading, setMembersLoading] = useState(false);
 
   // Extract roles from the organization
   const availableRoles = useMemo(() => {
@@ -98,6 +102,39 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const ownerDisplayName = currentUser?.full_name || currentUser?.email || 'You';
   const ownerDisplayEmail = currentUser?.email || '-';
   const hasOwnerRow = !!currentUser?.id;
+  const effectiveOrganizationId = organizationId || organization?.id || orgTools.orgID;
+
+  useEffect(() => {
+    if (!openUserDialog || !effectiveOrganizationId) return;
+
+    let cancelled = false;
+    setDialogOrgMembers(null);
+    setMembersLoading(true);
+
+    api.getApiClient().v1OrganizationsMembersDetail(effectiveOrganizationId)
+      .then((response) => {
+        if (!cancelled) {
+          setDialogOrgMembers(response.data || []);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load organization members:', error);
+        if (!cancelled) {
+          setDialogOrgMembers(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMembersLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api.getApiClient, effectiveOrganizationId, openUserDialog]);
+
+  const organizationMemberships = dialogOrgMembers ?? organization?.memberships ?? [];
 
   // Get organization members, excluding self and users who already have grants
   const existingGrantUserIds = useMemo(() => {
@@ -105,8 +142,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   }, [accessGrants]);
 
   const members = useMemo(() => {
-    if (!organization?.memberships) return [];
-    return organization.memberships
+    return organizationMemberships
       .filter(membership => !!membership.user_id && membership.user_id !== currentUser?.id)
       .filter(membership => !existingGrantUserIds.has(membership.user_id))
       .map(membership => {
@@ -122,7 +158,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
         const bLabel = `${b.name} ${b.email}`.toLowerCase();
         return aLabel.localeCompare(bLabel);
       });
-  }, [organization?.memberships, currentUser?.id, existingGrantUserIds]);
+  }, [organizationMemberships, currentUser?.id, existingGrantUserIds]);
 
   const getMemberOptionLabel = (member: { name: string; email: string }) => {
     if (!member.email) return member.name;
@@ -727,6 +763,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             autoHighlight
             selectOnFocus
             handleHomeEndKeys
+            loading={membersLoading}
             options={members}
             getOptionLabel={(option) => {
               if (typeof option === 'string') return option;
@@ -787,6 +824,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 ? 'No matching organization members. Type an email to invite someone new.'
                 : 'No organization members available'
             }
+            loadingText="Loading organization members..."
             renderInput={(params) => (
               <TextField {...params} label="User" placeholder="Select a user or type an email" />
             )}
