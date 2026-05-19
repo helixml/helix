@@ -324,22 +324,19 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Check for existing membership
+	// Check for existing membership — if so, treat as no-op and return the existing row
 	existingMembership, err := apiServer.Store.GetTeamMembership(r.Context(), &store.GetTeamMembershipQuery{
 		TeamID: teamID,
 		UserID: newMember.ID,
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Err(err).Msg("error getting team membership")
-		if !errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// OK
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if existingMembership != nil {
-		http.Error(rw, "User already a member of the team", http.StatusBadRequest)
+		writeResponse(rw, existingMembership, http.StatusOK)
 		return
 	}
 

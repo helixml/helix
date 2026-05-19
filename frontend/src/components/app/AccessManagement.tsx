@@ -19,10 +19,14 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Radio from '@mui/material/Radio'
 import FormLabel from '@mui/material/FormLabel'
 import Link from '@mui/material/Link'
-import Autocomplete from '@mui/material/Autocomplete'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemText from '@mui/material/ListItemText'
+import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
+import InputAdornment from '@mui/material/InputAdornment'
 // Import icons
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -30,10 +34,13 @@ import PersonIcon from '@mui/icons-material/Person'
 import GroupsIcon from '@mui/icons-material/Groups'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
+import SearchIcon from '@mui/icons-material/Search'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
-import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationMembership, TypesRole } from '../../api/api'
+import useDebounce from '../../hooks/useDebounce'
+import { extractErrorMessage } from '../../hooks/useErrorCallback'
+import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationRole, TypesUser } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
 import useTheme from '@mui/material/styles/useTheme'
@@ -75,12 +82,15 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const [openUserDialog, setOpenUserDialog] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserReference, setSelectedUserReference] = useState('');
   const [userInputValue, setUserInputValue] = useState('');
+  const debouncedUserInputValue = useDebounce(userInputValue, 300);
   const [selectedRole, setSelectedRole] = useState('app_user'); // Default role
   const [deleteGrantId, setDeleteGrantId] = useState<string | null>(null);
   const [orgAddSnackbar, setOrgAddSnackbar] = useState<string | null>(null);
-  const [dialogOrgMembers, setDialogOrgMembers] = useState<TypesOrganizationMembership[] | null>(null);
-  const [membersLoading, setMembersLoading] = useState(false);
+  const [orgAddSnackbarSeverity, setOrgAddSnackbarSeverity] = useState<'info' | 'error'>('info');
+  const [userSearchResults, setUserSearchResults] = useState<TypesUser[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
 
   // Extract roles from the organization
   const availableRoles = useMemo(() => {
@@ -106,66 +116,75 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const hasOwnerRow = !!currentUser?.id;
   const effectiveOrganizationId = organizationId || organization?.id || orgTools.orgID;
 
+  const existingGrantUserIds = useMemo(() => {
+    return new Set(accessGrants.map(g => g.user_id).filter(Boolean));
+  }, [accessGrants]);
+
   useEffect(() => {
-    if (!openUserDialog || !effectiveOrganizationId) return;
+    if (!openUserDialog) return;
+
+    const query = debouncedUserInputValue.trim();
+    if (!effectiveOrganizationId || query.length < 2) {
+      setUserSearchResults([]);
+      setSearchingUsers(false);
+      return;
+    }
 
     let cancelled = false;
-    setDialogOrgMembers(null);
-    setMembersLoading(true);
+    setSearchingUsers(true);
 
-    api.getApiClient().v1OrganizationsMembersDetail(effectiveOrganizationId)
+    api.getApiClient().v1UsersSearchList({
+      query,
+      organization_id: effectiveOrganizationId,
+      limit: 20,
+    })
       .then((response) => {
-        if (!cancelled) {
-          setDialogOrgMembers(response.data || []);
-        }
+        if (cancelled) return;
+        const normalizedResults = (response.data?.users || []).map((user: TypesUser) => ({
+          id: user.id,
+          email: user.email || '',
+          full_name: user.full_name || '',
+          username: user.username || '',
+        }));
+        setUserSearchResults(normalizedResults);
       })
       .catch((error) => {
-        console.error('Failed to load organization members:', error);
+        console.error('Failed to search organization members:', error);
         if (!cancelled) {
-          setDialogOrgMembers(null);
+          setUserSearchResults([]);
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setMembersLoading(false);
+          setSearchingUsers(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [api.getApiClient, effectiveOrganizationId, openUserDialog]);
+  }, [api.getApiClient, debouncedUserInputValue, effectiveOrganizationId, openUserDialog]);
 
-  const organizationMemberships = dialogOrgMembers ?? organization?.memberships ?? [];
+  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-  // Get organization members, excluding self and users who already have grants
-  const existingGrantUserIds = useMemo(() => {
-    return new Set(accessGrants.map(g => g.user_id).filter(Boolean));
-  }, [accessGrants]);
-
-  const members = useMemo(() => {
-    return organizationMemberships
-      .filter(membership => !!membership.user_id && membership.user_id !== currentUser?.id)
-      .filter(membership => !existingGrantUserIds.has(membership.user_id))
-      .map(membership => {
-        const user = (membership.user || {}) as any
-        return {
-          id: membership.user_id || '',
-          name: user.full_name || user.email || 'Unknown user',
-          email: user.email || ''
-        }
-      })
-      .sort((a, b) => {
-        const aLabel = `${a.name} ${a.email}`.toLowerCase();
-        const bLabel = `${b.name} ${b.email}`.toLowerCase();
-        return aLabel.localeCompare(bLabel);
-      });
-  }, [organizationMemberships, currentUser?.id, existingGrantUserIds]);
-
-  const getMemberOptionLabel = (member: { name: string; email: string }) => {
-    if (!member.email) return member.name;
-    if (member.name === member.email) return member.email;
-    return `${member.name} (${member.email})`;
+  const getUserSearchMessage = () => {
+    const query = userInputValue.trim();
+    if (!effectiveOrganizationId) {
+      return 'Select an organization before adding access.';
+    }
+    if (query.length < 2) {
+      return 'Enter at least 2 characters to search organization members.';
+    }
+    if (searchingUsers) {
+      return 'Searching organization members...';
+    }
+    if (userSearchResults.length > 0) {
+      return `Only showing users in this organization. Found ${userSearchResults.length} member${userSearchResults.length === 1 ? '' : 's'}.`;
+    }
+    if (isValidEmail(query)) {
+      return 'No organization member found for this email.';
+    }
+    return 'No organization members found. Try a different search term.';
   };
 
   // Filter teams that don't already have access grants
@@ -187,7 +206,10 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const handleCloseUserDialog = () => {
     setOpenUserDialog(false);
     setSelectedUserId('');
+    setSelectedUserReference('');
     setUserInputValue('');
+    setUserSearchResults([]);
+    setSearchingUsers(false);
     setSelectedRole('app_user');
   };
 
@@ -207,24 +229,45 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   // Determine if the typed input is an email not matching any org member
   const isTypedEmail = useMemo(() => {
     const input = userInputValue.trim();
-    if (!input || selectedUserId) return false;
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
-    const matchesMember = members.some(m => m.email.toLowerCase() === input.toLowerCase());
-    return isEmail && !matchesMember;
-  }, [userInputValue, selectedUserId, members]);
+    const debouncedInput = debouncedUserInputValue.trim();
+    if (!effectiveOrganizationId) return false;
+    if (!input || selectedUserReference || searchingUsers) return false;
+    if (input !== debouncedInput) return false;
+    return isValidEmail(input) && userSearchResults.length === 0;
+  }, [debouncedUserInputValue, effectiveOrganizationId, searchingUsers, selectedUserReference, userInputValue, userSearchResults.length]);
 
   // Handle create user grant
   const handleCreateUserGrant = async () => {
     let userReference = '';
+    let addedToOrganization = false;
 
-    if (selectedUserId) {
-      const user = members.find(m => m.id === selectedUserId);
-      if (!user) return;
-      userReference = user.email || user.id;
+    if (selectedUserReference) {
+      userReference = selectedUserReference || selectedUserId;
     } else if (isTypedEmail) {
       userReference = userInputValue.trim();
     } else {
       return;
+    }
+
+    if (isTypedEmail) {
+      if (!effectiveOrganizationId) return;
+
+      try {
+        const response = await api.getApiClient().v1OrganizationsMembersCreate(effectiveOrganizationId, {
+          user_reference: userReference,
+          role: TypesOrganizationRole.OrganizationRoleMember,
+        });
+        addedToOrganization = true;
+        setSelectedUserId(response.data?.user_id || userReference);
+        setSelectedUserReference(userReference);
+        await orgTools.loadOrganization(effectiveOrganizationId);
+      } catch (error) {
+        console.error('Failed to add organization member before granting access:', error);
+        setOrgAddSnackbarSeverity('error');
+        const errorMessage = extractErrorMessage(error);
+        setOrgAddSnackbar(errorMessage || 'Could not add this user to the organization.');
+        return;
+      }
     }
 
     const request: TypesCreateAccessGrantRequest = {
@@ -233,9 +276,16 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     };
 
     const result = await onCreateGrant(request);
+    if (!result) return;
+
+    if (addedToOrganization) {
+      setOrgAddSnackbarSeverity('info');
+      setOrgAddSnackbar(`${userReference} was added to the organization and granted access.`);
+    }
     if (result?.added_to_organization) {
       const name = result.user?.full_name || userReference;
-      setOrgAddSnackbar(`${name} was also added to the organisation.`);
+      setOrgAddSnackbarSeverity('info');
+      setOrgAddSnackbar(`${name} was also added to the organization.`);
     }
     handleCloseUserDialog();
   };
@@ -759,84 +809,95 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       <Dialog open={openUserDialog} onClose={handleCloseUserDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Add User</DialogTitle>
         <DialogContent>
-          <Autocomplete
-            freeSolo
-            openOnFocus
-            autoHighlight
-            selectOnFocus
-            handleHomeEndKeys
-            loading={membersLoading}
-            options={members}
-            getOptionLabel={(option) => {
-              if (typeof option === 'string') return option;
-              return getMemberOptionLabel(option);
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Search by name or email"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={userInputValue}
+            onChange={(event) => {
+              setUserInputValue(event.target.value);
+              setSelectedUserId('');
+              setSelectedUserReference('');
             }}
-            value={members.find(m => m.id === selectedUserId) || null}
-            inputValue={userInputValue}
-            filterOptions={(options, state) => {
-              const input = state.inputValue.trim().toLowerCase();
-              if (!input) return options;
-              return options.filter(option => {
-                return (
-                  option.name.toLowerCase().includes(input) ||
-                  option.email.toLowerCase().includes(input)
-                );
-              });
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searchingUsers ? (
+                <InputAdornment position="end">
+                  <CircularProgress size={20} />
+                </InputAdornment>
+              ) : null,
             }}
-            onInputChange={(_e, newValue) => {
-              setUserInputValue(newValue);
-              const normalizedValue = newValue.trim().toLowerCase();
-              const matchedMember = members.find(m =>
-                getMemberOptionLabel(m).toLowerCase() === normalizedValue ||
-                m.email.toLowerCase() === normalizedValue
-              );
-              setSelectedUserId(matchedMember?.id || '');
-            }}
-            onChange={(_e, newValue) => {
-              if (typeof newValue === 'string') {
-                setSelectedUserId('');
-                setUserInputValue(newValue);
-              } else if (newValue) {
-                setSelectedUserId(newValue.id || '');
-                setUserInputValue(`${newValue.name} (${newValue.email})`);
-              } else {
-                setSelectedUserId('');
-                setUserInputValue('');
-              }
-            }}
-            renderOption={(props, option) => {
-              const { key, ...optionProps } = props;
-              return (
-                <Box component="li" key={key} {...optionProps}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      {option.name}
-                    </Typography>
-                    {option.email && (
-                      <Typography variant="caption" color="text.secondary">
-                        {option.email}
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-              );
-            }}
-            noOptionsText={
-              userInputValue.trim()
-                ? 'No matching organization members. Type an email to invite someone new.'
-                : 'No organization members available'
-            }
-            loadingText="Loading organization members..."
-            renderInput={(params) => (
-              <TextField {...params} label="User" placeholder="Select a user or type an email" />
-            )}
-            sx={{ mb: 2, mt: 2 }}
+            sx={{ mt: 2 }}
           />
+
+          <Box sx={{ mt: 2, mb: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary">
+              {getUserSearchMessage()}
+            </Typography>
+          </Box>
+
+          <List sx={{ width: '100%', maxHeight: 260, overflow: 'auto', mb: 2 }}>
+            {userSearchResults.map((user) => {
+              const userId = user.id || '';
+              const userName = user.full_name || user.email || 'Unnamed User';
+              const userReference = user.email || userId;
+              const isCurrentUser = !!userId && userId === currentUser?.id;
+              const alreadyHasAccess = !!userId && existingGrantUserIds.has(userId);
+              const isDisabled = !userReference || isCurrentUser || alreadyHasAccess;
+              const isSelected = !!userReference && selectedUserReference === userReference;
+              const disabledLabel = isCurrentUser ? 'You' : alreadyHasAccess ? 'Already has access' : '';
+
+              return (
+                <ListItem
+                  key={userId || user.email}
+                  divider
+                  sx={{
+                    borderRadius: 1,
+                    bgcolor: isSelected ? 'action.selected' : undefined,
+                    '&:last-child': { borderBottom: 0 },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                    <PersonIcon color={isSelected ? 'primary' : 'action'} />
+                  </Box>
+                  <ListItemText
+                    primary={userName}
+                    secondary={user.email || user.username}
+                  />
+                  <ListItemSecondaryAction>
+                    <Tooltip title={disabledLabel}>
+                      <span>
+                        <Button
+                          variant={isSelected ? 'contained' : 'outlined'}
+                          color="primary"
+                          size="small"
+                          onClick={() => {
+                            setSelectedUserId(userId);
+                            setSelectedUserReference(userReference);
+                          }}
+                          disabled={isDisabled}
+                        >
+                          {disabledLabel || (isSelected ? 'Selected' : 'Select')}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </ListItemSecondaryAction>
+                </ListItem>
+              );
+            })}
+          </List>
 
           {isTypedEmail && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              This email is not a member of your organization. Adding them here
-              will also add them to the organization as a member.
+              This email is not a member of your organization. Confirming will add
+              them to the organization as a member first, then grant access.
             </Alert>
           )}
 
@@ -882,7 +943,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             </RadioGroup>
           </FormControl>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            You can also type an email address to add someone who isn't in your organisation yet.
+            Search only shows members of this organization. Enter a full email address to add someone to the organization first.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -891,9 +952,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             onClick={handleCreateUserGrant}
             variant="contained"
             color="primary"
-            disabled={(!selectedUserId && !isTypedEmail) || !selectedRole}
+            disabled={(!selectedUserReference && !isTypedEmail) || !selectedRole}
           >
-            Add
+            {isTypedEmail ? 'Add to org and grant access' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -914,7 +975,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
         onClose={() => setOrgAddSnackbar(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert onClose={() => setOrgAddSnackbar(null)} severity="info" sx={{ width: '100%' }}>
+        <Alert onClose={() => setOrgAddSnackbar(null)} severity={orgAddSnackbarSeverity} sx={{ width: '100%' }}>
           {orgAddSnackbar}
         </Alert>
       </Snackbar>
