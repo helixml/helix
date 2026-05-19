@@ -131,41 +131,45 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		log.Warn().Err(err).Msg("helix-org service api key not provisioned — chat will stay disabled")
 	}
 
-	// Wire the helix-backed WorkspaceSync so update_role /
-	// update_identity re-push role.md / identity.md to each affected
-	// Worker's per-Worker repo on the helix-specs branch. Without this
-	// the calls become no-ops (DefaultDeps installs a NoopWorkspaceSync)
-	// and live role edits only take effect once a Worker is hired
-	// fresh — re-hires reuse the stale on-branch content.
-	//
-	// PublishFile uses the calling user's bearer (via WithBearerToken
-	// from withHelixUserBearer middleware), so the commits show up
-	// authored by the actual editor, not the service account.
-	if wsClient, err := buildHelixOrgServiceClient(context.Background(), configReg); err == nil && wsClient != nil {
-		deps.Workspace = agenthelix.NewWorkspace(wsClient, st, "helix-specs", "helix-org", "helix-org@helix.local")
-	} else if err != nil {
-		log.Warn().Err(err).Msg("helix-org: workspace sync disabled (live role/identity edits won't propagate)")
+	// Build the single ProjectApplier shared by the Spawner (for AI
+	// Worker activations) and the chat bridge (for owner-chat). The
+	// owner is just another Worker — they get a per-Worker Helix
+	// project + agent app + git repo + Zed sandbox just like every
+	// hired Worker, applied with the same `worker.*` defaults. The
+	// chat surface at /ui/ is a window onto the owner's sandbox.
+	serviceClient, serviceClientErr := buildHelixOrgServiceClient(context.Background(), configReg)
+	if serviceClientErr != nil {
+		log.Warn().Err(serviceClientErr).Msg("helix-org service client init failed — chat and worker activations will not run")
 	}
 
-	// Wire helix-org's production Spawner — zed_external Workers, one
-	// per-Worker Helix project + agent app + git repo, warm session
-	// reuse across activations. The Spawner's MCP-attach plumbing
-	// points each Worker's agent app at our gateway URL
-	// ($HELIX_PUBLIC_URL/api/v1/mcp/helix-org/workers/<id>/mcp) with the
-	// service api_key in headers so the Zed sandbox's MCP client
-	// authenticates against the gateway when it phones home for tools.
-	//
-	// SpawnerConfig reads from chat.app_id (provider/model inherited
-	// from the picked owner agent), which may not be set at startup —
-	// build the config lazily on the first activation so the user can
-	// pick an agent after API boot and not have to restart.
-	spawnerClient, spawnerClientErr := buildHelixOrgServiceClient(context.Background(), configReg)
-	if spawnerClientErr != nil {
-		log.Warn().Err(spawnerClientErr).Msg("helix-org spawner client init failed — worker activations will not run")
+	// Wire the helix-backed WorkspaceSync so update_role /
+	// update_identity re-push role.md / identity.md to each affected
+	// Worker's per-Worker repo on the helix-specs branch.
+	if serviceClient != nil {
+		deps.Workspace = agenthelix.NewWorkspace(serviceClient, st, "helix-specs", "helix-org", "helix-org@helix.local")
 	}
+
+	// Project applier — shared infra for owner-chat and Worker
+	// activations. Applies every Worker's project with the same
+	// `worker.runtime` (default `claude_code`) and the same MCP
+	// wiring (auth-gated gateway URL with the service api_key in
+	// headers).
+	var projectApplier *agenthelix.ProjectApplier
+	if serviceClient != nil {
+		applier, applierErr := buildHelixOrgProjectApplier(context.Background(), configReg, serviceClient, st, logger)
+		if applierErr != nil {
+			log.Warn().Err(applierErr).Msg("helix-org project applier not built — chat and worker activations will not run")
+		} else {
+			projectApplier = applier
+		}
+	}
+
+	// Wire helix-org's production Spawner. The owner is a Worker, so
+	// helix-org/server/chat.HelixBridge reuses the same applier; both
+	// drive per-Worker projects through the same default settings.
 	var spawnerFn agent.Spawner
-	if spawnerClient != nil {
-		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, spawnerClient, st, bc, logger, deps.NewID, deps.Now)
+	if projectApplier != nil {
+		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, serviceClient, st, bc, logger, deps.NewID, deps.Now)
 	}
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
@@ -186,13 +190,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	// Chat backend: tries to build a HelixBridge against the
-	// surrounding Helix server. Returns (nil, nil) when required
-	// config keys are missing — chat then renders disabled until the
-	// admin finishes setup under /ui/settings.
-	chatBridge, err := buildEmbeddedChatBackend(context.Background(), configReg, st, logger)
-	if err != nil {
-		log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
+	// Chat backend: owner-chat opens against the owner Worker's
+	// per-Worker project via the shared ProjectApplier. Same defaults,
+	// same MCP wiring, same desktop runtime as any AI Worker.
+	var chatBridge chat.Backend
+	if projectApplier != nil && serviceClient != nil {
+		bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, serviceClient, logger)
+		if err != nil {
+			log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
+		} else {
+			chatBridge = bridge
+		}
 	}
 	if hb, ok := chatBridge.(*chat.HelixBridge); ok && hb != nil {
 		chatBridge = hb.WithPrompts(promptReg)
@@ -241,7 +249,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		innerUIMux.Handle("POST /ui/chat/new", chatBridge.NewHandler())
 		innerUIMux.Handle("POST /ui/chat/switch", chatBridge.SwitchHandler())
 	}
-	innerUIMux.Handle("/ui/alpha-agents", newHelixOrgAgentPickerHandler(configReg, helixStore))
 	innerUIMux.Handle("/", baseUIHandler)
 
 	// Wrap the whole UI surface with middleware that forwards the
@@ -269,6 +276,46 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 type helixOrgConfig struct {
 	FileStoreType types.FileStoreType
 	LocalFSPath   string
+}
+
+// buildHelixOrgProjectApplier constructs the ProjectApplier that
+// both the chat bridge (owner-chat) and the spawner (AI Worker
+// activations) drive. Single source of truth for the embedded
+// SaaS's "Worker defaults" — `worker.runtime` from the config
+// registry (default `claude_code`), subscription credentials, and
+// our MCP-gateway URL so each Worker's agent app phones home for
+// helix-org tools via Helix's auth-gated proxy rather than a
+// separate tunnel.
+func buildHelixOrgProjectApplier(
+	ctx context.Context,
+	cfg *config.Registry,
+	client helixclient.Client,
+	orgStore *helixorgstore.Store,
+	logger *slog.Logger,
+) (*agenthelix.ProjectApplier, error) {
+	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
+	if apiKey == "" {
+		return nil, fmt.Errorf("helix.api_key not set")
+	}
+	baseURL, err := cfg.GetString(ctx, "helix.url")
+	if err != nil {
+		return nil, fmt.Errorf("read helix.url: %w", err)
+	}
+	runtime, _ := cfg.GetString(ctx, "worker.runtime")
+	credentials := ""
+	if runtime == "claude_code" || runtime == "" {
+		credentials = "subscription"
+	}
+	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
+	return &agenthelix.ProjectApplier{
+		Client:        client,
+		Store:         orgStore,
+		HelixOrgURL:   helixOrgURL,
+		Runtime:       runtime,
+		Credentials:   credentials,
+		MCPAuthBearer: apiKey,
+		Logger:        logger,
+	}, nil
 }
 
 // buildHelixOrgServiceClient constructs a helixclient backed by the
@@ -324,12 +371,17 @@ func buildHelixOrgSpawnerConfig(
 		return agenthelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
 	}
 
+	runtime, _ := cfg.GetString(ctx, "worker.runtime")
+	credentials := ""
+	if runtime == "claude_code" || runtime == "" {
+		credentials = "subscription"
+	}
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return agenthelix.SpawnerConfig{
 		Client:        client,
 		HelixOrgURL:   helixOrgURL,
-		Runtime:       "claude_code",
-		Credentials:   "subscription",
+		Runtime:       runtime,
+		Credentials:   credentials,
 		MCPAuthBearer: apiKey,
 		Store:         orgStore,
 		Broadcaster:   bc,

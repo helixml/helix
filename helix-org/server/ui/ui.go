@@ -751,31 +751,3 @@ func render[T tmpl.TemplateProvider](w http.ResponseWriter, t tmpl.Template[T], 
 	}
 }
 
-// RenderAlphaAgents writes the alpha-agents picker as a fully
-// chromed helix-org UI page (head + sidebar + same styling as
-// /ui/chat, /ui/org, /ui/settings). Exported so the embedded SaaS
-// host (api/pkg/server) can render through the same template
-// machinery without duplicating shell HTML.
-//
-// `recents` is the chat recent-sessions list shown in the sidebar;
-// pass an empty slice when the picker is rendered outside any chat
-// context. Page-state fields (CurrentID, Saved, Err) describe the
-// picker's own state; embedding host fills them based on request.
-func RenderAlphaAgents(w http.ResponseWriter, ownerWorkerID string, recents []RecentRow, page *AlphaAgentsPage) {
-	page.shell = shell{
-		Head: Head{Title: "Pick agent"},
-		Sidebar: Sidebar{
-			Active:      "",
-			Initial:     "O",
-			DisplayName: "Owner",
-			WorkerID:    ownerWorkerID,
-			Recents:     recents,
-			HasRecents:  len(recents) > 0,
-		},
-	}
-	page.HasAgents = len(page.Agents) > 0
-	page.HasFlash = page.Flash != ""
-	page.HasError = page.Error != ""
-	page.HasCurrent = page.CurrentID != ""
-	render(w, alphaAgentsTpl, page)
-}

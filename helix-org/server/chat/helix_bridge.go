@@ -285,16 +285,27 @@ func (b *HelixBridge) SendHandler() http.Handler {
 		}
 		// The /sessions/chat call for the helix_agent (helix_basic) path
 		// blocks the upstream HTTP request until the agent finishes
-		// reasoning + every tool call. With 29 MCP tools and multi-step
-		// reasoning that easily exceeds htmx's request timeout, and the
-		// browser cancels — we then 500 even though the agent ran fine.
-		// Detach the ctx so the bridge keeps running after the response
-		// returns; the WS subscriber attached by attachSession (kicked
-		// off inside b.send once the session ID is known) pushes
-		// interactions to the SSE stream regardless.
+		// reasoning + every tool call. With many tool calls reasoning
+		// easily exceeds htmx's request timeout, and the browser cancels
+		// — we then 500 even though the agent ran fine. Detach the ctx
+		// so the bridge keeps running after the response returns; the
+		// WS subscriber attached by attachSession (kicked off inside
+		// b.send once the session ID is known) pushes interactions to
+		// the SSE stream regardless.
+		//
+		// Preserve the per-request bearer (set by the embedding host's
+		// auth middleware via helixclient.WithBearerToken) on the
+		// detached context so the downstream client picks the right
+		// identity. Stripping it would push every owner-chat session
+		// onto the service api_key, which breaks per-user Claude
+		// subscription lookups and audit attribution.
+		bearer := helixclient.BearerFromContext(r.Context())
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
+			if bearer != "" {
+				ctx = helixclient.WithBearerToken(ctx, bearer)
+			}
 			if err := b.send(ctx, msg); err != nil {
 				b.logger.Error("chat send (detached)", "err", err)
 				b.broadcast(renderTurnError(err.Error()))
@@ -427,12 +438,23 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 	b.broadcastInteractions(session.Interactions)
 
 	// Cold-start race: Helix's first /sessions/chat raced the desktop's
-	// WS connect, so the prompt is sitting in state=error. Re-queue the
-	// same message via the durable /messages endpoint — it'll be
-	// delivered on reconnect.
+	// WS connect, so the prompt is sitting in state=error. Re-issue via
+	// /sessions/chat with SessionID set — embedded Helix has no
+	// /sessions/{id}/messages queue endpoint, but the SessionID-based
+	// continuation path lands the prompt on the same session.
 	if hadWSError {
 		b.broadcast(renderAssistantText("_Warming up the Zed desktop. This usually takes a minute or two on a cold session..._"))
-		if _, err := b.client.SendSessionMessage(ctx, session.ID, msg, helixclient.SendMessageOptions{}); err != nil {
+		req := helixclient.StartChatRequest{
+			SessionID:           session.ID,
+			ProjectID:           projectID,
+			AppID:               agentAppID,
+			SessionRole:         b.sessionRole,
+			AgentType:           agenthelix.AgentType,
+			Type:                "text",
+			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
+			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+		}
+		if _, _, err := b.client.StartChatWithStatus(ctx, req); err != nil {
 			b.logger.Warn("chat helix queue cold-start retry", "sid", session.ID, "err", err)
 		}
 	}

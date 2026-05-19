@@ -10,11 +10,11 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	agenthelix "github.com/helixml/helix-org/agent/helix"
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/helix/helixclient"
 	"github.com/helixml/helix-org/server/chat"
-	"github.com/helixml/helix-org/store"
 
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -22,22 +22,17 @@ import (
 )
 
 // registerHelixOrgConfigSpecs declares the operational-config keys the
-// embedded helix-org honours. The embedded alpha drives chat entirely
-// through an existing Helix agent picked via chat.app_id — agent_type,
-// provider, and model all come from the agent's own assistant config
-// (see session_handlers.go:383), so the standalone chat.backend /
-// chat.provider / chat.model knobs are intentionally omitted.
+// embedded helix-org honours. The embedded alpha has exactly one
+// user-facing knob: `worker.runtime` — the code-agent runtime every
+// Worker (owner included) gets provisioned with. Everything else is
+// derived. The `helix.*` keys are auto-managed plumbing the user
+// shouldn't normally touch.
 func registerHelixOrgConfigSpecs(r *config.Registry) {
 	r.Register(config.Spec{
-		Key:         "chat.session_role",
+		Key:         "worker.runtime",
 		Type:        config.TypeString,
-		Default:     `"owner-chat"`,
-		Description: "session_role written on Helix chat sessions opened by the chat surface.",
-	})
-	r.Register(config.Spec{
-		Key:         "chat.app_id",
-		Type:        config.TypeString,
-		Description: "ID of the Helix agent under /orgs/<org>/agents that drives this chat surface. Pick one via /ui/alpha-agents — agent_type, provider, and model all come from the agent itself.",
+		Default:     `"claude_code"`,
+		Description: "Code-agent runtime applied to every Worker's Helix project. Default `claude_code` uses the operator's Claude OAuth subscription with no provider/model required. Set to `zed_agent` (or another supported value) only if you have a different inference path configured.",
 	})
 	r.Register(config.Spec{
 		Key:         "helix.url",
@@ -50,67 +45,48 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 		Type:        config.TypeString,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request (rare — most calls forward the user's own api key). Auto-provisioned at startup against the first admin user.",
 	})
-	r.Register(config.Spec{
-		Key:         "helix.org_url",
-		Type:        config.TypeString,
-		Description: "Externally-reachable URL for helix-org's MCP endpoint, written as HELIX_ORG_URL on each per-Worker Helix project. Leave empty to skip MCP wiring.",
-	})
 }
 
-// buildEmbeddedChatBackend constructs a HelixBridge that delegates
-// every chat send to a Helix agent picked at runtime via chat.app_id.
-// The bridge re-reads chat.app_id on each send (so the operator can
-// switch agents under /ui/alpha-agents without restarting), and the
-// per-request bearer middleware (withHelixUserBearer) attributes the
-// resulting Helix sessions to the actual logged-in user.
+// buildEmbeddedChatBackend constructs a HelixBridge that opens the
+// owner Worker's persistent zed_external chat session. The bridge
+// runs ProjectApplier.Ensure(w-owner) per send to materialise the
+// owner's per-Worker Helix project (idempotent — first call provisions,
+// subsequent calls return the same IDs), then opens / continues the
+// chat session against the project's auto-provisioned agent app.
 //
-// Returns nil + nil if helix.api_key isn't set yet — the auto-provision
-// path (ensureHelixOrgServiceAPIKey) normally fills it in at startup,
-// but a fresh DB with no admin user is a legitimate "not configured"
-// state and the UI should render that gracefully.
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, _ *store.Store, logger *slog.Logger) (chat.Backend, error) {
-	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
-	if apiKey == "" {
-		log.Warn().Msg("helix-org chat backend not configured — helix.api_key not yet provisioned")
+// w-owner is itself a Worker: same defaults (worker.runtime) apply,
+// same MCP wiring, same desktop runtime as any AI Worker the org hires
+// later. There is no separate "chat backend agent" picker — the chat
+// surface is a window onto the owner's own sandbox.
+//
+// Returns nil + nil if helix.api_key isn't set yet (auto-provision
+// happens at startup; a fresh DB with no admin user is a legitimate
+// "not configured" state).
+func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *agenthelix.ProjectApplier, client helixclient.Client, logger *slog.Logger) (chat.Backend, error) {
+	if applier == nil {
+		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
 		return nil, nil
-	}
-	baseURL, err := cfg.GetString(ctx, "helix.url")
-	if err != nil {
-		return nil, fmt.Errorf("read helix.url: %w", err)
-	}
-	sessionRole, err := cfg.GetString(ctx, "chat.session_role")
-	if err != nil {
-		return nil, fmt.Errorf("read chat.session_role: %w", err)
-	}
-
-	client, err := helixclient.New(helixclient.Config{BaseURL: baseURL, APIKey: apiKey})
-	if err != nil {
-		return nil, fmt.Errorf("helix client: %w", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("getwd: %w", err)
 	}
 
-	appIDFunc := func(ctx context.Context) (string, error) {
-		return cfg.GetString(ctx, "chat.app_id")
-	}
 	bridge, err := chat.NewHelix(chat.HelixConfig{
-		Client:      client,
-		AppIDFunc:   appIDFunc,
+		Client: client,
+		Ensure: applier,
+		// SessionRole is a free-form tag Helix writes on chat sessions
+		// it doesn't reuse in any control path; hardcode rather than
+		// surface as a config knob.
+		SessionRole: "owner-chat",
 		OwnerID:     "w-owner",
-		SessionRole: sessionRole,
 		CWD:         cwd,
 		Logger:      logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build helix chat bridge: %w", err)
 	}
-	currentApp, _ := cfg.GetString(ctx, "chat.app_id")
-	log.Info().
-		Str("helix_url", baseURL).
-		Str("current_app_id", currentApp).
-		Msg("helix-org chat backend wired (helix bridge, app-only dynamic)")
+	log.Info().Msg("helix-org chat backend wired (project-applier mode — owner is a Worker)")
 	return bridge, nil
 }
 

@@ -757,7 +757,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                window.open('/ui/alpha-agents', '_blank', 'noopener,noreferrer')
+                window.open('/ui/', '_blank', 'noopener,noreferrer')
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
                 }
