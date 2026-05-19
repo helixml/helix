@@ -60,6 +60,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import SpecTaskDetailContent from "./SpecTaskDetailContent";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
+import { specTaskTitle } from "./taskTitle";
 import DesignReviewContent from "../spec-tasks/DesignReviewContent";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import RobustPromptInput from "../common/RobustPromptInput";
@@ -378,10 +379,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
           : `Review: ${tab.reviewTitle || "Spec"}`
         : tab.type === "desktop"
           ? tab.desktopTitle || "Human Desktop"
-          : displayTask?.user_short_title ||
-            displayTask?.short_title ||
-            displayTask?.name ||
-            "Task";
+          : specTaskTitle(displayTask, "Task");
 
   // Format title history for tooltip
   const tooltipContent = useMemo(() => {
@@ -467,12 +465,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
     // Only allow renaming task tabs
     if (tab.type !== "task") return;
     e.stopPropagation();
-    setEditValue(
-      displayTask?.user_short_title ||
-        displayTask?.short_title ||
-        displayTask?.name ||
-        "",
-    );
+    setEditValue(specTaskTitle(displayTask, ""));
     setIsEditing(true);
   };
 
@@ -804,8 +797,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
     if (!taskSearchQuery.trim()) return unopenedTasks;
     const query = taskSearchQuery.toLowerCase();
     return unopenedTasks.filter((task) => {
-      const title =
-        task.user_short_title || task.short_title || task.name || "";
+      const title = specTaskTitle(task, "");
       return title.toLowerCase().includes(query);
     });
   }, [unopenedTasks, taskSearchQuery]);
@@ -952,8 +944,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       if (reviews.length > 0) {
         const latestReview =
           reviews.find((r: any) => r.status !== "superseded") || reviews[0];
-        const taskTitle =
-          task.user_short_title || task.short_title || task.name || "Task";
+        const taskTitle = specTaskTitle(task, "Task");
         onOpenReview(
           task.id,
           latestReview.id,
@@ -1390,12 +1381,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                     />
                   </ListItemIcon>
                   <ListItemText
-                    primary={
-                      task.user_short_title ||
-                      task.short_title ||
-                      task.name ||
-                      "Task"
-                    }
+                    primary={specTaskTitle(task, "Task")}
                     primaryTypographyProps={{
                       noWrap: true,
                       fontSize: "0.875rem",
@@ -1420,7 +1406,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                       <ReviewIcon sx={{ fontSize: 14, color: "info.main" }} />
                     </ListItemIcon>
                     <ListItemText
-                      primary={`Review: ${task.user_short_title || task.short_title || task.name || "Spec"}`}
+                      primary={`Review: ${specTaskTitle(task, "Spec")}`}
                       primaryTypographyProps={{
                         noWrap: true,
                         fontSize: "0.75rem",
@@ -1850,10 +1836,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       const desktopTitle = isTeamDesktop
         ? "Human Desktop"
         : ownerTask
-          ? ownerTask.user_short_title ||
-            ownerTask.short_title ||
-            ownerTask.name ||
-            "Task"
+          ? specTaskTitle(ownerTask, "Task")
           : "Desktop";
 
       const desktopTab: TabData = {
@@ -1996,10 +1979,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     const desktopTitle = isTeamDesktop
       ? "Human Desktop"
       : ownerTask
-        ? ownerTask.user_short_title ||
-          ownerTask.short_title ||
-          ownerTask.name ||
-          "Task"
+        ? specTaskTitle(ownerTask, "Task")
         : "Desktop";
 
     const desktopTab: TabData = {
@@ -2068,7 +2048,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     const reviewTabId = `review::${initialTaskId}::${initialReviewId}`;
     const taskForTitle = tasks.find((t) => t.id === initialTaskId);
     const reviewTitle = taskForTitle
-      ? `Review: ${taskForTitle.user_short_title || taskForTitle.short_title || taskForTitle.name || "Spec"}`
+      ? `Review: ${specTaskTitle(taskForTitle, "Spec")}`
       : "Review: Spec";
 
     const reviewTab: TabData = {

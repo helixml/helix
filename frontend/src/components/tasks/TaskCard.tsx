@@ -60,6 +60,7 @@ import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
+import { specTaskTitle } from "./taskTitle";
 import useAccount from "../../hooks/useAccount";
 import useLightTheme from "../../hooks/useLightTheme";
 import { TypesOrganizationMembership, TypesUser } from "../../api/api";
@@ -835,7 +836,7 @@ function TaskCardInner({
                 wordBreak: "break-word",
               }}
             >
-              {task.name}
+              {specTaskTitle(task)}
             </Typography>
           </Tooltip>
           <IconButton

@@ -59,6 +59,7 @@ import ExternalAgentDesktopViewer, {
 import DiffViewer from "./DiffViewer";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import { specTaskTitle } from "./taskTitle";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
@@ -907,7 +908,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         const latestReview =
           reviews.find((r: any) => r.status !== "superseded") || reviews[0];
         if (onOpenReview) {
-          onOpenReview(task.id, latestReview.id, task.name || "Spec Review");
+          onOpenReview(
+            task.id,
+            latestReview.id,
+            specTaskTitle(task, "Spec Review"),
+          );
         } else {
           account.orgNavigate("project-task-review", {
             id: task.project_id,
@@ -922,7 +927,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       console.error("Failed to fetch design reviews:", error);
       snackbar.error("Failed to load design review");
     }
-  }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
+  }, [
+    task?.id,
+    task?.name,
+    task?.short_title,
+    task?.user_short_title,
+    task?.project_id,
+    onOpenReview,
+    account,
+  ]);
 
   // Auto-open spec review when task is in spec_review or spec_revision status
   // and design docs are available - triggers once per SPA session per task ID.
