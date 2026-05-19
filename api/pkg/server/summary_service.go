@@ -528,8 +528,10 @@ func (s *SummaryService) generateSpecTaskTitle(ctx context.Context, ownerID, pro
 Guidelines:
 - Start with an imperative verb (Add, Fix, Refactor, Generate, Wire up, ...).
 - Mention the concrete subject (component, file, behaviour).
-- No quotes, no trailing punctuation, no "Task:" prefix.
-- Do NOT echo the whole prompt — distil it.`,
+- Plain text only — NO markdown, NO leading "#" or "##", NO bold/italic.
+- No quotes, no trailing punctuation, no "Task:" / "Title:" prefix.
+- Do NOT echo the whole prompt — distil it.
+- Respond with ONLY the title text, nothing else.`,
 			},
 			{
 				Role:    "user",
@@ -556,6 +558,8 @@ Guidelines:
 func cleanGeneratedTitle(raw string) string {
 	title := strings.TrimSpace(raw)
 	title = strings.Trim(title, `"'`)
+	// Models sometimes return a markdown H1/H2 like "# Foo" or "## Bar".
+	title = strings.TrimSpace(strings.TrimLeft(title, "#"))
 	// Models sometimes prepend a label like "Title:" or "Task:".
 	for _, prefix := range []string{"Title:", "title:", "Task:", "task:"} {
 		title = strings.TrimSpace(strings.TrimPrefix(title, prefix))
