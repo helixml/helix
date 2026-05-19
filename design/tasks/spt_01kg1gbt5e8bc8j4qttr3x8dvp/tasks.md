@@ -2,10 +2,10 @@
 
 ## Backend — data + storage
 
-- [~] Add `SpecTaskAttachment` type in `api/pkg/types/simple_spec_task.go` (matches schema in design.md).
-- [ ] Add a `store_spec_task_attachments.go` CRUD layer (Create/Get/List by task / Delete / DeleteByTaskID) and register the table for GORM AutoMigrate.
-- [ ] Regenerate store mocks (`go generate ./...` or whatever the project uses) so `MockStore` covers the new methods.
-- [ ] Add `IsSpecTaskAttachmentPath` + filestore helpers in `api/pkg/controller/filestore.go`.
+- [x] Add `SpecTaskAttachment` type in `api/pkg/types/simple_spec_task.go` (matches schema in design.md).
+- [x] Add a `store_spec_task_attachments.go` CRUD layer (Create/Get/List by task / Delete / DeleteByTaskID) and register the table for GORM AutoMigrate.
+- [x] Regenerate store mocks so `MockStore` covers the new methods.
+- [~] Add `FilestoreSpecTask*` helpers in `api/pkg/controller/filestore.go`.
 
 ## Backend — staging into helix-specs
 
