@@ -20,13 +20,21 @@
                 </div>
                 {{ end }}
 
+                {{/*
+                  The three polling triggers that used to live on this
+                  page (streams-list every 5s, streams-events every 3s
+                  in both branches) all used hx-swap="outerHTML" against
+                  the trigger node itself. htmx 2's timer cleanup on
+                  outerHTML swap is racy — replacements stack, every
+                  tick re-fetches and re-binds a full /ui/streams
+                  response, and the browser tab pegs CPU for ~20s on
+                  initial load. Removed for the alpha; refresh manually
+                  for fresh state. A proper live update should land on
+                  SSE (htmx-ext-sse is already on the page), not
+                  whole-page polling.
+                */}}
                 <div class="rise rise-3 mt-8 grid gap-6" style="grid-template-columns: 280px 1fr;">
-                    <aside id="streams-list" class="card-soft p-3" style="align-self: start;"
-                           hx-get="/ui/streams{{ if .HasSelection }}?id={{ .SelectedID }}{{ end }}"
-                           hx-trigger="every 5s"
-                           hx-select="#streams-list"
-                           hx-swap="outerHTML"
-                           hx-disinherit="*">
+                    <aside id="streams-list" class="card-soft p-3" style="align-self: start;">
                         <header class="px-2 pt-1 pb-3">
                             <a href="/ui/streams" class="block rounded-[6px] px-1 -mx-1"
                                style="{{ if not .HasSelection }}background: rgba(63,91,67,0.08); border: 1px solid var(--accent);{{ else }}border: 1px solid transparent;{{ end }}">
@@ -70,12 +78,7 @@
                             </div>
                             <p class="font-mono text-[12px] mt-1" style="color: var(--ink-soft);">Recent events across every Stream — newest first, capped at 50. Pick a stream on the left to drill in.</p>
                         </header>
-                        <section id="streams-events"
-                                 hx-get="/ui/streams"
-                                 hx-trigger="every 3s"
-                                 hx-select="#streams-events"
-                                 hx-swap="outerHTML"
-                                 hx-disinherit="*">
+                        <section id="streams-events">
                             <ul class="flex flex-col gap-2">
                                 {{ range .Events }}
                                 <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
@@ -147,12 +150,7 @@
                             {{ end }}
                         </section>
 
-                        <section id="streams-events"
-                                 hx-get="/ui/streams?id={{ .SelectedID }}"
-                                 hx-trigger="every 3s"
-                                 hx-select="#streams-events"
-                                 hx-swap="outerHTML"
-                                 hx-disinherit="*">
+                        <section id="streams-events">
                             <div class="flex items-baseline justify-between mb-2">
                                 <h3 class="font-display text-[15px] font-light" style="color: var(--ink);">Recent events</h3>
                                 <span class="font-mono text-[11px]" style="color: var(--ink-muted);">newest first · up to 50 · live</span>
