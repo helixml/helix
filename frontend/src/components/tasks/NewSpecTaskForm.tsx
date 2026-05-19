@@ -700,48 +700,62 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             size="small"
           />
 
-          {/* Attachment picker — uploads happen after task creation in handleCreateTask */}
+          {/* Attachment picker — uploads happen after task creation in handleCreateTask.
+              Uses Button component="label" so the native <label>/<input type="file">
+              relationship triggers the file picker; calling input.click() via a ref
+              from an onClick handler is unreliable across browsers when the input has
+              display:none (which MUI's `hidden` prop applies). */}
           <Box>
-            <input
-              ref={attachmentInput}
-              type="file"
-              hidden
-              multiple
-              accept={ATTACHMENT_ACCEPT_ATTR}
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                e.target.value = "";
-                if (!files.length) return;
-
-                const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
-                if (files.length > remaining) {
-                  snackbar.error(
-                    `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
-                  );
-                  return;
-                }
-                const accepted: File[] = [];
-                for (const f of files) {
-                  if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
-                    snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
-                    continue;
-                  }
-                  accepted.push(f);
-                }
-                if (accepted.length) {
-                  setPendingAttachments((prev) => [...prev, ...accepted]);
-                }
-              }}
-            />
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
               <Button
+                component="label"
                 size="small"
                 variant="outlined"
                 startIcon={<AttachFileIcon />}
-                onClick={() => attachmentInput.current?.click()}
                 disabled={pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK}
               >
                 Attach files
+                <input
+                  ref={attachmentInput}
+                  type="file"
+                  multiple
+                  accept={ATTACHMENT_ACCEPT_ATTR}
+                  style={{
+                    clip: "rect(0 0 0 0)",
+                    clipPath: "inset(50%)",
+                    height: 1,
+                    overflow: "hidden",
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    whiteSpace: "nowrap",
+                    width: 1,
+                  }}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    e.target.value = "";
+                    if (!files.length) return;
+
+                    const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
+                    if (files.length > remaining) {
+                      snackbar.error(
+                        `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
+                      );
+                      return;
+                    }
+                    const accepted: File[] = [];
+                    for (const f of files) {
+                      if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
+                        snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
+                        continue;
+                      }
+                      accepted.push(f);
+                    }
+                    if (accepted.length) {
+                      setPendingAttachments((prev) => [...prev, ...accepted]);
+                    }
+                  }}
+                />
               </Button>
               {pendingAttachments.map((f, idx) => (
                 <Chip

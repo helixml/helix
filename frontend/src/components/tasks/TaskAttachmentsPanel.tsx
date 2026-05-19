@@ -114,28 +114,36 @@ const TaskAttachmentsPanel: FC<TaskAttachmentsPanelProps> = ({ taskId, status })
           Attachments {attachments.length > 0 && `(${attachments.length}/${SPEC_TASK_ATTACHMENT_MAX_PER_TASK})`}
         </Typography>
         {!readOnly && (
-          <>
+          <Button
+            component="label"
+            size="small"
+            variant="outlined"
+            disabled={upload.isPending || remaining <= 0}
+          >
+            {upload.isPending ? 'Uploading…' : 'Add files'}
             <input
               ref={fileInput}
               type="file"
-              hidden
               multiple
               accept={ACCEPT_ATTR}
+              style={{
+                clip: 'rect(0 0 0 0)',
+                clipPath: 'inset(50%)',
+                height: 1,
+                overflow: 'hidden',
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                whiteSpace: 'nowrap',
+                width: 1,
+              }}
               onChange={(e) => {
                 const files = Array.from(e.target.files || [])
                 e.target.value = '' // reset so re-picking the same file fires onChange
                 void onPickFiles(files)
               }}
             />
-            <Button
-              size="small"
-              variant="outlined"
-              disabled={upload.isPending || remaining <= 0}
-              onClick={() => fileInput.current?.click()}
-            >
-              {upload.isPending ? 'Uploading…' : 'Add files'}
-            </Button>
-          </>
+          </Button>
         )}
       </Stack>
 
