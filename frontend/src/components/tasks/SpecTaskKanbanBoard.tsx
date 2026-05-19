@@ -1,5 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from "react";
 import { matchesAllTokens } from "../../utils/searchUtils";
+import {
+  getKanbanScrollState,
+  saveKanbanHorizontalScroll,
+  saveKanbanColumnScroll,
+} from "./kanbanScrollMemory";
 import {
   Box,
   Typography,
@@ -283,6 +288,8 @@ const DroppableColumn: React.FC<{
   onDependencyHoverEnd?: () => void;
   fullWidth?: boolean;
   searchFilter?: string;
+  columnBodyRef?: (node: HTMLDivElement | null) => void;
+  onColumnScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }> = ({
   column,
   columns,
@@ -307,9 +314,9 @@ const DroppableColumn: React.FC<{
   onDependencyHoverEnd,
   fullWidth,
   searchFilter,
+  columnBodyRef,
+  onColumnScroll,
 }): JSX.Element => {
-  // Simplified - no drag and drop, no complex interactions
-  const setNodeRef = (node: HTMLElement | null) => {};
 
   const { events: attentionEvents } = useAttentionEvents();
   const taskAttentionEventsMap = useMemo(() => {
@@ -566,7 +573,8 @@ const DroppableColumn: React.FC<{
 
         {/* Column content */}
         <Box
-          ref={setNodeRef}
+          ref={columnBodyRef}
+          onScroll={onColumnScroll}
           sx={{
             flex: 1,
             minHeight: 0,
@@ -646,6 +654,88 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
+
+  // Scroll-position restoration: preserve the user's place when they navigate
+  // to a task detail page and come back. State is held in a module-scoped Map
+  // keyed by projectId (see kanbanScrollMemory.ts).
+  const outerScrollRef = useRef<HTMLDivElement | null>(null);
+  const columnBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const columnRefSettersRef = useRef<
+    Map<string, (node: HTMLDivElement | null) => void>
+  >(new Map());
+  const hasRestoredRef = useRef(false);
+  const userHasScrolledRef = useRef(false);
+  const isRestoringRef = useRef(false);
+  const horizRafRef = useRef<number | null>(null);
+  const columnRafsRef = useRef<Map<string, number>>(new Map());
+
+  const getColumnRefSetter = useCallback(
+    (columnId: string) => {
+      let setter = columnRefSettersRef.current.get(columnId);
+      if (!setter) {
+        setter = (node: HTMLDivElement | null) => {
+          if (node) columnBodyRefs.current.set(columnId, node);
+          else columnBodyRefs.current.delete(columnId);
+        };
+        columnRefSettersRef.current.set(columnId, setter);
+      }
+      return setter;
+    },
+    [],
+  );
+
+  const handleOuterScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const scrollLeft = e.currentTarget.scrollLeft;
+      if (!hasRestoredRef.current && !isRestoringRef.current) {
+        userHasScrolledRef.current = true;
+      }
+      if (!projectId) return;
+      if (horizRafRef.current !== null) {
+        cancelAnimationFrame(horizRafRef.current);
+      }
+      horizRafRef.current = requestAnimationFrame(() => {
+        saveKanbanHorizontalScroll(projectId, scrollLeft);
+        horizRafRef.current = null;
+      });
+    },
+    [projectId],
+  );
+
+  const makeColumnScrollHandler = useCallback(
+    (columnId: string) => (e: React.UIEvent<HTMLDivElement>) => {
+      const scrollTop = e.currentTarget.scrollTop;
+      if (!hasRestoredRef.current && !isRestoringRef.current) {
+        userHasScrolledRef.current = true;
+      }
+      if (!projectId) return;
+      const existing = columnRafsRef.current.get(columnId);
+      if (existing !== undefined) cancelAnimationFrame(existing);
+      const id = requestAnimationFrame(() => {
+        saveKanbanColumnScroll(projectId, columnId, scrollTop);
+        columnRafsRef.current.delete(columnId);
+      });
+      columnRafsRef.current.set(columnId, id);
+    },
+    [projectId],
+  );
+
+  // Reset restoration guards when the projectId changes — visiting a
+  // different project's board is a fresh mount semantically.
+  useEffect(() => {
+    hasRestoredRef.current = false;
+    userHasScrolledRef.current = false;
+  }, [projectId]);
+
+  // Clean up any pending rAF writes on unmount.
+  useEffect(
+    () => () => {
+      if (horizRafRef.current !== null) cancelAnimationFrame(horizRafRef.current);
+      columnRafsRef.current.forEach((id) => cancelAnimationFrame(id));
+      columnRafsRef.current.clear();
+    },
+    [],
+  );
 
   const [mobileColumnIndex, setMobileColumnIndex] = useState(0);
 
@@ -1040,6 +1130,55 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     enabled: !!account.user?.id,
     refetchInterval: 3100, // 3.1s - prime to avoid sync with other polling
   });
+
+  // Restore saved scroll positions once the board has rendered with data.
+  // Runs at most once per mount per project; bails if the user has already
+  // scrolled, or if containers aren't laid out yet (re-runs when columns or
+  // loading change).
+  useLayoutEffect(() => {
+    if (!projectId) return;
+    if (hasRestoredRef.current) return;
+    if (userHasScrolledRef.current) {
+      hasRestoredRef.current = true;
+      return;
+    }
+    if (loading) return;
+    if (columns.length === 0) return;
+
+    const saved = getKanbanScrollState(projectId);
+    if (!saved) {
+      hasRestoredRef.current = true;
+      return;
+    }
+
+    const outer = outerScrollRef.current;
+    // If the board is hidden (display:none ancestor, paywall), scrollWidth is
+    // 0 — skip this run and wait for a re-render where layout is real.
+    if (outer && outer.scrollWidth === 0) return;
+
+    isRestoringRef.current = true;
+    try {
+      if (outer && !isMobile && saved.horizontal > 0) {
+        const max = Math.max(0, outer.scrollWidth - outer.clientWidth);
+        outer.scrollLeft = Math.min(saved.horizontal, max);
+      }
+      for (const col of columns) {
+        const savedTop = saved.columns[col.id];
+        if (savedTop === undefined || savedTop <= 0) continue;
+        const node = columnBodyRefs.current.get(col.id);
+        if (!node) continue;
+        const max = Math.max(0, node.scrollHeight - node.clientHeight);
+        node.scrollTop = Math.min(savedTop, max);
+      }
+    } finally {
+      hasRestoredRef.current = true;
+      // Clear isRestoring after the scroll events triggered by our
+      // programmatic writes have settled.
+      requestAnimationFrame(() => {
+        isRestoringRef.current = false;
+      });
+    }
+  }, [projectId, loading, columns, isMobile]);
 
   // Transform tasks data when it changes
   useEffect(() => {
@@ -1709,6 +1848,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
       {/* Kanban Board */}
       <Box
+        ref={outerScrollRef}
+        onScroll={isMobile ? undefined : handleOuterScroll}
         sx={{
           flex: 1,
           display: "flex",
@@ -1775,6 +1916,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 onToggleAutoStart={handleToggleAutoStart}
                 fullWidth
                 searchFilter={searchFilter}
+                columnBodyRef={getColumnRefSetter(columns[mobileColumnIndex].id)}
+                onColumnScroll={makeColumnScrollHandler(
+                  columns[mobileColumnIndex].id,
+                )}
               />
             )}
             <MobileColumnSidebar
@@ -1813,6 +1958,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               autoStartBacklogTasks={autoStartBacklogTasks}
               onToggleAutoStart={handleToggleAutoStart}
               searchFilter={searchFilter}
+              columnBodyRef={getColumnRefSetter(column.id)}
+              onColumnScroll={makeColumnScrollHandler(column.id)}
             />
           ))
         )}
