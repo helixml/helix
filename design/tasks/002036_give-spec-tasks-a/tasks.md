@@ -7,9 +7,9 @@
 
 ## Backend — title generation
 
-- [ ] Add `GenerateSpecTaskTitleAsync(ctx, taskID, ownerID, prompt string)` to `api/pkg/server/summary_service.go`. Reuse the existing rate limiter (`s.mu` / `s.pendingCount` / `s.maxConcurrent`), the 30-second timeout, `MaxTokens: 50`, `Temperature: 0.3`, and the same trim/truncate cleanup used by `updateSessionTitle`.
-- [ ] Use the imperative-verb snappy-title system prompt from `design.md` §1. Cap result at 60 chars at a word boundary.
-- [ ] Bail out (no DB write) when `KoditEnrichmentProvider` or `KoditEnrichmentModel` are empty, or when the LLM call errors / times out. Log at `Warn`, not `Error` — this is best-effort.
+- [~] Add `GenerateSpecTaskTitleAsync(ctx, taskID, ownerID, prompt string)` to `api/pkg/server/summary_service.go`. Reuse the existing rate limiter (`s.mu` / `s.pendingCount` / `s.maxConcurrent`), the 30-second timeout, `MaxTokens: 50`, `Temperature: 0.3`, and the same trim/truncate cleanup used by `updateSessionTitle`.
+- [~] Use the imperative-verb snappy-title system prompt from `design.md` §1. Cap result at 60 chars at a word boundary.
+- [~] Bail out (no DB write) when `KoditEnrichmentProvider` or `KoditEnrichmentModel` are empty, or when the LLM call errors / times out. Log at `Warn`, not `Error` — this is best-effort.
 
 ## Backend — wire into task creation
 
