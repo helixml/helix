@@ -29,9 +29,9 @@
 
 ## Frontend — helper + display sites
 
-- [ ] Create `frontend/src/components/tasks/taskTitle.ts` exporting `specTaskTitle(task)` that returns `user_short_title || short_title || name || 'Untitled task'`.
-- [ ] Replace `task.name` with `specTaskTitle(task)` in: `TaskCard.tsx:838`, `TasksTable.tsx:131`, `CronTaskCard.tsx:99`, `EmptyTasksState.tsx:168`, `SpecTaskDetailContent.tsx:910`. Do not touch tooltip/title-history text — long `task.name`/`task.description` is the intended tooltip content.
-- [ ] Collapse the existing inline `user_short_title || short_title || name` chains in `TabsView.tsx` (lines 381, 471, 808, 956, 1394, 1853, 1999, 2071) to use `specTaskTitle` (refactor, no behaviour change).
+- [~] Create `frontend/src/components/tasks/taskTitle.ts` exporting `specTaskTitle(task)` that returns `user_short_title || short_title || name || 'Untitled task'`.
+- [ ] Replace `task.name` with `specTaskTitle(task)` in display contexts: `TaskCard.tsx`, `TasksTable.tsx`, `CronTaskCard.tsx`, `EmptyTasksState.tsx`, `SpecTaskDetailContent.tsx`.
+- [ ] Collapse the existing inline `user_short_title || short_title || name` chains in `TabsView.tsx` to use `specTaskTitle` (refactor, no behaviour change).
 - [ ] `cd frontend && yarn build` must pass.
 
 ## Manual verification in inner Helix
