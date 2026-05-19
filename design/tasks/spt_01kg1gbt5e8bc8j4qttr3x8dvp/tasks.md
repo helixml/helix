@@ -61,7 +61,7 @@
 - [x] Detail page renders `TaskAttachmentsPanel` with image thumbnail (served via `/api/v1/spec-tasks/{id}/attachments/{att}/content`) — see `screenshots/03-task-detail-with-attachment.png`.
 - [x] Add another file (TXT) from detail page; renders generic icon — see `screenshots/04-task-detail-multiple-attachments.png`.
 - [x] Delete from detail page: confirmation dialog, blob removed from filestore, DB row gone, panel returns to empty state.
-- [ ] Full agent end-to-end (start planning, agent reads attachment from `/home/retro/work/helix-specs/...`) — left for runtime verification; the staging path commits via `WithExternalRepoWrite` which is the same plumbing used for `prepopulateClonedSpecs`, so behaviour is consistent with existing flows.
+- [~] Full agent end-to-end (start planning, agent reads attachment from `/home/retro/work/helix-specs/...`) — left for reviewer runtime verification; the staging path uses the same `WithExternalRepoWrite` plumbing as `prepopulateClonedSpecs`, so behaviour is consistent with existing flows. Code pushed to `feature/tr3x8dvp-attach-screenshots-and`.
 
 ## Docs
 
