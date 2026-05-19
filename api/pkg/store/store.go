@@ -543,6 +543,14 @@ type Store interface {
 	RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error
 	SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error)
 
+	// spec-driven task attachments (user-uploaded screenshots/documents)
+	CreateSpecTaskAttachment(ctx context.Context, attachment *types.SpecTaskAttachment) error
+	GetSpecTaskAttachment(ctx context.Context, id string) (*types.SpecTaskAttachment, error)
+	UpdateSpecTaskAttachment(ctx context.Context, attachment *types.SpecTaskAttachment) error
+	DeleteSpecTaskAttachment(ctx context.Context, id string) error
+	ListSpecTaskAttachments(ctx context.Context, specTaskID string) ([]*types.SpecTaskAttachment, error)
+	DeleteSpecTaskAttachmentsByTaskID(ctx context.Context, specTaskID string) error
+
 	// spec-driven task work sessions
 	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
 	GetSpecTaskWorkSession(ctx context.Context, id string) (*types.SpecTaskWorkSession, error)

@@ -25,7 +25,7 @@ import {
   Tooltip,
   IconButton,
 } from "@mui/material";
-import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
+import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
 import { ChevronDown, UserCircle2, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
 import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
@@ -49,6 +49,22 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
+import {
+  SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
+  SPEC_TASK_ATTACHMENT_MAX_BYTES,
+  SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
+  useUploadSpecTaskAttachments,
+} from "../../services/specTaskAttachmentsService";
+
+const ATTACHMENT_ACCEPT_ATTR = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
+  .flatMap(([mime, exts]) => [mime, ...exts])
+  .join(",");
+
+function humanAttachmentSize(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
 
 const LAST_LABELS_KEY = "helix_last_task_labels";
 const DRAFT_KEY_PREFIX = "helix_new_spectask_draft_";
@@ -120,6 +136,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [justDoItMode, setJustDoItMode] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const attachmentInput = useRef<HTMLInputElement | null>(null);
+  const uploadAttachments = useUploadSpecTaskAttachments();
 
   // Empty string = "Unassigned". Pre-filled with the current user below.
   const [assigneeId, setAssigneeId] = useState<string>("");
@@ -320,6 +339,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setTaskPrompt("");
     localStorage.removeItem(draftKey);
     setTaskPriority("medium");
+    setPendingAttachments([]);
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
@@ -409,6 +429,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         if (taskId && taskLabels.length > 0) {
           for (const label of taskLabels) {
             await addLabelMutation.mutateAsync({ taskId, label });
+          }
+        }
+
+        // Upload any pending attachments. We do this AFTER task creation so the
+        // task always exists even if attachment upload fails — the user can retry
+        // from the detail page.
+        if (taskId && pendingAttachments.length > 0) {
+          try {
+            await uploadAttachments.mutateAsync({ taskId, files: pendingAttachments });
+          } catch (e: any) {
+            snackbar.error(
+              `Task created but attachment upload failed: ${e?.response?.data || e?.message || 'unknown error'}. You can retry from the task detail page.`,
+            );
           }
         }
 
@@ -666,6 +699,69 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             inputRef={taskPromptRef}
             size="small"
           />
+
+          {/* Attachment picker — uploads happen after task creation in handleCreateTask */}
+          <Box>
+            <input
+              ref={attachmentInput}
+              type="file"
+              hidden
+              multiple
+              accept={ATTACHMENT_ACCEPT_ATTR}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                e.target.value = "";
+                if (!files.length) return;
+
+                const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
+                if (files.length > remaining) {
+                  snackbar.error(
+                    `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
+                  );
+                  return;
+                }
+                const accepted: File[] = [];
+                for (const f of files) {
+                  if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
+                    snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
+                    continue;
+                  }
+                  accepted.push(f);
+                }
+                if (accepted.length) {
+                  setPendingAttachments((prev) => [...prev, ...accepted]);
+                }
+              }}
+            />
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AttachFileIcon />}
+                onClick={() => attachmentInput.current?.click()}
+                disabled={pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK}
+              >
+                Attach files
+              </Button>
+              {pendingAttachments.map((f, idx) => (
+                <Chip
+                  key={`${f.name}-${idx}`}
+                  size="small"
+                  label={`${f.name} (${humanAttachmentSize(f.size)})`}
+                  onDelete={() =>
+                    setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              ))}
+              {pendingAttachments.length === 0 && (
+                <Typography variant="caption" color="text.secondary">
+                  Optional — screenshots / PDFs / text the agent should look at.
+                  Max {SPEC_TASK_ATTACHMENT_MAX_PER_TASK} files,{" "}
+                  {humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)} each.
+                </Typography>
+              )}
+            </Stack>
+          </Box>
 
           <Autocomplete
             multiple

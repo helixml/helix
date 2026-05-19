@@ -1205,6 +1205,16 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Clean up attachment rows and the filestore prefix before deleting the task row
+	// itself. Best-effort: log and continue if either step fails so the task delete
+	// isn't blocked by orphaned blobs.
+	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
+	}
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
+	}
+
 	// Delete the task
 	err = s.Store.DeleteSpecTask(ctx, taskID)
 	if err != nil {

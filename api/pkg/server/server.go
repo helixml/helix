@@ -524,6 +524,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
+	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
 
 	// Initialize Attention Service for human-needed event notifications
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
@@ -1384,6 +1386,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/labels", apiServer.addSpecTaskLabel).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/labels/{label}", apiServer.removeSpecTaskLabel).Methods(http.MethodDelete)
+
+	// Spec task attachments (screenshots / documents)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments", apiServer.uploadSpecTaskAttachments).Methods(http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments", apiServer.listSpecTaskAttachments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments/{attId}", apiServer.deleteSpecTaskAttachment).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/spec-tasks/{id}/usage", system.Wrapper(apiServer.getSpecTaskUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)
@@ -1487,6 +1494,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Public design docs viewer (no auth required if task.PublicDesignDocs is true)
 	subRouter.HandleFunc("/spec-tasks/{id}/view", apiServer.viewDesignDocsPublic).Methods(http.MethodGet)
+
+	// Attachment content endpoint — public if task.PublicDesignDocs is true,
+	// otherwise auth-gated by the handler itself. Mounted on the unauthenticated
+	// subrouter so anonymous reads work for public design docs.
+	subRouter.HandleFunc("/spec-tasks/{taskId}/attachments/{attId}/content", apiServer.getSpecTaskAttachmentContent).Methods(http.MethodGet)
 
 	// Sample repository routes
 	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)

@@ -34,6 +34,10 @@ type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string,
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
 
+// AttachmentBlobReader reads the bytes of a SpecTask attachment from the filestore.
+// Injected by the server so this service doesn't need to import the controller package.
+type AttachmentBlobReader func(ctx context.Context, absolutePath string) ([]byte, error)
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -55,6 +59,7 @@ type SpecDrivenTaskService struct {
 	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
+	ReadAttachmentBlob       AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	wg                       sync.WaitGroup
 }
 
@@ -369,7 +374,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
-	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection)
+
+	// Stage user-uploaded attachments into the helix-specs branch so they appear in
+	// the agent's workspace, and build the prompt section that points to them.
+	attachmentsSection, attachErr := s.stageAttachmentsAndBuildPromptSection(ctx, task, project)
+	if attachErr != nil {
+		log.Warn().Err(attachErr).Str("task_id", task.ID).Msg("Failed to stage attachments — continuing without them")
+	}
+	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection, attachmentsSection)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -2174,6 +2186,14 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 				if err != nil {
 					log.Warn().Err(err).Str("file", filePath).Msg("Failed to write cloned tasks.md")
 				}
+			}
+
+			// Copy attachments from the source task's directory into the cloned task's
+			// directory. Files live at design/tasks/<src-design-doc>/attachments/* and
+			// we re-create them under <new-design-doc>/attachments/* + a matching
+			// SpecTaskAttachment row so the cloned task lists them in its prompt too.
+			if err := s.cloneAttachmentsInRepo(ctx, task, repo, authorName, authorEmail); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to clone attachments — cloned task will lack them")
 			}
 
 			log.Info().
