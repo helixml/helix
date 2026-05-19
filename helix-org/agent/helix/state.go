@@ -47,22 +47,34 @@ const (
 )
 
 // WorkerState holds the per-Worker pointers the Helix runtime needs.
-// All four fields are empty for a Worker that hasn't been activated
+// All five fields are empty for a Worker that hasn't been activated
 // yet; the runtime's first activation materialises ProjectID +
 // AgentAppID + RepoID via ProjectApplier.Ensure, and SessionID is
 // set when the first chat session opens.
+//
+// HiringUserID is the identity (typically a Helix user_id) of
+// whoever called hire_worker, captured from request context. The
+// Spawner forwards this to the embedding host's `BearerForUser`
+// callback to mint/look up a fresh api_key at activation time —
+// so each Worker runs on the hiring user's subscription, quota,
+// and audit trail without persisting any token at rest. Empty in
+// standalone helix-org (no HTTP auth) and any deploy without a
+// per-user identity to capture; the Spawner then falls back to
+// the static service api_key.
 type WorkerState struct {
-	ProjectID  string
-	AgentAppID string
-	RepoID     string
-	SessionID  string
+	ProjectID    string
+	AgentAppID   string
+	RepoID       string
+	SessionID    string
+	HiringUserID string
 }
 
 const (
-	keyProjectID  = "project_id"
-	keyAgentAppID = "agent_app_id"
-	keyRepoID     = "repo_id"
-	keySessionID  = "session_id"
+	keyProjectID    = "project_id"
+	keyAgentAppID   = "agent_app_id"
+	keyRepoID       = "repo_id"
+	keySessionID    = "session_id"
+	keyHiringUserID = "hiring_user_id"
 )
 
 // LoadState returns the Helix-backend state for a Worker. Empty
@@ -76,11 +88,26 @@ func LoadState(ctx context.Context, st *store.Store, workerID domain.WorkerID) (
 		return WorkerState{}, fmt.Errorf("helix state: get %s: %w", workerID, err)
 	}
 	return WorkerState{
-		ProjectID:  kv[keyProjectID],
-		AgentAppID: kv[keyAgentAppID],
-		RepoID:     kv[keyRepoID],
-		SessionID:  kv[keySessionID],
+		ProjectID:    kv[keyProjectID],
+		AgentAppID:   kv[keyAgentAppID],
+		RepoID:       kv[keyRepoID],
+		SessionID:    kv[keySessionID],
+		HiringUserID: kv[keyHiringUserID],
 	}, nil
+}
+
+// SaveHiringUser persists the user identifier that called
+// hire_worker for this Worker. Empty userID is a no-op so re-hire /
+// re-activation in unauthenticated contexts doesn't wipe a user
+// captured by an earlier authenticated hire.
+func SaveHiringUser(ctx context.Context, st *store.Store, workerID domain.WorkerID, userID string) error {
+	if userID == "" {
+		return nil
+	}
+	if st == nil || st.WorkerRuntimeState == nil {
+		return errors.New("helix state: store is nil")
+	}
+	return st.WorkerRuntimeState.Set(ctx, workerID, Backend, keyHiringUserID, userID)
 }
 
 // SaveProject persists the per-Worker project triple — created once

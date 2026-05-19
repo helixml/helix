@@ -10,7 +10,9 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix-org/agent"
+	agenthelix "github.com/helixml/helix-org/agent/helix"
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/helix/helixclient"
 )
 
 // HireWorker brings a Worker into existence: a Worker row carrying the
@@ -197,6 +199,21 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if args.Kind == domain.WorkerKindAI {
 		if err := createActivationStream(ctx, t.deps, id, inv.Caller.ID()); err != nil {
 			return nil, err
+		}
+	}
+
+	// Persist the hiring user's identity (if the request carried one)
+	// BEFORE we dispatch the hire activation so the Spawner can pick
+	// it up on its very first call. Empty userID — standalone helix-org
+	// with no HTTP auth, or any path that didn't stash a user — is a
+	// no-op; the Spawner then falls back to its static service api_key.
+	if uid := helixclient.UserIDFromContext(ctx); uid != "" {
+		if err := agenthelix.SaveHiringUser(ctx, t.deps.Store, id, uid); err != nil {
+			// Non-fatal: hire succeeds, the Worker just won't have
+			// per-user identity propagated to its sessions and the
+			// Spawner falls back to the service key. Log via the
+			// activation Stream so it's visible if anyone audits.
+			return nil, fmt.Errorf("persist hiring user: %w", err)
 		}
 	}
 

@@ -84,14 +84,34 @@ func (w *Workspace) PublishFile(ctx context.Context, workerID domain.WorkerID, n
 	lock := w.lockFor(state.RepoID)
 	lock.Lock()
 	defer lock.Unlock()
-	return w.client.PutFile(ctx, state.RepoID, helixclient.PutFileRequest{
+	if err := w.client.PutFile(ctx, state.RepoID, helixclient.PutFileRequest{
 		Path:    repoPath,
 		Branch:  w.branch,
 		Message: message,
 		Author:  w.author,
 		Email:   w.email,
 		Content: content,
-	})
+	}); err != nil {
+		return err
+	}
+	// Invalidate the Worker's warm Helix chat session so the next
+	// activation opens a fresh one — which means a fresh Claude Code
+	// context that re-reads role.md / identity.md from scratch rather
+	// than reusing the prior turn's cached content. Warm-session reuse
+	// is what makes routine activations fast, but it's also why a live
+	// role edit otherwise has no effect: Claude keeps acting on the
+	// content it cat'd on the first activation. Only invalidate on
+	// canonical role/identity edits (the two filenames the activation
+	// mandate tells the agent to re-read) — checkpoint pushes or other
+	// in-worker writes keep the session warm.
+	if name == "role.md" || name == "identity.md" {
+		if err := SaveSession(ctx, w.store, workerID, ""); err != nil {
+			// Non-fatal: the next activation will still pull the new
+			// content; it just won't re-read it from a fresh context.
+			return nil
+		}
+	}
+	return nil
 }
 
 func (w *Workspace) lockFor(repoID string) *sync.Mutex {

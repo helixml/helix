@@ -272,13 +272,24 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
-	// Build CodeAgentConfig from the spec task's zed_external assistant (if any)
+	// Build CodeAgentConfig from whichever app drives this session's
+	// runtime. Mirrors getAgentNameForSession's source order: spec
+	// task's HelixAppID first, then session.ParentApp — so any
+	// zed_external session opened via /sessions/chat against a
+	// claude_code (or other custom-runtime) agent ships the full
+	// CodeAgentConfig, not just an "agent_name". Previously only the
+	// spec-task path was covered.
 	var codeAgentConfig *types.CodeAgentConfig
 	if session.Metadata.SpecTaskID != "" {
 		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
 			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
 				codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL)
 			}
+		}
+	}
+	if codeAgentConfig == nil && session.ParentApp != "" {
+		if app, err := apiServer.Store.GetApp(ctx, session.ParentApp); err == nil {
+			codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL)
 		}
 	}
 
@@ -473,17 +484,35 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 	agentName := "zed-agent" // Default to Zed's built-in agent
 
-	if session.Metadata.SpecTaskID == "" {
-		return agentName
+	// Resolve the app whose code_agent_runtime drives this session's
+	// runtime choice. Two sources, in order:
+	//   - spec task's HelixAppID, for spec-task-driven sessions
+	//   - session.ParentApp, for any direct /sessions/chat caller that
+	//     opens a session against an agent app (e.g. helix-org's
+	//     embedded Spawner). Previously the function early-returned
+	//     "zed-agent" for non-spec-task sessions, ignoring the parent
+	//     app's CodeAgentRuntime entirely — so a claude_code agent
+	//     opened via /sessions/chat got told "you're zed-agent" and
+	//     fell through to the Anthropic proxy.
+	var (
+		runtimeApp *types.App
+		source     string
+	)
+	if session.Metadata.SpecTaskID != "" {
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
+			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
+				runtimeApp = app
+				source = "spec_task"
+			}
+		}
 	}
-
-	specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-	if err != nil || specTask.HelixAppID == "" {
-		return agentName
+	if runtimeApp == nil && session.ParentApp != "" {
+		if app, err := apiServer.Store.GetApp(ctx, session.ParentApp); err == nil {
+			runtimeApp = app
+			source = "parent_app"
+		}
 	}
-
-	specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
-	if err != nil {
+	if runtimeApp == nil {
 		return agentName
 	}
 
@@ -497,15 +526,16 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		}
 	}
 
-	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, specTaskApp, sandboxAPIURL)
+	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, sandboxAPIURL)
 	if codeAgentConfig != nil {
 		agentName = codeAgentConfig.AgentName
 		log.Info().
 			Str("session_id", session.ID).
-			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("source", source).
+			Str("app_id", runtimeApp.ID).
 			Str("agent_name", agentName).
 			Str("runtime", string(codeAgentConfig.Runtime)).
-			Msg("Using code agent config from spec task")
+			Msg("Using code agent config")
 	}
 
 	return agentName

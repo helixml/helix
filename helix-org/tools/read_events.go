@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -63,6 +64,56 @@ type readEventsArgs struct {
 	Limit int    `json:"limit,omitempty"`
 	Since string `json:"since,omitempty"`
 	Wait  int    `json:"wait,omitempty"`
+}
+
+// UnmarshalJSON tolerates string-encoded ints for limit and wait.
+// The declared JSON schema is `"type": "integer"` for these, but
+// some LLM tool-call implementations (notably Claude Code in the
+// in-sandbox Anthropic SDK) emit them as JSON strings — `"60"`
+// instead of `60`. Accept either rather than failing the activation
+// loop with "cannot unmarshal string into Go struct field".
+func (a *readEventsArgs) UnmarshalJSON(data []byte) error {
+	type plain readEventsArgs
+	type tolerant struct {
+		*plain
+		Limit json.RawMessage `json:"limit,omitempty"`
+		Wait  json.RawMessage `json:"wait,omitempty"`
+	}
+	t := tolerant{plain: (*plain)(a)}
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+	if v, err := decodeFlexInt(t.Limit); err != nil {
+		return fmt.Errorf("limit: %w", err)
+	} else {
+		a.Limit = v
+	}
+	if v, err := decodeFlexInt(t.Wait); err != nil {
+		return fmt.Errorf("wait: %w", err)
+	} else {
+		a.Wait = v
+	}
+	return nil
+}
+
+// decodeFlexInt unmarshals an int that may have been encoded as
+// either a JSON number or a JSON string. Empty/null is 0.
+func decodeFlexInt(raw json.RawMessage) (int, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, nil
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, err
+	}
+	if s == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(s)
 }
 
 func (t *ReadEvents) Name() domain.ToolName           { return ReadEventsName }

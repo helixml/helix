@@ -25,13 +25,37 @@ type ProjectApplier struct {
 	Store       *store.Store
 	HelixOrgURL string
 	OrgID       string
-	Provider    string
-	Model       string
+	// Runtime overrides the default `zed_agent` runtime constant.
+	// Empty means "use the package-level Runtime const" (zed_agent),
+	// which routes inference back through Helix and honours
+	// Provider/Model. Set to `"claude_code"` to bypass Helix inference
+	// entirely — the sandbox-side Claude Code CLI authenticates with
+	// Anthropic via its own OAuth subscription, ignoring
+	// Provider/Model. Used by the embedded SaaS so workers run on the
+	// operator's Claude subscription instead of a Helix-side API key.
+	Runtime  string
+	Provider string
+	Model    string
+	// Credentials selects the in-sandbox auth source for the runtime.
+	// `"subscription"` tells `claude_code` to authenticate Anthropic
+	// via the operator's Claude OAuth subscription (no Provider/Model
+	// needed). Empty falls back to Helix-routed inference via
+	// Provider/Model — only meaningful for `zed_agent` / `qwen_code` /
+	// etc. runtimes that go through Helix's anthropic proxy.
+	Credentials string
 	// AgentMD is the org-wide agent policy pushed verbatim to
 	// `.context/agent.md` on every Worker's helix-specs branch. Empty
 	// string skips the push.
 	AgentMD string
-	Logger  *slog.Logger
+	// MCPAuthBearer is added as an `Authorization: Bearer <value>`
+	// header on the helix-org MCP entry attached to each Worker's
+	// agent app. Used when HelixOrgURL routes through an auth-gated
+	// proxy (e.g. the embedded SaaS alpha's Helix MCP gateway at
+	// /api/v1/mcp/helix-org/). Empty means "no auth header" — the
+	// standalone helix-org tunnel path has no auth on /workers/{id}/mcp
+	// so callers leave this empty there.
+	MCPAuthBearer string
+	Logger        *slog.Logger
 }
 
 // Ensure applies a Helix project for the given Worker if one
@@ -72,16 +96,21 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (
 	// helix.Runtime for why. The auto-provisioned Agent App is the
 	// vehicle for our MCP wiring; we attach helix-org's MCP server
 	// to it in a follow-up step (UpdateApp can't be done in apply).
+	runtime := a.Runtime
+	if runtime == "" {
+		runtime = Runtime
+	}
 	resp, err := a.Client.ApplyProject(ctx, helixclient.ProjectApplyRequest{
 		OrganizationID: a.OrgID,
 		Name:           string(workerID),
 		Spec: helixclient.ProjectSpec{
 			Description: worker.IdentityContent(),
 			Agent: &helixclient.ProjectAgentSpec{
-				Name:     roleName,
-				Runtime:  Runtime,
-				Provider: a.Provider,
-				Model:    a.Model,
+				Name:        roleName,
+				Runtime:     runtime,
+				Provider:    a.Provider,
+				Model:       a.Model,
+				Credentials: a.Credentials,
 			},
 		},
 	})
@@ -152,7 +181,11 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (
 	// public tunnel URL.
 	if resp.AgentAppID != "" && a.HelixOrgURL != "" {
 		mcpURL := strings.TrimRight(a.HelixOrgURL, "/") + "/workers/" + string(workerID) + "/mcp"
-		if err := helixclient.AttachMCPToApp(ctx, a.Client, resp.AgentAppID, "helix", "http", mcpURL); err != nil {
+		var headers map[string]string
+		if a.MCPAuthBearer != "" {
+			headers = map[string]string{"Authorization": "Bearer " + a.MCPAuthBearer}
+		}
+		if err := helixclient.AttachMCPToAppWithHeaders(ctx, a.Client, resp.AgentAppID, "helix", "http", mcpURL, headers); err != nil {
 			if a.Logger != nil {
 				a.Logger.Warn("attach MCP to agent app", "worker", workerID, "app", resp.AgentAppID, "err", err)
 			}

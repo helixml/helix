@@ -69,6 +69,12 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 	rewritten.URL.Path = "/workers/" + workerID + "/mcp"
 	rewritten.URL.RawPath = ""
 	rewritten.RequestURI = rewritten.URL.RequestURI()
+	// Forward the authenticated user's ID so helix-org tools can
+	// persist it onto domain state (e.g. hire_worker → WorkerState)
+	// without holding the api_key. The Spawner later asks the
+	// embedded SaaS to mint a fresh api_key for this user_id at
+	// activation time — no tokens stored at rest.
+	rewritten.Header.Set("X-Helix-Org-User-Id", user.ID)
 
 	log.Trace().
 		Str("user_id", user.ID).

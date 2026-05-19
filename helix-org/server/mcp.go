@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/helix/helixclient"
 	"github.com/helixml/helix-org/prompts"
 )
 
@@ -20,10 +22,38 @@ import (
 // no need to push notifications to clients, so session state buys us
 // nothing here and adds an obligation to track session IDs.
 func (s *Server) mcpHandler() http.Handler {
-	return mcp.NewStreamableHTTPHandler(s.buildMCPServer, &mcp.StreamableHTTPOptions{
+	inner := mcp.NewStreamableHTTPHandler(s.buildMCPServer, &mcp.StreamableHTTPOptions{
 		Stateless:                  true,
 		Logger:                     s.logger,
 		DisableLocalhostProtection: true, // helix-org is reverse-proxied through tunnels (cloudflared) when Helix's runner is on a different host; the SDK's DNS-rebinding guard rejects non-loopback Host headers, which kills the tunnel path.
+	})
+	// Hoist the HTTP request's bearer onto the request context so
+	// tools (and anything they call into via helixclient) can use
+	// helixclient.BearerFromContext to discover the caller's
+	// identity. In the embedded SaaS this is the picking user's
+	// own api_key; tools like hire_worker persist it onto the new
+	// Worker so subsequent activations run as the same user. In
+	// standalone helix-org the request carries no Authorization
+	// header and this is a no-op.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			if token := strings.TrimPrefix(auth, "Bearer "); token != auth && token != "" {
+				ctx = helixclient.WithBearerToken(ctx, token)
+			}
+		}
+		// Embedding hosts (e.g. the SaaS alpha) forward the calling
+		// user's stable identifier in this header so tools like
+		// hire_worker can persist it onto a Worker's runtime state
+		// — letting the Spawner mint a fresh per-user api_key at
+		// activation time instead of stashing a token at rest.
+		if uid := strings.TrimSpace(r.Header.Get("X-Helix-Org-User-Id")); uid != "" {
+			ctx = helixclient.WithUserID(ctx, uid)
+		}
+		if ctx != r.Context() {
+			r = r.WithContext(ctx)
+		}
+		inner.ServeHTTP(w, r)
 	})
 }
 

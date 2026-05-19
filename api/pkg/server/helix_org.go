@@ -8,16 +8,22 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix-org/agent"
+	agenthelix "github.com/helixml/helix-org/agent/helix"
+	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/bootstrap"
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/dispatch"
 	"github.com/helixml/helix-org/helix/helixclient"
 	helixorgserver "github.com/helixml/helix-org/server"
+	helixorgstore "github.com/helixml/helix-org/store"
 	helixorgui "github.com/helixml/helix-org/server/ui"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
@@ -123,24 +129,41 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		log.Warn().Err(err).Msg("helix-org service api key not provisioned — chat will stay disabled")
 	}
 
+	// Wire the helix-backed WorkspaceSync so update_role /
+	// update_identity re-push role.md / identity.md to each affected
+	// Worker's per-Worker repo on the helix-specs branch. Without this
+	// the calls become no-ops (DefaultDeps installs a NoopWorkspaceSync)
+	// and live role edits only take effect once a Worker is hired
+	// fresh — re-hires reuse the stale on-branch content.
+	//
+	// PublishFile uses the calling user's bearer (via WithBearerToken
+	// from withHelixUserBearer middleware), so the commits show up
+	// authored by the actual editor, not the service account.
+	if wsClient, err := buildHelixOrgServiceClient(context.Background(), configReg); err == nil && wsClient != nil {
+		deps.Workspace = agenthelix.NewWorkspace(wsClient, st, "helix-specs", "helix-org", "helix-org@helix.local")
+	} else if err != nil {
+		log.Warn().Err(err).Msg("helix-org: workspace sync disabled (live role/identity edits won't propagate)")
+	}
+
+	// Wire helix-org's production Spawner — zed_external Workers, one
+	// per-Worker Helix project + agent app + git repo, warm session
+	// reuse across activations. The Spawner's MCP-attach plumbing
+	// points each Worker's agent app at our gateway URL
+	// ($HELIX_PUBLIC_URL/api/v1/mcp/helix-org/workers/<id>/mcp) with the
+	// service api_key in headers so the Zed sandbox's MCP client
+	// authenticates against the gateway when it phones home for tools.
+	//
+	// SpawnerConfig reads from chat.app_id (provider/model inherited
+	// from the picked owner agent), which may not be set at startup —
+	// build the config lazily on the first activation so the user can
+	// pick an agent after API boot and not have to restart.
 	spawnerClient, spawnerClientErr := buildHelixOrgServiceClient(context.Background(), configReg)
 	if spawnerClientErr != nil {
 		log.Warn().Err(spawnerClientErr).Msg("helix-org spawner client init failed — worker activations will not run")
 	}
-	helixURL, _ := configReg.GetString(context.Background(), "helix.url")
 	var spawnerFn agent.Spawner
 	if spawnerClient != nil {
-		spawnerDeps := &embeddedSpawnerDeps{
-			orgStore:    st,
-			configReg:   configReg,
-			broadcaster: bc,
-			client:      spawnerClient,
-			helixURL:    helixURL,
-			logger:      logger,
-			newID:       deps.NewID,
-			now:         deps.Now,
-		}
-		spawnerFn = newEmbeddedSpawner(spawnerDeps)
+		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, spawnerClient, st, bc, logger, deps.NewID, deps.Now)
 	}
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
@@ -247,3 +270,111 @@ func buildHelixOrgServiceClient(ctx context.Context, cfg *config.Registry) (heli
 	}
 	return helixclient.New(helixclient.Config{BaseURL: baseURL, APIKey: apiKey})
 }
+
+// buildHelixOrgSpawnerConfig assembles the SpawnerConfig for
+// helix-org's production zed_external Spawner. The embedded SaaS
+// runs Workers on the `claude_code` runtime with subscription
+// credentials — the in-sandbox Claude Code CLI authenticates
+// Anthropic via the operator's own OAuth, so we don't pass
+// Provider/Model and the Helix-side anthropic proxy doesn't need an
+// API key configured. HelixOrgURL points at our embedded MCP gateway
+// so the Zed sandbox can reach helix-org without external tunneling;
+// the service api_key is forwarded as the MCP Authorization header
+// so the gateway's alpha-feature check passes.
+//
+// BearerForUser resolves the hiring user's id (persisted on the
+// Worker's runtime state by hire_worker) to a current api_key at
+// activation time. This is how every per-Worker Helix project +
+// session winds up owned by the human who hired the Worker — their
+// Claude subscription, their desktop quota, their audit trail —
+// without helix-org ever holding a token at rest.
+func buildHelixOrgSpawnerConfig(
+	ctx context.Context,
+	cfg *config.Registry,
+	helixStore helixstore.Store,
+	client helixclient.Client,
+	orgStore *helixorgstore.Store,
+	bc *broadcast.Broadcaster,
+	logger *slog.Logger,
+	newID func() string,
+	now func() time.Time,
+) (agenthelix.SpawnerConfig, error) {
+	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
+	if apiKey == "" {
+		return agenthelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
+	}
+	baseURL, err := cfg.GetString(ctx, "helix.url")
+	if err != nil {
+		return agenthelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
+	}
+
+	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
+	return agenthelix.SpawnerConfig{
+		Client:        client,
+		HelixOrgURL:   helixOrgURL,
+		Runtime:       "claude_code",
+		Credentials:   "subscription",
+		MCPAuthBearer: apiKey,
+		Store:         orgStore,
+		Broadcaster:   bc,
+		Logger:        logger,
+		NewID:         newID,
+		Now:           now,
+		BearerForUser: func(ctx context.Context, userID string) (string, error) {
+			return resolveUserHelixAPIKey(ctx, helixStore, userID)
+		},
+	}, nil
+}
+
+// lazyHelixOrgSpawner returns an agent.Spawner that defers building
+// the underlying SpawnerConfig (and the wrapped helix.Spawner closure)
+// until the first activation arrives. Subsequent activations reuse
+// the same built Spawner — semaphore + MaxInflight live on the
+// inner closure, so they're shared across calls.
+//
+// Re-reads SpawnerConfig only if the first attempt failed; this lets
+// "pick an agent" flow seamlessly after API boot without restart.
+// Once successfully built, the Spawner is frozen — re-picking a
+// different owner agent does NOT change Worker provider/model for
+// existing or future activations. That's acceptable for the alpha;
+// document it in the picker if confusion arises.
+func lazyHelixOrgSpawner(
+	cfg *config.Registry,
+	helixStore helixstore.Store,
+	client helixclient.Client,
+	orgStore *helixorgstore.Store,
+	bc *broadcast.Broadcaster,
+	logger *slog.Logger,
+	newID func() string,
+	now func() time.Time,
+) agent.Spawner {
+	var (
+		mu      sync.Mutex
+		spawner agent.Spawner
+	)
+	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []agent.Trigger) error {
+		mu.Lock()
+		current := spawner
+		mu.Unlock()
+		if current == nil {
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, cfg, helixStore, client, orgStore, bc, logger, newID, now)
+			if err != nil {
+				return fmt.Errorf("helix-org spawner not configured: %w", err)
+			}
+			built := agenthelix.Spawner(cfgVal)
+			mu.Lock()
+			if spawner == nil {
+				spawner = built
+			}
+			current = spawner
+			mu.Unlock()
+			log.Info().
+				Str("helix_org_url", cfgVal.HelixOrgURL).
+				Str("runtime", cfgVal.Runtime).
+				Str("credentials", cfgVal.Credentials).
+				Msg("helix-org spawner built (zed_external workers)")
+		}
+		return current(ctx, workerID, envPath, triggers)
+	}
+}
+

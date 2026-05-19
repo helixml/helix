@@ -50,6 +50,32 @@ type workerLogArgs struct {
 	Wait     int    `json:"wait,omitempty"`
 }
 
+// UnmarshalJSON tolerates string-encoded ints for limit and wait —
+// same LLM-quirk fix as read_events. See decodeFlexInt comment.
+func (a *workerLogArgs) UnmarshalJSON(data []byte) error {
+	type plain workerLogArgs
+	type tolerant struct {
+		*plain
+		Limit json.RawMessage `json:"limit,omitempty"`
+		Wait  json.RawMessage `json:"wait,omitempty"`
+	}
+	t := tolerant{plain: (*plain)(a)}
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+	if v, err := decodeFlexInt(t.Limit); err != nil {
+		return fmt.Errorf("limit: %w", err)
+	} else {
+		a.Limit = v
+	}
+	if v, err := decodeFlexInt(t.Wait); err != nil {
+		return fmt.Errorf("wait: %w", err)
+	} else {
+		a.Wait = v
+	}
+	return nil
+}
+
 func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
 	var args workerLogArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {

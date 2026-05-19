@@ -143,6 +143,26 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 	}
 	owner := admins[0]
 
+	// Grant the alpha-feature flag to the service owner so the MCP
+	// gateway accepts requests authenticated by this key. Without it,
+	// per-Worker MCP calls from Zed sandboxes 403 — the backend's
+	// requireFeature check applies to every authenticated caller,
+	// including service identities. Idempotent.
+	hasFlag := false
+	for _, f := range owner.AlphaFeatures {
+		if f == alphaFeatureHelixOrg {
+			hasFlag = true
+			break
+		}
+	}
+	if !hasFlag {
+		owner.AlphaFeatures = append(owner.AlphaFeatures, alphaFeatureHelixOrg)
+		if _, err := st.UpdateUser(ctx, owner); err != nil {
+			return "", fmt.Errorf("grant alpha flag to service owner: %w", err)
+		}
+		log.Info().Str("owner_email", owner.Email).Msg("helix-org granted alpha flag to service owner")
+	}
+
 	keyStr, err := system.GenerateAPIKey()
 	if err != nil {
 		return "", fmt.Errorf("generate api key: %w", err)

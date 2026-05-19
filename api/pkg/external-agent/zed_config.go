@@ -698,6 +698,16 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if assistant == nil {
 		return ""
 	}
+	// Subscription-credentialed runtimes (e.g. Claude Code via the
+	// operator's OAuth) don't route through Helix's anthropic proxy
+	// and don't need a Helix-side provider/model selection at all —
+	// the in-sandbox CLI authenticates directly. The save-time
+	// validator in app_handlers.go already exempts these; mirror that
+	// behaviour here so /sessions/{id}/zed-config doesn't 422 such
+	// agents at session start.
+	if assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeSubscription {
+		return ""
+	}
 	provider := assistant.GenerationModelProvider
 	if provider == "" {
 		provider = assistant.Provider

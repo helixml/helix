@@ -114,6 +114,26 @@ type listStreamEventsArgs struct {
 	Limit    int    `json:"limit,omitempty"`
 }
 
+// UnmarshalJSON tolerates a string-encoded Limit — same LLM-quirk
+// fix as read_events. See decodeFlexInt comment.
+func (a *listStreamEventsArgs) UnmarshalJSON(data []byte) error {
+	type plain listStreamEventsArgs
+	type tolerant struct {
+		*plain
+		Limit json.RawMessage `json:"limit,omitempty"`
+	}
+	t := tolerant{plain: (*plain)(a)}
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+	v, err := decodeFlexInt(t.Limit)
+	if err != nil {
+		return fmt.Errorf("limit: %w", err)
+	}
+	a.Limit = v
+	return nil
+}
+
 func (t *ListStreamEvents) Name() domain.ToolName           { return ListStreamEventsName }
 func (t *ListStreamEvents) InputSchema() *jsonschema.Schema { return listStreamEventsSchema }
 func (t *ListStreamEvents) Description() string {

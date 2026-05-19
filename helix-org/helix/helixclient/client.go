@@ -504,6 +504,45 @@ func WithBearerToken(ctx context.Context, token string) context.Context {
 	return context.WithValue(ctx, bearerTokenKey{}, token)
 }
 
+// BearerFromContext returns the per-request bearer stashed by
+// WithBearerToken, or "" if none. Lets callers outside this package
+// (e.g. helix-org tools persisting the hiring user's identity onto
+// a Worker's runtime state) discover the live bearer without
+// dragging the bearerTokenKey type out.
+func BearerFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(bearerTokenKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// userIDKey is the context key for the upstream caller's user
+// identifier (typically a Helix user_id). Stashed alongside the
+// bearer by the embedding host's HTTP handler so tools can persist
+// the identity onto domain state without holding the api_key itself.
+type userIDKey struct{}
+
+// WithUserID returns a context carrying userID for later retrieval
+// via UserIDFromContext. Empty userID is a no-op. The bearer and
+// user ID are independent: the bearer authenticates THIS request,
+// the user ID identifies who later activations should run as. A
+// host may set one without the other.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	if userID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, userIDKey{}, userID)
+}
+
+// UserIDFromContext returns the user identifier stashed by
+// WithUserID, or "" if none.
+func UserIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(userIDKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // bearer returns the token realClient should send: the per-request
 // override if one is in ctx, otherwise the static apiKey.
 func (c *realClient) bearer(ctx context.Context) string {

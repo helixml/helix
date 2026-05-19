@@ -26,17 +26,37 @@ import (
 type SpawnerConfig struct {
 	Client      helixclient.Client
 	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
-	// Provider/Model drive the project's Agent App config. Each
-	// Worker's project is applied with these values; a future Role-
-	// overrides system can pass them per-Worker. (The runtime and
-	// agent_type are fixed — see helix.Runtime / helix.AgentType.)
+	// Runtime overrides the default `zed_agent` runtime. Empty falls
+	// back to helix.Runtime. See ProjectApplier.Runtime for the
+	// embedded SaaS use case (`claude_code` + subscription credentials).
+	Runtime string
+	// Provider/Model drive the project's Agent App config when Runtime
+	// routes inference through Helix. Ignored when Runtime is
+	// `claude_code` and Credentials is `"subscription"` — the sandbox
+	// authenticates Anthropic directly via the operator's OAuth.
 	Provider string
 	Model    string
+	// Credentials forwards to ProjectApplier.Credentials. See there.
+	Credentials string
 	// AgentMD is the org-wide agent.md policy text pushed to
 	// `.context/agent.md` on each per-Worker project's helix-specs
 	// branch. The spawner's activation prompt tells every Worker to
 	// read it first. Embedded by main.go from agent/policy.md.
 	AgentMD string
+	// MCPAuthBearer is forwarded to ProjectApplier so the helix-org
+	// MCP entry on each Worker's agent app carries an Authorization
+	// header. Used when HelixOrgURL routes through an auth-gated
+	// proxy (embedded SaaS alpha). Empty in standalone mode.
+	MCPAuthBearer string
+	// BearerForUser, when non-nil, is called by the Spawner (and
+	// ProjectApplier) on every activation to resolve the api_key that
+	// requests should be issued under. Passed the userID persisted on
+	// the Worker's runtime state at hire time (see
+	// state.go::HiringUserID). Letting the host mint or look up the
+	// bearer on-demand avoids stashing tokens at rest. A nil callback
+	// or empty return means "use the static Client's api_key" — the
+	// service-account fallback.
+	BearerForUser func(ctx context.Context, userID string) (string, error)
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
 	OrgID             string
@@ -111,6 +131,24 @@ func Spawner(cfg SpawnerConfig) agent.Spawner {
 		actCtx, cancel := context.WithTimeout(ctx, cfg.ActivationTimeout)
 		defer cancel()
 
+		// Resolve the hiring user's bearer for THIS activation, if a
+		// host-provided callback is wired. The bearer is stashed on
+		// actCtx via the helixclient context key; every subsequent
+		// client call inside this activation (project apply, session
+		// open, MCP attach, transcript subscribe) picks it up so the
+		// Worker's footprint in Helix is attributed to the hiring
+		// user, not the service account. Empty / nil / error all
+		// degrade to "use the static client api_key".
+		if cfg.BearerForUser != nil {
+			if state, err := LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
+				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
+					actCtx = helixclient.WithBearerToken(actCtx, bearer)
+				} else if berr != nil && cfg.Logger != nil {
+					cfg.Logger.Warn("helix spawner: BearerForUser failed; falling back to service key", "worker", workerID, "user_id", state.HiringUserID, "err", berr.Error())
+				}
+			}
+		}
+
 		// Make sure the Worker has a Helix project. First activation
 		// (TriggerHire, or a TriggerEvent before hire fully ran)
 		// applies one and persists the IDs.
@@ -184,14 +222,17 @@ After meaningful work, persist state on helix-specs:
 // with the chat bridge — see project.go.
 func (c SpawnerConfig) ensureProject(ctx context.Context, workerID domain.WorkerID) error {
 	a := &ProjectApplier{
-		Client:      c.Client,
-		Store:       c.Store,
-		HelixOrgURL: c.HelixOrgURL,
-		OrgID:       c.OrgID,
-		Provider:    c.Provider,
-		Model:       c.Model,
-		AgentMD:     c.AgentMD,
-		Logger:      c.Logger,
+		Client:        c.Client,
+		Store:         c.Store,
+		HelixOrgURL:   c.HelixOrgURL,
+		OrgID:         c.OrgID,
+		Runtime:       c.Runtime,
+		Provider:      c.Provider,
+		Model:         c.Model,
+		Credentials:   c.Credentials,
+		AgentMD:       c.AgentMD,
+		MCPAuthBearer: c.MCPAuthBearer,
+		Logger:        c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, workerID)
 	return err
@@ -229,13 +270,26 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.Worker
 		return "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
 	}
 
-	// Follow-up: the persisted session ID is the durable target.
-	// SendSessionMessage queues the prompt; if the session is gone we
-	// fall through and open a fresh one.
+	// Follow-up: the persisted session ID is the durable target. We
+	// continue the session via /sessions/chat with SessionID set
+	// rather than the /sessions/{id}/messages queue endpoint —
+	// embedded Helix doesn't expose the latter; this path is what
+	// standard Helix supports for both new and continued sessions.
+	// If the session is gone (404 / not found) we fall through and
+	// open a fresh one.
 	if state.SessionID != "" {
-		if _, err := c.Client.SendSessionMessage(ctx, state.SessionID, prompt, helixclient.SendMessageOptions{}); err == nil {
+		_, _, err := c.Client.StartChatWithStatus(ctx, helixclient.StartChatRequest{
+			SessionID: state.SessionID,
+			ProjectID: state.ProjectID,
+			AppID:     state.AgentAppID,
+			AgentType: AgentType,
+			Type:      "text",
+			Messages:  []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", prompt)},
+		})
+		if err == nil {
 			return state.SessionID, nil
-		} else if c.Logger != nil {
+		}
+		if c.Logger != nil {
 			c.Logger.Info("spawner: persisted session unusable, opening fresh",
 				"worker", workerID, "stale_sid", state.SessionID, "err", err)
 		}
@@ -273,7 +327,18 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.Worker
 		return "", fmt.Errorf("persist session id: %w", err)
 	}
 	if hadWSError {
-		if _, err := c.Client.SendSessionMessage(ctx, session.ID, prompt, helixclient.SendMessageOptions{}); err != nil {
+		// Re-issue via SessionID-based continuation (same /sessions/chat
+		// endpoint; embedded Helix has no /messages queue). Best-effort:
+		// the cold-start WS race is rare in the embedded path because
+		// the API and sandbox run in the same docker network.
+		if _, _, err := c.Client.StartChatWithStatus(ctx, helixclient.StartChatRequest{
+			SessionID: session.ID,
+			ProjectID: state.ProjectID,
+			AppID:     state.AgentAppID,
+			AgentType: AgentType,
+			Type:      "text",
+			Messages:  []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", prompt)},
+		}); err != nil {
 			return "", fmt.Errorf("queue activation prompt: %w", err)
 		}
 	}
