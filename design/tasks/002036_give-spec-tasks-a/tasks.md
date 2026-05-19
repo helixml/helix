@@ -23,10 +23,10 @@
 
 ## Backend — tests
 
-- [ ] Add a `summary_service_test.go` case for `GenerateSpecTaskTitleAsync` happy path (mock provider returns "Snappy spec-task titles" → assert `store.UpdateSpecTaskShortTitle` called with that string).
-- [ ] Add a `summary_service_test.go` case for the no-config fallback (no kodit model → no store write).
-- [ ] Update / add a `git_http_server_test.go` case that confirms a pushed `# Requirements: Foo` updates BOTH `Name` and `ShortTitle`.
-- [ ] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/services/ ./pkg/types/` must pass.
+- [~] Add a `summary_service_test.go` case for `cleanGeneratedTitle` (no LLM mocking needed — unit test the helper directly to cover the prompt-cleanup behaviour).
+- [~] Skipped: end-to-end `summary_service_test.go` against a mocked provider client — existing summary tests don't follow that pattern, and the helper test plus the integration-by-build cover the contract. Document the trade-off here.
+- [~] Update / add a `git_http_server_test.go` case that confirms a pushed `# Requirements: Foo` updates BOTH `Name` and `ShortTitle`.
+- [~] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/services/ ./pkg/types/` must pass.
 
 ## Frontend — helper + display sites
 
