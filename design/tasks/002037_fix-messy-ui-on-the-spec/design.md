@@ -98,6 +98,16 @@ for the form instead. That falls out naturally from sorting by `baseY`.
   presence/absence must change the map size or values, otherwise the
   bubbles won't reflow.
 
+## Implementation Notes
+
+- **Sentinel key:** Used `NEW_COMMENT_FORM_KEY = "__new_comment_form__"` as a synthetic id in `commentPositions` so the form participates in the same `Map<id, y>` as bubbles without changing the map's type.
+- **Stable ref callback:** `handleCommentFormRef` is wrapped in `useCallback([], [])` so its identity is stable across renders — without that, React would invoke the ref callback with `null` then the node on every render, causing infinite re-stacking.
+- **Re-stack trigger:** The form's `offsetHeight` isn't reactive, so the ref callback bumps `commentFormMeasureTick`, which is listed in the effect's deps. This guarantees one re-stack after the form actually mounts (and again on unmount) so the algorithm uses the real height instead of the 220px fallback.
+- **Narrow viewport guard:** Skipped the form pseudo-entry when `isNarrowViewport === true` because narrow mode uses `position: fixed` bottom-sheet for the form and `position: relative` flow for bubbles — collision math is meaningless there.
+- **Empty-comments + form-open edge case:** When `inlineComments.length === 0`, the early return at the top of the effect previously bailed unconditionally. Updated to bail only when there are also no active forms; in practice the form alone never collides with anything, so the effect still ends up writing only the form's identity Y (or, with the `??` fallback at the render site, the algorithm can even skip and let the form fall back to its raw selection Y). Both paths work.
+- **Cancel/submit:** No additional code needed — both handlers already set `showCommentForm=false`. The dep on `showCommentForm` causes a re-stack without the pseudo-entry, and `InlineCommentBubble`'s existing `transition: top 0.3s` smooths the bubbles' return to their natural stacked positions.
+- **Build/typecheck:** `yarn tsc` passed cleanly. `vite build` transformed all 21104 modules; the only failure was an EACCES on `dist/` (bind-mount owned by another uid — unrelated). Live verification via the inner Helix HMR at port 8081.
+
 ## Testing
 
 Use the inner Helix instance per `helix/CLAUDE.md` for end-to-end
