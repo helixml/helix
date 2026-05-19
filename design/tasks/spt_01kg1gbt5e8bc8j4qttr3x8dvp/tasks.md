@@ -12,7 +12,7 @@
 - [x] Create `api/pkg/services/spec_task_attachments.go` that commits `attachments/*` to helix-specs via `WithExternalRepoWrite()`.
 - [x] Make staging idempotent (skip rows with `CommittedSHA != ""`).
 - [x] Call staging from `StartSpecGeneration()` before `BuildPlanningPrompt`; log + continue on failure (don't fail the task — attachments are best-effort).
-- [~] Extend `prepopulateClonedSpecs()` to copy `attachments/*` from source → destination task dir.
+- [x] Extend `prepopulateClonedSpecs()` to copy `attachments/*` from source → destination task dir.
 
 ## Backend — prompt
 
@@ -28,8 +28,8 @@
 - [x] Upload + delete: reject (`409 Conflict`) when task status is past `spec_review`.
 - [x] Content endpoint: public if `task.PublicDesignDocs`, otherwise auth-gated. Mounted on unauthenticated subrouter so anonymous reads work.
 - [x] Register routes in `api/pkg/server/server.go`.
-- [ ] Add swagger annotations and regenerate the typed client: `./stack update_openapi`.
-- [ ] Hook `DeleteSpecTask` to garbage-collect attachment rows + filestore prefix.
+- [x] Add swagger annotations and regenerate the typed client: `./stack update_openapi`.
+- [x] Hook `DeleteSpecTask` to garbage-collect attachment rows + filestore prefix.
 
 ## Backend — tests
 
@@ -40,19 +40,19 @@
 
 ## Frontend — service layer
 
-- [ ] Create `frontend/src/services/taskAttachmentsService.ts` with React-Query hooks: `useTaskAttachments(taskId)`, `useUploadTaskAttachments()`, `useDeleteTaskAttachment()`.
-- [ ] All calls go through the generated `api.getApiClient()` (no raw `fetch`/`api.post`).
-- [ ] Invalidate `['task-attachments', taskId]` after mutations.
+- [x] Create `frontend/src/services/specTaskAttachmentsService.ts` with React-Query hooks (`useSpecTaskAttachments`, `useUpload…`, `useDelete…`).
+- [x] List/delete go through the generated client; multi-file upload uses raw axios + FormData (the typed client only supports one file per call).
+- [x] Invalidate `[SPEC_TASK_ATTACHMENTS_KEY, taskId]` after mutations.
 
 ## Frontend — UI
 
-- [ ] Add a drag-and-drop attachment area to `NewSpecTaskForm.tsx`, reusing `components/widgets/FileUpload.tsx`. Show pending list with thumbnails + size + remove button.
-- [ ] Enforce client-side: accepted MIME list, 10 MB/file, 10 files/task; show inline rejection reasons.
-- [ ] Wire submit: create task → upload attachments → optionally start planning. Surface upload errors with a "Retry upload" affordance.
-- [ ] Create `frontend/src/components/tasks/TaskAttachmentsPanel.tsx`: list rows with thumbnail / filename / size / vertical-dot menu (View, Download, Remove). Lightbox for images; new tab for PDFs/text.
-- [ ] Mount the panel inside `SpecTaskDetailContent.tsx` above the description block.
-- [ ] Disable add/remove when `task.status` is past `spec_review` (read-only mode).
-- [ ] `yarn build` cleanly in `frontend/`.
+- [x] Add an "Attach files" picker + chip strip to `NewSpecTaskForm.tsx`. (Used native file input, not react-dropzone — simpler, matches existing patterns.)
+- [x] Enforce client-side: accepted MIME list, 10 MB/file, 10 files/task; show inline rejection reasons.
+- [x] Wire submit: create task → upload attachments → optionally start planning. Surface upload errors with a "retry from detail page" hint.
+- [x] Create `frontend/src/components/tasks/TaskAttachmentsPanel.tsx`: grid of cards with thumbnail / filename / size / remove button. Lightbox for images; new tab for PDFs/text.
+- [x] Mount the panel inside `SpecTaskDetailContent.tsx` below the description block.
+- [x] Hide add/remove when `task.status` is past `spec_review` (read-only mode).
+- [x] `yarn tsc` clean. (Production `yarn build` blocked by pre-existing dist/ root permissions — not from this change.)
 
 ## End-to-end verification
 
