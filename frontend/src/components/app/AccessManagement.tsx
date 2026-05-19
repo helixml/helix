@@ -107,17 +107,28 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const members = useMemo(() => {
     if (!organization?.memberships) return [];
     return organization.memberships
-      .filter(membership => membership.user_id !== currentUser?.id)
+      .filter(membership => !!membership.user_id && membership.user_id !== currentUser?.id)
       .filter(membership => !existingGrantUserIds.has(membership.user_id))
       .map(membership => {
         const user = (membership.user || {}) as any
         return {
-          id: membership.user_id,
-          name: user.full_name || 'Unknown',
-          email: user.email || 'No email'
+          id: membership.user_id || '',
+          name: user.full_name || user.email || 'Unknown user',
+          email: user.email || ''
         }
       })
-  }, [organization, currentUser?.id, existingGrantUserIds]);
+      .sort((a, b) => {
+        const aLabel = `${a.name} ${a.email}`.toLowerCase();
+        const bLabel = `${b.name} ${b.email}`.toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
+  }, [organization?.memberships, currentUser?.id, existingGrantUserIds]);
+
+  const getMemberOptionLabel = (member: { name: string; email: string }) => {
+    if (!member.email) return member.name;
+    if (member.name === member.email) return member.email;
+    return `${member.name} (${member.email})`;
+  };
 
   // Filter teams that don't already have access grants
   const availableTeams = useMemo(() => {
@@ -157,9 +168,10 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Determine if the typed input is an email not matching any org member
   const isTypedEmail = useMemo(() => {
-    if (!userInputValue || selectedUserId) return false;
-    const isEmail = userInputValue.includes('@');
-    const matchesMember = members.some(m => m.email === userInputValue);
+    const input = userInputValue.trim();
+    if (!input || selectedUserId) return false;
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+    const matchesMember = members.some(m => m.email.toLowerCase() === input.toLowerCase());
     return isEmail && !matchesMember;
   }, [userInputValue, selectedUserId, members]);
 
@@ -170,9 +182,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     if (selectedUserId) {
       const user = members.find(m => m.id === selectedUserId);
       if (!user) return;
-      userReference = user.email;
+      userReference = user.email || user.id;
     } else if (isTypedEmail) {
-      userReference = userInputValue;
+      userReference = userInputValue.trim();
     } else {
       return;
     }
@@ -711,21 +723,35 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
         <DialogContent>
           <Autocomplete
             freeSolo
+            openOnFocus
+            autoHighlight
+            selectOnFocus
+            handleHomeEndKeys
             options={members}
             getOptionLabel={(option) => {
               if (typeof option === 'string') return option;
-              return `${option.name} (${option.email})`;
+              return getMemberOptionLabel(option);
             }}
             value={members.find(m => m.id === selectedUserId) || null}
             inputValue={userInputValue}
+            filterOptions={(options, state) => {
+              const input = state.inputValue.trim().toLowerCase();
+              if (!input) return options;
+              return options.filter(option => {
+                return (
+                  option.name.toLowerCase().includes(input) ||
+                  option.email.toLowerCase().includes(input)
+                );
+              });
+            }}
             onInputChange={(_e, newValue) => {
               setUserInputValue(newValue);
+              const normalizedValue = newValue.trim().toLowerCase();
               const matchedMember = members.find(m =>
-                `${m.name} (${m.email})` === newValue
+                getMemberOptionLabel(m).toLowerCase() === normalizedValue ||
+                m.email.toLowerCase() === normalizedValue
               );
-              if (!matchedMember) {
-                setSelectedUserId('');
-              }
+              setSelectedUserId(matchedMember?.id || '');
             }}
             onChange={(_e, newValue) => {
               if (typeof newValue === 'string') {
@@ -739,6 +765,28 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 setUserInputValue('');
               }
             }}
+            renderOption={(props, option) => {
+              const { key, ...optionProps } = props;
+              return (
+                <Box component="li" key={key} {...optionProps}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {option.name}
+                    </Typography>
+                    {option.email && (
+                      <Typography variant="caption" color="text.secondary">
+                        {option.email}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+              );
+            }}
+            noOptionsText={
+              userInputValue.trim()
+                ? 'No matching organization members. Type an email to invite someone new.'
+                : 'No organization members available'
+            }
             renderInput={(params) => (
               <TextField {...params} label="User" placeholder="Select a user or type an email" />
             )}
@@ -833,4 +881,4 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   );
 };
 
-export default AccessManagement; 
+export default AccessManagement;
