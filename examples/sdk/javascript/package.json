@@ -24,7 +24,7 @@
     "example:logs": "node --experimental-strip-types examples/stream-logs.ts"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -44,11 +44,11 @@
     "@uiw/react-md-editor": "^4.0.8",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "axios": "^1.7.4",
+    "axios": "^1.15.2",
     "localdata": "^0.1.4",
     "lodash": "^4.17.21",
     "lucide-react": "^0.525.0",
-    "mermaid": "^11.12.2",
+    "mermaid": "^11.15.0",
     "mobx": "^6.13.5",
     "monaco-editor": "^0.53.0",
     "pako": "^2.1.0",
@@ -72,7 +72,7 @@
     "remark-gfm": "^4.0.0",
     "router5": "^8.0.1",
     "router5-plugin-browser": "^8.0.1",
-    "uuid": "^11.0.5",
+    "uuid": "^14.0.0",
     "yaml": "^2.5.0",
     "yup": "^1.1.1"
   },
@@ -87,7 +87,7 @@
     "@vitejs/plugin-react-swc": "^4.2.2",
     "jsdom": "^26.0.0",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1",
+    "vite": "^7.3.3",
     "vitest": "^3.0.9"
   },
   "resolutions": {
