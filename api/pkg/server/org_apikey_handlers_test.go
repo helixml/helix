@@ -291,7 +291,7 @@ func TestDeleteOrgAPIKey_OwnerCanDeleteAnyKey(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	keyStr := "hl-key-abc123"
+	keyStr := "test-api-key-abc123"
 
 	expectResolveOrganizationByID(mockStore, orgID)
 
@@ -331,7 +331,7 @@ func TestDeleteOrgAPIKey_MemberCanOnlyDeleteOwnKey(t *testing.T) {
 
 	orgID := "org_123"
 	memberID := "user_member"
-	keyStr := "hl-key-abc123"
+	keyStr := "test-api-key-abc123"
 
 	expectResolveOrganizationByID(mockStore, orgID)
 
@@ -369,7 +369,7 @@ func TestDeleteOrgAPIKey_KeyFromDifferentOrgRejected(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	keyStr := "hl-key-abc123"
+	keyStr := "test-api-key-abc123"
 
 	expectResolveOrganizationByID(mockStore, orgID)
 
