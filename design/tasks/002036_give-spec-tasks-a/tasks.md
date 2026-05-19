@@ -29,10 +29,10 @@
 
 ## Frontend — helper + display sites
 
-- [~] Create `frontend/src/components/tasks/taskTitle.ts` exporting `specTaskTitle(task)` that returns `user_short_title || short_title || name || 'Untitled task'`.
-- [ ] Replace `task.name` with `specTaskTitle(task)` in display contexts: `TaskCard.tsx`, `TasksTable.tsx`, `CronTaskCard.tsx`, `EmptyTasksState.tsx`, `SpecTaskDetailContent.tsx`.
-- [ ] Collapse the existing inline `user_short_title || short_title || name` chains in `TabsView.tsx` to use `specTaskTitle` (refactor, no behaviour change).
-- [ ] `cd frontend && yarn build` must pass.
+- [x] Create `frontend/src/components/tasks/taskTitle.ts` exporting `specTaskTitle(task, fallback?)` that returns `user_short_title || short_title || name || fallback`. Accepts null/undefined task safely.
+- [x] Replace `task.name` with `specTaskTitle(task)` for SpecTask display: `TaskCard.tsx:838`, `SpecTaskDetailContent.tsx:910`. ~~`TasksTable.tsx` / `CronTaskCard.tsx` / `EmptyTasksState.tsx`~~ — discovered these operate on `TypesTriggerConfiguration` (recurring agent triggers/cron tasks), NOT `TypesSpecTask`. Helper does not apply; reverted those edits.
+- [x] Collapse 8 inline `user_short_title || short_title || name` chains in `TabsView.tsx` to `specTaskTitle()` calls. Behaviour-preserving refactor — `grep "short_title ||"` returns 0 matches.
+- [x] `yarn tsc` (typecheck) and `yarn build` (vite production build) both pass. Had to `sudo chown -R retro:retro frontend/dist` first because the bind mount was root-owned (per CLAUDE.md: never rm -rf dist).
 
 ## Manual verification in inner Helix
 
