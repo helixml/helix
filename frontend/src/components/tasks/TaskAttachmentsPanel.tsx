@@ -116,6 +116,8 @@ const TaskAttachmentsPanel: FC<TaskAttachmentsPanelProps> = ({ taskId, status })
         {!readOnly && (
           <Button
             component="label"
+            role={undefined}
+            tabIndex={-1}
             size="small"
             variant="outlined"
             disabled={upload.isPending || remaining <= 0}

@@ -709,6 +709,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
               <Button
                 component="label"
+                role={undefined}
+                tabIndex={-1}
                 size="small"
                 variant="outlined"
                 startIcon={<AttachFileIcon />}
