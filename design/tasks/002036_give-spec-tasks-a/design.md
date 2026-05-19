@@ -203,6 +203,17 @@ safe by construction.
      title.
   5. Double-click the tab to rename; confirm the user override sticks.
 
+## Implementation notes (added during build)
+
+- **`UpdateSpecTaskShortTitle` returns `(bool, error)`**, not just `error`. The bool tells callers whether the conditional UPDATE actually fired — useful for the LLM-async path so it can log "skipped, already set" at debug rather than at warn.
+- **`TitleGenerator` interface in `services` package**, not direct `*SummaryService` dependency. `SummaryService` lives in `api/pkg/server/`, and the `server` package already imports `services`, so passing `*SummaryService` into `NewSpecDrivenTaskService` would create a cycle. The interface + `SetTitleGenerator` setter mirror the existing `SetKoditService` pattern (`spec_driven_task_service.go:104`).
+- **Wired in `server.go` after both objects exist** — `SpecDrivenTaskService` is built at line ~360 and `SummaryService` is built later at line 431, so the setter call happens immediately after construction.
+- **`testMode` guard** added to the `GenerateSpecTaskTitleAsync` call site — keeps existing test fixtures that set `service.SetTestMode(true)` from blowing up if they later wire a generator.
+- **TasksTable / CronTaskCard / EmptyTasksState are NOT spec tasks** — they render `TypesTriggerConfiguration` (recurring agent triggers). The frontend helper rollout was scoped down to actual `TypesSpecTask` callsites (`TaskCard.tsx`, `SpecTaskDetailContent.tsx`) plus the existing `TabsView.tsx` chain collapses.
+- **Frontend `dist/` was root-owned** in the dev container (bind mount). Had to `sudo chown -R retro:retro frontend/dist` before `yarn build` would succeed. Per CLAUDE.md, NEVER `rm -rf frontend/dist`.
+- **Inner Helix sandbox has no enrichment-model configured** (`kodit_enrichment_provider` / `kodit_enrichment_model` empty in `system_settings`, no rows in `provider_endpoints`). End-to-end LLM-title verification needs an operator to configure those settings; the fallback path was confirmed instead.
+- **Cleanup helper `cleanGeneratedTitle`** is broader than the original spec: strips quotes, `Title:` / `Task:` / `title:` / `task:` prefixes, trailing `.!?`, and truncates at a word boundary. Covered by 11 table-driven test cases.
+
 ## Out of scope
 
 - No new system-settings keys, no per-org model overrides.
