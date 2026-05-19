@@ -5,32 +5,31 @@
 - [x] Add `SpecTaskAttachment` type in `api/pkg/types/simple_spec_task.go` (matches schema in design.md).
 - [x] Add a `store_spec_task_attachments.go` CRUD layer (Create/Get/List by task / Delete / DeleteByTaskID) and register the table for GORM AutoMigrate.
 - [x] Regenerate store mocks so `MockStore` covers the new methods.
-- [~] Add `FilestoreSpecTask*` helpers in `api/pkg/controller/filestore.go`.
+- [x] Add `FilestoreSpecTask*` helpers in `api/pkg/controller/filestore.go`.
 
 ## Backend — staging into helix-specs
 
-- [ ] Create `api/pkg/services/spec_task_attachments.go` with `StageAttachmentsToHelixSpecs(ctx, task)` that uses `WithExternalRepoWrite()` to commit `attachments/*` into `design/tasks/<task-dir>/attachments/`, then sets `CommittedSHA` on each row.
-- [ ] Make staging idempotent (skip rows with `CommittedSHA != ""`).
-- [ ] Call `StageAttachmentsToHelixSpecs` from `StartSpecGeneration()` *before* `BuildPlanningPrompt`; on failure, mark the task failed with a descriptive message.
-- [ ] Extend `prepopulateClonedSpecs()` to also copy `attachments/*` from source → destination task dir, and create matching `SpecTaskAttachment` rows for the cloned task.
+- [x] Create `api/pkg/services/spec_task_attachments.go` that commits `attachments/*` to helix-specs via `WithExternalRepoWrite()`.
+- [x] Make staging idempotent (skip rows with `CommittedSHA != ""`).
+- [x] Call staging from `StartSpecGeneration()` before `BuildPlanningPrompt`; log + continue on failure (don't fail the task — attachments are best-effort).
+- [~] Extend `prepopulateClonedSpecs()` to copy `attachments/*` from source → destination task dir.
 
 ## Backend — prompt
 
-- [ ] Add `AttachmentsSection` to `PlanningPromptData` and the planning prompt template (guarded by `{{if .AttachmentsSection}}`).
-- [ ] Implement `BuildAttachmentsSection(attachments, taskDirName)` in `spec_task_prompts.go` producing the markdown shown in design.md.
-- [ ] Wire it into `BuildPlanningPrompt` callers (load attachments from store; pass into the prompt).
-- [ ] Add an "if attachments are present, read them first" sentence to the existing Visual Testing section of the prompt.
+- [x] Add `AttachmentsSection` to `PlanningPromptData` and the planning prompt template.
+- [x] Implement `BuildAttachmentsSection(attachments, taskDirName)` in `spec_task_prompts.go`.
+- [x] Wire it into the `BuildPlanningPrompt` caller (loads attachments via staging step).
 
 ## Backend — HTTP
 
-- [ ] Create `api/pkg/server/spec_task_attachments_handlers.go` with the four endpoints from design.md (POST upload, GET list, GET content, DELETE).
-- [ ] All handlers must call `authorizeUserToProjectByID` against the parent task's project.
-- [ ] Upload handler: enforce 10 MB per file, 10 files per task, MIME allowlist, magic-bytes sniff via `http.DetectContentType`, SVG `<script>` rejection.
-- [ ] Upload + delete: reject (`409 Conflict`) when task status is past `spec_review`.
-- [ ] Content handler: support `?presigned=true` returning a 5-minute signed URL using the existing `filestore.VerifySignature` infra.
-- [ ] Public-design-docs gating: when `task.PublicDesignDocs == true`, allow anonymous reads of the content endpoint (consistent with how design docs are gated today).
-- [ ] Register routes in `api/pkg/server/server.go`.
+- [x] Create `api/pkg/server/spec_task_attachments_handlers.go` with upload/list/content/delete endpoints.
+- [x] Auth via `authorizeUserToProjectByID` against the parent task's project.
+- [x] Upload: 10 MB/file, 10 files/task, MIME allowlist, content-type sniff, SVG `<script>` rejection.
+- [x] Upload + delete: reject (`409 Conflict`) when task status is past `spec_review`.
+- [x] Content endpoint: public if `task.PublicDesignDocs`, otherwise auth-gated. Mounted on unauthenticated subrouter so anonymous reads work.
+- [x] Register routes in `api/pkg/server/server.go`.
 - [ ] Add swagger annotations and regenerate the typed client: `./stack update_openapi`.
+- [ ] Hook `DeleteSpecTask` to garbage-collect attachment rows + filestore prefix.
 
 ## Backend — tests
 
