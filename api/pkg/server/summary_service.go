@@ -438,6 +438,141 @@ func (s *SummaryService) publishSessionUpdate(ctx context.Context, session *type
 	}
 }
 
+// GenerateSpecTaskTitleAsync fires off a background LLM call to populate the
+// spec task's short_title from its original prompt. Best-effort: errors and
+// missing enrichment-model configuration are logged at debug/warn and the
+// task is left with an empty short_title (the frontend falls back to name).
+//
+// Implements services.TitleGenerator so SpecDrivenTaskService can call it
+// without importing the server package.
+func (s *SummaryService) GenerateSpecTaskTitleAsync(ctx context.Context, taskID, ownerID, prompt string) {
+	prompt = strings.TrimSpace(prompt)
+	if taskID == "" || prompt == "" {
+		return
+	}
+
+	s.mu.Lock()
+	if s.pendingCount >= s.maxConcurrent {
+		s.mu.Unlock()
+		log.Debug().Str("task_id", taskID).Msg("Skipping spec task title generation - too many pending requests")
+		return
+	}
+	s.pendingCount++
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.pendingCount--
+			s.mu.Unlock()
+		}()
+
+		bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		title, err := s.generateSpecTaskTitle(bgCtx, ownerID, prompt)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to generate spec task short title")
+			return
+		}
+		if title == "" {
+			return
+		}
+
+		updated, err := s.store.UpdateSpecTaskShortTitle(bgCtx, taskID, title)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to store spec task short title")
+			return
+		}
+		if !updated {
+			log.Debug().Str("task_id", taskID).Msg("Spec task short title already set, skipped overwrite")
+			return
+		}
+		log.Debug().Str("task_id", taskID).Str("short_title", title).Msg("Generated spec task short title")
+	}()
+}
+
+// generateSpecTaskTitle calls the kodit enrichment model and returns a snappy
+// title for the given prompt. Returns an empty string with no error when the
+// enrichment model is not configured (graceful degradation).
+func (s *SummaryService) generateSpecTaskTitle(ctx context.Context, ownerID, prompt string) (string, error) {
+	settings, err := s.store.GetEffectiveSystemSettings(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get system settings: %w", err)
+	}
+	if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
+		return "", nil
+	}
+
+	client, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		Provider: settings.KoditEnrichmentProvider,
+		Owner:    ownerID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get provider client: %w", err)
+	}
+
+	// Keep the prompt LLM call cheap: a long prompt does not help an LLM
+	// pick a snappy title, and risks token-budget surprises.
+	if len(prompt) > 2000 {
+		prompt = prompt[:2000]
+	}
+
+	resp, err := client.CreateChatCompletion(ctx, gopenai.ChatCompletionRequest{
+		Model: settings.KoditEnrichmentModel,
+		Messages: []gopenai.ChatCompletionMessage{
+			{
+				Role: "system",
+				Content: `Generate a snappy task title (max 60 characters) for a software engineering task. The title appears on a Kanban card and tab strip, so it must be scannable at a glance.
+
+Guidelines:
+- Start with an imperative verb (Add, Fix, Refactor, Generate, Wire up, ...).
+- Mention the concrete subject (component, file, behaviour).
+- No quotes, no trailing punctuation, no "Task:" prefix.
+- Do NOT echo the whole prompt — distil it.`,
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		MaxTokens:   50,
+		Temperature: 0.3,
+	})
+	if err != nil {
+		return "", fmt.Errorf("LLM call failed: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", nil
+	}
+
+	return cleanGeneratedTitle(resp.Choices[0].Message.Content), nil
+}
+
+// cleanGeneratedTitle normalises a model's title response: trims whitespace
+// and quote characters, drops leading "Task:"-style prefixes, and truncates
+// to 60 chars at a word boundary when possible. Returns empty if nothing
+// usable survives.
+func cleanGeneratedTitle(raw string) string {
+	title := strings.TrimSpace(raw)
+	title = strings.Trim(title, `"'`)
+	// Models sometimes prepend a label like "Title:" or "Task:".
+	for _, prefix := range []string{"Title:", "title:", "Task:", "task:"} {
+		title = strings.TrimSpace(strings.TrimPrefix(title, prefix))
+	}
+	title = strings.TrimRight(title, ".!?")
+	title = strings.TrimSpace(title)
+
+	if len(title) > 60 {
+		if idx := strings.LastIndex(title[:60], " "); idx > 30 {
+			title = title[:idx]
+		} else {
+			title = title[:57] + "..."
+		}
+	}
+	return title
+}
+
 // buildSummaryPromptContent builds the content for the summarization prompt
 func buildSummaryPromptContent(interaction *types.Interaction) string {
 	var parts []string

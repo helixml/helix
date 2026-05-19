@@ -1657,15 +1657,24 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		return
 	}
 
-	// Update task name from requirements.md title (on every push)
+	// Update task name from requirements.md title (on every push). The agent's
+	// curated H1 is also written to short_title so it supersedes any LLM
+	// draft generated at task-creation time.
 	if reqContent, ok := docs["requirements.md"]; ok {
-		if specTitle := SpecTitleFromRequirements(reqContent); specTitle != "" && specTitle != task.Name {
-			task.Name = specTitle
-			task.UpdatedAt = time.Now()
-			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-				log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to update task name from spec title")
-			} else {
-				log.Info().Str("spec_task_id", specTaskID).Str("new_name", specTitle).Msg("Updated task name from spec title")
+		if specTitle := SpecTitleFromRequirements(reqContent); specTitle != "" {
+			shortTitle := specTitle
+			if len(shortTitle) > 100 { // schema cap on short_title column
+				shortTitle = shortTitle[:100]
+			}
+			if specTitle != task.Name || shortTitle != task.ShortTitle {
+				task.Name = specTitle
+				task.ShortTitle = shortTitle
+				task.UpdatedAt = time.Now()
+				if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+					log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to update task name from spec title")
+				} else {
+					log.Info().Str("spec_task_id", specTaskID).Str("new_name", specTitle).Msg("Updated task name and short title from spec title")
+				}
 			}
 		}
 	}

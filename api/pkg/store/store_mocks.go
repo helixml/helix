@@ -6163,6 +6163,21 @@ func (mr *MockStoreMockRecorder) UpdateSpecTask(ctx, task any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTask", reflect.TypeOf((*MockStore)(nil).UpdateSpecTask), ctx, task)
 }
 
+// UpdateSpecTaskShortTitle mocks base method.
+func (m *MockStore) UpdateSpecTaskShortTitle(ctx context.Context, id string, shortTitle string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSpecTaskShortTitle", ctx, id, shortTitle)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSpecTaskShortTitle indicates an expected call of UpdateSpecTaskShortTitle.
+func (mr *MockStoreMockRecorder) UpdateSpecTaskShortTitle(ctx, id, shortTitle any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTaskShortTitle", reflect.TypeOf((*MockStore)(nil).UpdateSpecTaskShortTitle), ctx, id, shortTitle)
+}
+
 // UpdateSpecTaskDesignReview mocks base method.
 func (m *MockStore) UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error {
 	m.ctrl.T.Helper()

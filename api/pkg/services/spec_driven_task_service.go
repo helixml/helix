@@ -34,6 +34,13 @@ type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string,
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
 
+// TitleGenerator generates a snappy short title for a spec task asynchronously.
+// Implemented by *server.SummaryService; defined here so we can call into it
+// without the services package importing the server package.
+type TitleGenerator interface {
+	GenerateSpecTaskTitleAsync(ctx context.Context, taskID, ownerID, prompt string)
+}
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -55,7 +62,14 @@ type SpecDrivenTaskService struct {
 	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
+	titleGenerator           TitleGenerator            // Optional: LLM-backed short-title generator (wired late, nilable for tests)
 	wg                       sync.WaitGroup
+}
+
+// SetTitleGenerator wires the LLM-backed short-title generator. Called from
+// server initialization after both this service and SummaryService exist.
+func (s *SpecDrivenTaskService) SetTitleGenerator(g TitleGenerator) {
+	s.titleGenerator = g
 }
 
 // NewSpecDrivenTaskService creates a new service instance
@@ -255,6 +269,13 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	// Log audit event for task creation
 	if s.auditLogService != nil {
 		s.auditLogService.LogTaskCreated(ctx, task, req.UserID, req.UserEmail)
+	}
+
+	// Kick off async LLM short-title generation so the Kanban/tab strip
+	// shows a snappy summary instead of the truncated raw prompt. Best
+	// effort; the frontend falls back to task.name when this is empty.
+	if s.titleGenerator != nil && !s.testMode {
+		s.titleGenerator.GenerateSpecTaskTitleAsync(ctx, task.ID, task.UserID, task.OriginalPrompt)
 	}
 
 	// DO NOT auto-start spec generation

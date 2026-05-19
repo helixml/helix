@@ -430,6 +430,12 @@ func NewServer(
 	// Initialize SummaryService for async interaction summaries and session titles
 	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
 
+	// Wire the summary service into spec-driven task service so newly created
+	// tasks get an LLM-generated short title for the Kanban/tab strip.
+	if apiServer.specDrivenTaskService != nil {
+		apiServer.specDrivenTaskService.SetTitleGenerator(apiServer.summaryService)
+	}
+
 	// Initialize git repository base directory
 	if apiServer.gitRepositoryService != nil {
 		if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {

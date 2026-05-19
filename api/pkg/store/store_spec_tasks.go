@@ -142,6 +142,42 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	return nil
 }
 
+// UpdateSpecTaskShortTitle sets the short_title column for a task, but only when
+// the existing value is empty. This makes the LLM-generated draft a no-op once a
+// stronger source (the planning agent's H1 from requirements.md) has already
+// written a title. Returns true if a row was updated.
+func (s *PostgresStore) UpdateSpecTaskShortTitle(ctx context.Context, id string, shortTitle string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("task ID is required")
+	}
+	if shortTitle == "" {
+		return false, nil
+	}
+
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ? AND (short_title IS NULL OR short_title = '')", id).
+		Updates(map[string]any{
+			"short_title": shortTitle,
+			"updated_at":  now,
+		})
+	if result.Error != nil {
+		return false, fmt.Errorf("failed to update spec task short title: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+
+	updated, err := s.GetSpecTask(ctx, id)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", id).Msg("Updated short_title but failed to re-fetch for notification")
+		return true, nil
+	}
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	return true, nil
+}
+
 // TransitionSpecTaskStatus atomically updates a spec task's status, but only if its
 // current status is in fromStatuses. Returns true if the row was updated (this caller
 // won the race), false if no row matched (another caller already transitioned).
