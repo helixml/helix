@@ -794,8 +794,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
           />
 
           {isTypedEmail && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              This user is not in your organisation. Adding them to this project will also add them to the organisation as a member.
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              This email is not a member of your organization. Adding them here
+              will also add them to the organization as a member.
             </Alert>
           )}
 
