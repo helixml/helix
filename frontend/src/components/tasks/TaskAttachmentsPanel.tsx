@@ -114,38 +114,46 @@ const TaskAttachmentsPanel: FC<TaskAttachmentsPanelProps> = ({ taskId, status })
           Attachments {attachments.length > 0 && `(${attachments.length}/${SPEC_TASK_ATTACHMENT_MAX_PER_TASK})`}
         </Typography>
         {!readOnly && (
-          <Button
-            component="label"
-            role={undefined}
-            tabIndex={-1}
-            size="small"
-            variant="outlined"
-            disabled={upload.isPending || remaining <= 0}
-          >
-            {upload.isPending ? 'Uploading…' : 'Add files'}
+          <>
             <input
               ref={fileInput}
+              id={`task-attach-input-${taskId}`}
               type="file"
               multiple
               accept={ACCEPT_ATTR}
-              style={{
-                clip: 'rect(0 0 0 0)',
-                clipPath: 'inset(50%)',
-                height: 1,
-                overflow: 'hidden',
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                whiteSpace: 'nowrap',
-                width: 1,
-              }}
+              style={{ display: 'none' }}
               onChange={(e) => {
                 const files = Array.from(e.target.files || [])
                 e.target.value = '' // reset so re-picking the same file fires onChange
                 void onPickFiles(files)
               }}
             />
-          </Button>
+            <Box
+              component="label"
+              htmlFor={upload.isPending || remaining <= 0 ? undefined : `task-attach-input-${taskId}`}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                px: 1.5,
+                py: 0.5,
+                border: '1px solid',
+                borderColor: upload.isPending || remaining <= 0 ? 'action.disabled' : 'primary.main',
+                color: upload.isPending || remaining <= 0 ? 'action.disabled' : 'primary.main',
+                borderRadius: 1,
+                fontSize: '0.8125rem',
+                fontWeight: 500,
+                textTransform: 'uppercase',
+                letterSpacing: '0.02857em',
+                cursor: upload.isPending || remaining <= 0 ? 'not-allowed' : 'pointer',
+                userSelect: 'none',
+                '&:hover': {
+                  backgroundColor: upload.isPending || remaining <= 0 ? 'transparent' : 'action.hover',
+                },
+              }}
+            >
+              {upload.isPending ? 'Uploading…' : 'Add files'}
+            </Box>
+          </>
         )}
       </Stack>
 

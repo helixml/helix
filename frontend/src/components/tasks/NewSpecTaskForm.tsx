@@ -700,65 +700,76 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             size="small"
           />
 
-          {/* Attachment picker — uploads happen after task creation in handleCreateTask.
-              Uses Button component="label" so the native <label>/<input type="file">
-              relationship triggers the file picker; calling input.click() via a ref
-              from an onClick handler is unreliable across browsers when the input has
-              display:none (which MUI's `hidden` prop applies). */}
-          <Box>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
-              <Button
-                component="label"
-                role={undefined}
-                tabIndex={-1}
-                size="small"
-                variant="outlined"
-                startIcon={<AttachFileIcon />}
-                disabled={pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK}
-              >
-                Attach files
-                <input
-                  ref={attachmentInput}
-                  type="file"
-                  multiple
-                  accept={ATTACHMENT_ACCEPT_ATTR}
-                  style={{
-                    clip: "rect(0 0 0 0)",
-                    clipPath: "inset(50%)",
-                    height: 1,
-                    overflow: "hidden",
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    whiteSpace: "nowrap",
-                    width: 1,
-                  }}
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files || []);
-                    e.target.value = "";
-                    if (!files.length) return;
+          {/* Attachment picker.
+              IMPORTANT: do NOT wrap MUI Button around the input. Multiple iterations
+              of `<Button component="label">` failed to open the native file dialog
+              because MUI's button wrapping intercepts the click before the label
+              fires. Use a plain styled <label htmlFor> pointing at a sibling <input>
+              elsewhere on the page — the browser's label-for-input mechanism opens
+              the dialog reliably with no JS involvement.
 
-                    const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
-                    if (files.length > remaining) {
-                      snackbar.error(
-                        `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
-                      );
-                      return;
-                    }
-                    const accepted: File[] = [];
-                    for (const f of files) {
-                      if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
-                        snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
-                        continue;
-                      }
-                      accepted.push(f);
-                    }
-                    if (accepted.length) {
-                      setPendingAttachments((prev) => [...prev, ...accepted]);
-                    }
-                  }}
-                />
-              </Button>
+              Uploads happen after task creation in handleCreateTask. */}
+          <Box>
+            <input
+              ref={attachmentInput}
+              id="new-spectask-attach-input"
+              type="file"
+              multiple
+              accept={ATTACHMENT_ACCEPT_ATTR}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                e.target.value = "";
+                if (!files.length) return;
+
+                const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
+                if (files.length > remaining) {
+                  snackbar.error(
+                    `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
+                  );
+                  return;
+                }
+                const accepted: File[] = [];
+                for (const f of files) {
+                  if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
+                    snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
+                    continue;
+                  }
+                  accepted.push(f);
+                }
+                if (accepted.length) {
+                  setPendingAttachments((prev) => [...prev, ...accepted]);
+                }
+              }}
+            />
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+              <Box
+                component="label"
+                htmlFor="new-spectask-attach-input"
+                sx={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  px: 1.5,
+                  py: 0.5,
+                  border: "1px solid",
+                  borderColor: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "action.disabled" : "primary.main",
+                  color: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "action.disabled" : "primary.main",
+                  borderRadius: 1,
+                  fontSize: "0.8125rem",
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.02857em",
+                  cursor: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "not-allowed" : "pointer",
+                  userSelect: "none",
+                  "&:hover": {
+                    backgroundColor: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "transparent" : "action.hover",
+                  },
+                }}
+              >
+                <AttachFileIcon sx={{ fontSize: 18 }} />
+                Attach files
+              </Box>
               {pendingAttachments.map((f, idx) => (
                 <Chip
                   key={`${f.name}-${idx}`}
