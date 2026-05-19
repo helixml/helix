@@ -417,12 +417,31 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 			Type:        "text",
 			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
 		}
+		// In project-applier mode the session is zed_external —
+		// signal that on the follow-up so Helix routes through
+		// startChatStreaming (returns immediately, agent runs async,
+		// transcript flows via the WS subscriber) instead of the
+		// blocking non-streaming path. Without this the followup
+		// blocks until the agent finishes AND returns the full
+		// response in session.Interactions, so both broadcastInteractions
+		// AND the WS subscriber render it — every reply ends up
+		// doubled in the chat surface.
+		if !appOnly {
+			req.AgentType = agenthelix.AgentType
+			req.ExternalAgentConfig = &helixclient.ExternalAgentConfig{}
+		}
 		session, _, err := b.client.StartChatWithStatus(ctx, req)
 		if err != nil {
 			return fmt.Errorf("helix followup: %w", err)
 		}
 		b.logger.Info("chat helix followup", "sid", sid, "project", projectID, "app", agentAppID)
-		b.broadcastInteractions(session.Interactions)
+		// Only the synchronous (helix_basic / app-only) path returns
+		// session.Interactions populated inline. For zed_external the
+		// WS subscriber is the canonical source — calling
+		// broadcastInteractions there would double-render every reply.
+		if appOnly {
+			b.broadcastInteractions(session.Interactions)
+		}
 		return nil
 	}
 
@@ -472,10 +491,13 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 	b.attachSession(session.ID)
 	b.logger.Info("chat helix session opened", "sid", session.ID, "project", projectID, "app", agentAppID)
 
-	// Synchronous (helix_basic) sessions return the assistant reply
-	// inline; render it immediately. Streaming sessions populate
-	// Interactions later via the WS bridge.
-	b.broadcastInteractions(session.Interactions)
+	// Only render synchronous (helix_basic / app-only) interactions
+	// inline. zed_external streams the transcript via the WS
+	// subscriber attachSession just started; calling
+	// broadcastInteractions there too would double-render the reply.
+	if appOnly {
+		b.broadcastInteractions(session.Interactions)
+	}
 
 	// Cold-start race: Helix's first /sessions/chat raced the desktop's
 	// WS connect, so the prompt is sitting in state=error. Re-issue via
