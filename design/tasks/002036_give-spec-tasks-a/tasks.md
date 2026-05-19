@@ -36,7 +36,7 @@
 
 ## Manual verification in inner Helix
 
-- [ ] Create a new task with a long multi-sentence prompt; confirm within ~5 seconds the Kanban card shows a snappy ≤ 60-char title, not the truncated prompt.
+- [~] Create a new task with a long multi-sentence prompt; confirm within ~5 seconds the Kanban card shows a snappy ≤ 60-char title, not the truncated prompt.
 - [ ] Disable the kodit enrichment model in system settings; confirm task creation still works and the card shows the old first-line title (fallback).
 - [ ] Run planning end-to-end; confirm the H1 from `requirements.md` replaces the LLM-generated title.
 - [ ] Double-click the tab to rename; confirm the user override sticks and isn't clobbered by either auto-generation path.
