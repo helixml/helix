@@ -1,6 +1,6 @@
 # Implementation Tasks: Prevent New Comment Form From Overlapping Existing Comment Bubbles on Spec Review Page
 
-- [ ] Reproduce the bug in the inner Helix at `localhost:8080`: create a spec task, reach the design review screen, add one comment, then select text near it and confirm the new comment form visually overlaps the existing bubble.
+- [~] Reproduce the bug in the inner Helix at `localhost:8080`: create a spec task, reach the design review screen, add one comment, then select text near it and confirm the new comment form visually overlaps the existing bubble.
 - [ ] In `frontend/src/components/spec-tasks/InlineCommentForm.tsx`, convert the component to `React.forwardRef<HTMLDivElement>` (or accept an `outerRef` prop) so the parent can measure the form's rendered height — mirror the existing `commentRefs` pattern used for bubbles.
 - [ ] In `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, add a `commentFormRef = useRef<HTMLDivElement>(null)` and pass it down to `<InlineCommentForm>` (line 1564).
 - [ ] In the stacking `useEffect` (lines 706-805), when `showCommentForm && selectedText`, build a pseudo-entry `{ id: "__new_comment_form__", baseY: commentFormPosition.y, height: commentFormRef.current?.offsetHeight ?? 220 }` and merge it into the `positions` array.
@@ -12,5 +12,5 @@
 - [ ] Build the frontend (`cd frontend && yarn build`) and verify the dev server hot-reloads cleanly with no TypeScript errors.
 - [ ] End-to-end test in the inner Helix: walk through the reproduction steps from the design doc's Testing section (single-bubble + form, multi-bubble + form, cancel, narrow viewport).
 - [ ] Take before/after screenshots and attach them to the PR description.
-- [ ] Open a PR against `helixml/helix` with a conventional-commit title (`fix(frontend): include open comment form in bubble stacking on spec review`) referencing this design doc.
-- [ ] Check CI (`gh pr checks <num>` or Drone MCP tools) and fix any failures before requesting review.
+- [ ] Push the feature branch — the Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI. Do **not** run `gh pr create`.
+- [ ] Write per-repo PR description at `pull_request_helix.md` in this task directory.
