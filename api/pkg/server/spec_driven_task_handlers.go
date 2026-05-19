@@ -1043,9 +1043,17 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Priority != "" {
 		task.Priority = updateReq.Priority
 	}
+	descriptionChanged := updateReq.Description != "" && updateReq.Description != task.Description
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
 		task.Name = services.GenerateTaskNameFromPrompt(updateReq.Description)
+		if descriptionChanged {
+			// Clear the LLM short title so the conditional UpdateSpecTaskShortTitle
+			// path can write a fresh one based on the new description. The user's
+			// explicit override (UserShortTitle) is unaffected — it still wins in
+			// the display chain.
+			task.ShortTitle = ""
+		}
 	}
 	if updateReq.JustDoItMode != nil {
 		task.JustDoItMode = *updateReq.JustDoItMode
@@ -1128,6 +1136,14 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// If the description (the LLM's input) actually changed, regenerate the
+	// snappy short title. The conditional UpdateSpecTaskShortTitle store call
+	// is a no-op when short_title is already set, so we cleared it above to
+	// let the new draft land.
+	if descriptionChanged && s.summaryService != nil {
+		s.summaryService.GenerateSpecTaskTitleAsync(ctx, task.ID, task.UserID, task.Description)
 	}
 
 	// If the user just turned KeepAlive off on a task that already reached Done,
