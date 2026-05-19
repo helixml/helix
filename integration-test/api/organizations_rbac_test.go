@@ -229,6 +229,18 @@ func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAcces
 	suite.assertProjectVisible(memberReadKey, project.ID, false)
 	suite.assertProjectVisible(memberNoGrantKey, project.ID, false)
 
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/spec-tasks?project_id="+url.QueryEscape(project.ID), nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/projects/"+project.ID+"/tasks-progress", nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/projects/"+project.ID+"/tasks-usage", nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/projects/"+project.ID+"/labels", nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
 	status, _ = apiJSON(suite.T(), suite.userNonMemberAPIKey, http.MethodGet, "/projects?organization_id="+url.QueryEscape(suite.organization.ID), nil, &[]*types.Project{})
 	suite.Require().Equal(http.StatusForbidden, status)
 
