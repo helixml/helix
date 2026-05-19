@@ -7,19 +7,19 @@
 
 ## Backend — title generation
 
-- [~] Add `GenerateSpecTaskTitleAsync(ctx, taskID, ownerID, prompt string)` to `api/pkg/server/summary_service.go`. Reuse the existing rate limiter (`s.mu` / `s.pendingCount` / `s.maxConcurrent`), the 30-second timeout, `MaxTokens: 50`, `Temperature: 0.3`, and the same trim/truncate cleanup used by `updateSessionTitle`.
-- [~] Use the imperative-verb snappy-title system prompt from `design.md` §1. Cap result at 60 chars at a word boundary.
-- [~] Bail out (no DB write) when `KoditEnrichmentProvider` or `KoditEnrichmentModel` are empty, or when the LLM call errors / times out. Log at `Warn`, not `Error` — this is best-effort.
+- [x] Add `GenerateSpecTaskTitleAsync(ctx, taskID, ownerID, prompt string)` to `api/pkg/server/summary_service.go` — reuses the rate limiter, 30s timeout, MaxTokens 50, Temperature 0.3, and a new `cleanGeneratedTitle` helper that strips quotes, "Title:"/"Task:" prefixes, trailing punctuation, and truncates at a word boundary.
+- [x] Imperative-verb snappy-title system prompt in place. Cap result at 60 chars at word boundary.
+- [x] No-config bail-out: when `KoditEnrichmentProvider`/`KoditEnrichmentModel` are empty, returns `("", nil)` and no DB write happens. LLM/network errors logged at `Warn`.
 
 ## Backend — wire into task creation
 
-- [ ] Add a `summaryService *SummaryService` field to `SpecDrivenTaskService` and pass it through `NewSpecDrivenTaskService`. Keep it nilable so existing unit tests don't need to construct one.
-- [ ] In `api/pkg/server/server.go` (wherever the spec-driven task service is constructed), pass the existing `SummaryService` instance.
-- [ ] In `SpecDrivenTaskService.CreateTask` (`api/pkg/services/spec_driven_task_service.go`), after the successful `s.store.CreateSpecTask(...)`, call `s.summaryService.GenerateSpecTaskTitleAsync(ctx, task.ID, task.UserID, task.OriginalPrompt)` (guarded by a nil check).
+- [x] Defined `TitleGenerator` interface in `services` package + setter `SpecDrivenTaskService.SetTitleGenerator`. Chose interface over passing `*SummaryService` to avoid `services → server` import cycle. Nilable, so existing tests are unaffected.
+- [x] `server.go` calls `apiServer.specDrivenTaskService.SetTitleGenerator(apiServer.summaryService)` right after constructing both. `*SummaryService` satisfies the interface via duck typing.
+- [x] In `SpecDrivenTaskService.CreateTaskFromPrompt`, after `s.store.CreateSpecTask(...)`, fires `s.titleGenerator.GenerateSpecTaskTitleAsync(...)` guarded by `s.titleGenerator != nil && !s.testMode`.
 
 ## Backend — agent H1 path
 
-- [ ] In `api/pkg/services/git_http_server.go` around lines 1660-1671, when `SpecTitleFromRequirements` returns a non-empty title and it differs from `task.ShortTitle`, set `task.ShortTitle = specTitle` alongside the existing `task.Name` update. Keep them in a single `UpdateSpecTask` call.
+- [x] `git_http_server.go` now updates BOTH `task.Name` and `task.ShortTitle` from the parsed H1 in `requirements.md`, with the 100-char schema cap applied to `short_title`. Single `UpdateSpecTask` call.
 
 ## Backend — tests
 
