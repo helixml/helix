@@ -75,10 +75,14 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 	bridge, err := chat.NewHelix(chat.HelixConfig{
 		Client: client,
 		Ensure: applier,
-		// SessionRole is a free-form tag Helix writes on chat sessions
-		// it doesn't reuse in any control path; hardcode rather than
-		// surface as a config knob.
-		SessionRole: "owner-chat",
+		// SessionRole=`exploratory` so Helix's per-project "Open Human
+		// Desktop" button finds and reuses the owner-chat session
+		// instead of spawning a parallel sandbox. The owner chat IS
+		// the project's human-driven session in helix-org's model;
+		// labelling it `exploratory` makes that explicit to the rest
+		// of Helix (project_handlers.go::startExploratorySession
+		// matches on this role).
+		SessionRole: "exploratory",
 		OwnerID:     "w-owner",
 		CWD:         cwd,
 		Logger:      logger,
