@@ -79,6 +79,39 @@ type hireWorkerArgs struct {
 	Grants          []hireWorkerGrant `json:"grants,omitempty"`
 }
 
+// UnmarshalJSON tolerates LLM tool-call quirks where the `grants`
+// field arrives as a JSON-encoded string instead of an inline array.
+// Sonnet does this intermittently when nested arrays appear in tool
+// schemas. We accept either form so callers don't have to retry-and-
+// fall-back. Anything else still fails the standard way.
+func (a *hireWorkerArgs) UnmarshalJSON(data []byte) error {
+	type plain hireWorkerArgs
+	type tolerant struct {
+		*plain
+		Grants json.RawMessage `json:"grants,omitempty"`
+	}
+	t := tolerant{plain: (*plain)(a)}
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+	if len(t.Grants) == 0 || string(t.Grants) == "null" {
+		a.Grants = nil
+		return nil
+	}
+	if err := json.Unmarshal(t.Grants, &a.Grants); err == nil {
+		return nil
+	}
+	// Try once more by unwrapping a string-encoded payload.
+	var s string
+	if err := json.Unmarshal(t.Grants, &s); err != nil {
+		return fmt.Errorf("grants: not an array or string: %w", err)
+	}
+	if err := json.Unmarshal([]byte(s), &a.Grants); err != nil {
+		return fmt.Errorf("grants (string-wrapped): %w", err)
+	}
+	return nil
+}
+
 func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
 	var args hireWorkerArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {

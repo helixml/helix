@@ -482,6 +482,37 @@ type realClient struct {
 	http   *http.Client
 }
 
+// bearerTokenKey is the context.Context key under which an embedding
+// host (e.g. helix-org running inside Helix) can stash a per-request
+// bearer token, overriding the static apiKey the Client was built
+// with. The handler chain reads the host's authenticated user, looks
+// up that user's own api key, and injects it here — so calls hit
+// Helix as the actual logged-in user rather than as a shared service
+// account. Stays nil-safe: when not set, the client falls back to
+// the constructor-supplied apiKey.
+type bearerTokenKey struct{}
+
+// WithBearerToken returns a context that carries the given token as
+// the bearer realClient uses on its next request. Empty token is a
+// no-op (returns the unchanged context). Intended for handler-side
+// code that knows the per-request identity; bridge / spawner code
+// elsewhere in helix-org keeps passing the raw context untouched.
+func WithBearerToken(ctx context.Context, token string) context.Context {
+	if token == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, bearerTokenKey{}, token)
+}
+
+// bearer returns the token realClient should send: the per-request
+// override if one is in ctx, otherwise the static apiKey.
+func (c *realClient) bearer(ctx context.Context) string {
+	if v, ok := ctx.Value(bearerTokenKey{}).(string); ok && v != "" {
+		return v
+	}
+	return c.apiKey
+}
+
 // do is the shared HTTP execution path. body may be nil. If out is
 // non-nil and the response is 2xx, the body is JSON-decoded into out.
 func (c *realClient) do(ctx context.Context, method, path string, body any, out any) error {
@@ -497,7 +528,7 @@ func (c *realClient) do(ctx context.Context, method, path string, body any, out 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -752,6 +783,14 @@ func (c *realClient) UpdateApp(ctx context.Context, id string, req AppRequest) (
 // auto-provisions a `zed_external` Agent App but doesn't accept
 // MCPs in its spec, so we attach them in this second step.
 func AttachMCPToApp(ctx context.Context, c Client, appID, name, transport, mcpURL string) error {
+	return AttachMCPToAppWithHeaders(ctx, c, appID, name, transport, mcpURL, nil)
+}
+
+// AttachMCPToAppWithHeaders is AttachMCPToApp plus an optional headers
+// map that becomes the MCP entry's `headers` field. Used when the MCP
+// endpoint sits behind Helix auth and the calling agent needs to carry
+// an explicit Authorization header (or any other static header).
+func AttachMCPToAppWithHeaders(ctx context.Context, c Client, appID, name, transport, mcpURL string, headers map[string]string) error {
 	if appID == "" {
 		return errors.New("AttachMCPToApp: appID is empty")
 	}
@@ -790,16 +829,25 @@ func AttachMCPToApp(ctx context.Context, c Client, appID, name, transport, mcpUR
 		if m["name"] == name {
 			m["transport"] = transport
 			m["url"] = mcpURL
+			if len(headers) > 0 {
+				m["headers"] = headers
+			} else {
+				delete(m, "headers")
+			}
 			replaced = true
 		}
 		mcps = append(mcps, m)
 	}
 	if !replaced {
-		mcps = append(mcps, map[string]any{
+		entry := map[string]any{
 			"name":      name,
 			"transport": transport,
 			"url":       mcpURL,
-		})
+		}
+		if len(headers) > 0 {
+			entry["headers"] = headers
+		}
+		mcps = append(mcps, entry)
 	}
 	asst["mcps"] = mcps
 	asstsAny[0] = asst
@@ -902,9 +950,36 @@ func (c *realClient) startChat(ctx context.Context, req StartChatRequest) (Sessi
 		req.Stream = true
 		return c.startChatStreaming(ctx, req)
 	}
-	var raw json.RawMessage
-	if err := c.do(ctx, http.MethodPost, "/api/v1/sessions/chat", req, &raw); err != nil {
+	// helix_basic / helix_agent path: Helix runs the agent (LLM +
+	// tools) synchronously inside this HTTP call, so a 30s default
+	// REST timeout is too tight — multi-step reasoning with MCP tool
+	// calls routinely takes a couple of minutes. Use a dedicated
+	// long-timeout client for just this request rather than bumping
+	// the shared default and slowing failure detection on every other
+	// endpoint.
+	buf, err := json.Marshal(req)
+	if err != nil {
+		return Session{}, false, fmt.Errorf("marshal: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/sessions/chat", bytes.NewReader(buf))
+	if err != nil {
 		return Session{}, false, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
+	httpReq.Header.Set("Content-Type", "application/json")
+	longClient := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := longClient.Do(httpReq)
+	if err != nil {
+		return Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Session{}, false, fmt.Errorf("read /api/v1/sessions/chat: %w", err)
 	}
 	s, err := parseStartChatResponse(raw)
 	return s, false, err
@@ -928,7 +1003,7 @@ func (c *realClient) startChat(ctx context.Context, req StartChatRequest) (Sessi
 // fails with "0 attempts". Detaching keeps Helix's handler running
 // long enough to complete startup; the body-drain goroutine reads to
 // EOF and closes the connection cleanly.
-func (c *realClient) startChatStreaming(_ context.Context, req StartChatRequest) (Session, bool, error) {
+func (c *realClient) startChatStreaming(ctx context.Context, req StartChatRequest) (Session, bool, error) {
 	buf, err := json.Marshal(req)
 	if err != nil {
 		return Session{}, false, fmt.Errorf("marshal: %w", err)
@@ -939,7 +1014,7 @@ func (c *realClient) startChatStreaming(_ context.Context, req StartChatRequest)
 		upstreamCancel()
 		return Session{}, false, err
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 	resp, err := c.http.Do(httpReq) //nolint:bodyclose // body is closed inside the drain goroutine below or on early-return paths; the lint can't follow it across the closure
@@ -1071,7 +1146,7 @@ func (c *realClient) SubscribeUpdates(ctx context.Context, sessionID string) (<-
 		return nil, err
 	}
 	header := http.Header{}
-	header.Set("Authorization", "Bearer "+c.apiKey)
+	header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 	if resp != nil {
 		_ = resp.Body.Close()

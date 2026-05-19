@@ -25,6 +25,7 @@ import {
   FileQuestionMark,
   MessageCircle,
   Kanban,
+  Sparkles,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -744,6 +745,56 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 }}
               >
                 Admin Panel
+              </Typography>
+            </Box>
+          )}
+
+          {/* helix-org alpha entry — only rendered for users granted
+              the 'helix-org' flag in alpha_features. Opens the
+              embedded helix-org UI (server-gated via requireFeature
+              middleware; this is just the cosmetic entry point). */}
+          {account.user?.alpha_features?.includes('helix-org') && (
+            <Box
+              onClick={(e) => {
+                e.stopPropagation()
+                window.open('/ui/alpha-agents', '_blank', 'noopener,noreferrer')
+                if (sidebarVisible && menuItemsExpanded) {
+                  setMenuItemsExpanded(false)
+                }
+                if (!sidebarVisible && compactExpanded) {
+                  setCompactExpanded(false)
+                }
+              }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                },
+              }}
+            >
+              <Sparkles
+                size={16}
+                style={{
+                  marginRight: '10px',
+                  color: lightTheme.textColorFaded,
+                }}
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: lightTheme.textColor,
+                  fontSize: '0.875rem',
+                  fontWeight: 400,
+                  lineHeight: 1.2,
+                }}
+              >
+                helix-org (alpha)
               </Typography>
             </Box>
           )}

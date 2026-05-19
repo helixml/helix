@@ -38,7 +38,9 @@ import (
 // renders both backends identically.
 type HelixBridge struct {
 	client      helixclient.Client
-	ensure      ProjectEnsurer // resolves the owner Worker's per-Worker project
+	ensure      ProjectEnsurer // resolves the owner Worker's per-Worker project; nil in app-only mode
+	appID       string         // app-only mode: when set, skip project lifecycle and chat against this existing Helix app
+	appIDFunc   func(context.Context) (string, error) // app-only mode: dynamic lookup (re-read per send so config changes take effect without restart). Takes precedence over appID.
 	ownerID     domain.WorkerID
 	sessionRole string
 	provider    string
@@ -84,19 +86,50 @@ type HelixConfig struct {
 	Ensure      ProjectEnsurer
 	OwnerID     domain.WorkerID // typically "w-owner"
 	SessionRole string          // chat.session_role, e.g. "owner-chat"
-	Provider    string          // chat.provider
-	Model       string          // chat.model
+	Provider    string          // chat.provider (ignored in app-only mode)
+	Model       string          // chat.model (ignored in app-only mode)
 	CWD         string          // server cwd, only used as a stable label
 	Logger      *slog.Logger
+
+	// AppID enables "app-only" mode: instead of helix-org provisioning
+	// its own per-Worker project, the bridge opens chat sessions
+	// against this existing Helix app. agent_type, provider, model,
+	// and organization_id are derived server-side from the app. Ensure
+	// is not called in this mode. Mutually exclusive with Ensure.
+	AppID string
+
+	// AppIDFunc is the dynamic variant of AppID: when set, the bridge
+	// re-reads the chosen app on each send, so an operator can change
+	// the picked agent (e.g. via /ui/settings or the alpha picker UI)
+	// without a process restart. Mutually exclusive with AppID and
+	// Ensure. The function may return ("", nil) if no agent has been
+	// picked yet — in that case the bridge returns a clear error to
+	// the caller instead of starting a session.
+	AppIDFunc func(context.Context) (string, error)
 }
 
 // NewHelix returns a HelixBridge bound to the supplied Helix client.
+// Either Ensure (project-applier mode) or AppID (app-only mode) must
+// be set; they're mutually exclusive.
 func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("chat helix bridge: Client is required")
 	}
-	if cfg.Ensure == nil {
-		return nil, fmt.Errorf("chat helix bridge: Ensure is required")
+	configured := 0
+	if cfg.Ensure != nil {
+		configured++
+	}
+	if cfg.AppID != "" {
+		configured++
+	}
+	if cfg.AppIDFunc != nil {
+		configured++
+	}
+	if configured == 0 {
+		return nil, fmt.Errorf("chat helix bridge: one of Ensure, AppID, AppIDFunc must be set")
+	}
+	if configured > 1 {
+		return nil, fmt.Errorf("chat helix bridge: Ensure, AppID, AppIDFunc are mutually exclusive")
 	}
 	if cfg.OwnerID == "" {
 		return nil, fmt.Errorf("chat helix bridge: OwnerID is required")
@@ -111,6 +144,8 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 	return &HelixBridge{
 		client:         cfg.Client,
 		ensure:         cfg.Ensure,
+		appID:          cfg.AppID,
+		appIDFunc:      cfg.AppIDFunc,
 		ownerID:        cfg.OwnerID,
 		sessionRole:    cfg.SessionRole,
 		provider:       cfg.Provider,
@@ -248,10 +283,23 @@ func (b *HelixBridge) SendHandler() http.Handler {
 		if expanded, ok := b.expandSlashCommand(r.Context(), msg); ok {
 			msg = expanded
 		}
-		if err := b.send(r.Context(), msg); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		// The /sessions/chat call for the helix_agent (helix_basic) path
+		// blocks the upstream HTTP request until the agent finishes
+		// reasoning + every tool call. With 29 MCP tools and multi-step
+		// reasoning that easily exceeds htmx's request timeout, and the
+		// browser cancels — we then 500 even though the agent ran fine.
+		// Detach the ctx so the bridge keeps running after the response
+		// returns; the WS subscriber attached by attachSession (kicked
+		// off inside b.send once the session ID is known) pushes
+		// interactions to the SSE stream regardless.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			if err := b.send(ctx, msg); err != nil {
+				b.logger.Error("chat send (detached)", "err", err)
+				b.broadcast(renderTurnError(err.Error()))
+			}
+		}()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprint(w, renderUserBubble(bubble))
 	})
@@ -272,64 +320,106 @@ func (b *HelixBridge) SendHandler() http.Handler {
 //     we immediately re-queue the same prompt via the /messages
 //     endpoint so it lands once the agent dials home.
 func (b *HelixBridge) send(ctx context.Context, msg string) error {
-	projectID, agentAppID, _, err := b.ensure.Ensure(ctx, b.ownerID)
-	if err != nil {
-		return fmt.Errorf("ensure owner project: %w", err)
+	var projectID, agentAppID string
+	var err error
+	appOnly := b.appID != "" || b.appIDFunc != nil
+	if appOnly {
+		// App-only mode: skip ProjectApplier. The session is opened
+		// against an existing Helix app; agent_type, provider, model,
+		// and organization_id are derived server-side from the app
+		// (see session_handlers.go:383). This is the path for the
+		// embedded SaaS alpha where helix-org reuses agents the
+		// operator already configured under /orgs/<org>/agents.
+		if b.appIDFunc != nil {
+			agentAppID, err = b.appIDFunc(ctx)
+			if err != nil {
+				return fmt.Errorf("look up chat.app_id: %w", err)
+			}
+			if agentAppID == "" {
+				return fmt.Errorf("no Helix agent picked yet — set chat.app_id under /ui/settings or via the alpha agent picker")
+			}
+		} else {
+			agentAppID = b.appID
+		}
+	} else {
+		projectID, agentAppID, _, err = b.ensure.Ensure(ctx, b.ownerID)
+		if err != nil {
+			return fmt.Errorf("ensure owner project: %w", err)
+		}
 	}
 
 	b.mu.Lock()
 	sid := b.sessionID
 	b.mu.Unlock()
 
-	// Follow-up: just queue. No StartChat dance, no warmup retry.
+	// Follow-up: continue the existing Helix session by re-posting
+	// /sessions/chat with SessionID set. The /sessions/{id}/messages
+	// queue endpoint helix-org's standalone build targets does not
+	// exist in this embedded Helix yet; falling back to the
+	// well-supported continuation path keeps follow-ups working
+	// without a server-side change.
 	if sid != "" {
-		if _, err := b.client.SendSessionMessage(ctx, sid, msg, helixclient.SendMessageOptions{}); err != nil {
+		req := helixclient.StartChatRequest{
+			SessionID:   sid,
+			AppID:       agentAppID,
+			SessionRole: b.sessionRole,
+			Type:        "text",
+			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+		}
+		session, _, err := b.client.StartChatWithStatus(ctx, req)
+		if err != nil {
 			return fmt.Errorf("helix followup: %w", err)
 		}
-		b.logger.Info("chat helix followup", "sid", sid, "project", projectID)
+		b.logger.Info("chat helix followup", "sid", sid, "project", projectID, "app", agentAppID)
+		b.broadcastInteractions(session.Interactions)
 		return nil
 	}
 
-	// Pre-flight desktop quota — fail fast with a clear message
-	// instead of letting Helix's StartDesktop bail with a 500 after
-	// project apply / agent-app provisioning has already run. Soft
-	// check: a parallel caller could still race us for the last slot,
-	// in which case Helix's own quota error wins.
-	if err := helixclient.CheckDesktopQuota(ctx, b.client); err != nil {
-		return err
-	}
-
-	orgID, err := b.resolveProjectOrg(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("resolve project org: %w", err)
-	}
-
-	// AppID MUST be set — it becomes session.ParentApp, and Helix's
-	// external MCP proxy at /api/v1/mcp/external/{name} bails with
-	// "session has no associated agent" if ParentApp is empty
-	// (mcp_backend_external.go:272). Without that, the org-graph MCP
-	// we attached to the project's auto-provisioned Agent App never
-	// shows up in the desktop's Zed config — the agent then has only
-	// Helix's bundled MCPs and flounders when asked to call
-	// create_role / hire_worker.
-	req := helixclient.StartChatRequest{
-		ProjectID:           projectID,
-		OrganizationID:      orgID,
-		AppID:               agentAppID,
-		SessionRole:         b.sessionRole,
-		AgentType:           agenthelix.AgentType,
-		Type:                "text",
-		Provider:            b.provider,
-		Model:               b.model,
-		ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
-		Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+	// First turn: build the StartChat request. In app-only mode we
+	// rely on Helix to derive agent_type/provider/model/org from the
+	// app — we leave them empty. In project-applier mode we explicitly
+	// set zed_external + the configured provider/model, and pre-flight
+	// the desktop quota since project-applier sessions always spin up
+	// a Zed sandbox.
+	var req helixclient.StartChatRequest
+	if appOnly {
+		req = helixclient.StartChatRequest{
+			AppID:       agentAppID,
+			SessionRole: b.sessionRole,
+			Type:        "text",
+			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+		}
+	} else {
+		if err := helixclient.CheckDesktopQuota(ctx, b.client); err != nil {
+			return err
+		}
+		orgID, err := b.resolveProjectOrg(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("resolve project org: %w", err)
+		}
+		// AppID MUST be set — it becomes session.ParentApp, and Helix's
+		// external MCP proxy at /api/v1/mcp/external/{name} bails with
+		// "session has no associated agent" if ParentApp is empty
+		// (mcp_backend_external.go:272).
+		req = helixclient.StartChatRequest{
+			ProjectID:           projectID,
+			OrganizationID:      orgID,
+			AppID:               agentAppID,
+			SessionRole:         b.sessionRole,
+			AgentType:           agenthelix.AgentType,
+			Type:                "text",
+			Provider:            b.provider,
+			Model:               b.model,
+			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
+			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+		}
 	}
 	session, hadWSError, err := b.client.StartChatWithStatus(ctx, req)
 	if err != nil {
 		return fmt.Errorf("start helix chat: %w", err)
 	}
 	b.attachSession(session.ID)
-	b.logger.Info("chat helix session opened", "sid", session.ID, "project", projectID)
+	b.logger.Info("chat helix session opened", "sid", session.ID, "project", projectID, "app", agentAppID)
 
 	// Synchronous (helix_basic) sessions return the assistant reply
 	// inline; render it immediately. Streaming sessions populate
