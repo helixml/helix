@@ -37,6 +37,9 @@ var orgDetailHTML string
 //go:embed templates/org_chart.html
 var orgChartHTML string
 
+//go:embed templates/alpha_agents.html
+var alphaAgentsHTML string
+
 // Head fills the document <head>. Title is the page-specific suffix
 // rendered before the site name.
 type Head struct {
@@ -136,6 +139,41 @@ type OrgChartFragment struct {
 func (*OrgChartFragment) TemplateText() string {
 	return `{{ template "org_chart" . }}` + orgChartHTML
 }
+
+// AlphaAgentsPage renders the embedded SaaS picker — the operator
+// chooses which Helix agent the helix-org chat surface uses as its
+// brain. Lives at /ui/alpha-agents and is gated on the same alpha
+// feature flag as the rest of /ui/.
+type AlphaAgentsPage struct {
+	shell
+	CurrentID  string
+	HasCurrent bool
+	Flash      string
+	HasFlash   bool
+	Error      string
+	HasError   bool
+	Agents     []AlphaAgentRow
+	HasAgents  bool
+}
+
+// AlphaAgentRow describes one Helix agent the picker can offer.
+// Embedding host (api/pkg/server) supplies the data; this struct is
+// the contract between that data and the template. HasRuntime and
+// HasProviderModel are precomputed because the tmpl analyzer rejects
+// `{{ if .Runtime }}` for string-typed fields.
+type AlphaAgentRow struct {
+	ID               string
+	Name             string
+	AgentType        string
+	Runtime          string
+	HasRuntime       bool
+	ProviderModel    string
+	HasProviderModel bool
+	IsCurrent        bool
+}
+
+// TemplateText returns the alpha-agents page body.
+func (*AlphaAgentsPage) TemplateText() string { return alphaAgentsHTML }
 
 // OrgDetail is the htmx fragment rendered in #org-detail. Exactly one
 // of IsPosition / IsWorker / IsHint is true. Position fragments carry
@@ -288,8 +326,9 @@ type EventCard struct {
 
 var (
 	chatTpl      = tmpl.MustCompile(&ChatPage{})
-	orgTpl       = tmpl.MustCompile(&OrgPage{})
-	orgChartTpl  = tmpl.MustCompile(&OrgChartFragment{})
+	orgTpl         = tmpl.MustCompile(&OrgPage{})
+	orgChartTpl    = tmpl.MustCompile(&OrgChartFragment{})
+	alphaAgentsTpl = tmpl.MustCompile(&AlphaAgentsPage{})
 	orgDetailTpl = tmpl.MustCompile(&OrgDetail{})
 	settingsTpl  = tmpl.MustCompile(&SettingsPage{})
 	streamsTpl   = tmpl.MustCompile(&StreamsPage{})

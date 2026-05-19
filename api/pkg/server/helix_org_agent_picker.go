@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/helix/helixclient"
+	helixorgui "github.com/helixml/helix-org/server/ui"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
@@ -156,71 +156,40 @@ func renderAgentPicker(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<!doctype html>
-<html><head><meta charset="utf-8"><title>Pick helix-org agent</title>
-<style>
-body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 16px;color:#222;background:#f7f3ec}
-h1{font-size:24px;margin:0 0 4px}
-.subtitle{color:#666;margin:0 0 24px}
-.notice{background:#fff;border:1px solid #d6cfc1;border-radius:8px;padding:12px 16px;margin-bottom:16px}
-.err{background:#fff;border:1px solid #c66;color:#933;border-radius:8px;padding:12px 16px;margin-bottom:16px}
-.agent{background:#fff;border:1px solid #d6cfc1;border-radius:8px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:16px}
-.agent .meta{font-family:ui-monospace,monospace;font-size:12px;color:#666;margin-top:4px}
-.agent.current{border-color:#3a7a40;background:#eef6ee}
-button{background:#3a7a40;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:14px;cursor:pointer}
-button:hover{background:#2f6235}
-button.current{background:#888;cursor:default}
-a{color:#3a7a40}
-.id{font-family:ui-monospace,monospace;font-size:12px;color:#999}
-</style></head>
-<body>
-<h1>Pick the agent helix-org chats with</h1>
-<p class="subtitle">The bridge re-reads this on every chat message, so changes apply immediately — no restart.</p>
-`)
+	rows := make([]helixorgui.AlphaAgentRow, 0, len(agents))
+	for _, a := range agents {
+		providerModel := ""
+		if a.Provider != "" || a.Model != "" {
+			providerModel = a.Provider
+			if a.Model != "" {
+				if providerModel != "" {
+					providerModel += "/"
+				}
+				providerModel += a.Model
+			}
+		}
+		rows = append(rows, helixorgui.AlphaAgentRow{
+			ID:               a.ID,
+			Name:             a.Name,
+			AgentType:        a.AgentType,
+			Runtime:          a.Runtime,
+			HasRuntime:       a.Runtime != "",
+			ProviderModel:    providerModel,
+			HasProviderModel: providerModel != "",
+			IsCurrent:        a.ID == current,
+		})
+	}
+	page := &helixorgui.AlphaAgentsPage{
+		CurrentID: current,
+		Agents:    rows,
+	}
 	if r.URL.Query().Get("saved") != "" {
-		fmt.Fprintln(w, `<div class="notice">Saved.</div>`)
+		page.Flash = "Saved."
 	}
 	if renderErr != "" {
-		fmt.Fprintf(w, `<div class="err">%s</div>`, html.EscapeString(renderErr))
+		page.Error = renderErr
 	}
-	if current != "" {
-		fmt.Fprintf(w, `<p class="subtitle">Current: <span class="id">%s</span></p>`, html.EscapeString(current))
-	}
-	for _, a := range agents {
-		cls := "agent"
-		btnLabel := "Use this agent"
-		btnAttrs := ""
-		if a.ID == current {
-			cls += " current"
-			btnLabel = "In use"
-			btnAttrs = ` class="current" disabled`
-		}
-		fmt.Fprintf(w, `<div class="%s">
-  <div>
-    <div><strong>%s</strong> <span class="id">%s</span></div>
-    <div class="meta">%s · %s/%s</div>
-  </div>
-  <form method="POST" action="/ui/alpha-agents">
-    <input type="hidden" name="app_id" value="%s">
-    <button type="submit"%s>%s</button>
-  </form>
-</div>`,
-			cls,
-			html.EscapeString(a.Name),
-			html.EscapeString(a.ID),
-			html.EscapeString(a.AgentType),
-			html.EscapeString(a.Provider),
-			html.EscapeString(a.Model),
-			html.EscapeString(a.ID),
-			btnAttrs,
-			html.EscapeString(btnLabel),
-		)
-	}
-	if len(agents) == 0 && renderErr == "" {
-		fmt.Fprintln(w, `<div class="notice">No agents found. Create one under /orgs/&lt;org&gt;/agents and reload this page.</div>`)
-	}
-	fmt.Fprintln(w, `<p><a href="/ui/">Back to chat</a> · <a href="/ui/settings">All settings</a></p></body></html>`)
+	helixorgui.RenderAlphaAgents(w, "w-owner", nil, page)
 }
 
 // agentSummary is the shape rendered on the picker page.
@@ -230,6 +199,7 @@ type agentSummary struct {
 	Provider  string
 	Model     string
 	AgentType string
+	Runtime   string
 }
 
 // listHelixAgents calls the surrounding Helix's /api/v1/apps using the
@@ -262,12 +232,13 @@ func listHelixAgents(ctx context.Context, baseURL, apiKey, orgID string) ([]agen
 	out := make([]agentSummary, 0, len(raw))
 	for _, a := range raw {
 		name := a.Config.Helix.Name
-		var provider, model, agentType string
+		var provider, model, agentType, runtime string
 		if len(a.Config.Helix.Assistants) > 0 {
 			as := a.Config.Helix.Assistants[0]
 			provider = as.Provider
 			model = as.Model
 			agentType = as.AgentType
+			runtime = as.CodeAgentRuntime
 		}
 		if name == "" {
 			name = "(unnamed)"
@@ -278,6 +249,7 @@ func listHelixAgents(ctx context.Context, baseURL, apiKey, orgID string) ([]agen
 			Provider:  provider,
 			Model:     model,
 			AgentType: agentType,
+			Runtime:   runtime,
 		})
 	}
 	return out, nil
@@ -292,9 +264,10 @@ type rawHelixApp struct {
 		Helix struct {
 			Name       string `json:"name"`
 			Assistants []struct {
-				Provider  string `json:"provider"`
-				Model     string `json:"model"`
-				AgentType string `json:"agent_type"`
+				Provider         string `json:"provider"`
+				Model            string `json:"model"`
+				AgentType        string `json:"agent_type"`
+				CodeAgentRuntime string `json:"code_agent_runtime"`
 			} `json:"assistants"`
 		} `json:"helix"`
 	} `json:"config"`
