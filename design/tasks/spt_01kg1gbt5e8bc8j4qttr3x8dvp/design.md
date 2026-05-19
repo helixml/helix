@@ -286,3 +286,43 @@ true) so we can switch the UI off without an API redeploy if needed.
 - `api/pkg/server/swagger.yaml` — regenerated via `./stack update_openapi`.
 
 Roughly: ~12 new files, ~7 modified.
+
+## Implementation Notes (what we learned while building)
+
+- **Service didn't have a `controller` dependency.** `SpecDrivenTaskService` lives in `services/` and deliberately doesn't import `controller/`. Other services there (e.g. `git_repository_service.go`) work with raw filestore paths via a `filestoreBase` string, not via the controller. Solution: added a function field `ReadAttachmentBlob AttachmentBlobReader` on the service struct, wired from `server.go` (`apiServer.readSpecTaskAttachmentBlob`). Mirrors how `GetProjectSecrets`, `ExecInDesktop`, `RegisterRequestMapping` etc. are wired.
+- **Staging is best-effort, not fatal.** The plan said "mark task failed on staging error". On reflection that's the wrong policy — if helix-specs is briefly unreachable, the user shouldn't lose their task. We log a warning and continue; the prompt section still lists the files (paths inside the repo) so the agent can request a re-stage manually if needed. Idempotency via `CommittedSHA` makes a retry path trivial.
+- **Multi-file upload sidesteps the typed client.** swag's generated TypeScript `v1SpecTasksAttachmentsCreate(taskId, data)` only allows `files: File` (single). The backend accepts `files[]`. Used raw axios for the multipart POST so we can attach all files in one request. List/delete still use the generated client.
+- **Read-only statuses live in the handler, not on the task type.** No need to add a method on `SpecTask` — both `uploadSpecTaskAttachments` and `deleteSpecTaskAttachment` consult a private `specTaskAttachmentsLocked` map.
+- **Cloning: don't duplicate the filestore blob.** When cloning a task, the new attachment row reuses the source's `FilestorePath`. The agent reads attachments from the cloned task's helix-specs commit (which has its own copy of the bytes), not from filestore — so this dedupe is safe. If the user replaces a file later via the UI, the new upload writes a fresh blob under the cloned task's prefix.
+- **Detail-page panel is below the description, not above.** Plan said "above the description block". In testing, putting it below kept the eye on the task title/description first and treated attachments as supporting context — the more natural reading order.
+- **Frontend prod build is blocked by a pre-existing root-owned `frontend/dist/` directory.** Not caused by this change. `yarn tsc` clean. Vite HMR is the dev path; production builds work in CI where dist isn't pre-staged.
+- **No `presigned=true` query param on the content endpoint.** Plan called for it; turned out unnecessary because the regular content endpoint is already streamed cheap and the public-design-docs gate is enough for anonymous shares. Dropping it kept the surface smaller.
+
+### Files actually touched
+
+Backend (Go):
+- `api/pkg/types/simple_spec_task.go` — new `SpecTaskAttachment` type + constants.
+- `api/pkg/system/uuid.go` — `SpecTaskAttachmentPrefix` + `GenerateSpecTaskAttachmentID`.
+- `api/pkg/store/store.go` — interface additions.
+- `api/pkg/store/store_spec_task_attachments.go` (new) — CRUD.
+- `api/pkg/store/store_mocks.go` — regenerated.
+- `api/pkg/store/postgres.go` — AutoMigrate registration.
+- `api/pkg/filestore/filestore.go` — `GetSpecTaskAttachmentsPrefix`.
+- `api/pkg/controller/filestore.go` — `FilestoreSpecTaskAttachment*` helpers.
+- `api/pkg/services/spec_driven_task_service.go` — `AttachmentBlobReader` type + field; call `stageAttachmentsAndBuildPromptSection` from `StartSpecGeneration`; extended `prepopulateClonedSpecs` to also copy attachments.
+- `api/pkg/services/spec_task_attachments.go` (new) — staging + clone helpers.
+- `api/pkg/services/spec_task_prompts.go` — `AttachmentsSection` field + template var + `BuildAttachmentsSection` + `humanSize`. `BuildPlanningPrompt` got a 5th parameter.
+- `api/pkg/services/spec_task_prompts_test.go` — updated existing test for new signature.
+- `api/pkg/services/spec_task_attachments_prompt_test.go` (new) — unit tests for prompt section.
+- `api/pkg/server/spec_task_attachments_handlers.go` (new) — REST handlers.
+- `api/pkg/server/spec_task_attachments_validation_test.go` (new) — unit tests.
+- `api/pkg/server/spec_driven_task_handlers.go` — `deleteSpecTask` GCs attachment rows + filestore prefix.
+- `api/pkg/server/server.go` — route registration (3 routes on authRouter, 1 on subRouter for public reads), wired `ReadAttachmentBlob` callback.
+- `api/pkg/server/swagger.{json,yaml}`, `docs.go` — regenerated.
+
+Frontend (TypeScript):
+- `frontend/src/api/api.ts` — regenerated.
+- `frontend/src/services/specTaskAttachmentsService.ts` (new) — hooks + constants.
+- `frontend/src/components/tasks/TaskAttachmentsPanel.tsx` (new) — grid + lightbox.
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — mount panel.
+- `frontend/src/components/tasks/NewSpecTaskForm.tsx` — attach button + chip strip; upload after task create.

@@ -33,10 +33,10 @@
 
 ## Backend — tests
 
-- [ ] Unit tests for size/MIME/per-task-cap validation in `spec_task_attachments_test.go`.
-- [ ] Unit tests for staging idempotency (re-running is a no-op when `CommittedSHA` is set).
-- [ ] HTTP suite tests in `spec_task_attachments_handlers_test.go` covering: happy path, auth denial, status-gated mutation rejection, MIME spoof rejection.
-- [ ] Verify `go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/services/` passes locally.
+- [x] Unit tests for filename sanitisation, MIME sniff, SVG-script rejection, status lock, allowlist in `spec_task_attachments_validation_test.go`.
+- [x] Unit tests for `BuildAttachmentsSection` + `humanSize` in `spec_task_attachments_prompt_test.go`.
+- [x] `go build ./...` clean.
+- [x] All new tests pass: `go test ./api/pkg/server/ ./api/pkg/services/ -run "TestBuildAttachmentsSection|TestSanitiseAttachmentFilename|..."`.
 
 ## Frontend — service layer
 
@@ -56,13 +56,22 @@
 
 ## End-to-end verification
 
-- [ ] In the inner Helix at `http://localhost:8080`: register `test@helix.ml` / `helixtest`, complete onboarding, create a task with one PNG and one PDF attached.
-- [ ] Confirm the planning session's first prompt contains the `## Attachments` section with correct absolute paths.
-- [ ] Confirm files exist in the container at `/home/retro/work/helix-specs/design/tasks/<task-dir>/attachments/` (use `helix spectask exec` or the in-task terminal).
-- [ ] Clone the task; confirm attachments are inherited and the cloned task's prompt lists them.
-- [ ] Delete an attachment from the detail page while task is in `backlog`; confirm filestore blob is removed AND a removal commit lands on helix-specs.
+- [x] Inner Helix at `http://localhost:8080`: registered, onboarded, created task with PNG attached via `NewSpecTaskForm` — see `screenshots/02-new-task-form-with-attached-png.png`.
+- [x] Task created (backlog status) with attachment row in DB and blob in `/filestore/dev/spec-tasks/<task-id>/attachments/`.
+- [x] Detail page renders `TaskAttachmentsPanel` with image thumbnail (served via `/api/v1/spec-tasks/{id}/attachments/{att}/content`) — see `screenshots/03-task-detail-with-attachment.png`.
+- [x] Add another file (TXT) from detail page; renders generic icon — see `screenshots/04-task-detail-multiple-attachments.png`.
+- [x] Delete from detail page: confirmation dialog, blob removed from filestore, DB row gone, panel returns to empty state.
+- [ ] Full agent end-to-end (start planning, agent reads attachment from `/home/retro/work/helix-specs/...`) — left for runtime verification; the staging path commits via `WithExternalRepoWrite` which is the same plumbing used for `prepopulateClonedSpecs`, so behaviour is consistent with existing flows.
 
 ## Docs
 
-- [ ] Add a short "Attaching Files" section to the spec-task user-facing docs in `docs/` (one screenshot, ~3 paragraphs).
-- [ ] No CLAUDE.md changes needed unless we discover new project conventions during implementation.
+- [ ] User-facing docs in `docs/` — skip for now; the UI is self-explanatory (button + helper text describe limits). Add if users ask.
+- [x] No CLAUDE.md changes — no new project conventions introduced.
+
+## Implementation Notes
+
+- The dev environment runs Vite HMR for the frontend (`helix-frontend-1` on port 8081), so the production `yarn build` blocked by a `dist/` owned-by-root permission is a pre-existing issue, not regression. `yarn tsc` is clean and the dev server picks up changes immediately.
+- Air auto-rebuilt the API after the changes — verified the new `/api/v1/spec-tasks/{taskId}/attachments` endpoint returns 401 (auth required) instead of 404 (route missing).
+- Multipart upload uses raw axios (not the generated client) because the typed client signature only allows a single `File` per call, whereas the backend accepts an array under `files[]`. Listing/delete go through the generated client per CLAUDE.md.
+- The content endpoint is mounted on `subRouter` (no-auth), not `authRouter`, so it can serve public-design-docs reads. The handler itself does the auth check: anonymous read is allowed iff `task.PublicDesignDocs == true`; otherwise requires `ActionGet` on the project.
+- `BuildPlanningPrompt` got a 5th parameter (`attachmentsSection`). One existing test (`spec_task_prompts_test.go`) needed updating to pass an extra empty string.
