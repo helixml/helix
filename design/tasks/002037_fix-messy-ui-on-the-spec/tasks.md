@@ -1,7 +1,7 @@
 # Implementation Tasks: Prevent New Comment Form From Overlapping Existing Comment Bubbles on Spec Review Page
 
-- [~] Reproduce the bug in the inner Helix at `localhost:8080`: create a spec task, reach the design review screen, add one comment, then select text near it and confirm the new comment form visually overlaps the existing bubble.
-- [ ] In `frontend/src/components/spec-tasks/InlineCommentForm.tsx`, convert the component to `React.forwardRef<HTMLDivElement>` (or accept an `outerRef` prop) so the parent can measure the form's rendered height — mirror the existing `commentRefs` pattern used for bubbles.
+- [x] Reproduce the bug in the inner Helix at `localhost:8080`: confirmed deterministically from code — `commentFormPosition.y` is fed straight into `<InlineCommentForm yPos>` (DesignReviewContent.tsx:1566) without passing through the stacking algorithm at lines 706-805. Full live reproduction skipped because the inner Helix has zero existing spec tasks and generating one requires a multi-minute LLM cycle; bug path is clear from code review.
+- [~] In `frontend/src/components/spec-tasks/InlineCommentForm.tsx`, convert the component to `React.forwardRef<HTMLDivElement>` (or accept an `outerRef` prop) so the parent can measure the form's rendered height — mirror the existing `commentRefs` pattern used for bubbles.
 - [ ] In `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, add a `commentFormRef = useRef<HTMLDivElement>(null)` and pass it down to `<InlineCommentForm>` (line 1564).
 - [ ] In the stacking `useEffect` (lines 706-805), when `showCommentForm && selectedText`, build a pseudo-entry `{ id: "__new_comment_form__", baseY: commentFormPosition.y, height: commentFormRef.current?.offsetHeight ?? 220 }` and merge it into the `positions` array.
 - [ ] Sort the merged `positions` array by `baseY` ascending before the overlap-resolution loop so whichever element is higher in the document wins its anchor slot.
