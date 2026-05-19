@@ -1,6 +1,5 @@
 import React, { FC } from "react";
 import {
-  Alert,
   Box,
   Button,
   Stack,
@@ -29,19 +28,47 @@ const ProjectAccessDenied: FC<ProjectAccessDeniedProps> = ({
         py: 6,
       }}
     >
-      <Stack spacing={2.5} sx={{ width: "100%", maxWidth: 560 }}>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <LockOutlinedIcon color="warning" />
+      <Stack
+        spacing={2.5}
+        alignItems="center"
+        sx={{ width: "100%", maxWidth: 520, textAlign: "center" }}
+      >
+        <Box
+          sx={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: "action.hover",
+            color: "text.secondary",
+          }}
+        >
+          <LockOutlinedIcon />
+        </Box>
+        <Stack spacing={1}>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             You don't have access to this project
           </Typography>
+          <Typography variant="body1" color="text.secondary">
+            This project is private. Ask someone with access to invite you, then
+            refresh this page.
+          </Typography>
         </Stack>
-        <Alert severity="warning">
-          Ask the project owner to add you to this project, or contact an
-          organization owner if you think this is a mistake.
-        </Alert>
         {projectId && (
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{
+              px: 1.5,
+              py: 0.75,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "background.paper",
+            }}
+          >
             Project ID:{" "}
             <Box component="span" sx={{ fontFamily: "monospace" }}>
               {projectId}
@@ -52,6 +79,7 @@ const ProjectAccessDenied: FC<ProjectAccessDeniedProps> = ({
           <Box>
             <Button
               variant="contained"
+              color="secondary"
               startIcon={<ArrowBackIcon />}
               onClick={onBackToProjects}
             >
