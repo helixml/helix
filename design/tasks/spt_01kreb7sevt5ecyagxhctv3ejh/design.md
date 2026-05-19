@@ -162,6 +162,22 @@ add a sibling comment for the two checkboxes so the next reader doesn't
 - **First-ever mount.** Returns `false` for both — same as today's
   defaults. No visible change for new users.
 
+## Implementation notes (discovered during work)
+
+- **Keyboard shortcut also toggles `justDoItMode`.** There's a `Ctrl/Cmd+J`
+  global shortcut in a `useEffect` around line 484 that does
+  `setJustDoItMode((prev) => !prev)`. It must also route through
+  `handleJustDoItChange` so keyboard-triggered toggles persist the same as
+  mouse clicks. Otherwise users hitting the shortcut would silently bypass
+  the localStorage write. Updated the effect to call
+  `handleJustDoItChange(!justDoItMode)` and added `justDoItMode` +
+  `handleJustDoItChange` to its dependency array.
+- **`yarn build` blocked by a sandbox `dist/` permission issue** unrelated
+  to this change (`EACCES: permission denied, mkdir '.../frontend/dist/external-libs'`).
+  The Vite transform of all 21104 modules completed successfully before
+  failing on the output write. `yarn tsc --noEmit` is the more meaningful
+  signal here — it passes clean.
+
 ## Testing
 
 - Manual: tick "Skip planning", create a task, observe the next form
