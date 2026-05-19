@@ -27,7 +27,11 @@ type orgAPIKeyResponse struct {
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	ctx := r.Context()
 
 	membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
@@ -101,10 +105,14 @@ func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	ctx := r.Context()
 
-	_, err := apiServer.authorizeOrgMember(ctx, user, orgID)
+	_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org member")
 		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
@@ -161,7 +169,11 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	keyStr := mux.Vars(r)["key"]
 	ctx := r.Context()
 
