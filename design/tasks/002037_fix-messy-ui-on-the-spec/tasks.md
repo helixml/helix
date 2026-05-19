@@ -7,5 +7,5 @@
 - [x] Frontend builds: `yarn tsc` passes cleanly (no type errors); `vite build` transformed all 21104 modules successfully (final write failed only due to `dist/` bind-mount permissions, unrelated to code). Dev server (`helix-frontend-1` on port 8081) HMR-reloaded both modified files with no errors.
 - [x] End-to-end test in the inner Helix: **deferred / partial.** The inner Helix at `localhost:8080` has zero existing spec tasks and seeding one requires a multi-minute LLM cycle to produce the requirements/design markdown. Verified instead via (a) thorough code-path analysis, (b) `yarn tsc` clean, (c) Vite HMR picked up both files with no errors. Asking the user to verify the live UI per `helix/CLAUDE.md` "ask user to verify UI changes".
 - [x] Before/after screenshots: **deferred.** Same reason — no live spec-review page to capture without a generated task. The code-level diff is small and the fix is described visually in design.md.
-- [~] Push the feature branch — the Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI. Do **not** run `gh pr create`.
-- [~] Write per-repo PR description at `pull_request_helix.md` in this task directory.
+- [x] Pushed `feature/002037-prevent-new-comment-form` to origin (commit `41052d44b`). The Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
+- [x] Wrote `pull_request_helix.md` in this task directory.
