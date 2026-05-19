@@ -17,6 +17,8 @@ import (
 	"github.com/helixml/helix-org/agent"
 	agenthelix "github.com/helixml/helix-org/agent/helix"
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/prompts"
+	"github.com/helixml/helix-org/server/chat"
 	"github.com/helixml/helix-org/bootstrap"
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/config"
@@ -173,6 +175,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
 	}
 
+	// Prompts registry — drives slash-command typeahead in the chat
+	// composer (/help, /role, /worker, …) and surfaces the same set as
+	// MCP prompts on each per-Worker MCP server. Without this the chat
+	// bridge sends `/help` as a literal user message to the LLM, which
+	// has no idea what it means; with it, expandSlashCommand replaces
+	// the token with the rendered prompt body before sending.
+	promptReg := prompts.NewRegistry()
+	if err := prompts.RegisterBuiltins(promptReg); err != nil {
+		return nil, fmt.Errorf("register helix-org prompts: %w", err)
+	}
+
 	// Chat backend: tries to build a HelixBridge against the
 	// surrounding Helix server. Returns (nil, nil) when required
 	// config keys are missing — chat then renders disabled until the
@@ -180,6 +193,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	chatBridge, err := buildEmbeddedChatBackend(context.Background(), configReg, st, logger)
 	if err != nil {
 		log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
+	}
+	if hb, ok := chatBridge.(*chat.HelixBridge); ok && hb != nil {
+		chatBridge = hb.WithPrompts(promptReg)
 	}
 
 	// Snapshot the registered specs for the settings page (the UI
@@ -238,7 +254,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// requireUser, but the fallback keeps tests honest).
 	uiMux := withHelixUserBearer(innerUIMux, helixStore)
 
-	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger)
+	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
 	log.Info().
 		Str("db", dbPath).
