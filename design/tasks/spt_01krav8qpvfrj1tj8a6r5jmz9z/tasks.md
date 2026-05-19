@@ -1,6 +1,6 @@
 # Implementation Tasks: Restore Kanban Board Scroll Position on Return Navigation
 
-- [ ] Create `frontend/src/components/tasks/kanbanScrollMemory.ts` exporting `getKanbanScrollState`, `saveKanbanHorizontalScroll`, `saveKanbanColumnScroll`, `clearKanbanScrollState` backed by a module-scoped `Map<string, { horizontal: number; columns: Record<string, number> }>` keyed by `projectId`.
+- [~] Create `frontend/src/components/tasks/kanbanScrollMemory.ts` exporting `getKanbanScrollState`, `saveKanbanHorizontalScroll`, `saveKanbanColumnScroll`, `clearKanbanScrollState` backed by a module-scoped `Map<string, { horizontal: number; columns: Record<string, number> }>` keyed by `projectId`.
 - [ ] In `SpecTaskKanbanBoard.tsx`, add a `useRef<HTMLDivElement>` for the outer column-strip `<Box>` (`SpecTaskKanbanBoard.tsx:1711-1735`) and attach it.
 - [ ] In `SpecTaskKanbanBoard.tsx`, add a `useRef<Map<string, HTMLDivElement>>` registry and a callback-ref factory `setColumnNode(columnId)` that writes the DOM node into the registry (and removes it on null).
 - [ ] In `DroppableColumn`, accept the parent's column-ref callback as a prop and compose it with the existing dnd-kit `setNodeRef` (call both refs in a single inline callback ref); apply the composed ref to the scrollable column body at `SpecTaskKanbanBoard.tsx:567-591`.
