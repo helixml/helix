@@ -9,4 +9,4 @@
 - [x] Run `cd frontend && yarn tsc --noEmit` and confirm it passes. (Full `yarn build` is blocked by a `dist/` bind-mount permission issue unrelated to this change; type-check is the meaningful signal.)
 - [x] Manually verify in the inner Helix browser (`http://localhost:8080`). All four scenarios pass: (1) toggling each checkbox writes immediately to `localStorage`; (2) closing/reopening the form restores the checked state; (3) creating a task does NOT reset the checkboxes — they survive submit; (4) reloading the page with corrupt JSON (`"not-json"`, `"{broken"`) falls back to `false` cleanly with no console errors. Also verified: Cmd/Ctrl+J keyboard shortcut persists. Screenshots saved in `screenshots/`.
 - [x] Write per-repo PR description (`pull_request_helix.md`).
-- [~] Commit with `feat(frontend): persist skip-planning and start-immediately toggles in new task form` and push the feature branch.
+- [x] Commit with `feat(frontend): persist Skip planning and Start immediately toggles` and push the feature branch `feature/002013-persist-skip-planning`.
