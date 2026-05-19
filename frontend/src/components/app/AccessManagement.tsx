@@ -31,6 +31,7 @@ import GroupsIcon from '@mui/icons-material/Groups'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
 import useAccount from '../../hooks/useAccount'
+import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationMembership, TypesRole } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
@@ -62,6 +63,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 }) => {
   // Get organization data from account context
   const account = useAccount();
+  const api = useApi();
   const orgTools = account.organizationTools;
   const organization = orgTools.organization;
   const router = useRouter();
