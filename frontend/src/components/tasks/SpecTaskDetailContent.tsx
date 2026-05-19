@@ -213,6 +213,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     name: "",
     description: "",
     priority: "",
+    userShortTitle: "",
     dependsOnTaskIds: [] as string[],
   });
 
@@ -496,6 +497,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         name: task.name || "",
         description: task.description || task.original_prompt || "",
         priority: task.priority || "medium",
+        userShortTitle: task.user_short_title || "",
         dependsOnTaskIds: currentTaskDependencies
           .map((dependencyTask) => dependencyTask.id || "")
           .filter((dependencyTaskId) => !!dependencyTaskId),
@@ -861,6 +863,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         name: task.name || "",
         description: task.description || task.original_prompt || "",
         priority: task.priority || "medium",
+        userShortTitle: task.user_short_title || "",
         dependsOnTaskIds: currentTaskDependencies
           .map((dependencyTask) => dependencyTask.id || "")
           .filter((dependencyTaskId) => !!dependencyTaskId),
@@ -881,6 +884,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           priority: editFormData.priority as TypesSpecTaskPriority,
           just_do_it_mode: justDoItMode,
           depends_on: editFormData.dependsOnTaskIds,
+          // user_short_title overrides the auto-generated short_title in the
+          // display chain (user_short_title || short_title || name). Send the
+          // trimmed value so blanking the field clears the override and lets
+          // the LLM-generated short_title take over again.
+          user_short_title: editFormData.userShortTitle.trim(),
         },
       });
       setIsEditMode(false);
@@ -1104,6 +1112,35 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Alert>
       )}
 
+      {/* Title (edit mode only — shows the user override, falls back to auto-generated short_title) */}
+      {isEditMode && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Title
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={editFormData.userShortTitle}
+            onChange={(e) =>
+              setEditFormData((prev) => ({
+                ...prev,
+                userShortTitle: e.target.value,
+              }))
+            }
+            placeholder={
+              task?.short_title || task?.name || "Snappy title shown on the card"
+            }
+            inputProps={{ maxLength: 100 }}
+            helperText={
+              editFormData.userShortTitle.trim() === "" && task?.short_title
+                ? `Leave blank to use the auto-generated title: "${task.short_title}"`
+                : "Shown on the Kanban card and tab strip. Max 100 chars."
+            }
+          />
+        </Box>
+      )}
+
       {/* Description */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -1122,7 +1159,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 description: e.target.value,
               }))
             }
-            autoFocus
             placeholder="Task description"
           />
         ) : (
