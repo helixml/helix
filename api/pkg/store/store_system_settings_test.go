@@ -40,7 +40,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		HuggingFaceToken:                     "old-token",
 		KoditEnrichmentProvider:              "old-kodit-provider",
 		KoditEnrichmentModel:                 "old-kodit-model",
-		MaxConcurrentDesktops:                1,
 		ProvidersManagementEnabled:           false,
 		EnforceQuotas:                        false,
 		SandboxBillingEnabled:                false,
@@ -65,7 +64,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		HuggingFaceToken:                     strPtr("new-token"),
 		KoditEnrichmentProvider:              strPtr("new-kodit-provider"),
 		KoditEnrichmentModel:                 strPtr("new-kodit-model"),
-		MaxConcurrentDesktops:                intPtr(25),
 		ProvidersManagementEnabled:           boolPtr(true),
 		EnforceQuotas:                        boolPtr(true),
 		SandboxBillingEnabled:                boolPtr(true),
@@ -92,7 +90,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	require.Equal(t, "new-token", updated.HuggingFaceToken)
 	require.Equal(t, "new-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "new-kodit-model", updated.KoditEnrichmentModel)
-	require.Equal(t, 25, updated.MaxConcurrentDesktops)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.True(t, updated.EnforceQuotas)
 	require.True(t, updated.SandboxBillingEnabled)
@@ -130,7 +127,6 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 		HuggingFaceToken:                     "seed-token",
 		KoditEnrichmentProvider:              "seed-kodit-provider",
 		KoditEnrichmentModel:                 "seed-kodit-model",
-		MaxConcurrentDesktops:                10,
 		ProvidersManagementEnabled:           true,
 		EnforceQuotas:                        false,
 		SandboxBillingEnabled:                true,
@@ -153,7 +149,6 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 
 	req := &types.SystemSettingsRequest{
 		HuggingFaceToken:            strPtr("updated-token"),
-		MaxConcurrentDesktops:       intPtr(33),
 		OptimusReasoningModel:       strPtr("updated-reasoning-model"),
 		OptimusSmallGenerationModel: strPtr("updated-small-generation-model"),
 	}
@@ -163,7 +158,6 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 	require.NotNil(t, updated)
 
 	require.Equal(t, "updated-token", updated.HuggingFaceToken)
-	require.Equal(t, 33, updated.MaxConcurrentDesktops)
 	require.Equal(t, "updated-reasoning-model", updated.OptimusReasoningModel)
 	require.Equal(t, "updated-small-generation-model", updated.OptimusSmallGenerationModel)
 
@@ -192,7 +186,6 @@ func TestUpdateSystemSettings_CreatesSystemRecordIfMissing(t *testing.T) {
 
 	req := &types.SystemSettingsRequest{
 		HuggingFaceToken:                     strPtr("created-token"),
-		MaxConcurrentDesktops:                intPtr(7),
 		EnforceQuotas:                        boolPtr(true),
 		SandboxBillingEnabled:                boolPtr(true),
 		SandboxHeadlessPriceCreditsPerSecond: floatPtr(0.04),
@@ -208,7 +201,6 @@ func TestUpdateSystemSettings_CreatesSystemRecordIfMissing(t *testing.T) {
 
 	require.Equal(t, types.SystemSettingsID, updated.ID)
 	require.Equal(t, "created-token", updated.HuggingFaceToken)
-	require.Equal(t, 7, updated.MaxConcurrentDesktops)
 	require.True(t, updated.EnforceQuotas)
 	require.True(t, updated.SandboxBillingEnabled)
 	require.Equal(t, 0.04, updated.SandboxHeadlessPriceCreditsPerSecond)

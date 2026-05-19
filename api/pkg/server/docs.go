@@ -28138,6 +28138,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_concurrent_desktops": {
+                    "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited.",
                     "type": "integer"
                 },
                 "max_desktop_sandboxes": {
@@ -29057,6 +29058,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
                 "max_concurrent_desktops": {
+                    "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
                 },
                 "organizations_create_enabled_for_non_admins": {
@@ -31392,9 +31394,6 @@ const docTemplate = `{
                 "max_concurrent_desktop_sandboxes": {
                     "type": "integer"
                 },
-                "max_concurrent_desktops": {
-                    "type": "integer"
-                },
                 "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
@@ -31494,10 +31493,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "max_concurrent_desktop_sandboxes": {
-                    "type": "integer"
-                },
-                "max_concurrent_desktops": {
-                    "description": "Per user",
                     "type": "integer"
                 },
                 "max_concurrent_headless_sandboxes": {

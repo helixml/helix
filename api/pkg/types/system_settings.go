@@ -34,8 +34,6 @@ type SystemSettings struct {
 
 	EnforceQuotas bool `json:"enforce_quotas,omitempty" gorm:"column:enforce_quotas"`
 
-	MaxConcurrentDesktops int `json:"max_concurrent_desktops,omitempty"` // Per user
-
 	ProvidersManagementEnabled bool `json:"providers_management_enabled,omitempty"`
 
 	SandboxBillingEnabled                bool    `json:"sandbox_billing_enabled,omitempty" gorm:"column:sandbox_billing_enabled"`
@@ -75,8 +73,6 @@ type SystemSettingsRequest struct {
 	// Kodit vision embedding model configuration
 	KoditVisionEmbeddingProvider *string `json:"kodit_vision_embedding_provider,omitempty"`
 	KoditVisionEmbeddingModel    *string `json:"kodit_vision_embedding_model,omitempty"`
-
-	MaxConcurrentDesktops *int `json:"max_concurrent_desktops"`
 
 	ProvidersManagementEnabled *bool `json:"providers_management_enabled"`
 
@@ -127,8 +123,6 @@ type SystemSettingsResponse struct {
 	KoditVisionEmbeddingProvider string `json:"kodit_vision_embedding_provider"`
 	KoditVisionEmbeddingModel    string `json:"kodit_vision_embedding_model"`
 	KoditVisionEmbeddingModelSet bool   `json:"kodit_vision_embedding_model_set"`
-
-	MaxConcurrentDesktops int `json:"max_concurrent_desktops"` // Per user
 
 	ProvidersManagementEnabled bool `json:"providers_management_enabled"`
 
@@ -187,7 +181,6 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 		KoditVisionEmbeddingProvider:         s.KoditVisionEmbeddingProvider,
 		KoditVisionEmbeddingModel:            s.KoditVisionEmbeddingModel,
 		KoditVisionEmbeddingModelSet:         s.KoditVisionEmbeddingProvider != "" && s.KoditVisionEmbeddingModel != "",
-		MaxConcurrentDesktops:                s.MaxConcurrentDesktops,
 		ProvidersManagementEnabled:           s.ProvidersManagementEnabled,
 		EnforceQuotas:                        s.EnforceQuotas,
 		SandboxBillingEnabled:                s.SandboxBillingEnabled,
