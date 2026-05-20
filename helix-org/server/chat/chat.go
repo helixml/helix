@@ -381,6 +381,12 @@ func (b *Bridge) newSession() {
 	}
 }
 
+// History returns nil for the claude bridge — the UI handler reads
+// the latest jsonl directly via chat.ReadHistory for this backend.
+// Implementing this here only to satisfy the Backend interface; the
+// caller checks for empty and falls back to the file reader.
+func (b *Bridge) History(_ context.Context) []string { return nil }
+
 // HistoryStartsFresh reports whether the chat page should render
 // nothing as initial history because the user clicked New chat and
 // no different jsonl has yet become the latest in the cwd. Returns

@@ -201,6 +201,69 @@ func (b *HelixBridge) Label() string {
 	return "helix · " + b.model
 }
 
+// History reconstructs the chat surface for a page refresh by reading
+// the current Helix session's Interactions and rendering each turn's
+// user bubble + assistant text as HTML fragments. Returns nil when
+// there is no current session (fresh process / freshly cleared) or
+// when the load fails — the UI handler treats nil as "no history",
+// same as for the claude bridge.
+//
+// Tool calls / multi-step ResponseEntries are intentionally rendered
+// as plain text only: the chat surface today shows just text bubbles,
+// and the live SSE path already emits tool fragments through
+// renderEvent. The page-refresh path doesn't need to reproduce the
+// tool ribbon — it just needs the user/assistant transcript so the
+// conversation isn't lost on navigation.
+func (b *HelixBridge) History(ctx context.Context) []string {
+	b.mu.Lock()
+	sid := b.sessionID
+	b.mu.Unlock()
+	// loadOnce: if the in-process pointer is empty, check whether a
+	// persisted session exists on disk and adopt it before declaring
+	// "no history". This is what makes refreshing /ui/ after a process
+	// restart show the prior conversation instead of an empty page.
+	if sid == "" {
+		b.loadOnce.Do(func() {
+			if b.loadSessionID == nil {
+				return
+			}
+			persisted, err := b.loadSessionID(ctx, b.ownerID)
+			if err != nil {
+				b.logger.Warn("chat helix: load persisted session id (history)", "worker", b.ownerID, "err", err)
+				return
+			}
+			if persisted != "" {
+				b.attachSession(persisted)
+				b.logger.Info("chat helix: recovered persisted session (history)", "worker", b.ownerID, "sid", persisted)
+			}
+		})
+		b.mu.Lock()
+		sid = b.sessionID
+		b.mu.Unlock()
+	}
+	if sid == "" {
+		return nil
+	}
+	session, err := b.client.GetSession(ctx, sid)
+	if err != nil {
+		b.logger.Warn("chat helix: fetch session for history", "sid", sid, "err", err)
+		return nil
+	}
+	out := make([]string, 0, len(session.Interactions)*2)
+	for _, ix := range session.Interactions {
+		if ix == nil {
+			continue
+		}
+		if ix.PromptMessage != "" {
+			out = append(out, renderUserBubble(ix.PromptMessage))
+		}
+		if ix.ResponseMessage != "" {
+			out = append(out, renderAssistantText(ix.ResponseMessage))
+		}
+	}
+	return out
+}
+
 // HistoryStartsFresh reports whether the chat page should suppress
 // rendered history because the user just clicked New and no Helix
 // session has been created for this fresh chat yet.
@@ -430,18 +493,20 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 			req.AgentType = agenthelix.AgentType
 			req.ExternalAgentConfig = &helixclient.ExternalAgentConfig{}
 		}
-		session, streamHadErr, err := b.client.StartChatWithStatus(ctx, req)
-		if err != nil || streamHadErr {
+		session, err := helixclient.SendToSession(ctx, b.client, req)
+		if err != nil {
 			// Followup failed for any reason — stale persisted pointer
 			// (api restart / sandbox eviction), Helix-side hiccup,
-			// whatever. The HTTP call may have returned 200 with the
-			// error reported on the SSE stream (streamHadErr) or
-			// returned a hard error. Either way: drop the pointer and
-			// fall through to the first-turn block, which spins up a
-			// fresh sandbox and saves the new ID. Worst case the user
-			// pays one cold-start; that beats blocking every
-			// subsequent send forever.
-			b.logger.Warn("chat helix followup failed, restarting session", "sid", sid, "stream_err", streamHadErr, "err", err)
+			// whatever. SendToSession folds the HTTP-error and
+			// SSE-stream-error cases together (the same single source
+			// of truth Spawner uses for worker activations), so the
+			// recovery is symmetric across owner-chat and worker
+			// resume. Drop the pointer and fall through to the
+			// first-turn block, which spins up a fresh sandbox and
+			// saves the new ID. Worst case the user pays one
+			// cold-start; that beats blocking every subsequent send
+			// forever.
+			b.logger.Warn("chat helix followup failed, restarting session", "sid", sid, "err", err)
 			b.mu.Lock()
 			if b.wsCancel != nil {
 				b.wsCancel()
@@ -700,13 +765,20 @@ func (b *HelixBridge) renderEvent(e helixclient.Event) string {
 	return ""
 }
 
-// NewHandler wipes the current session pointer at /ui/chat/new. The
-// next Send opens a fresh Helix session. SSE listeners stay
-// connected; the broadcaster keeps publishing once the new WS reader
-// starts.
+// NewHandler is the explicit "throw away this conversation" lever at
+// /ui/chat/new. It actively stops the current Helix external-agent
+// session (which kills the Zed sandbox so the operator's desktop
+// quota frees up), clears the in-process pointer, and zeroes the
+// persisted pointer so a process restart can't resurrect the
+// just-discarded session. The next Send opens a brand-new session
+// (and spawns a fresh sandbox).
+//
+// SSE listeners stay connected; the broadcaster keeps publishing once
+// the new WS reader starts on the next Send.
 func (b *HelixBridge) NewHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
+		oldSID := b.sessionID
 		if b.wsCancel != nil {
 			b.wsCancel()
 			b.wsCancel = nil
@@ -716,7 +788,39 @@ func (b *HelixBridge) NewHandler() http.Handler {
 		b.seen = make(map[string]struct{})
 		b.mu.Unlock()
 		b.wsWG.Wait()
-		b.logger.Info("chat helix session reset by user")
+		// Tear down on the server side. Fire-and-forget — the user has
+		// already moved on, so we don't block the redirect on Helix's
+		// stop call (which can take a few seconds while it cleans up
+		// the sandbox). Failures are logged but don't surface — the
+		// in-process pointer is already cleared, so a follow-up send
+		// will start fresh regardless.
+		if oldSID != "" {
+			bearer := helixclient.BearerFromContext(r.Context())
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if bearer != "" {
+					ctx = helixclient.WithBearerToken(ctx, bearer)
+				}
+				if err := b.client.StopExternalAgent(ctx, oldSID); err != nil {
+					b.logger.Warn("chat helix: stop external agent on new-chat", "sid", oldSID, "err", err)
+				} else {
+					b.logger.Info("chat helix: stopped external agent on new-chat", "sid", oldSID)
+				}
+			}()
+		}
+		// Clear the persisted pointer so a subsequent process restart
+		// doesn't recover the just-discarded session.
+		if b.saveSessionID != nil {
+			persistCtx, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
+			go func() {
+				defer cancelPersist()
+				if err := b.saveSessionID(persistCtx, b.ownerID, ""); err != nil {
+					b.logger.Warn("chat helix: clear persisted session on new-chat", "worker", b.ownerID, "err", err)
+				}
+			}()
+		}
+		b.logger.Info("chat helix session reset by user", "old_sid", oldSID)
 		w.Header().Set("HX-Redirect", "/ui/")
 		w.WriteHeader(http.StatusOK)
 	})

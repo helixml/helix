@@ -1,6 +1,9 @@
 package chat
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 // Backend is the surface the HTTP server wires to /ui/chat/* and the
 // UI handler reads. Two implementations live in this package today:
@@ -37,6 +40,13 @@ type Backend interface {
 	// "claude · sonnet 4.6". Rendered next to the Send button so the
 	// operator can tell at a glance which stack their chat is on.
 	Label() string
+	// History returns the rendered HTML fragments for the current
+	// session's prior turns, in display order. Used by the chat page
+	// to re-render the conversation on refresh / navigation back.
+	// Returns nil if no current session or the backend cannot
+	// reconstruct history (e.g. claude bridge falls back to its jsonl
+	// reader via the UI's separate ReadHistory path).
+	History(ctx context.Context) []string
 }
 
 // Compile-time assertions: both bridges satisfy Backend.

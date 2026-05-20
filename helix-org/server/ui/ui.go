@@ -130,7 +130,18 @@ func (u *uiHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 	// rendering it would make New chat look broken. Skip history in
 	// that window unless the request explicitly resumes a sid.
 	if sid != "" || u.deps.Bridge == nil || !u.deps.Bridge.HistoryStartsFresh() {
-		if frags := chat.ReadHistory(u.deps.ChatCWD, sid); len(frags) > 0 {
+		// Backends that own their own session store (HelixBridge)
+		// reconstruct history from there; the file-based jsonl reader
+		// is the fallback for the claude bridge. Bridges that have no
+		// backend history return nil so the file reader still runs.
+		var frags []string
+		if u.deps.Bridge != nil {
+			frags = u.deps.Bridge.History(r.Context())
+		}
+		if len(frags) == 0 {
+			frags = chat.ReadHistory(u.deps.ChatCWD, sid)
+		}
+		if len(frags) > 0 {
 			page.History = template.HTML(strings.Join(frags, "\n")) //nolint:gosec // fragments are produced by chat.renderFragments which html-escapes user content
 		}
 	}

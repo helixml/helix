@@ -278,7 +278,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.Worker
 	// If the session is gone (404 / not found) we fall through and
 	// open a fresh one.
 	if state.SessionID != "" {
-		_, _, err := c.Client.StartChatWithStatus(ctx, helixclient.StartChatRequest{
+		_, err := helixclient.SendToSession(ctx, c.Client, helixclient.StartChatRequest{
 			SessionID: state.SessionID,
 			ProjectID: state.ProjectID,
 			AppID:     state.AgentAppID,
@@ -289,6 +289,11 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.Worker
 		if err == nil {
 			return state.SessionID, nil
 		}
+		// Persisted session is unusable — log and fall through to open
+		// a fresh one. SendToSession surfaces both transport errors
+		// (api restart, network) and SSE-reported dispatch failures
+		// (external-agent state evicted), so this single check handles
+		// every "stale pointer" case identically to the bridge path.
 		if c.Logger != nil {
 			c.Logger.Info("spawner: persisted session unusable, opening fresh",
 				"worker", workerID, "stale_sid", state.SessionID, "err", err)

@@ -437,12 +437,16 @@ type Session struct {
 }
 
 // Interaction collects what an assistant produced in one turn.
+// PromptMessage carries the user input that opened the turn (Helix
+// stores it on the same row as the response). The chat UI uses both
+// fields to reconstruct history on refresh.
 type Interaction struct {
 	ID              string           `json:"id"`
 	GenerationID    int              `json:"generation_id"`
 	State           string           `json:"state"`
 	Status          string           `json:"status"`
 	Error           string           `json:"error"`
+	PromptMessage   string           `json:"prompt_message,omitempty"`
 	ResponseMessage string           `json:"response_message,omitempty"`
 	ToolCalls       []OpenAIToolCall `json:"tool_calls,omitempty"`
 	ResponseEntries json.RawMessage  `json:"response_entries,omitempty"`
@@ -950,6 +954,32 @@ func (c *realClient) GetFile(ctx context.Context, repoID, path, branch string) (
 }
 
 // ---- Chat session lifecycle ----
+
+// SendToSession posts `prompt` to an existing Helix session via the
+// /sessions/chat continuation path. Returns nil iff Helix accepted the
+// message AND no error chunk appeared on the SSE stream. Either
+// failure mode means the persisted session is dead on the server side
+// (in-memory external-agent state evicted after restart, session row
+// deleted, etc.) and the caller should treat the persisted SessionID
+// as stale and open a fresh one.
+//
+// This is the single source of truth for "is this persisted session
+// still usable?" — both the owner-chat bridge and the Spawner share
+// it so worker activations and chat followups behave identically when
+// the operator's api restarts overnight.
+func SendToSession(ctx context.Context, client Client, req StartChatRequest) (Session, error) {
+	if req.SessionID == "" {
+		return Session{}, errors.New("SendToSession: SessionID required")
+	}
+	session, streamHadErr, err := client.StartChatWithStatus(ctx, req)
+	if err != nil {
+		return Session{}, err
+	}
+	if streamHadErr {
+		return Session{}, errors.New("session no longer running on the server")
+	}
+	return session, nil
+}
 
 func (c *realClient) StartChat(ctx context.Context, req StartChatRequest) (Session, error) {
 	s, _, err := c.startChat(ctx, req)
