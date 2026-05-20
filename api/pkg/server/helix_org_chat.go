@@ -39,6 +39,11 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 		Description: "Code-agent runtime applied to every Worker's Helix project. Default `claude_code` uses the operator's Claude OAuth subscription with no provider/model required. Set to `zed_agent` (or another supported value) only if you have a different inference path configured.",
 	})
 	r.Register(config.Spec{
+		Key:         "worker.anthropic_api_key",
+		Type:        config.TypeString,
+		Description: "Anthropic API key for the `claude_code` runtime. Empty (default) = OAuth subscription mode (the operator's `claude login` credentials are used in the sandbox). Setting this flips Workers to API-key mode: credentials=api_key, and the key is injected into each Worker's sandbox as ANTHROPIC_API_KEY. Use this on deployments without a Claude subscription. SENSITIVE — value not redacted by `config get` yet (string specs don't support field-level secrets).",
+	})
+	r.Register(config.Spec{
 		Key:         "helix.url",
 		Type:        config.TypeString,
 		Default:     `"http://localhost:8080"`,

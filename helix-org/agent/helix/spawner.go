@@ -37,6 +37,8 @@ type SpawnerConfig struct {
 	Model    string
 	// Credentials forwards to ProjectApplier.Credentials. See there.
 	Credentials string
+	// AnthropicAPIKey forwards to ProjectApplier.AnthropicAPIKey.
+	AnthropicAPIKey string
 	// AgentMD is the org-wide agent.md policy text pushed to
 	// `.context/agent.md` on each per-Worker project's helix-specs
 	// branch. The spawner's activation prompt tells every Worker to
@@ -221,17 +223,18 @@ After meaningful work, persist state on helix-specs:
 // with the chat bridge — see project.go.
 func (c SpawnerConfig) ensureProject(ctx context.Context, workerID domain.WorkerID) error {
 	a := &ProjectApplier{
-		Client:        c.Client,
-		Store:         c.Store,
-		HelixOrgURL:   c.HelixOrgURL,
-		OrgID:         c.OrgID,
-		Runtime:       c.Runtime,
-		Provider:      c.Provider,
-		Model:         c.Model,
-		Credentials:   c.Credentials,
-		AgentMD:       c.AgentMD,
-		MCPAuthBearer: c.MCPAuthBearer,
-		Logger:        c.Logger,
+		Client:          c.Client,
+		Store:           c.Store,
+		HelixOrgURL:     c.HelixOrgURL,
+		OrgID:           c.OrgID,
+		Runtime:         c.Runtime,
+		Provider:        c.Provider,
+		Model:           c.Model,
+		Credentials:     c.Credentials,
+		AnthropicAPIKey: c.AnthropicAPIKey,
+		AgentMD:         c.AgentMD,
+		MCPAuthBearer:   c.MCPAuthBearer,
+		Logger:          c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, workerID)
 	return err

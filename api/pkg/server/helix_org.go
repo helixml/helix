@@ -302,19 +302,21 @@ func buildHelixOrgProjectApplier(
 		return nil, fmt.Errorf("read helix.url: %w", err)
 	}
 	runtime, _ := cfg.GetString(ctx, "worker.runtime")
+	anthropicAPIKey, _ := cfg.GetString(ctx, "worker.anthropic_api_key")
 	credentials := ""
-	if runtime == "claude_code" || runtime == "" {
+	if (runtime == "claude_code" || runtime == "") && anthropicAPIKey == "" {
 		credentials = "subscription"
 	}
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return &agenthelix.ProjectApplier{
-		Client:        client,
-		Store:         orgStore,
-		HelixOrgURL:   helixOrgURL,
-		Runtime:       runtime,
-		Credentials:   credentials,
-		MCPAuthBearer: apiKey,
-		Logger:        logger,
+		Client:          client,
+		Store:           orgStore,
+		HelixOrgURL:     helixOrgURL,
+		Runtime:         runtime,
+		Credentials:     credentials,
+		AnthropicAPIKey: anthropicAPIKey,
+		MCPAuthBearer:   apiKey,
+		Logger:          logger,
 	}, nil
 }
 
@@ -372,16 +374,18 @@ func buildHelixOrgSpawnerConfig(
 	}
 
 	runtime, _ := cfg.GetString(ctx, "worker.runtime")
+	anthropicAPIKey, _ := cfg.GetString(ctx, "worker.anthropic_api_key")
 	credentials := ""
-	if runtime == "claude_code" || runtime == "" {
+	if (runtime == "claude_code" || runtime == "") && anthropicAPIKey == "" {
 		credentials = "subscription"
 	}
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return agenthelix.SpawnerConfig{
-		Client:        client,
-		HelixOrgURL:   helixOrgURL,
-		Runtime:       runtime,
-		Credentials:   credentials,
+		Client:          client,
+		HelixOrgURL:     helixOrgURL,
+		Runtime:         runtime,
+		Credentials:     credentials,
+		AnthropicAPIKey: anthropicAPIKey,
 		MCPAuthBearer: apiKey,
 		Store:         orgStore,
 		Broadcaster:   bc,
