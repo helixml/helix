@@ -548,12 +548,18 @@ type SubscriptionQuotas struct {
 	Projects struct {
 		Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true" description:"Enable project quotas"`
 		Free    struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// without an active Stripe subscription. Enforced per organisation
+			// when the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
 			MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
 			MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
 			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
 		}
 		Pro struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// with an active Stripe subscription. Enforced per organisation when
+			// the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
 			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
 			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`

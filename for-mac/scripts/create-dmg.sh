@@ -333,6 +333,11 @@ if [ "$UPLOAD" = true ]; then
     export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 
+    # upload_file wraps `aws s3 cp` with bounded retries + exponential backoff.
+    # aws CLI's internal retries cover per-request blips inside a single
+    # multipart upload, but a TCP/DNS drop between part requests exits the cp
+    # non-zero — which used to fail the whole macOS release pipeline after the
+    # qcow2 was already built and compressed.
     upload_file() {
         local src="$1"
         local dest="$2"
@@ -341,9 +346,24 @@ if [ "$UPLOAD" = true ]; then
         local size
         size=$(du -h "$src" | awk '{print $1}')
         log "  Uploading ${filename} (${size}) -> s3://${R2_BUCKET}/${dest}"
-        aws s3 cp "$src" "s3://${R2_BUCKET}/${dest}" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --no-progress
+        local max_attempts=4
+        local attempt=1
+        local delay=15
+        while :; do
+            if aws s3 cp "$src" "s3://${R2_BUCKET}/${dest}" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --no-progress; then
+                return 0
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+                log "  Upload failed after $max_attempts attempts: $filename"
+                return 1
+            fi
+            log "  Upload attempt $attempt/$max_attempts failed; retrying in ${delay}s..."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+        done
     }
 
     # 1. Upload DMG

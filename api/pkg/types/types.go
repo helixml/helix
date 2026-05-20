@@ -1062,8 +1062,12 @@ type ServerConfigForFrontend struct {
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
-	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
-	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
+	// MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+	// organisation when the session has an org, per user otherwise.
+	// -1 = unlimited. Note: /config is unauthenticated, so this is the
+	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
+	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
+	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
