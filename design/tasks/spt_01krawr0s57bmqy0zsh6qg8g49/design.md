@@ -23,11 +23,37 @@ The mobile chat view (rendered when `currentView === "chat"` on viewports ≤ 89
 ### 2. RobustPromptInput component
 **File:** `frontend/src/components/common/RobustPromptInput.tsx`
 
-- Outer wrapper (line 1142): `<Box sx={{ position: 'relative' }}>` — no explicit `width: 100%`.
-- Input border container (line 1356): `<Box sx={{ display: 'flex', flexDirection: 'column', ..., p: 1 }}>`.
-- Textarea (line 1382): `width: '100%'`.
-- Buttons row (line 1424): `display: 'flex', alignItems: 'center', gap: 0.5, mt: 1` — does not declare `flexWrap`, so on narrow widths the action icons can push the row past the container's right edge.
-- Keyboard-hint cue row (lines 1624–1667): `display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap'`. Each hint is a `<Box display: flex, gap: 0.5>` containing a 12px icon + caption text. `flexWrap: 'wrap'` is set, which is correct, but the row still contributes to the parent flex's natural min-content width.
+Top-level structure (relevant ranges):
+
+```tsx
+// line 1142
+<Box className="prompt-input-container" data-prompt-input="true" sx={{ position: 'relative' }}>
+  {/* Queued messages display — sibling above the input, the "queue ... above it" the user reported */}
+  // lines 1147–1234
+  <Collapse in={showQueue && queuedMessages.length > 0}>
+    <Box sx={{ mb: 1.5, borderRadius: 1.5, border: '1px solid', ..., overflow: 'hidden' }}>
+      <Box>{/* header: icon + "Message queue (saved locally)" + count chip */}</Box>
+      <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+        {/* SortableQueueItem rows: drag handle + status icon + truncated text + edit/delete buttons */}
+      </Box>
+    </Box>
+  </Collapse>
+
+  ... attachment chips ...
+
+  {/* Bordered input container */}
+  // lines 1356–1622
+  <Box sx={{ display: 'flex', flexDirection: 'column', ..., p: 1 }}>
+    <Box component="textarea" sx={{ width: '100%', ... }} />
+    {/* Buttons row */}
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>...</Box>
+  </Box>
+
+  {/* Keyboard hint (below the input, not what this task is about) */}
+</Box>
+```
+
+`SortableQueueItem` (lines 228–254 and 348–389) already declares `minWidth: 0` on its content `Box` plus `overflow: hidden, textOverflow: ellipsis, whiteSpace: nowrap` on the preview `Typography`. There is an existing in-code comment at lines 359–363 referencing a prior bug where the queue item's actions box was pushed past the queue container's `overflow: hidden` clip on mobile — that fix was applied *inside* each row but did not address the queue container itself overflowing its parent.
 
 ### 3. Mobile search bar in kanban board
 **File:** `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx`
@@ -51,12 +77,15 @@ The desktop header above (lines 1479–1650) uses `display: { xs: "none", md: "f
 
 ## Root cause analysis
 
-### Issue 1 — overflow on mobile chat
+### Issue 1 — overflow on mobile chat (input box and queue above it)
 
 Two compounding causes:
 
-1. **Missing `min-width: 0` on the flex child wrapping `RobustPromptInput`.** In CSS flexbox, a flex item's default `min-width` is `auto`, which equals its content's min-content width. If the content (the prompt input + button row + cue row) has any element that does not shrink (e.g. a non-wrapping caption, a long icon row), the flex item refuses to shrink below it and the whole layout overflows the parent. Even though the parent has `overflow: hidden`, the child can still be wider than the parent — the overflow is just clipped, which exactly matches the user's report ("overflow … and also are not scrollable").
-2. **Buttons row inside `RobustPromptInput` (line 1424) does not set `flexWrap: 'wrap'`.** On narrow widths, the row of action icons (history, attach, camera, send, etc.) can push past the container width. The keyboard-hint row (line 1625) does set `flexWrap: 'wrap'`, but its `gap: 2` (16px) is still relatively wide for very small viewports.
+1. **Missing `min-width: 0` on the flex child wrapping `RobustPromptInput`.** In CSS flexbox, a flex item's default `min-width` is `auto`, which equals its content's min-content width. The `RobustPromptInput` outer `<Box>` (line 1142) does not declare `width: 100%` or `minWidth: 0`, so it measures at its content's natural min-content width. The two children that contribute to that natural min-width are:
+   - The **queue panel** (lines 1147–1234). The queue header is a `display: flex` row whose icon + text + chip don't shrink past their natural sizes; the queue-item rows have icons + buttons + ellipsised text. The header text "Message queue (saved locally)" or "Offline - saved locally, will send when connected" is fairly wide.
+   - The **bordered input container** (lines 1356–1622). The action-buttons row at line 1424 does not declare `flexWrap: 'wrap'`, so a long row of icon buttons (history, attach, camera, interrupt-mode, send, etc.) contributes a fixed min-content width too.
+   The wrapping `<Box sx={{ flex: 1 }}>` (line 2741) inherits the flexbox default `min-width: auto`, so it refuses to shrink below the inner content's min-width. The parent chat panel does set `overflow: hidden`, but that only *clips* the overflow — it doesn't make the content fit. That clip is exactly what the user is seeing: "slightly overflow … and also are not scrollable."
+2. **Buttons row inside `RobustPromptInput` (line 1424) does not set `flexWrap: 'wrap'`.** Even with the parent flex fix, very narrow viewports with many optional buttons can still push the buttons row's min-content width past the available space. Letting it wrap on narrow widths removes that contribution from the min-width calculation.
 
 ### Issue 2 — search bar padding
 
@@ -82,7 +111,7 @@ This is the canonical CSS-flexbox fix for "child overflows its flex parent". It 
 - The parent flex direction is `row`, the wrapper is the only sibling, so `minWidth: 0` lets it occupy `100%` of the parent and shrink with it.
 - Desktop layout (`isBigScreen`, lines 1938–1964) uses a different wrapper structure (`flex: 1` directly on the `RobustPromptInput`-containing Box inside a resizable panel) and is not affected by this change.
 
-### D2 — Make `RobustPromptInput`'s outer wrapper claim full width and contain its own overflow
+### D2 — Make `RobustPromptInput`'s outer wrapper claim full width and contain its own min-width
 
 Change line 1142 of `RobustPromptInput.tsx` from:
 
@@ -96,7 +125,7 @@ to:
 <Box className="prompt-input-container" data-prompt-input="true" sx={{ position: 'relative', width: '100%', minWidth: 0 }}>
 ```
 
-This guarantees the component fills its parent and never measures wider than its parent, regardless of the embedding context (chat panel, split view, anywhere else it's used).
+This guarantees the component fills its parent and never measures wider than its parent, regardless of the embedding context (chat panel, split view, anywhere else it's used). With this change the queue panel and the bordered input container inherit a constrained width and stop being able to push past the right edge.
 
 ### D3 — Allow the action-buttons row to wrap on narrow widths
 
@@ -112,28 +141,9 @@ to:
 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
 ```
 
-This protects against horizontal overflow when many optional buttons are present (history + attach + camera + interrupt-mode + send + others) on very narrow viewports. Visually unchanged on widths where the icons already fit on one row (which is the common case).
+This protects against the buttons row contributing a large fixed min-content width on very narrow viewports when many optional buttons are present (history + attach + camera + interrupt-mode + send + others). Visually unchanged on widths where the icons already fit on one row, which is the common case.
 
-### D4 — Tighten the keyboard-hint cue row gap on narrow viewports
-
-The keyboard-hint row at lines 1625–1634 currently uses `gap: 2` (16px). Change to a responsive value that uses a smaller gap on `xs`:
-
-```tsx
-sx={{
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: { xs: 1, sm: 2 },
-  rowGap: { xs: 0.5, sm: 1 },
-  mt: 0.75,
-  px: 0.5,
-  flexWrap: 'wrap',
-}}
-```
-
-Smaller `gap` on mobile reduces row width per chip and lets more hint chips share a row before wrapping; the explicit `rowGap` keeps wrapped rows visually tight.
-
-### D5 — Add top padding and increase horizontal padding to the mobile search bar
+### D4 — Add top padding and increase horizontal padding to the mobile search bar
 
 Change lines 1654–1661 of `SpecTaskKanbanBoard.tsx` from:
 
@@ -166,14 +176,15 @@ sx={{
 
 ## Alternatives considered
 
-- **Use `overflow-x: auto` on the chat input wrapper to make it scrollable** — rejected. The user explicitly said "fix it so that it actually fits within the width of the screen on mobile". Horizontal scrolling for an input field is a poor mobile UX; the right answer is to make the content fit.
-- **Hide the keyboard-hint cue row entirely on mobile** — considered. Mobile users typing on a touch keyboard rarely use Ctrl+Enter / Shift+Enter shortcuts. However, hiding content removes information; the simpler win is letting it wrap correctly. If after the layout fix the cue still feels visually noisy, a follow-up can hide it conditionally — out of scope for this task.
+- **Use `overflow-x: auto` on the chat input wrapper to make it scrollable** — rejected. The user explicitly said "fix it so that it actually fits within the width of the screen on mobile". Horizontal scrolling for an input field and its queue is a poor mobile UX; the right answer is to make the content fit.
+- **Hide the queue display entirely on mobile or change its header text to something shorter** — rejected. The queue is essential UX (drag-to-reorder, edit, delete pending messages, restart on crash) and hiding it on mobile would regress functionality. The fix is to constrain its width, not to hide content.
 - **Set `width: 100vw` somewhere in the chain** — rejected. `100vw` ignores parent paddings/scrollbars and is a frequent source of overflow bugs. The flexbox `min-width: 0` idiom is the correct fix.
 - **Use `useMediaQuery` to fork mobile vs. desktop sx for the search bar** — unnecessary; the existing `display: { xs: "flex", md: "none" }` block is already mobile-only, so changing `pt`/`px` directly inside it is enough.
 
 ## Notes for future agents
 
-- **Flexbox `min-width: 0` rule:** any time you have `display: flex` and a child whose content can be wider than the parent (long text, fixed-width chips, icon rows), the child must declare `minWidth: 0` (for row direction) or `minHeight: 0` (for column direction). This is the #1 cause of "my MUI component overflows on mobile" in this codebase. Search for `flex: 1` near `RobustPromptInput`, `EmbeddedSessionView`, and other large widgets to find candidates.
+- **Flexbox `min-width: 0` rule:** any time you have `display: flex` and a child whose content can be wider than the parent (long text, fixed-width chips, icon rows), the child must declare `minWidth: 0` (for row direction) or `minHeight: 0` (for column direction). This is the #1 cause of "my MUI component overflows on mobile" in this codebase. Look at `SortableQueueItem` (RobustPromptInput.tsx lines 293, 348, 364, 373) — it already follows this pattern internally, with an in-code comment explaining a past mobile bug fixed by adding `minWidth: 0`. The same fix needs to be applied one level up, on the wrapper around `RobustPromptInput` itself.
 - **Mobile vs. desktop layouts in `SpecTaskDetailContent.tsx`:** there are two parallel render paths — `isBigScreen` (lines ~1781+) and the mobile path (lines ~2664+). Layout fixes must be considered for both, but they are physically separate JSX trees, so changes to one do not automatically affect the other.
 - **Mobile detection in this file:** `isBigScreen` comes from `useIsBigScreen({ breakpoint: "md" })` (line 160), and the initial `currentView` uses `window.matchMedia("(max-width: 899.95px)")` (line 329). These are consistent — both use the MUI `md` breakpoint of 900px.
 - **`RobustPromptInput` is reused** in multiple places (chat panel, split view, possibly other session views). Any width-related change to its outer wrapper must be parent-agnostic — that's why D2 uses `width: 100%, minWidth: 0` rather than viewport units.
+- **Terminology check:** the user's bug report used the word "cue" for what is really the **queue** (queued-messages display) above the input. This component is rendered at `RobustPromptInput.tsx` lines 1147–1234. There is also a keyboard-shortcut *hint* row below the input (lines 1624–1667) — that is a different element, not in scope for this task.
