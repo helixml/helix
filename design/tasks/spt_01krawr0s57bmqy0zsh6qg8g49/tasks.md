@@ -1,6 +1,6 @@
 # Implementation Tasks: Fix Mobile Overflow on Spec Task Chat & Padding on Mobile Search Bar
 
-- [ ] Add `minWidth: 0` to the `<Box sx={{ flex: 1 }}>` wrapping `RobustPromptInput` in the mobile chat view at `frontend/src/components/tasks/SpecTaskDetailContent.tsx:2741`
+- [~] Add `minWidth: 0` to the `<Box sx={{ flex: 1 }}>` wrapping `RobustPromptInput` in the mobile chat view at `frontend/src/components/tasks/SpecTaskDetailContent.tsx:2741`
 - [ ] Add `width: '100%', minWidth: 0` to the outer `<Box>` of `RobustPromptInput` at `frontend/src/components/common/RobustPromptInput.tsx:1142–1146`
 - [ ] Add `flexWrap: 'wrap'` to the action-buttons row in `RobustPromptInput` at `frontend/src/components/common/RobustPromptInput.tsx:1424–1430`
 - [ ] Add `pt: 2` and change `px: 1` → `px: 2` on the mobile search bar container at `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx:1654–1661`
