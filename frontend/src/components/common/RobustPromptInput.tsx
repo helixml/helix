@@ -1142,7 +1142,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     <Box
       className="prompt-input-container"
       data-prompt-input="true"
-      sx={{ position: 'relative' }}
+      sx={{ position: 'relative', width: '100%', minWidth: 0 }}
     >
       {/* Queued messages display */}
       <Collapse in={showQueue && queuedMessages.length > 0}>
@@ -1427,6 +1427,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             alignItems: 'center',
             gap: 0.5,
             mt: 1,
+            flexWrap: 'wrap',
           }}
         >
           {/* History button */}
