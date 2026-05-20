@@ -16,10 +16,14 @@ import (
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrganizationRoles(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	// Check if user has access to view roles
-	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgMember(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org member")
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)

@@ -13,6 +13,14 @@ export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['proj
 export const projectGuidelinesHistoryQueryKey = (projectId: string) => ['project-guidelines-history', projectId];
 export const projectUsageQueryKey = (projectId: string) => ['project-usage', projectId];
 
+export const getHTTPStatus = (error: unknown): number | undefined => {
+  return (error as any)?.response?.status;
+};
+
+export const isProjectAccessDeniedError = (error: unknown): boolean => {
+  return getHTTPStatus(error) === 403;
+};
+
 /**
  * Hook to list all projects for the current user
  */
@@ -44,6 +52,7 @@ export const useGetProject = (projectId: string, enabled = true) => {
       return response.data;
     },
     enabled: enabled && !!projectId,
+    retry: (failureCount, error) => !isProjectAccessDeniedError(error) && failureCount < 3,
   });
 };
 

@@ -193,21 +193,19 @@ func (apiServer *HelixAPIServer) populateOrgProjectCounts(ctx context.Context, o
 // @Success 200 {object} types.Organization
 // @Router /api/v1/organizations/{id} [get]
 func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
 	reference := mux.Vars(r)["id"]
 
-	q := &store.GetOrganizationQuery{}
-
-	// If reference starts with org prefix, then query by ID, otherwise query by name
-	if strings.HasPrefix(reference, system.OrganizationPrefix) {
-		q.ID = reference
-	} else {
-		q.Name = reference
-	}
-
-	organization, err := apiServer.Store.GetOrganization(r.Context(), q)
+	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
 		log.Err(err).Msg("error getting organization")
 		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
+		log.Err(err).Msg("error authorizing org member")
+		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -368,19 +366,9 @@ func (apiServer *HelixAPIServer) seedOrganizationRoles(ctx context.Context, org 
 func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 
-	orgID := mux.Vars(r)["id"]
-
-	// Check if org exists
-	_, err := apiServer.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{
-		ID: orgID,
-	})
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, "Organization not found", http.StatusNotFound)
-			return
-		}
-		log.Err(err).Msg("error getting organization")
-		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Organization not found", http.StatusNotFound)
 		return
 	}
 
@@ -431,10 +419,14 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	updatedOrganization := &types.Organization{}
-	err := json.NewDecoder(r.Body).Decode(updatedOrganization)
+	err = json.NewDecoder(r.Body).Decode(updatedOrganization)
 	if err != nil {
 		log.Err(err).Msg("error decoding request body")
 		http.Error(rw, "Invalid request body", http.StatusBadRequest)
@@ -578,7 +570,11 @@ func (apiServer *HelixAPIServer) listOrganizationDomains(rw http.ResponseWriter,
 func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
-	orgID := vars["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), vars["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	if orgID == "" {
 		http.Error(rw, "Organization ID is required", http.StatusBadRequest)
