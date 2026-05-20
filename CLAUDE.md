@@ -27,6 +27,12 @@
 - Use `mv` to temp location instead of `rm` when uncertain
 
 ### Commits & Debugging
+- **Use conventional commit format**: `type(scope): description`
+  - Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `style`, `perf`, `ci`, `build`, `revert`
+  - Scope is optional but encouraged (e.g., `api`, `frontend`, `specs`, `zed`)
+  - Subject ≤ 72 chars, imperative mood, no trailing period
+  - Examples: `feat(api): add PR content reading from helix-specs`, `fix(frontend): handle empty task list`, `chore(specs): update progress`
+  - The `commit-msg` hook enforces this — non-conforming commits are rejected
 - Commit and push frequently, keep commits atomic, update design docs
 - No unsubstantiated claims about code severity/importance without evidence
 - Ask user to verify UI changes; when stuck, use `git bisect`
@@ -96,6 +102,15 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
+
+**Experimental desktop pulls.** The sandbox startup script
+(`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
+(`helix-ubuntu`) on every container start. Experimental desktops
+(`helix-sway`, `helix-zorin`, `helix-xfce`, `helix-kde`) are gated behind
+the `HELIX_EXPERIMENTAL_DESKTOPS` env var (space-separated, default
+empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
+to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
+Docker the first time someone launches a sway desktop session.
 
 ### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
 

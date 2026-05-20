@@ -175,3 +175,63 @@ func Test_GetClaudeSonnet4_CustomUserProvider(t *testing.T) {
 	assert.Equal(t, "Anthropic: Claude Sonnet 4", modelInfo.Name)
 	assert.Equal(t, "0.000015", modelInfo.Pricing.Completion)
 }
+
+// Test_NormalizeModelID locks in the id-normalization rules so the
+// fallback lookup keeps catching ids that share a normalized form.
+func Test_NormalizeModelID(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		// Plain Anthropic ids stay put.
+		{"claude-sonnet-4-6", "claude-sonnet-4-6"},
+		{"claude-opus-4-7", "claude-opus-4-7"},
+		// Bedrock region prefixes get stripped.
+		{"eu.anthropic.claude-sonnet-4-6", "claude-sonnet-4-6"},
+		{"us.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1-20250805"},
+		{"global.anthropic.claude-opus-4-6-v1", "claude-opus-4-6"},
+		{"apac.anthropic.claude-haiku-4-5-20251001-v1", "claude-haiku-4-5-20251001"},
+		// Bedrock version suffixes.
+		{"claude-opus-4-7-v1:0", "claude-opus-4-7"},
+		{"claude-opus-4-7-v1", "claude-opus-4-7"},
+		// Vertex @-date syntax becomes hyphenated.
+		{"claude-3-7-sonnet@20250219", "claude-3-7-sonnet-20250219"},
+		{"claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20250929"},
+		// Things we should NOT strip.
+		{"gpt-4o-mini", "gpt-4o-mini"},
+		{"o3", "o3"},
+		{"models/gemini-2.0-flash-001", "models/gemini-2.0-flash-001"},
+	}
+	for _, c := range cases {
+		got := normalizeModelID(c.in)
+		assert.Equal(t, c.want, got, "normalizeModelID(%q)", c.in)
+	}
+}
+
+// Test_GetSonnet46_BedrockKeyed confirms a plain "claude-sonnet-4-6"
+// request resolves through the normalized fallback when the JSON only
+// has the Bedrock-prefixed key for it.
+func Test_GetSonnet46_BedrockKeyed(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	mi, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		Model:    "claude-sonnet-4-6",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, mi.Pricing.Completion, "sonnet 4-6 must resolve to a priced entry")
+}
+
+// Test_GetOpus47_NewModel confirms claude-opus-4-7 (which only appears
+// under both plain and Vertex-regional keys in fresh dumps) resolves.
+func Test_GetOpus47_NewModel(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	mi, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		Model:    "claude-opus-4-7",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, mi.Pricing.Completion)
+}

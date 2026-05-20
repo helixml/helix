@@ -284,6 +284,30 @@ export function useApproveSpecTask() {
   });
 }
 
+export function useArchiveSpecTask() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      archived,
+    }: {
+      taskId: string;
+      archived: boolean;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksArchivePartialUpdate(taskId, { archived });
+      return response.data;
+    },
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+    },
+  });
+}
+
 export function useSendZedEvent() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -538,6 +562,7 @@ const specTaskService = {
   // Mutation functions
   useUpdateSpecTask,
   useApproveSpecTask,
+  useArchiveSpecTask,
   useSendZedEvent,
   useCloneTask,
   useDeleteSpecTask,

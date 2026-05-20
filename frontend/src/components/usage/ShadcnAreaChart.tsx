@@ -158,7 +158,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
       <Box sx={{ height: chartHeight, width: '100%' }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
               <defs>
                 {series.map(s => (
                   <linearGradient
@@ -192,8 +192,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               <YAxis
                 tickLine={false}
                 axisLine={false}
-                tickMargin={8}
-                width={48}
+                tickMargin={10}
+                width={72}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
               />

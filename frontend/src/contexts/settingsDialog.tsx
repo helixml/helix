@@ -6,6 +6,7 @@ export type SettingsDialogName = 'admin' | 'connected-services' | 'account' | 'p
 export interface SettingsDialogOptions {
   tab?: string
   projectId?: string
+  sessionFilter?: string
 }
 
 interface SettingsDialogContextType {
@@ -18,6 +19,7 @@ interface SettingsDialogContextType {
 const DIALOG_PARAM = 'dialog'
 const DIALOG_TAB_PARAM = 'dialog_tab'
 const DIALOG_PROJECT_ID_PARAM = 'dialog_project_id'
+const DIALOG_SESSION_FILTER_PARAM = 'dialog_session_filter'
 
 const VALID_DIALOGS: SettingsDialogName[] = ['admin', 'connected-services', 'account', 'project-settings']
 
@@ -26,8 +28,9 @@ function getDialogFromURL(): { name: SettingsDialogName | null; options: Setting
   const name = params.get(DIALOG_PARAM) as SettingsDialogName | null
   const tab = params.get(DIALOG_TAB_PARAM) || undefined
   const projectId = params.get(DIALOG_PROJECT_ID_PARAM) || undefined
+  const sessionFilter = params.get(DIALOG_SESSION_FILTER_PARAM) || undefined
   if (name && VALID_DIALOGS.includes(name)) {
-    return { name, options: { tab, projectId } }
+    return { name, options: { tab, projectId, sessionFilter } }
   }
   return { name: null, options: {} }
 }
@@ -46,10 +49,16 @@ function setDialogInURL(name: SettingsDialogName | null, options: SettingsDialog
     } else {
       url.searchParams.delete(DIALOG_PROJECT_ID_PARAM)
     }
+    if (options.sessionFilter) {
+      url.searchParams.set(DIALOG_SESSION_FILTER_PARAM, options.sessionFilter)
+    } else {
+      url.searchParams.delete(DIALOG_SESSION_FILTER_PARAM)
+    }
   } else {
     url.searchParams.delete(DIALOG_PARAM)
     url.searchParams.delete(DIALOG_TAB_PARAM)
     url.searchParams.delete(DIALOG_PROJECT_ID_PARAM)
+    url.searchParams.delete(DIALOG_SESSION_FILTER_PARAM)
   }
   window.history.replaceState({}, '', url.toString())
 }

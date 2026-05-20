@@ -249,7 +249,9 @@ export default function Onboarding() {
     createdOrg?.id,
     !!createdOrg?.id && !isLoadingServerConfig && serverConfig?.billing_enabled,
   );
-  const isSubscriptionActive = wallet?.subscription_status === "active";
+  const isTrialing = wallet?.subscription_status === "trialing";
+  const isSubscriptionActive =
+    wallet?.subscription_status === "active" || isTrialing;
 
   // Step 3: Project + Agent
   const [projectName, setProjectName] = useState("");
@@ -1297,9 +1299,11 @@ export default function Onboarding() {
                     mb: 1.5,
                   }}
                 >
-                  Subscribe to activate your organization and unlock product
-                  features. The monthly fee is converted to credits and added to
-                  your balance.
+                  {isTrialing
+                    ? "Your free trial is active. No payment method required - you have full access for the duration of the trial. Click Continue to proceed."
+                    : isSubscriptionActive
+                      ? "Your subscription is active. Click Continue to proceed."
+                      : "Subscribe to activate your organization and unlock product features. The monthly fee is converted to credits and added to your balance."}
                 </Typography>
                 {wallet && (
                   <Box sx={{ mb: 2 }}>
@@ -2395,7 +2399,17 @@ export default function Onboarding() {
             const stepSubtitle =
               step.type === "organization" && createdOrg
                 ? `Selected organization: ${createdOrg.display_name || createdOrg.name}`
-                : step.subtitle;
+                : step.type === "subscription" && isSubscriptionActive
+                  ? isTrialing
+                    ? "Free trial is active - no payment method required."
+                    : "Subscription is active."
+                  : step.subtitle;
+            const stepTitle =
+              step.type === "subscription" && isSubscriptionActive
+                ? isTrialing
+                  ? "Trial active"
+                  : "Subscription active"
+                : step.title;
 
             return (
               <Fade in timeout={600 + index * 150} key={index}>
@@ -2432,7 +2446,7 @@ export default function Onboarding() {
                           fontSize: "0.88rem",
                         }}
                       >
-                        {step.title}
+                        {stepTitle}
                       </Typography>
                       <Typography
                         sx={{

@@ -97,7 +97,7 @@ func (apiServer *HelixAPIServer) listProjectAccessGrants(rw http.ResponseWriter,
 // @Summary Grant access to a project to a team or organization member
 // @Description Grant access to a project to a team or organization member (project owners and org owners can grant access)
 // @Tags    projects
-// @Success 200 {object} types.AccessGrant
+// @Success 200 {object} types.CreateAccessGrantResponse
 // @Param request body types.CreateAccessGrantRequest true "Request body with team or organization member ID and roles"
 // @Router /api/v1/projects/{id}/access-grants [post]
 // @Security BearerAuth
@@ -153,6 +153,7 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 	}
 
 	var userID string
+	var addedToOrganization bool
 
 	// If user reference is set, find the user based on either email or user ID
 	if req.UserReference != "" {
@@ -167,11 +168,58 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 		// Find user
 		targetUser, err := apiServer.Store.GetUser(r.Context(), query)
 		if err != nil {
-			writeErrResponse(rw, fmt.Errorf("error getting user '%s': %w", req.UserReference, err), http.StatusInternalServerError)
+			if errors.Is(err, store.ErrNotFound) {
+				writeErrResponse(rw, fmt.Errorf("could not add '%s' to the project or organisation: no user with that email exists. Ask them to register an account first, then try again", req.UserReference), http.StatusNotFound)
+				return
+			}
+			writeErrResponse(rw, fmt.Errorf("error looking up user '%s': %w", req.UserReference, err), http.StatusInternalServerError)
 			return
 		}
 
 		userID = targetUser.ID
+
+		// Check if the target user is already an org member
+		memberships, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+			OrganizationID: project.OrganizationID,
+			UserID:         userID,
+		})
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("error checking org membership: %w", err), http.StatusInternalServerError)
+			return
+		}
+
+		if len(memberships) == 0 {
+			// User is not an org member — auto-add them if the acting user is an org owner
+			_, err := apiServer.authorizeOrgOwner(r.Context(), user, project.OrganizationID)
+			if err != nil {
+				writeErrResponse(rw, fmt.Errorf("user '%s' is not an organisation member; only org owners can auto-add users to the organisation", req.UserReference), http.StatusForbidden)
+				return
+			}
+
+			_, err = apiServer.Store.CreateOrganizationMembership(r.Context(), &types.OrganizationMembership{
+				OrganizationID: project.OrganizationID,
+				UserID:         userID,
+				Role:           types.OrganizationRoleMember,
+			})
+			if err != nil {
+				// Handle the race where a concurrent grant request added the
+				// same user between our earlier membership check and this
+				// create. If they are a member now, treat as success.
+				existing, checkErr := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+					OrganizationID: project.OrganizationID,
+					UserID:         userID,
+				})
+				if checkErr != nil || len(existing) == 0 {
+					writeErrResponse(rw, fmt.Errorf("error adding user to organisation: %w", err), http.StatusInternalServerError)
+					return
+				}
+				log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("user added to organisation by a concurrent request; proceeding with grant")
+			} else {
+				log.Info().Str("user_id", userID).Str("org_id", project.OrganizationID).Msg("auto-added user to organisation when granting project access")
+			}
+
+			addedToOrganization = true
+		}
 	}
 
 	// If team ID is set, check if it exists in the organization
@@ -202,7 +250,10 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 		return
 	}
 
-	writeResponse(rw, grant, http.StatusOK)
+	writeResponse(rw, &types.CreateAccessGrantResponse{
+		AccessGrant:         *grant,
+		AddedToOrganization: addedToOrganization,
+	}, http.StatusOK)
 }
 
 func (apiServer *HelixAPIServer) deleteProjectAccessGrant(rw http.ResponseWriter, r *http.Request) {

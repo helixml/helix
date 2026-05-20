@@ -3,7 +3,7 @@
 # Debian is required for CGo (hugot tokenizers link against glibc)
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
-FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS api-base
+FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS api-base
 WORKDIR /app
 # Install build dependencies for CGo (hugot/tokenizers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,11 +20,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Uses kodit's download-model tool (Go binary that embeds the Python conversion script).
 FROM api-base AS embedding-model
 COPY --from=ghcr.io/astral-sh/uv:debian-slim /usr/local/bin/uv /usr/local/bin/uv
+# Cache the uv wheel downloads (~2GB of torch/transformers/cuda-* wheels) and
+# the HuggingFace model snapshot so re-running these stages on the same builder
+# doesn't re-download from PyPI / HF Hub each time.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/huggingface \
     go run github.com/helixml/kodit/cmd/download-model /build/models/flax-sentence-embeddings_st-codesearch-distilroberta-base
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/huggingface \
     go run github.com/helixml/kodit/cmd/download-siglip2 /build/models/google_siglip2-base-patch16-512
 
 ### Tokenizers library ###
@@ -115,7 +122,7 @@ RUN yarn build
 #-----------------------
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Debian version.
-FROM debian:bookworm-slim@sha256:4724b8cc51e33e398f0e2e15e18d5ec2851ff0c2280647e1310bc1642182655d
+FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git git-daemon-sysvinit \
     && rm -rf /var/lib/apt/lists/*

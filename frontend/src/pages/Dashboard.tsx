@@ -58,9 +58,10 @@ const START_ACTIVE = true;
 
 interface DashboardProps {
     tab?: string
+    initialSessionFilter?: string
 }
 
-const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
+const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter }) => {
     const account = useAccount();
     const api = useApi();
 
@@ -121,6 +122,10 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
     const clearFilter = () => {
         setSessionFilter("");
     };
+
+    useEffect(() => {
+        setSessionFilter(initialSessionFilter || "");
+    }, [initialSessionFilter]);
 
     if (!account.user) return null;
     if (isLoadingDashboardData) return null;

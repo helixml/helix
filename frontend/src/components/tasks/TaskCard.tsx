@@ -90,6 +90,15 @@ const spin = keyframes`
   }
 `;
 
+const pulseDot = keyframes`
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+`;
+
 
 type SpecTaskPhase =
   | "backlog"
@@ -631,6 +640,7 @@ function TaskCardInner({
 
   const { acknowledge } = useAttentionEvents();
   const hasUnreadNotification = attentionEvents.length > 0;
+  const isAgentWorking = task.agent_work_state === "working";
 
   const runningDuration = useRunningDuration(
     task.started_at,
@@ -753,7 +763,25 @@ function TaskCardInner({
         },
       }}
     >
-      {hasUnreadNotification && (
+      {isAgentWorking ? (
+        <Tooltip title="Agent is running">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "success.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+              animation: `${pulseDot} 1.5s ease-in-out infinite`,
+            }}
+          />
+        </Tooltip>
+      ) : hasUnreadNotification ? (
         <Tooltip title="Agent finished - click to dismiss">
           <Box
             sx={{
@@ -770,7 +798,7 @@ function TaskCardInner({
             }}
           />
         </Tooltip>
-      )}
+      ) : null}
       <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box
@@ -1144,12 +1172,17 @@ function TaskCardInner({
           </Box>
         )}
 
-        {/* Live screenshot for active sessions - click opens desktop viewer */}
-        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {/* Live screenshot for active sessions - click opens desktop viewer.
+            Only render when the sandbox is actually live ("running"/"starting").
+            Polling absent sandboxes burns API requests and dumps a fleet of
+            503s in the logs every time the page loads, since each card spins
+            up its own poll loop until it hits one. */}
         {task.planning_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
-          !taskError && (
+          !taskError &&
+          (task.sandbox_state === "running" ||
+            task.sandbox_state === "starting") && (
             <LiveAgentScreenshot
               sessionId={task.planning_session_id}
               projectId={projectId}

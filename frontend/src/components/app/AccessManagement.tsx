@@ -19,6 +19,10 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Radio from '@mui/material/Radio'
 import FormLabel from '@mui/material/FormLabel'
 import Link from '@mui/material/Link'
+import Autocomplete from '@mui/material/Autocomplete'
+import TextField from '@mui/material/TextField'
+import Alert from '@mui/material/Alert'
+import Snackbar from '@mui/material/Snackbar'
 // Import icons
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -28,7 +32,7 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
-import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesRole } from '../../api/api'
+import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesRole } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
 import useTheme from '@mui/material/styles/useTheme'
@@ -40,7 +44,7 @@ interface AccessManagementProps {
   isReadOnly: boolean;
   currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
   projectOwnerId?: string;
-  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
+  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
 
@@ -67,8 +71,10 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const [openUserDialog, setOpenUserDialog] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [userInputValue, setUserInputValue] = useState('');
   const [selectedRole, setSelectedRole] = useState('app_user'); // Default role
   const [deleteGrantId, setDeleteGrantId] = useState<string | null>(null);
+  const [orgAddSnackbar, setOrgAddSnackbar] = useState<string | null>(null);
 
   // Extract roles from the organization
   const availableRoles = useMemo(() => {
@@ -93,18 +99,25 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const ownerDisplayEmail = currentUser?.email || '-';
   const hasOwnerRow = !!currentUser?.id;
 
-  // Get organization members 
+  // Get organization members, excluding self and users who already have grants
+  const existingGrantUserIds = useMemo(() => {
+    return new Set(accessGrants.map(g => g.user_id).filter(Boolean));
+  }, [accessGrants]);
+
   const members = useMemo(() => {
     if (!organization?.memberships) return [];
-    return organization.memberships.map(membership => {
-      const user = (membership.user || {}) as any
-      return {
-        id: membership.user_id,
-        name: user.full_name || 'Unknown',
-        email: user.email || 'No email'
-      }
-    })
-  }, [organization]);
+    return organization.memberships
+      .filter(membership => membership.user_id !== currentUser?.id)
+      .filter(membership => !existingGrantUserIds.has(membership.user_id))
+      .map(membership => {
+        const user = (membership.user || {}) as any
+        return {
+          id: membership.user_id,
+          name: user.full_name || 'Unknown',
+          email: user.email || 'No email'
+        }
+      })
+  }, [organization, currentUser?.id, existingGrantUserIds]);
 
   // Filter teams that don't already have access grants
   const availableTeams = useMemo(() => {
@@ -125,6 +138,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const handleCloseUserDialog = () => {
     setOpenUserDialog(false);
     setSelectedUserId('');
+    setUserInputValue('');
     setSelectedRole('app_user');
   };
 
@@ -141,20 +155,38 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     handleCloseTeamDialog();
   };
 
+  // Determine if the typed input is an email not matching any org member
+  const isTypedEmail = useMemo(() => {
+    if (!userInputValue || selectedUserId) return false;
+    const isEmail = userInputValue.includes('@');
+    const matchesMember = members.some(m => m.email === userInputValue);
+    return isEmail && !matchesMember;
+  }, [userInputValue, selectedUserId, members]);
+
   // Handle create user grant
   const handleCreateUserGrant = async () => {
-    if (!selectedUserId) return;
+    let userReference = '';
 
-    // Find the user's email from the members list
-    const user = members.find(m => m.id === selectedUserId);
-    if (!user) return;
-    
+    if (selectedUserId) {
+      const user = members.find(m => m.id === selectedUserId);
+      if (!user) return;
+      userReference = user.email;
+    } else if (isTypedEmail) {
+      userReference = userInputValue;
+    } else {
+      return;
+    }
+
     const request: TypesCreateAccessGrantRequest = {
       roles: [selectedRole],
-      user_reference: user.email
+      user_reference: userReference
     };
 
-    await onCreateGrant(request);
+    const result = await onCreateGrant(request);
+    if (result?.added_to_organization) {
+      const name = result.user?.full_name || userReference;
+      setOrgAddSnackbar(`${name} was also added to the organisation.`);
+    }
     handleCloseUserDialog();
   };
 
@@ -677,25 +709,48 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       <Dialog open={openUserDialog} onClose={handleCloseUserDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Add User</DialogTitle>
         <DialogContent>
-          <FormControl fullWidth sx={{ mb: 3, mt: 2 }}>
-            <InputLabel id="user-select-label">User</InputLabel>
-            <Select
-              labelId="user-select-label"
-              value={selectedUserId}
-              label="User"
-              onChange={(e) => setSelectedUserId(e.target.value)}
-            >
-              <MenuItem value="">
-                <em>Select a user</em>
-              </MenuItem>
-              {members.map((user) => (
-                <MenuItem key={user.id} value={user.id}>
-                  {user.name} ({user.email})
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          
+          <Autocomplete
+            freeSolo
+            options={members}
+            getOptionLabel={(option) => {
+              if (typeof option === 'string') return option;
+              return `${option.name} (${option.email})`;
+            }}
+            value={members.find(m => m.id === selectedUserId) || null}
+            inputValue={userInputValue}
+            onInputChange={(_e, newValue) => {
+              setUserInputValue(newValue);
+              const matchedMember = members.find(m =>
+                `${m.name} (${m.email})` === newValue
+              );
+              if (!matchedMember) {
+                setSelectedUserId('');
+              }
+            }}
+            onChange={(_e, newValue) => {
+              if (typeof newValue === 'string') {
+                setSelectedUserId('');
+                setUserInputValue(newValue);
+              } else if (newValue) {
+                setSelectedUserId(newValue.id || '');
+                setUserInputValue(`${newValue.name} (${newValue.email})`);
+              } else {
+                setSelectedUserId('');
+                setUserInputValue('');
+              }
+            }}
+            renderInput={(params) => (
+              <TextField {...params} label="User" placeholder="Select a user or type an email" />
+            )}
+            sx={{ mb: 2, mt: 2 }}
+          />
+
+          {isTypedEmail && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              This user is not in your organisation. Adding them to this project will also add them to the organisation as a member.
+            </Alert>
+          )}
+
           <FormControl component="fieldset" fullWidth>
             <FormLabel component="legend">Role</FormLabel>
             <RadioGroup
@@ -703,10 +758,10 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               onChange={(e) => setSelectedRole(e.target.value)}
             >
               {availableRoles.map((role) => (
-                <FormControlLabel 
-                  key={role.id} 
+                <FormControlLabel
+                  key={role.id}
                   value={role.name}
-                  control={<Radio />} 
+                  control={<Radio />}
                   label={
                     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>
@@ -721,9 +776,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 />
               ))}
               {availableRoles.length === 0 && (
-                <FormControlLabel 
+                <FormControlLabel
                   value="app_user"
-                  control={<Radio />} 
+                  control={<Radio />}
                   label={
                     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>User</Typography>
@@ -738,27 +793,16 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             </RadioGroup>
           </FormControl>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Can't see the user? Invite them to your{' '}
-            <Link
-              href={`/orgs/${organization?.name}/people`}
-              onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                e.preventDefault()
-                e.stopPropagation()
-                router.navigate('org_people', { org_id: organization?.name })
-              }}
-            >
-              org
-            </Link>
-            .
+            You can also type an email address to add someone who isn't in your organisation yet.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseUserDialog}>Cancel</Button>
-          <Button 
-            onClick={handleCreateUserGrant} 
-            variant="contained" 
+          <Button
+            onClick={handleCreateUserGrant}
+            variant="contained"
             color="primary"
-            disabled={!selectedUserId || !selectedRole}
+            disabled={(!selectedUserId && !isTypedEmail) || !selectedRole}
           >
             Add
           </Button>
@@ -773,6 +817,18 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
           onCancel={handleCancelDelete}
         />
       )}
+
+      {/* Snackbar for auto-add to org notification */}
+      <Snackbar
+        open={!!orgAddSnackbar}
+        autoHideDuration={6000}
+        onClose={() => setOrgAddSnackbar(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setOrgAddSnackbar(null)} severity="info" sx={{ width: '100%' }}>
+          {orgAddSnackbar}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -248,6 +248,9 @@ services:
       - ZED_IMAGE=helix-sway:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
@@ -341,6 +344,9 @@ services:
       - ZED_IMAGE=helix-sway:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
@@ -432,6 +438,9 @@ services:
       - ZED_IMAGE=helix-sway:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
@@ -517,6 +526,9 @@ services:
       - ZED_IMAGE=helix-ubuntu:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path — ZFS-backed storage for per-session inner dockerd

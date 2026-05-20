@@ -104,14 +104,25 @@ export default function ReviewActionFooter({
               Next Document
             </Button>
           ) : (
-            <Button
-              variant="contained"
-              color="success"
-              onClick={onApprove}
-              disabled={unresolvedCount > 0 || !allTabsViewed}
+            <Tooltip
+              title={
+                unresolvedCount > 0
+                  ? `Resolve ${unresolvedCount} comment${unresolvedCount !== 1 ? 's' : ''} before approving`
+                  : ''
+              }
+              placement="top"
             >
-              Approve Design
-            </Button>
+              <span>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={onApprove}
+                  disabled={unresolvedCount > 0 || !allTabsViewed}
+                >
+                  Approve Design
+                </Button>
+              </span>
+            </Tooltip>
           )}
         </>
       ) : (

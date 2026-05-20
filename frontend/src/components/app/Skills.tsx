@@ -365,7 +365,7 @@ const CUSTOM_LOCAL_MCP_SKILL: ISkill = {
   id: 'new-local-mcp',
   icon: <TerminalIcon sx={{ color: '#10B981' }} />,
   name: 'New Local MCP',
-  description: 'Add a local MCP server that runs inside the dev container. Perfect for npx-based MCPs like drone-ci-mcp.',
+  description: 'Add a local MCP server that runs inside the dev container. Use the binary name (e.g. drone-ci-mcp) when the package is pre-installed in the desktop image.',
   type: SKILL_TYPE_LOCAL_MCP,
   categories: [SKILL_CATEGORY_CORE, SKILL_CATEGORY_LOCAL_MCP],
   skill: {
