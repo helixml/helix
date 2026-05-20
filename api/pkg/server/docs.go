@@ -914,6 +914,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/trial-activate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Activate a trial for a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Trial parameters (days, credits)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Revoke an admin-granted trial (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -9397,7 +9474,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.AccessGrant"
+                            "$ref": "#/definitions/types.CreateAccessGrantResponse"
                         }
                     }
                 }
@@ -17045,6 +17122,169 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/usage/org-summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usage"
+                ],
+                "summary": "Get organization usage summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Provider",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Model",
+                        "name": "model",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "User search",
+                        "name": "user_search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "User page size",
+                        "name": "user_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "User page offset",
+                        "name": "user_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Project page size",
+                        "name": "project_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Project page offset",
+                        "name": "project_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Task page size",
+                        "name": "task_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Task page offset",
+                        "name": "task_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session page size",
+                        "name": "session_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session page offset",
+                        "name": "session_offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgUsageSummaryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users": {
             "get": {
                 "security": [
@@ -19239,6 +19479,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ActivateTrialRequest": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                },
+                "days": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.ActivateTrialResponse": {
+            "type": "object",
+            "properties": {
+                "org_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
+                }
+            }
+        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -21291,7 +21556,7 @@ const docTemplate = `{
                 "message": {
                     "type": "string"
                 },
-                "statusCode": {
+                "status_code": {
                     "type": "integer"
                 }
             }
@@ -23244,6 +23509,53 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateAccessGrantResponse": {
+            "type": "object",
+            "properties": {
+                "added_to_organization": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "If granted to an organization",
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "App ID, Knowledge ID, etc",
+                    "type": "string"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "team_id": {
+                    "description": "If granted to a team",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "If granted to a user",
+                    "type": "string"
+                }
+            }
+        },
         "types.CreateBranchRequest": {
             "type": "object",
             "properties": {
@@ -25003,14 +25315,16 @@ const docTemplate = `{
                 "waiting",
                 "editing",
                 "complete",
-                "error"
+                "error",
+                "interrupted"
             ],
             "x-enum-varnames": [
                 "InteractionStateNone",
                 "InteractionStateWaiting",
                 "InteractionStateEditing",
                 "InteractionStateComplete",
-                "InteractionStateError"
+                "InteractionStateError",
+                "InteractionStateInterrupted"
             ]
         },
         "types.Item": {
@@ -26230,6 +26544,149 @@ const docTemplate = `{
                 },
                 "wallet": {
                     "$ref": "#/definitions/types.Wallet"
+                }
+            }
+        },
+        "types.OrgUsageSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "active_apps": {
+                    "type": "integer"
+                },
+                "active_projects": {
+                    "type": "integer"
+                },
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "active_users": {
+                    "type": "integer"
+                },
+                "apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "filter_apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "model_time_series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageModelTimeSeries"
+                    }
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "project_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "projects_total": {
+                    "type": "integer"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "sessions_total": {
+                    "type": "integer"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "tasks_total": {
+                    "type": "integer"
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "users_total": {
+                    "type": "integer"
                 }
             }
         },
@@ -27681,6 +28138,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_concurrent_desktops": {
+                    "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited.",
                     "type": "integer"
                 },
                 "max_desktop_sandboxes": {
@@ -28600,6 +29058,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
                 "max_concurrent_desktops": {
+                    "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
                 },
                 "organizations_create_enabled_for_non_admins": {
@@ -30935,9 +31394,6 @@ const docTemplate = `{
                 "max_concurrent_desktop_sandboxes": {
                     "type": "integer"
                 },
-                "max_concurrent_desktops": {
-                    "type": "integer"
-                },
                 "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
@@ -31037,10 +31493,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "max_concurrent_desktop_sandboxes": {
-                    "type": "integer"
-                },
-                "max_concurrent_desktops": {
-                    "description": "Per user",
                     "type": "integer"
                 },
                 "max_concurrent_headless_sandboxes": {
@@ -31973,6 +32425,147 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UsageBreakdownRow": {
+            "type": "object",
+            "properties": {
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_cost": {
+                    "type": "number"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "ended_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "last_activity_at": {
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "number"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "prompt_cost": {
+                    "type": "number"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "request_size_bytes": {
+                    "type": "integer"
+                },
+                "response_size_bytes": {
+                    "type": "integer"
+                },
+                "session_count": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "total_requests": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                },
+                "unique_apps": {
+                    "type": "integer"
+                },
+                "unique_projects": {
+                    "type": "integer"
+                },
+                "unique_sessions": {
+                    "type": "integer"
+                },
+                "unique_users": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UsageFilterOption": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UsageModelTimeSeries": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                }
+            }
+        },
         "types.User": {
             "type": "object",
             "properties": {
@@ -32049,6 +32642,23 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.TokenType"
                         }
                     ]
+                },
+                "trial_credits_on_first_org": {
+                    "type": "number"
+                },
+                "trial_days_on_first_org": {
+                    "description": "Trial intent stashed by admin before the user has created their first org.\nConsumed by wallet creation on first owned org, then cleared.",
+                    "type": "integer"
+                },
+                "trial_ends_at": {
+                    "type": "integer"
+                },
+                "trial_org_id": {
+                    "type": "string"
+                },
+                "trial_status": {
+                    "description": "Transient trial-display fields populated by the admin users list when\n?include=trial is set. Not persisted (gorm:\"-\") and not emitted unless\nexplicitly populated (json:\"...,omitempty\").",
+                    "type": "string"
                 },
                 "type": {
                     "description": "these are set by the keycloak user based on the token\nif it's an app token - the keycloak user is loaded from the owner of the app\nif it's a runner token - these values will be empty",

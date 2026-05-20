@@ -102,6 +102,7 @@ func TestTryAutoMergeAfterRebase_InternalRepoSuccess(t *testing.T) {
 	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil)
 	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").Return(gitRepo, nil)
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+	mockStore.EXPECT().DismissAttentionEventsForTask(gomock.Any(), "spt_test").Return(int64(0), nil)
 
 	srv := &GitHTTPServer{store: mockStore}
 	srv.tryAutoMergeAfterRebase(ctx, "spt_test")

@@ -5,6 +5,7 @@
 import React from 'react';
 import { Box, Typography, Button, Alert, CircularProgress } from '@mui/material';
 import { Refresh } from '@mui/icons-material';
+import useLightTheme from '../../hooks/useLightTheme';
 
 export interface ConnectionOverlayProps {
   isConnected: boolean;
@@ -29,10 +30,19 @@ const ConnectionOverlay: React.FC<ConnectionOverlayProps> = ({
   onReconnect,
   onClearError,
 }) => {
+  const lightTheme = useLightTheme();
+
   // Don't render if we're connected and there's no pending state
   if (isConnected && !isConnecting && !error && retryCountdown === null) {
     return null;
   }
+
+  // Backdrop dims the streamed video underneath. White-with-alpha in light mode
+  // keeps the overlay readable without the dark frame the rest of the chrome
+  // dropped in light mode.
+  const overlayBg = lightTheme.isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
+  const primaryTextColor = lightTheme.isLight ? 'text.primary' : 'white';
+  const secondaryTextColor = lightTheme.isLight ? 'text.secondary' : 'grey.400';
 
   return (
     <Box
@@ -42,7 +52,7 @@ const ConnectionOverlay: React.FC<ConnectionOverlayProps> = ({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        backgroundColor: overlayBg,
         zIndex: 1000,
         display: 'flex',
         flexDirection: 'column',
@@ -54,7 +64,7 @@ const ConnectionOverlay: React.FC<ConnectionOverlayProps> = ({
     >
       {/* Connecting state - spinner with status message */}
       {isConnecting && (
-        <Box sx={{ color: 'white' }}>
+        <Box sx={{ color: primaryTextColor }}>
           <CircularProgress size={40} sx={{ mb: 2 }} />
           <Typography variant="body1">{status}</Typography>
         </Box>
@@ -70,10 +80,10 @@ const ConnectionOverlay: React.FC<ConnectionOverlayProps> = ({
       {/* Disconnected state - no active connection, no error, not connecting */}
       {!isConnecting && !isConnected && !error && retryCountdown === null && (
         <>
-          <Typography variant="h6" sx={{ color: 'white' }}>
+          <Typography variant="h6" sx={{ color: primaryTextColor }}>
             Disconnected
           </Typography>
-          <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
+          <Typography variant="body2" sx={{ color: secondaryTextColor, textAlign: 'center', maxWidth: 300 }}>
             {status || 'Connection lost'}
           </Typography>
           <Button

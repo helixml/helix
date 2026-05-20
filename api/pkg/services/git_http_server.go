@@ -986,11 +986,23 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				continue
 			}
 		case types.TaskStatusImplementationReview:
-			// A push arrived while the task was waiting on a rebase. Record the
-			// push (so the FE can see progress) and, if the user previously
-			// approved (RebaseRequestedAt set), try the FF merge again
-			// automatically. Without this, the user would have to click Accept
-			// a second time and would have no signal that the rebase landed.
+			// A push arrived while a PR is open. Always re-sync the PR
+			// title/description from helix-specs so edits to
+			// pull_request_<repo>.md propagate. (Previously only
+			// TaskStatusPullRequest did this, which meant tasks that stayed
+			// in implementation_review never got description updates.)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to re-sync PR description in implementation_review")
+				}
+			}(task, repo)
+
+			// If the user previously approved (RebaseRequestedAt set), also try
+			// the FF merge again automatically — without this, the user would
+			// have to click Accept a second time and would have no signal that
+			// the rebase landed.
 			if task.RebaseRequestedAt == nil {
 				log.Trace().Str("task_id", task.ID).Str("branch", branchName).Msg("Push to implementation_review task without prior rebase request — leaving for explicit Accept")
 				continue
@@ -1125,6 +1137,7 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: failed to mark task done after successful auto-merge")
 		return
 	}
+	DismissTaskAttentionEvents(ctx, s.store, task.ID)
 
 	log.Info().
 		Str("task_id", task.ID).
@@ -1173,7 +1186,9 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 			task.UpdatedAt = now
 			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
 			}
+			DismissTaskAttentionEvents(ctx, s.store, task.ID)
 		}
 	}
 }
@@ -1384,19 +1399,15 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	for _, pr := range prs {
 		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
 		if branchMatches && pr.State == types.PullRequestStateOpen {
-			// Update the PR title/description in case helix-specs changed
-			if pr.Number > 0 {
-				if updateErr := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.Number, title, description); updateErr != nil {
-					log.Warn().Err(updateErr).Str("pr_id", pr.ID).Msg("Failed to update existing PR content")
-				}
-			}
+			// Do not update the PR title/description here — the user may have renamed the PR
+			// and overwriting their title would conflict with their explicit change.
 			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
 			task.UpdatedAt = time.Now()
 			s.store.UpdateSpecTask(ctx, task)
 			log.Info().
 				Str("pr_id", pr.ID).
 				Str("repo_id", repo.ID).
-				Msg("Found and updated existing pull request")
+				Msg("Found existing pull request")
 			return nil
 		}
 		// If a PR was closed (not merged) on this branch, don't recreate it.
@@ -1644,6 +1655,19 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 	if err != nil {
 		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to read design docs")
 		return
+	}
+
+	// Update task name from requirements.md title (on every push)
+	if reqContent, ok := docs["requirements.md"]; ok {
+		if specTitle := SpecTitleFromRequirements(reqContent); specTitle != "" && specTitle != task.Name {
+			task.Name = specTitle
+			task.UpdatedAt = time.Now()
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to update task name from spec title")
+			} else {
+				log.Info().Str("spec_task_id", specTaskID).Str("new_name", specTitle).Msg("Updated task name from spec title")
+			}
+		}
 	}
 
 	existingReviews, _ := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)

@@ -2020,6 +2020,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Dialog
         open={deleteDialogOpen}
         onClose={() => {
+          // Block dismissal (backdrop click / Escape) while the delete is
+          // in flight so the user can't navigate away mid-operation and
+          // land on a stale projects list.
+          if (deleteProjectMutation.isPending) return;
           setDeleteDialogOpen(false);
           setDeleteConfirmName("");
         }}
@@ -2063,6 +2067,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               setDeleteDialogOpen(false);
               setDeleteConfirmName("");
             }}
+            disabled={deleteProjectMutation.isPending}
           >
             Cancel
           </Button>

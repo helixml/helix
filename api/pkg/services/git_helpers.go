@@ -304,6 +304,25 @@ func ParseDesignDocTaskIDs(files []string) (taskIDs []string, dirNamesNeedingLoo
 	return taskIDs, dirNamesNeedingLookup
 }
 
+// SpecTitleFromRequirements extracts the title from requirements.md content.
+// It finds the first non-empty line, strips leading # characters, "Requirements:" prefix, and whitespace.
+// Returns empty string if no usable title is found.
+func SpecTitleFromRequirements(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(strings.TrimLeft(line, "#"))
+		if line != "" {
+			// Strip common prefixes
+			line = strings.TrimPrefix(line, "Requirements:")
+			line = strings.TrimPrefix(line, "Requirements")
+			line = strings.TrimSpace(line)
+			if line != "" {
+				return line
+			}
+		}
+	}
+	return ""
+}
+
 // MergeBranchFastForward performs a fast-forward merge of sourceBranch into targetBranch in a bare repo.
 // This only works if targetBranch is an ancestor of sourceBranch (fast-forward possible).
 // Returns (merged bool, error) where merged indicates if the merge was performed.

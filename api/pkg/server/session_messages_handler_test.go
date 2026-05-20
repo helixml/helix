@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -24,9 +25,10 @@ import (
 // SessionMessagesHandlerSuite tests POST /api/v1/sessions/{id}/messages.
 type SessionMessagesHandlerSuite struct {
 	suite.Suite
-	ctrl   *gomock.Controller
-	store  *store.MockStore
-	server *HelixAPIServer
+	ctrl     *gomock.Controller
+	store    *store.MockStore
+	executor *external_agent.MockExecutor
+	server   *HelixAPIServer
 }
 
 func TestSessionMessagesHandlerSuite(t *testing.T) {
@@ -36,6 +38,7 @@ func TestSessionMessagesHandlerSuite(t *testing.T) {
 func (s *SessionMessagesHandlerSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
+	s.executor = external_agent.NewMockExecutor(s.ctrl)
 
 	// TouchSession is fire-and-forget inside sendChatMessageToExternalAgent.
 	s.store.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -49,6 +52,7 @@ func (s *SessionMessagesHandlerSuite) SetupTest() {
 		Controller: &controller.Controller{
 			Options: controller.Options{Store: s.store, PubSub: pubsub.NewNoop()},
 		},
+		externalAgentExecutor:       s.executor,
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
 		contextMappings:             make(map[string]string),
@@ -86,15 +90,28 @@ func (s *SessionMessagesHandlerSuite) callHandler(sessionID string, body any, us
 // TestQueuesWhenNoWS verifies that with no agent WebSocket connected,
 // the handler still creates a Waiting interaction and returns 200 — the
 // caller's contract is "queued, will deliver on reconnect" via
-// pickupWaitingInteraction.
+// pickupWaitingInteraction. Also asserts that the dev container auto-start
+// fires (helixml/helix#2397) so that an exploratory zed_external session
+// with no live WS gets woken instead of hanging forever.
 func (s *SessionMessagesHandlerSuite) TestQueuesWhenNoWS() {
 	user := &types.User{ID: "user-1"}
 	sessionID := "ses_noWs"
+	projectID := "prj_test"
 
-	session := &types.Session{ID: sessionID, Owner: user.ID, GenerationID: 0}
-	// Two GetSession calls: handler authz lookup + sendChatMessageToExternalAgent.
+	// Exploratory zed_external session shape: project ID on metadata,
+	// no spec task. Auto-start should still fire (this is the regression
+	// case from helixml/helix#2397).
+	session := &types.Session{
+		ID:           sessionID,
+		Owner:        user.ID,
+		GenerationID: 0,
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			ProjectID: projectID,
+		},
+	}
 	// AnyTimes because sendCommandToExternalAgent fires autoStartDevContainerForSession
-	// in a goroutine when there's no WS connection — it does another GetSession lookup.
+	// in a goroutine — it does additional GetSession lookups.
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 
 	createdInteraction := &types.Interaction{ID: "int-1", SessionID: sessionID}
@@ -105,6 +122,24 @@ func (s *SessionMessagesHandlerSuite) TestQueuesWhenNoWS() {
 			return createdInteraction, nil
 		},
 	)
+
+	// startDevContainerForSession looks up project repos and the project itself.
+	// Empty results are fine — agent build proceeds without RepositoryIDs.
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	// UpdateSession is called from the post-StartDesktop metadata refresh.
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+
+	// THE CRITICAL ASSERTION: StartDesktop must be invoked exactly once.
+	// Use a channel to synchronise with the goroutine spawned by
+	// sendCommandToExternalAgent.
+	startCalled := make(chan *types.DesktopAgent, 1)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+			startCalled <- agent
+			return &types.DesktopAgentResponse{DevContainerID: "dev_test"}, nil
+		},
+	).Times(1)
 
 	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "hello"}, user)
 	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
@@ -119,6 +154,15 @@ func (s *SessionMessagesHandlerSuite) TestQueuesWhenNoWS() {
 	s.server.contextMappingsMutex.Lock()
 	s.Equal("int-1", s.server.requestToInteractionMapping[resp.RequestID])
 	s.server.contextMappingsMutex.Unlock()
+
+	// Wait for the auto-start goroutine to fire StartDesktop.
+	select {
+	case agent := <-startCalled:
+		s.Equal(sessionID, agent.SessionID)
+		s.Equal(projectID, agent.ProjectID)
+	case <-time.After(2 * time.Second):
+		s.FailNow("StartDesktop was not called within 2s — auto-start did not fire")
+	}
 }
 
 // TestRejectsCrossUser verifies authorizeUserToSession blocks a different
