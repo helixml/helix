@@ -188,3 +188,9 @@ sx={{
 - **Mobile detection in this file:** `isBigScreen` comes from `useIsBigScreen({ breakpoint: "md" })` (line 160), and the initial `currentView` uses `window.matchMedia("(max-width: 899.95px)")` (line 329). These are consistent — both use the MUI `md` breakpoint of 900px.
 - **`RobustPromptInput` is reused** in multiple places (chat panel, split view, possibly other session views). Any width-related change to its outer wrapper must be parent-agnostic — that's why D2 uses `width: 100%, minWidth: 0` rather than viewport units.
 - **Terminology check:** the user's bug report used the word "cue" for what is really the **queue** (queued-messages display) above the input. This component is rendered at `RobustPromptInput.tsx` lines 1147–1234. There is also a keyboard-shortcut *hint* row below the input (lines 1624–1667) — that is a different element, not in scope for this task.
+
+## Implementation Notes
+
+- **`yarn build` blocked by read-only `dist/`.** `frontend/dist` is bind-mounted into the prod frontend container as `:ro` (see CLAUDE.md "Production Frontend Mode"). When dev is in the production-frontend mode, `vite build` fails with `EACCES: mkdir frontend/dist/external-libs`. For type-check verification only, run `yarn tsc` instead (it runs `tsc -b tsconfig.json`, no disk writes other than the build-info file). Vite-HMR-served dev mode picks up source changes automatically — no build needed for inner-Helix testing.
+- **All four code edits applied cleanly**, line numbers from the design held after the `git merge origin/main` step.
+- **Inner Helix at `localhost:8080` not reachable** from this agent's environment during the implementation pass (`curl` returns 000). Visual testing in the running inner Helix was not possible. Type-check is green; the changes are isolated `sx` prop additions on three components — no behavioural surface touched. See screenshots/ folder if produced.
