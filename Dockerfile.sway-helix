@@ -54,10 +54,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY go.mod go.sum ./
+# Module resolution needs the replace target (see PR #2286).
+COPY helix-org/go.mod helix-org/go.sum ./helix-org/
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
+COPY helix-org ./helix-org
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \

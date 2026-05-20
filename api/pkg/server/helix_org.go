@@ -301,11 +301,7 @@ func buildHelixOrgProjectApplier(
 	if err != nil {
 		return nil, fmt.Errorf("read helix.url: %w", err)
 	}
-	runtime, _ := cfg.GetString(ctx, "worker.runtime")
-	credentials := ""
-	if runtime == "claude_code" || runtime == "" {
-		credentials = "subscription"
-	}
+	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return &agenthelix.ProjectApplier{
 		Client:        client,
@@ -313,9 +309,41 @@ func buildHelixOrgProjectApplier(
 		HelixOrgURL:   helixOrgURL,
 		Runtime:       runtime,
 		Credentials:   credentials,
+		Provider:      provider,
+		Model:         model,
 		MCPAuthBearer: apiKey,
 		Logger:        logger,
 	}, nil
+}
+
+// resolveWorkerAgentConfig reads the four `worker.*` knobs and normalises
+// them into the (runtime, credentials, provider, model) tuple that
+// matches Helix's per-agent UI:
+//
+//   - claude_code + subscription → no provider/model (CLI authenticates via OAuth)
+//   - claude_code + api_key       → provider+model required, inference via Helix's anthropic provider
+//   - zed_agent (or other)        → provider+model required, always Helix-routed (credentials forced to "api_key")
+//
+// We coerce silly combinations (e.g. zed_agent + subscription) to the
+// only mode that actually works for that runtime, mirroring Helix's
+// per-agent validator.
+func resolveWorkerAgentConfig(ctx context.Context, cfg *config.Registry) (runtime, credentials, provider, model string) {
+	runtime, _ = cfg.GetString(ctx, "worker.runtime")
+	if runtime == "" {
+		runtime = "claude_code"
+	}
+	credentials, _ = cfg.GetString(ctx, "worker.credentials")
+	if credentials == "" {
+		credentials = "subscription"
+	}
+	if runtime != "claude_code" {
+		credentials = "api_key" // subscription is only meaningful for claude_code
+	}
+	if credentials == "api_key" {
+		provider, _ = cfg.GetString(ctx, "worker.provider")
+		model, _ = cfg.GetString(ctx, "worker.model")
+	}
+	return runtime, credentials, provider, model
 }
 
 // buildHelixOrgServiceClient constructs a helixclient backed by the
@@ -371,17 +399,15 @@ func buildHelixOrgSpawnerConfig(
 		return agenthelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
 	}
 
-	runtime, _ := cfg.GetString(ctx, "worker.runtime")
-	credentials := ""
-	if runtime == "claude_code" || runtime == "" {
-		credentials = "subscription"
-	}
+	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return agenthelix.SpawnerConfig{
-		Client:        client,
-		HelixOrgURL:   helixOrgURL,
-		Runtime:       runtime,
-		Credentials:   credentials,
+		Client:      client,
+		HelixOrgURL: helixOrgURL,
+		Runtime:     runtime,
+		Credentials: credentials,
+		Provider:    provider,
+		Model:       model,
 		MCPAuthBearer: apiKey,
 		Store:         orgStore,
 		Broadcaster:   bc,

@@ -2,6 +2,7 @@ package helix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -39,9 +40,10 @@ type ProjectApplier struct {
 	// Credentials selects the in-sandbox auth source for the runtime.
 	// `"subscription"` tells `claude_code` to authenticate Anthropic
 	// via the operator's Claude OAuth subscription (no Provider/Model
-	// needed). Empty falls back to Helix-routed inference via
-	// Provider/Model — only meaningful for `zed_agent` / `qwen_code` /
-	// etc. runtimes that go through Helix's anthropic proxy.
+	// needed). `"api_key"` (or any non-subscription value) routes
+	// inference through Helix via Provider/Model — the only valid mode
+	// for `zed_agent` / `qwen_code` / etc. The actual key lives in
+	// Helix's Providers config, not here.
 	Credentials string
 	// AgentMD is the org-wide agent policy pushed verbatim to
 	// `.context/agent.md` on every Worker's helix-specs branch. Empty
@@ -88,9 +90,28 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (
 	// ApplyProject / CreateGitRepo / AttachRepo steps but DO re-push
 	// role + identity so update_role / update_identity changes
 	// propagate. CreateBranch + PutFile are idempotent and cheap.
+	//
+	// First verify the persisted project still exists on the Helix
+	// side — an operator can delete a project directly through the
+	// Helix UI/API, leaving our state pointing at a ghost. On 404 we
+	// wipe the triple and fall through to re-apply.
 	if state.ProjectID != "" {
-		a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())
-		return state.ProjectID, state.AgentAppID, state.RepoID, nil
+		if _, err := a.Client.GetProject(ctx, state.ProjectID); err != nil {
+			if errors.Is(err, helixclient.ErrNotFound) {
+				if clearErr := ClearProject(ctx, a.Store, workerID); clearErr != nil {
+					return "", "", "", fmt.Errorf("clear stale project state for %s: %w", workerID, clearErr)
+				}
+				if a.Logger != nil {
+					a.Logger.Info("project applier: persisted project missing, re-applying", "worker", workerID, "stale_project_id", state.ProjectID)
+				}
+				// fall through to fresh apply
+			} else {
+				return "", "", "", fmt.Errorf("verify project %s for %s: %w", state.ProjectID, workerID, err)
+			}
+		} else {
+			a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())
+			return state.ProjectID, state.AgentAppID, state.RepoID, nil
+		}
 	}
 	// Every project is applied with the same Runtime — see
 	// helix.Runtime for why. The auto-provisioned Agent App is the
