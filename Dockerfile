@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git \
     && rm -rf /var/lib/apt/lists/*
 COPY go.mod go.sum ./
+# helix-org is a replace target (`replace github.com/helixml/helix-org => ./helix-org`),
+# so `go mod download` needs at least its go.mod/go.sum present to resolve the module.
+COPY helix-org/go.mod helix-org/go.sum ./helix-org/
 # Cache Go modules for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -60,6 +63,9 @@ ENV ORT_LIB_DIR=/usr/lib
 COPY --from=embedding-model /build/models/ /kodit-models/
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
+# helix-org sources for the replace directive — dev mode bind-mounts over
+# this layer at runtime, but the initial pre-build needs the real sources.
+COPY helix-org /app/helix-org
 WORKDIR /app/api
 # - Run a build to make the initial air build faster
 # Cache Go modules and build artifacts for offline builds
@@ -80,6 +86,8 @@ COPY .git /app/.git
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
 COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 COPY api /app/api
+# helix-org sources for the replace directive in the root go.mod.
+COPY helix-org /app/helix-org
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"
