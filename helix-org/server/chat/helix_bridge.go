@@ -432,17 +432,43 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		}
 		session, _, err := b.client.StartChatWithStatus(ctx, req)
 		if err != nil {
-			return fmt.Errorf("helix followup: %w", err)
+			// Followup failed for any reason — stale persisted pointer
+			// (api restart / sandbox eviction), Helix-side hiccup,
+			// whatever. Drop the pointer and fall through to the
+			// first-turn block, which spins up a fresh sandbox and saves
+			// the new ID. Worst case the user pays one cold-start; that
+			// beats blocking every subsequent send forever.
+			b.logger.Warn("chat helix followup failed, restarting session", "sid", sid, "err", err)
+			b.mu.Lock()
+			if b.wsCancel != nil {
+				b.wsCancel()
+				b.wsCancel = nil
+			}
+			b.sessionID = ""
+			b.seen = make(map[string]struct{})
+			b.mu.Unlock()
+			b.wsWG.Wait()
+			if b.saveSessionID != nil {
+				persistCtx, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
+				go func() {
+					defer cancelPersist()
+					if err := b.saveSessionID(persistCtx, b.ownerID, ""); err != nil {
+						b.logger.Warn("chat helix: clear stale session id", "worker", b.ownerID, "err", err)
+					}
+				}()
+			}
+			// fall through to first-turn block below
+		} else {
+			b.logger.Info("chat helix followup", "sid", sid, "project", projectID, "app", agentAppID)
+			// Only the synchronous (helix_basic / app-only) path returns
+			// session.Interactions populated inline. For zed_external the
+			// WS subscriber is the canonical source — calling
+			// broadcastInteractions there would double-render every reply.
+			if appOnly {
+				b.broadcastInteractions(session.Interactions)
+			}
+			return nil
 		}
-		b.logger.Info("chat helix followup", "sid", sid, "project", projectID, "app", agentAppID)
-		// Only the synchronous (helix_basic / app-only) path returns
-		// session.Interactions populated inline. For zed_external the
-		// WS subscriber is the canonical source — calling
-		// broadcastInteractions there would double-render every reply.
-		if appOnly {
-			b.broadcastInteractions(session.Interactions)
-		}
-		return nil
 	}
 
 	// First turn: build the StartChat request. In app-only mode we

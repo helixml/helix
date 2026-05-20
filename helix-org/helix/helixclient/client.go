@@ -627,7 +627,7 @@ func CheckDesktopQuota(ctx context.Context, c Client) error {
 	if st.HasDesktopRoom() {
 		return nil
 	}
-	return fmt.Errorf("desktop quota reached on Helix (%d/%d active) — stop one of the existing sessions before opening a new one (`helix-org config get helix.url` then visit /sessions to manage)", st.ActiveConcurrentDesktops, st.MaxConcurrentDesktops)
+	return fmt.Errorf("desktop quota reached on Helix (%d/%d active) — stop one of the existing sessions before opening a new one", st.ActiveConcurrentDesktops, st.MaxConcurrentDesktops)
 }
 
 // ListProviders calls GET /api/v1/providers. Returns the list of
