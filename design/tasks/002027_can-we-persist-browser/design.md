@@ -86,6 +86,18 @@ No new Go code, no new packages, no docker-compose changes.
 - Repeat with Chrome explicitly closed before container restart — confirm Chrome stays closed.
 - Check `ls -la /home/retro/.config/google-chrome` inside the container — must be a symlink.
 
+### CI flake encountered
+
+Build 1516 failed on the `unit-test` step with
+`TestAction_getAPIRequestParameters_Path_SingleItem` (in `api/pkg/tools/tools_api_test.go:215`)
+hanging in a real OpenAI `CreateChatCompletion` call until the
+`scripts/run-tests-with-timeout.sh` wrapper killed go test at 300s. The
+stack trace points entirely at `api/pkg/openai` → `go-openai` → `net/http`,
+never touching any of this PR's files. Other branches passed the same step
+on the same commit range (builds 1517-1522). Retriggered via an empty
+commit; if it flakes again the test itself needs to be made resilient
+(retry budget or mock the HTTP client), but that's outside this task.
+
 ### Why manual verification can't run from the implementing agent
 
 The implementation runs inside an existing container started from the *old*
