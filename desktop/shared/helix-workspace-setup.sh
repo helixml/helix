@@ -17,6 +17,10 @@
 # Signal files:
 #   $HOME/.helix-setup-complete  - Touched when setup is done
 #   $HOME/.helix-zed-folders     - List of folders for Zed to open
+#   $HOME/.helix-setup-failed    - JSON written on failure: { exit_code, log_tail }
+#                                  The API reads this from outside the container
+#                                  to surface the real error in the UI instead of
+#                                  the generic "agent never connected" banner.
 
 # Exit on error - but trap will catch it and keep terminal open
 set -e
@@ -27,6 +31,25 @@ set -e
 # message, blocking session startup on the user typing :wq in vim.
 # Real merge conflicts still fail loudly — only the editor prompt is suppressed.
 export GIT_MERGE_AUTOEDIT=no
+
+# Capture all stdout/stderr to a log file in addition to the terminal so the
+# failure sentinel can include a tail of what went wrong. tee writes the same
+# bytes to both, so the user still sees live output in the ghostty window.
+SETUP_LOG="$HOME/.helix-setup.log"
+: > "$SETUP_LOG" || true
+exec > >(tee -a "$SETUP_LOG") 2>&1
+
+# How long the cleanup_and_prompt menu waits for a human at the terminal before
+# giving up and exiting with the original failure code. Without this timeout an
+# unattended spec-task agent's setup failure parks the script on `read` forever:
+# Zed never sees ~/.helix-setup-complete, no WebSocket ever connects, and the
+# API eventually times out with the generic
+#   "Agent never connected after auto-wake cold-start retries"
+# banner — burying the real error in the framebuffer scrollback.
+#
+# 60s gives a watching human plenty of time to react while still freeing the
+# session for the API to report the real failure when no one is there.
+HELIX_SETUP_PROMPT_TIMEOUT="${HELIX_SETUP_PROMPT_TIMEOUT:-60}"
 
 # Trap any exit (success or failure) to show interactive menu
 # This ensures users can see errors and debug
@@ -39,6 +62,28 @@ cleanup_and_prompt() {
         echo "========================================="
         echo ""
         echo "Check the errors above."
+
+        # Persist the failure so the API can read it from outside the
+        # container and surface the real error to the UI. We escape just
+        # enough for valid JSON; jq is not guaranteed to exist in every
+        # desktop image.
+        if [ -f "$SETUP_LOG" ]; then
+            local log_tail
+            log_tail=$(tail -n 80 "$SETUP_LOG" \
+                | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' \
+                2>/dev/null \
+                || tail -n 80 "$SETUP_LOG" \
+                    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/$/\\n/' \
+                    | tr -d '\n' \
+                    | awk '{print "\""$0"\""}')
+            cat > "$HOME/.helix-setup-failed" <<JSON
+{"exit_code": $exit_code, "log_tail": $log_tail}
+JSON
+        else
+            cat > "$HOME/.helix-setup-failed" <<JSON
+{"exit_code": $exit_code, "log_tail": ""}
+JSON
+        fi
     fi
 
     echo ""
@@ -46,15 +91,20 @@ cleanup_and_prompt() {
     echo "  1) Close this window"
     echo "  2) Start an interactive shell for debugging"
     echo ""
-    read -p "Enter choice [1-2]: " choice
+    # Time out the prompt so unattended containers don't block forever on
+    # read. Default to "1) Close" so the container exits with the real
+    # exit code, which lets the API observe and report the failure.
+    local choice=""
+    if read -t "$HELIX_SETUP_PROMPT_TIMEOUT" -p "Enter choice [1-2] (auto-close in ${HELIX_SETUP_PROMPT_TIMEOUT}s): " choice; then
+        : # got input
+    else
+        echo ""
+        echo "(no input within ${HELIX_SETUP_PROMPT_TIMEOUT}s — closing)"
+        choice=1
+    fi
 
     case "$choice" in
-        1)
-            # Disable trap before exiting to avoid infinite loop
-            trap - EXIT
-            exit $exit_code
-            ;;
-        2|*)
+        2)
             echo ""
             echo "Starting interactive shell..."
             echo "Type 'exit' to close this window."
@@ -66,9 +116,19 @@ cleanup_and_prompt() {
             fi
             exec bash
             ;;
+        *)
+            # Default (1 or timeout): disable trap to avoid recursion and
+            # exit with the original code so the parent observes the failure.
+            trap - EXIT
+            exit $exit_code
+            ;;
     esac
 }
 trap cleanup_and_prompt EXIT
+
+# Clear any failure sentinel from a previous run so a successful setup
+# doesn't appear failed.
+rm -f "$HOME/.helix-setup-failed" 2>/dev/null || true
 
 echo "========================================="
 echo "Helix Workspace Setup - $(date)"
