@@ -329,6 +329,13 @@ type StartChatRequest struct {
 	Provider            string               `json:"provider,omitempty"`
 	Model               string               `json:"model,omitempty"`
 	CallbackURL         string               `json:"callback_url,omitempty"`
+
+	// OnSessionID, if set, is invoked as soon as the SSE stream emits
+	// the session ID chunk — before the agent has produced a reply.
+	// Callers use this to attach a WS subscriber early so they don't
+	// miss the response while the SSE loop keeps reading (looking for
+	// later error chunks). Not serialised.
+	OnSessionID func(sessionID string) `json:"-"`
 }
 
 // ExternalAgentConfig must be sent as a non-nil object whenever
@@ -1070,6 +1077,7 @@ func (c *realClient) startChatStreaming(ctx context.Context, req StartChatReques
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var sessionID string
+	var streamErrMsg string
 	hadWSError := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -1093,9 +1101,20 @@ func (c *realClient) startChatStreaming(ctx context.Context, req StartChatReques
 		}
 		if chunk.ID != "" && sessionID == "" {
 			sessionID = chunk.ID
+			if req.OnSessionID != nil {
+				req.OnSessionID(sessionID)
+			}
 		}
-		if chunk.Error != nil && strings.Contains(chunk.Error.Message, "no external agent WebSocket connection") {
+		// Any error chunk on the stream means the dispatch hit a snag —
+		// could be the cold-start WS race, could be a stale in-memory
+		// session after an api restart, could be something else. We
+		// don't try to classify here; we set the flag and let the
+		// caller decide (first-turn does a warmup retry, followup
+		// restarts the session). Capturing the message keeps the
+		// failure visible in the returned error for callers that care.
+		if chunk.Error != nil {
 			hadWSError = true
+			streamErrMsg = chunk.Error.Message
 			break
 		}
 	}
@@ -1109,10 +1128,19 @@ func (c *realClient) startChatStreaming(ctx context.Context, req StartChatReques
 		}
 	}()
 	if sessionID != "" {
+		// Session ID was emitted, so the row exists in Helix. Any
+		// streamed error is surfaced via the bool so the caller can
+		// decide whether to warmup-retry (first turn) or restart the
+		// session (followup). We don't return it via err — callers
+		// that didn't need recovery before shouldn't start now.
+		_ = streamErrMsg
 		return Session{ID: sessionID}, hadWSError, nil
 	}
 	if err := scanner.Err(); err != nil {
 		return Session{}, false, fmt.Errorf("read SSE: %w", err)
+	}
+	if streamErrMsg != "" {
+		return Session{}, false, fmt.Errorf("start chat streaming: %s", streamErrMsg)
 	}
 	return Session{}, false, errors.New("start chat streaming: no session id in stream")
 }

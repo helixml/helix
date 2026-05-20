@@ -430,15 +430,18 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 			req.AgentType = agenthelix.AgentType
 			req.ExternalAgentConfig = &helixclient.ExternalAgentConfig{}
 		}
-		session, _, err := b.client.StartChatWithStatus(ctx, req)
-		if err != nil {
+		session, streamHadErr, err := b.client.StartChatWithStatus(ctx, req)
+		if err != nil || streamHadErr {
 			// Followup failed for any reason — stale persisted pointer
 			// (api restart / sandbox eviction), Helix-side hiccup,
-			// whatever. Drop the pointer and fall through to the
-			// first-turn block, which spins up a fresh sandbox and saves
-			// the new ID. Worst case the user pays one cold-start; that
-			// beats blocking every subsequent send forever.
-			b.logger.Warn("chat helix followup failed, restarting session", "sid", sid, "err", err)
+			// whatever. The HTTP call may have returned 200 with the
+			// error reported on the SSE stream (streamHadErr) or
+			// returned a hard error. Either way: drop the pointer and
+			// fall through to the first-turn block, which spins up a
+			// fresh sandbox and saves the new ID. Worst case the user
+			// pays one cold-start; that beats blocking every
+			// subsequent send forever.
+			b.logger.Warn("chat helix followup failed, restarting session", "sid", sid, "stream_err", streamHadErr, "err", err)
 			b.mu.Lock()
 			if b.wsCancel != nil {
 				b.wsCancel()
@@ -477,6 +480,16 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 	// set zed_external + the configured provider/model, and pre-flight
 	// the desktop quota since project-applier sessions always spin up
 	// a Zed sandbox.
+	// Attach the WS subscriber the moment Helix emits the session ID,
+	// not after the SSE stream finishes. Without this the SSE read can
+	// outrun the agent's whole reply (no error chunk to break early
+	// on), and by the time we attach the WS subscriber there are no
+	// more events to receive — the user sees their own bubble but no
+	// assistant response.
+	onID := func(sid string) {
+		b.attachSession(sid)
+		b.logger.Info("chat helix session opened", "sid", sid, "project", projectID, "app", agentAppID)
+	}
 	var req helixclient.StartChatRequest
 	if appOnly {
 		req = helixclient.StartChatRequest{
@@ -484,6 +497,7 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 			SessionRole: b.sessionRole,
 			Type:        "text",
 			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+			OnSessionID: onID,
 		}
 	} else {
 		if err := helixclient.CheckDesktopQuota(ctx, b.client); err != nil {
@@ -508,14 +522,15 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 			Model:               b.model,
 			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
 			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+			OnSessionID:         onID,
 		}
 	}
 	session, hadWSError, err := b.client.StartChatWithStatus(ctx, req)
 	if err != nil {
 		return fmt.Errorf("start helix chat: %w", err)
 	}
-	b.attachSession(session.ID)
-	b.logger.Info("chat helix session opened", "sid", session.ID, "project", projectID, "app", agentAppID)
+	// onID already attached the session; nothing more to do here for
+	// the WS subscriber path.
 
 	// Only render synchronous (helix_basic / app-only) interactions
 	// inline. zed_external streams the transcript via the WS
