@@ -16,7 +16,6 @@ type ListProjectsQuery struct {
 	IncludeStats   bool
 }
 
-
 type GetProjectsCountQuery struct {
 	UserID         string
 	OrganizationID string
@@ -56,8 +55,8 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
-	SessionRole            string          `json:"session_role"`      // Filter by session role (e.g. "job")
-	ExcludeRoles           []string        `json:"exclude_roles"`     // Exclude sessions with these roles
+	SessionRole            string          `json:"session_role"`  // Filter by session role (e.g. "job")
+	ExcludeRoles           []string        `json:"exclude_roles"` // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
 }
 
@@ -147,10 +146,12 @@ type ListUsersQuery struct {
 	Username  string          `json:"username"`
 	// Query is a free-text search matched (ILIKE) against email, username, and full_name.
 	// When set it is OR-combined and takes precedence over the separate Email/Username filters.
-	Query   string `json:"query"`
-	Page    int
-	PerPage int
-	Order   string // Defaults to Created Desc
+	Query string `json:"query"`
+	// Waitlisted filters on the user.waitlisted column when non-nil. Nil = no filter.
+	Waitlisted *bool `json:"waitlisted,omitempty"`
+	Page       int
+	PerPage    int
+	Order      string // Defaults to Created Desc
 }
 
 // SearchUsersQuery defines parameters for searching users with partial matching
@@ -175,8 +176,33 @@ type GetAggregatedUsageMetricsQuery struct {
 	OrganizationID   string
 	ProjectID        string
 	SpecTaskID       string
+	AppID            string
+	SessionID        string
+	Provider         string
+	Model            string
 	From             time.Time
 	To               time.Time
+}
+
+type GetOrgUsageSummaryQuery struct {
+	OrganizationID string
+	From           time.Time
+	To             time.Time
+	UserID         string
+	ProjectID      string
+	AppID          string
+	SessionID      string
+	Provider       string
+	Model          string
+	UserSearch     string
+	UserLimit      int
+	UserOffset     int
+	ProjectLimit   int
+	ProjectOffset  int
+	TaskLimit      int
+	TaskOffset     int
+	SessionLimit   int
+	SessionOffset  int
 }
 
 var _ Store = &PostgresStore{}
@@ -245,9 +271,9 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 	ClearStaleStartingSessions(ctx context.Context) (int64, error)
-	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error)           // For cleanup on sandbox disconnect
-	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)               // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
-	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) // Returns one session per desktop that has had no interaction since idleSince
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
+	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
+	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
 
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
@@ -451,6 +477,7 @@ type Store interface {
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error)
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
@@ -611,6 +638,7 @@ type Store interface {
 	GetAttentionEvent(ctx context.Context, id string) (*types.AttentionEvent, error)
 	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
 	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
+	DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error)
 	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
 
 	// Clone Group methods

@@ -113,14 +113,15 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	if err != nil {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
-	// Override the config with the system settings
 	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
-	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
 
-	// If system settings doesn't have a max, fall back to the free tier config
-	if config.MaxConcurrentDesktops == 0 {
-		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
-	}
+	// /config is unauthenticated (registered on insecureRouter), so we don't
+	// know which user is calling and can't ask the quota manager for their
+	// resolved cap. Return the Free-tier env value as the floor. Real
+	// enforcement still happens server-side in StartDesktop via the quota
+	// manager, which picks the correct Free or Pro tier per wallet. -1 in
+	// the env means unlimited.
+	config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
 
 	// Check if any global AI providers are configured on this deployment
 	globalProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
@@ -766,6 +767,11 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	if tokenType := req.URL.Query().Get("token_type"); tokenType != "" {
 		query.TokenType = types.TokenType(tokenType)
 	}
+	if w := req.URL.Query().Get("waitlisted"); w != "" {
+		if b, err := strconv.ParseBool(w); err == nil {
+			query.Waitlisted = &b
+		}
+	}
 
 	// Get users from store
 	users, totalCount, err := apiServer.Store.ListUsers(ctx, query)
@@ -787,6 +793,12 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 				users[i].Admin = true
 				break
 			}
+		}
+	}
+
+	if includes := req.URL.Query().Get("include"); strings.Contains(includes, "trial") {
+		for _, u := range users {
+			apiServer.enrichUserTrialDisplay(ctx, u)
 		}
 	}
 
@@ -821,6 +833,13 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 
 	if !user.Admin {
 		return nil, system.NewHTTPError403("only admins can create users")
+	}
+
+	if apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC {
+		return nil, system.NewHTTPError400(
+			"User creation is managed by your OIDC provider. " +
+				"Create the user in the OIDC provider's admin console; " +
+				"they will be provisioned in Helix on first login.")
 	}
 
 	var request types.AdminCreateUserRequest
@@ -1037,12 +1056,18 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		Str("approved_user_email", targetUser.Email).
 		Msg("admin approved user")
 
-	// Send approval notification email
+	// Send approval notification email. If the user had a trial pre-stashed
+	// by admin (via the trial-activate endpoint), surface it in the email.
 	firstName := strings.Split(targetUser.FullName, " ")[0]
+	trialDays := 0
+	if targetUser.TrialDaysOnFirstOrg != nil && *targetUser.TrialDaysOnFirstOrg > 0 {
+		trialDays = *targetUser.TrialDaysOnFirstOrg
+	}
 	notifyErr := apiServer.Controller.Options.Notifier.Notify(ctx, &types.Notification{
 		Event:     types.EventWaitlistApproved,
 		Email:     targetUser.Email,
 		FirstName: firstName,
+		TrialDays: trialDays,
 	})
 	if notifyErr != nil {
 		log.Error().

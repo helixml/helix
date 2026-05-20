@@ -115,7 +115,10 @@ export default class HelixCursorExtension extends Extension {
 
     console.log("[HelixCursor] Connected to cursor-changed signal");
 
-    // Window management: minimize "ACP Agent Logs" terminal on creation
+    // Window management: move "ACP Agent Logs" terminal to the last
+    // workspace on creation, so it stays out of the way without being
+    // minimized (minimizing caused the dock icon to jiggle and the
+    // app-switcher to render a ghost preview).
     this._windowCreatedId = global.display.connect(
       "window-created",
       (display, window) => {
@@ -124,7 +127,7 @@ export default class HelixCursorExtension extends Extension {
     );
 
     console.log(
-      "[HelixCursor] Connected to window-created signal for auto-minimization",
+      "[HelixCursor] Connected to window-created signal for ACP log window placement",
     );
 
     // Send initial cursor after 1 second, then retry every 2 seconds until successful
@@ -195,13 +198,28 @@ export default class HelixCursorExtension extends Extension {
       try {
         const title = window.get_title();
         if (title && title.includes("ACP Agent Logs")) {
+          const workspaceManager = global.workspace_manager;
+          const nWorkspaces = workspaceManager.get_n_workspaces();
+          if (nWorkspaces < 2) {
+            console.log(
+              "[HelixCursor] Only " +
+                nWorkspaces +
+                " workspace(s) available; leaving ACP Agent Logs terminal in place: " +
+                title,
+            );
+            return GLib.SOURCE_REMOVE;
+          }
+          const targetIndex = nWorkspaces - 1;
           console.log(
-            "[HelixCursor] Minimizing ACP Agent Logs terminal: " + title,
+            "[HelixCursor] Moving ACP Agent Logs terminal to workspace " +
+              (targetIndex + 1) +
+              " (last): " +
+              title,
           );
-          window.minimize();
+          window.change_workspace_by_index(targetIndex, false);
         }
       } catch (e) {
-        console.log("[HelixCursor] Error minimizing window: " + e);
+        console.log("[HelixCursor] Error placing ACP Agent Logs window: " + e);
       }
       return GLib.SOURCE_REMOVE;
     });

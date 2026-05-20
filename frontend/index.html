@@ -52,12 +52,8 @@
             // dark mode for users who prefer light. Mirrors the logic in
             // contexts/theme.tsx getInitialMode().
             (function () {
-                var stored = null;
-                try { stored = localStorage.getItem('themeMode'); } catch (e) {}
-                var mode = stored === 'light' || stored === 'dark'
-                    ? stored
-                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-                        ? 'light' : 'dark');
+                var mode = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+                    ? 'light' : 'dark';
                 var bg = mode === 'light' ? '#ffffff' : '#121214';
                 var fg = mode === 'light' ? '#333' : '#e0e0e0';
                 document.documentElement.style.backgroundColor = bg;

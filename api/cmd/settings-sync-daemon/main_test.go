@@ -336,3 +336,167 @@ func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {
 		assert.NotContains(t, agent, "auto_open_panel")
 	})
 }
+
+// TestMergeSettings_HelixOwnedContextServersWin is the regression test for the
+// stale-MCP-config bug documented in
+// helix/design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md.
+//
+// Sequence pre-fix:
+//  1. Old API code generated `chrome-devtools` config with `command: "npx"` and
+//     wrote it to disk via the daemon.
+//  2. PR #2418 changed `chrome-devtools` to use `/usr/bin/chrome-devtools-mcp`.
+//  3. On the next daemon poll the API returned the NEW config — but the
+//     deep-merge in `mergeSettings` treated the on-disk OLD entry as a
+//     "user override" and let it win, pinning the broken `npx` config
+//     forever and producing 180s `chrome-devtools context server failed
+//     to start: Context server request timeout` errors.
+//
+// To verify regression power: comment out the
+// `if HELIX_OWNED_CONTEXT_SERVERS[name] { continue }` guard in the
+// `mergeSettings` deep-merge of `context_servers` and re-run; the
+// "force-overwrite" sub-tests below will fail because the user's stale
+// `npx`-based entry will win.
+func TestMergeSettings_HelixOwnedContextServersWin(t *testing.T) {
+	d := &SettingsDaemon{}
+
+	// Helix base — what zed_config.go produces post-fix
+	helix := map[string]interface{}{
+		"context_servers": map[string]interface{}{
+			"chrome-devtools": map[string]interface{}{
+				"command": "/usr/bin/chrome-devtools-mcp",
+				"args":    []interface{}{"--viewport", "1280x800"},
+			},
+			"helix-session": map[string]interface{}{
+				"url":     "http://api:8080/api/v1/mcp/session?session_id=ses_new",
+				"headers": map[string]interface{}{"Authorization": "Bearer fresh"},
+			},
+			"helix-desktop": map[string]interface{}{
+				"url": "http://api:8080/api/v1/mcp/desktop?session_id=ses_new",
+			},
+		},
+	}
+
+	t.Run("force-overwrite chrome-devtools when user has stale npx version", func(t *testing.T) {
+		user := map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"chrome-devtools": map[string]interface{}{
+					// THIS is the bug — the persisted on-disk entry from
+					// before PR #2418. Without the guard, this wins.
+					"command": "npx",
+					"args":    []interface{}{"chrome-devtools-mcp@latest"},
+				},
+			},
+		}
+		merged := d.mergeSettings(helix, user)
+		got := merged["context_servers"].(map[string]interface{})["chrome-devtools"].(map[string]interface{})
+		assert.Equal(t, "/usr/bin/chrome-devtools-mcp", got["command"],
+			"chrome-devtools must use Helix's hardcoded path, not the user's stale npx entry")
+	})
+
+	t.Run("force-overwrite helix-session when user has stale session_id", func(t *testing.T) {
+		user := map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"helix-session": map[string]interface{}{
+					"url":     "http://api:8080/api/v1/mcp/session?session_id=ses_OLD",
+					"headers": map[string]interface{}{"Authorization": "Bearer STALE"},
+				},
+			},
+		}
+		merged := d.mergeSettings(helix, user)
+		got := merged["context_servers"].(map[string]interface{})["helix-session"].(map[string]interface{})
+		assert.Equal(t, "http://api:8080/api/v1/mcp/session?session_id=ses_new", got["url"])
+		assert.Equal(t, "Bearer fresh", got["headers"].(map[string]interface{})["Authorization"])
+	})
+
+	t.Run("user-configured MCP (e.g. drone-ci) still wins", func(t *testing.T) {
+		// drone-ci is a user/project-configured MCP, NOT in
+		// HELIX_OWNED_CONTEXT_SERVERS. Users editing their on-disk
+		// settings.json to customize it must round-trip.
+		user := map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"drone-ci": map[string]interface{}{
+					"command": "drone-ci-mcp",
+					"args":    []interface{}{},
+					"env":     map[string]interface{}{"DRONE_ACCESS_TOKEN": "user-token"},
+				},
+			},
+		}
+		merged := d.mergeSettings(helix, user)
+		got := merged["context_servers"].(map[string]interface{})["drone-ci"].(map[string]interface{})
+		assert.Equal(t, "drone-ci-mcp", got["command"])
+		assert.Equal(t, "user-token", got["env"].(map[string]interface{})["DRONE_ACCESS_TOKEN"])
+	})
+
+	t.Run("strips helix-owned names even when helix has no servers", func(t *testing.T) {
+		// Defensive: if Helix temporarily emits no context_servers (e.g.
+		// during a transient API state) we shouldn't accidentally
+		// resurrect a user's stale chrome-devtools from disk.
+		emptyHelix := map[string]interface{}{}
+		user := map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"chrome-devtools": map[string]interface{}{
+					"command": "npx",
+					"args":    []interface{}{"chrome-devtools-mcp@latest"},
+				},
+				"my-custom-mcp": map[string]interface{}{
+					"command": "my-custom-mcp",
+				},
+			},
+		}
+		merged := d.mergeSettings(emptyHelix, user)
+		cs := merged["context_servers"].(map[string]interface{})
+		assert.NotContains(t, cs, "chrome-devtools",
+			"helix-owned name must be stripped even when helix has no servers")
+		assert.Contains(t, cs, "my-custom-mcp",
+			"non-helix-owned user MCP must survive")
+	})
+}
+
+// TestExtractUserOverrides_SkipsHelixOwnedContextServers verifies the round-trip
+// half of the fix: extractUserOverrides must NOT capture helix-owned names as
+// user overrides. Otherwise a stale on-disk chrome-devtools entry is uploaded
+// to the API, the API treats it as the canonical user customization, the next
+// sync re-writes it to disk — and Helix's force-overwrite is permanently
+// nullified one round-trip later.
+func TestExtractUserOverrides_SkipsHelixOwnedContextServers(t *testing.T) {
+	helix := map[string]interface{}{
+		"context_servers": map[string]interface{}{
+			"chrome-devtools": map[string]interface{}{
+				"command": "/usr/bin/chrome-devtools-mcp",
+			},
+		},
+	}
+
+	t.Run("does not upload stale chrome-devtools as user override", func(t *testing.T) {
+		current := map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"chrome-devtools": map[string]interface{}{
+					"command": "npx",
+					"args":    []interface{}{"chrome-devtools-mcp@latest"},
+				},
+			},
+		}
+		got := extractUserOverrides(current, helix)
+		assert.NotContains(t, got, "context_servers",
+			"stale on-disk helix-owned entry must not be captured as user override")
+	})
+
+	t.Run("does upload non-helix user MCP overrides", func(t *testing.T) {
+		current := map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"chrome-devtools": map[string]interface{}{
+					"command": "npx",
+					"args":    []interface{}{"chrome-devtools-mcp@latest"},
+				},
+				"my-custom-mcp": map[string]interface{}{
+					"command": "/opt/my-custom-mcp/run",
+				},
+			},
+		}
+		got := extractUserOverrides(current, helix)
+		cs, ok := got["context_servers"].(map[string]interface{})
+		assert.True(t, ok, "user override for my-custom-mcp must be captured")
+		assert.NotContains(t, cs, "chrome-devtools")
+		assert.Contains(t, cs, "my-custom-mcp")
+	})
+}

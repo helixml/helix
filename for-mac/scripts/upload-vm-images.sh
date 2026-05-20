@@ -61,6 +61,35 @@ SKIP_COMPRESS="${SKIP_COMPRESS:-0}"
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
+# r2_upload_with_retry runs `aws s3 cp` with bounded retries and exponential
+# backoff. The aws CLI's built-in retries cover per-request failures within a
+# single multipart upload, but a TCP drop or DNS hiccup between part requests
+# bubbles out as "Could not connect to the endpoint URL" and the whole cp
+# exits non-zero — burning the 7+ GB compression work and the entire macOS
+# pipeline. The wrapper retries the cp invocation itself so a transient blip
+# costs a few seconds instead of forcing a re-tag.
+r2_upload_with_retry() {
+    local src="$1"
+    local dest="$2"
+    shift 2
+    local max_attempts=4
+    local attempt=1
+    local delay=15
+    while :; do
+        if aws s3 cp "$src" "$dest" --endpoint-url "$R2_ENDPOINT" --no-progress "$@" 2>&1; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            log "  Upload failed after $max_attempts attempts: $src -> $dest"
+            return 1
+        fi
+        log "  Upload attempt $attempt/$max_attempts failed; retrying in ${delay}s..."
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+}
+
 # =============================================================================
 # Verify prerequisites
 # =============================================================================
@@ -81,7 +110,16 @@ if [ ! -f "${VM_DIR}/disk.qcow2" ]; then
     exit 1
 fi
 
-
+# Fail fast if R2 is unreachable rather than after ~10 minutes of qcow2
+# compression. A bucket head is cheap; if this fails we're not going to be
+# able to upload a 7+ GB file anyway.
+log "Probing R2 endpoint (${R2_ENDPOINT})..."
+if ! aws s3 ls "s3://${R2_BUCKET}/" --endpoint-url "$R2_ENDPOINT" --page-size 1 >/dev/null 2>&1; then
+    echo "ERROR: R2 endpoint unreachable or bucket inaccessible: ${R2_ENDPOINT}/${R2_BUCKET}"
+    echo "Check network connectivity and R2 credentials, then retry."
+    exit 1
+fi
+log "  R2 reachable."
 
 
 # =============================================================================
@@ -149,9 +187,7 @@ log "  ${DISK_UPLOAD_NAME}:  $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/10
 log ""
 
 log "Uploading ${DISK_UPLOAD_NAME}..."
-aws s3 cp "$DISK_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}" \
-    --endpoint-url "$R2_ENDPOINT" \
-    --no-progress 2>&1
+r2_upload_with_retry "$DISK_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}"
 log "  Done."
 
 # =============================================================================
@@ -219,11 +255,9 @@ cat "$MANIFEST_PATH"
 # https://dl.helix.ml/vm/{VERSION}/manifest.json
 log ""
 log "Uploading vm-manifest.json to CDN..."
-aws s3 cp "$MANIFEST_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/manifest.json" \
-    --endpoint-url "$R2_ENDPOINT" \
+r2_upload_with_retry "$MANIFEST_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/manifest.json" \
     --content-type "application/json" \
-    --cache-control "no-cache, max-age=0" \
-    --no-progress 2>&1
+    --cache-control "no-cache, max-age=0"
 log "  Done."
 
 # Verify manifest is accessible

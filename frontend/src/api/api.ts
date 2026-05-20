@@ -577,6 +577,17 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
+export interface ServerActivateTrialRequest {
+  credits?: number;
+  days?: number;
+}
+
+export interface ServerActivateTrialResponse {
+  org_id?: string;
+  status?: string;
+  user?: TypesUser;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
   gpus?: HydraGPUInfo[];
@@ -1391,7 +1402,7 @@ export enum StripeSubscriptionStatus {
 
 export interface SystemHTTPError {
   message?: string;
-  statusCode?: number;
+  status_code?: number;
 }
 
 export interface TypesAPIError {
@@ -2235,6 +2246,24 @@ export interface TypesCreateAccessGrantRequest {
   user_reference?: string;
 }
 
+export interface TypesCreateAccessGrantResponse {
+  added_to_organization?: boolean;
+  created_at?: string;
+  id?: string;
+  /** If granted to an organization */
+  organization_id?: string;
+  /** App ID, Knowledge ID, etc */
+  resource_id?: string;
+  roles?: TypesRole[];
+  /** If granted to a team */
+  team_id?: string;
+  updated_at?: string;
+  /** Populated by the server if UserID is set */
+  user?: TypesUser;
+  /** If granted to a user */
+  user_id?: string;
+}
+
 export interface TypesCreateBranchRequest {
   base_branch?: string;
   branch_name?: string;
@@ -3027,6 +3056,7 @@ export enum TypesInteractionState {
   InteractionStateEditing = "editing",
   InteractionStateComplete = "complete",
   InteractionStateError = "error",
+  InteractionStateInterrupted = "interrupted",
 }
 
 export interface TypesItem {
@@ -3531,6 +3561,36 @@ export interface TypesOrgDetails {
   organization?: TypesOrganization;
   projects?: TypesProject[];
   wallet?: TypesWallet;
+}
+
+export interface TypesOrgUsageSummaryResponse {
+  active_apps?: number;
+  active_projects?: number;
+  active_sessions?: number;
+  active_users?: number;
+  apps?: TypesUsageBreakdownRow[];
+  export_apps?: TypesUsageBreakdownRow[];
+  export_models?: TypesUsageBreakdownRow[];
+  export_projects?: TypesUsageBreakdownRow[];
+  export_sessions?: TypesUsageBreakdownRow[];
+  export_tasks?: TypesUsageBreakdownRow[];
+  export_users?: TypesUsageBreakdownRow[];
+  filter_apps?: TypesUsageFilterOption[];
+  filter_models?: TypesUsageFilterOption[];
+  filter_projects?: TypesUsageFilterOption[];
+  filter_users?: TypesUsageFilterOption[];
+  metrics?: TypesAggregatedUsageMetric[];
+  model_time_series?: TypesUsageModelTimeSeries[];
+  models?: TypesUsageBreakdownRow[];
+  project_models?: TypesUsageBreakdownRow[];
+  projects?: TypesUsageBreakdownRow[];
+  projects_total?: number;
+  sessions?: TypesUsageBreakdownRow[];
+  sessions_total?: number;
+  tasks?: TypesUsageBreakdownRow[];
+  tasks_total?: number;
+  users?: TypesUsageBreakdownRow[];
+  users_total?: number;
 }
 
 export interface TypesOrganization {
@@ -4170,6 +4230,11 @@ export interface TypesQuotaResponse {
    */
   active_desktop_sandboxes?: number;
   active_headless_sandboxes?: number;
+  /**
+   * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+   * organisation when the session has an org, per user otherwise.
+   * -1 = unlimited.
+   */
   max_concurrent_desktops?: number;
   max_desktop_sandboxes?: number;
   max_headless_sandboxes?: number;
@@ -4612,6 +4677,12 @@ export interface TypesServerConfigForFrontend {
   has_providers?: boolean;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
+  /**
+   * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+   * organisation when the session has an org, per user otherwise.
+   * -1 = unlimited. Note: /config is unauthenticated, so this is the
+   * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
+   */
   max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
@@ -5630,7 +5701,6 @@ export interface TypesSystemSettingsRequest {
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
-  max_concurrent_desktops?: number;
   max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -5670,8 +5740,6 @@ export interface TypesSystemSettingsResponse {
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
-  /** Per user */
-  max_concurrent_desktops?: number;
   max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -6067,6 +6135,56 @@ export interface TypesUsage {
   total_tokens?: number;
 }
 
+export interface TypesUsageBreakdownRow {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
+  completion_cost?: number;
+  completion_tokens?: number;
+  email?: string;
+  ended_at?: string;
+  id?: string;
+  interaction_id?: string;
+  last_activity_at?: string;
+  latency_ms?: number;
+  model?: string;
+  name?: string;
+  prompt_cost?: number;
+  prompt_tokens?: number;
+  provider?: string;
+  request_size_bytes?: number;
+  response_size_bytes?: number;
+  session_count?: number;
+  session_id?: string;
+  started_at?: string;
+  total_cost?: number;
+  total_requests?: number;
+  total_tokens?: number;
+  unique_apps?: number;
+  unique_projects?: number;
+  unique_sessions?: number;
+  unique_users?: number;
+  username?: string;
+}
+
+export interface TypesUsageFilterOption {
+  email?: string;
+  id?: string;
+  model?: string;
+  name?: string;
+  provider?: string;
+  username?: string;
+}
+
+export interface TypesUsageModelTimeSeries {
+  id?: string;
+  metrics?: TypesAggregatedUsageMetric[];
+  model?: string;
+  name?: string;
+  provider?: string;
+}
+
 export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
@@ -6101,6 +6219,20 @@ export interface TypesUser {
   token?: string;
   /** none, runner. keycloak, api_key */
   token_type?: TypesTokenType;
+  trial_credits_on_first_org?: number;
+  /**
+   * Trial intent stashed by admin before the user has created their first org.
+   * Consumed by wallet creation on first owned org, then cleared.
+   */
+  trial_days_on_first_org?: number;
+  trial_ends_at?: number;
+  trial_org_id?: string;
+  /**
+   * Transient trial-display fields populated by the admin users list when
+   * ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+   * explicitly populated (json:"...,omitempty").
+   */
+  trial_status?: string;
   /**
    * these are set by the keycloak user based on the token
    * if it's an app token - the keycloak user is loaded from the owner of the app
@@ -6795,6 +6927,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/password`,
         method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.
+     *
+     * @tags users
+     * @name V1AdminUsersTrialActivateDelete
+     * @summary Revoke an admin-granted trial (Admin, cloud only)
+     * @request DELETE:/api/v1/admin/users/{id}/trial-activate
+     * @secure
+     */
+    v1AdminUsersTrialActivateDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerActivateTrialResponse, any>({
+        path: `/api/v1/admin/users/${id}/trial-activate`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.
+     *
+     * @tags users
+     * @name V1AdminUsersTrialActivateCreate
+     * @summary Activate a trial for a user (Admin, cloud only)
+     * @request POST:/api/v1/admin/users/{id}/trial-activate
+     * @secure
+     */
+    v1AdminUsersTrialActivateCreate: (id: string, request: ServerActivateTrialRequest, params: RequestParams = {}) =>
+      this.request<ServerActivateTrialResponse, any>({
+        path: `/api/v1/admin/users/${id}/trial-activate`,
+        method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
@@ -10853,7 +11023,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant, any>({
+      this.request<TypesCreateAccessGrantResponse, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "POST",
         body: request,
@@ -14123,6 +14293,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
         path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider
+     *
+     * @tags usage
+     * @name V1UsageOrgSummaryList
+     * @summary Get organization usage summary
+     * @request GET:/api/v1/usage/org-summary
+     * @secure
+     */
+    v1UsageOrgSummaryList: (
+      query: {
+        /** Organization ID */
+        org_id: string;
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** User ID */
+        user_id?: string;
+        /** Project ID */
+        project_id?: string;
+        /** App ID */
+        app_id?: string;
+        /** Session ID */
+        session_id?: string;
+        /** Provider */
+        provider?: string;
+        /** Model */
+        model?: string;
+        /** User search */
+        user_search?: string;
+        /** User page size */
+        user_limit?: number;
+        /** User page offset */
+        user_offset?: number;
+        /** Project page size */
+        project_limit?: number;
+        /** Project page offset */
+        project_offset?: number;
+        /** Task page size */
+        task_limit?: number;
+        /** Task page offset */
+        task_offset?: number;
+        /** Session page size */
+        session_limit?: number;
+        /** Session page offset */
+        session_offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgUsageSummaryResponse, SystemHTTPError>({
+        path: `/api/v1/usage/org-summary`,
         method: "GET",
         query: query,
         secure: true,

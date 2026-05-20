@@ -18,6 +18,7 @@ import { TypesResource } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
+import useDocumentTitle from '../../hooks/useDocumentTitle'
 import { ThemeContext } from '../../contexts/theme'
 
 import {
@@ -113,7 +114,10 @@ const Page: React.FC<{
       useBreadcrumbTitles.unshift(breadcrumbParent)
     }
   }
-  
+
+  // Update browser tab title to match breadcrumbs
+  useDocumentTitle(useBreadcrumbTitles.map(b => b.title))
+
   let useTopbarTitle = useBreadcrumbTitles.length > 0 ? (
     <Box
       component="span"

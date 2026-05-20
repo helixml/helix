@@ -33,10 +33,14 @@ var passwordResetRequestTemplate string
 //go:embed templates/waitlist_approved.html
 var waitlistApprovedTemplate string
 
+//go:embed templates/trial_activated.html
+var trialActivatedTemplate string
+
 var cronTriggerCompleteTmpl = template.Must(template.New("taskComplete").Parse(taskCompleteTemplate))
 var cronTriggerFailedTmpl = template.Must(template.New("taskFailed").Parse(taskFailedTemplate))
 var passwordResetRequestTmpl = template.Must(template.New("passwordResetRequest").Parse(passwordResetRequestTemplate))
 var waitlistApprovedTmpl = template.Must(template.New("waitlistApproved").Parse(waitlistApprovedTemplate))
+var trialActivatedTmpl = template.Must(template.New("trialActivated").Parse(trialActivatedTemplate))
 
 type Email struct {
 	cfg     *config.Notifications
@@ -202,12 +206,31 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		err = waitlistApprovedTmpl.Execute(&buf, &templateData{
 			FirstName: n.FirstName,
 			AppURL:    e.cfg.AppURL,
+			TrialDays: n.TrialDays,
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("failed to execute template: %w", err)
 		}
 
-		return "Welcome to Helix - You're Approved!", buf.String(), nil
+		subject := "Welcome to Helix - You're Approved!"
+		if n.TrialDays > 0 {
+			subject = fmt.Sprintf("Welcome to Helix - %d-day trial activated", n.TrialDays)
+		}
+		return subject, buf.String(), nil
+	case types.EventTrialActivated:
+		var buf bytes.Buffer
+
+		err = trialActivatedTmpl.Execute(&buf, &templateData{
+			FirstName:    n.FirstName,
+			AppURL:       e.cfg.AppURL,
+			TrialDays:    n.TrialDays,
+			TrialPending: n.TrialPending,
+		})
+		if err != nil {
+			return "", "", fmt.Errorf("failed to execute template: %w", err)
+		}
+
+		return fmt.Sprintf("Your Helix trial is active - %d days included", n.TrialDays), buf.String(), nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}
@@ -220,4 +243,6 @@ type templateData struct {
 	ErrorMessage string
 	FirstName    string
 	AppURL       string
+	TrialDays    int
+	TrialPending bool
 }
