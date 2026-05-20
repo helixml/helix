@@ -31,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -40,7 +41,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
-	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -101,15 +101,15 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string   // Zed context_id -> Helix session_id mapping
-	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
+	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
 	// (interaction → prompt link is now persisted on Interaction.PromptID
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
-	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
+	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -152,9 +152,9 @@ type HelixAPIServer struct {
 	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
-	syncEventHook              SyncEventHook // optional test hook, nil in production
-	startTime          time.Time              // when the server started, for grace periods
-	modelFetchGroup    singleflight.Group     // deduplicates concurrent getProviderModels calls per cache key
+	syncEventHook              SyncEventHook      // optional test hook, nil in production
+	startTime                  time.Time          // when the server started, for grace periods
+	modelFetchGroup            singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
 	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
 	activeStreamProxies   map[string]*activeStreamProxy
 	activeStreamProxiesMu sync.Mutex
@@ -309,24 +309,24 @@ func NewServer(
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
 	apiServer := &HelixAPIServer{
-		Cfg:                         cfg,
-		Store:                       store,
-		Stripe:                      stripe,
-		startTime:                   time.Now(),
-		quotaManager:                quotaManager,
-		Controller:                  appController,
-		Janitor:                     janitor,
-		gitRepositoryService:        gitRepositoryService,
-		externalAgentExecutor:       externalAgentExecutor,
-		externalAgentWSManager:      externalAgentWSManager,
-		externalAgentRunnerManager:  externalAgentRunnerManager,
-		contextMappings:             make(map[string]string),
+		Cfg:                        cfg,
+		Store:                      store,
+		Stripe:                     stripe,
+		startTime:                  time.Now(),
+		quotaManager:               quotaManager,
+		Controller:                 appController,
+		Janitor:                    janitor,
+		gitRepositoryService:       gitRepositoryService,
+		externalAgentExecutor:      externalAgentExecutor,
+		externalAgentWSManager:     externalAgentWSManager,
+		externalAgentRunnerManager: externalAgentRunnerManager,
+		contextMappings:            make(map[string]string),
 
 		requestToSessionMapping:     make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
-		sessionCommentTimeout:     make(map[string]*time.Timer),
-		requestToCommenterMapping: make(map[string]string),
+		sessionCommentTimeout:       make(map[string]*time.Timer),
+		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 		activeStreamProxies:         make(map[string]*activeStreamProxy),
@@ -338,10 +338,10 @@ func NewServer(
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 		},
-		knowledgeManager:  knowledgeManager,
-		skillManager:      skillManager,
-		inferenceRouter:   inferencerouter.NewRouter(),
-		pingService:       pingService,
+		knowledgeManager: knowledgeManager,
+		skillManager:     skillManager,
+		inferenceRouter:  inferencerouter.NewRouter(),
+		pingService:      pingService,
 		// Note: inferenceServer's router wired below post-construction
 		// (avoids order-of-init issues with the apiServer literal).
 		authenticator:     authenticator,
@@ -377,19 +377,19 @@ func NewServer(
 	}
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{
-		ContextMappingsMutex:          &apiServer.contextMappingsMutex,
-		RequestToSessionMapping:       &apiServer.requestToSessionMapping,
-		RequestToInteractionMapping:   &apiServer.requestToInteractionMapping,
+		ContextMappingsMutex:        &apiServer.contextMappingsMutex,
+		RequestToSessionMapping:     &apiServer.requestToSessionMapping,
+		RequestToInteractionMapping: &apiServer.requestToInteractionMapping,
 	}
 
 	apiServer.Controller.SetExternalAgentHooks(controller.ExternalAgentHooks{
-		WaitForExternalAgentReady: apiServer.waitForExternalAgentReady,
-		GetAgentNameForSession:    apiServer.getAgentNameForSession,
-		SendCommand:               apiServer.sendCommandToExternalAgent,
-		StoreResponseChannel:      apiServer.storeResponseChannel,
-		CleanupResponseChannel:    apiServer.cleanupResponseChannel,
+		WaitForExternalAgentReady:    apiServer.waitForExternalAgentReady,
+		GetAgentNameForSession:       apiServer.getAgentNameForSession,
+		SendCommand:                  apiServer.sendCommandToExternalAgent,
+		StoreResponseChannel:         apiServer.storeResponseChannel,
+		CleanupResponseChannel:       apiServer.cleanupResponseChannel,
 		SetRequestInteractionMapping: contextMappings.SetRequestInteractionMapping,
-		SetRequestSessionMapping:  contextMappings.SetRequestSessionMapping,
+		SetRequestSessionMapping:     contextMappings.SetRequestSessionMapping,
 	})
 
 	// Initialize auth middleware with session manager for BFF authentication
@@ -729,30 +729,32 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// /api/v1 subrouter so we don't pick up its csrfMiddleware — the
 	// org UI uses standard form POSTs without Helix CSRF tokens; the
 	// feature flag is the gate).
-	if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
-		FileStoreType: apiServer.Cfg.FileStore.Type,
-		LocalFSPath:   apiServer.Cfg.FileStore.LocalFSPath,
-	}, apiServer.Store); err != nil {
-		return nil, fmt.Errorf("initialise helix-org: %w", err)
-	} else if orgHandlers != nil {
-		authRouter.PathPrefix("/org/").Handler(
-			requireFeature(alphaFeatureHelixOrg)(
-				http.StripPrefix(APIPrefix+"/org", orgHandlers.api),
-			),
-		)
-		uiRouter := router.PathPrefix("/ui/").Subrouter()
-		uiRouter.Use(apiServer.authMiddleware.extractMiddleware)
-		uiRouter.Use(requireUser)
-		uiRouter.Use(requireFeature(alphaFeatureHelixOrg))
-		uiRouter.PathPrefix("/").Handler(orgHandlers.ui)
+	if apiServer.Cfg.HelixOrgEnabled {
+		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+			FileStoreType: apiServer.Cfg.FileStore.Type,
+			LocalFSPath:   apiServer.Cfg.FileStore.LocalFSPath,
+		}, apiServer.Store); err != nil {
+			return nil, fmt.Errorf("initialise helix-org: %w", err)
+		} else if orgHandlers != nil {
+			authRouter.PathPrefix("/org/").Handler(
+				requireFeature(alphaFeatureHelixOrg)(
+					http.StripPrefix(APIPrefix+"/org", orgHandlers.api),
+				),
+			)
+			uiRouter := router.PathPrefix("/ui/").Subrouter()
+			uiRouter.Use(apiServer.authMiddleware.extractMiddleware)
+			uiRouter.Use(requireUser)
+			uiRouter.Use(requireFeature(alphaFeatureHelixOrg))
+			uiRouter.PathPrefix("/").Handler(orgHandlers.ui)
 
-		// Expose helix-org's owner MCP through the standard Helix MCP
-		// gateway so picked agents can call it without us having to bake
-		// the agent owner's api_key into the agent's app config. The
-		// gateway already auth-checks the api_key via authRouter; the
-		// backend re-checks the alpha-feature flag for defence in depth.
-		// Route: /api/v1/mcp/helix-org/...
-		apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(orgHandlers.api))
+			// Expose helix-org's owner MCP through the standard Helix MCP
+			// gateway so picked agents can call it without us having to bake
+			// the agent owner's api_key into the agent's app config. The
+			// gateway already auth-checks the api_key via authRouter; the
+			// backend re-checks the alpha-feature flag for defence in depth.
+			// Route: /api/v1/mcp/helix-org/...
+			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(orgHandlers.api))
+		}
 	}
 
 	// Setup OAuth routes with the auth router (except for callback)
