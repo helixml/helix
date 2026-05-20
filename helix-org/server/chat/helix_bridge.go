@@ -400,46 +400,35 @@ func (b *HelixBridge) SendHandler() http.Handler {
 }
 
 // send dispatches one user message to the owner Worker's chat
-// session. Resolves the per-Worker project (and its auto-provisioned
-// Agent App carrying our MCP wiring) via Ensure on every call —
-// idempotent, so the cost is one DB lookup once the Worker has a
-// project.
+// session via the shared helixclient.EnsureAndSend primitive —
+// exactly the same primitive worker activations (Spawner) use, so
+// owner-chat and worker activations have one code path. Both produce
+// session_role="exploratory" sessions, so both show up in Helix's
+// per-project desktop view; both recover from stale persisted IDs
+// the same way (HTTP error or SSE-stream error → fall through to a
+// fresh session). The bridge's only bridge-specific work is:
 //
-// Two paths:
-//   - **Follow-up** (sessionID already attached): POST
-//     /api/v1/sessions/{id}/messages — Helix queues the message and
-//     pickupWaitingInteraction delivers it on agent reconnect.
-//   - **First turn** (no session): POST /sessions/chat to create the
-//     session. If the desktop's WS hasn't connected yet (hadWSError)
-//     we immediately re-queue the same prompt via the /messages
-//     endpoint so it lands once the agent dials home.
+//   - resolving project IDs via the ProjectApplier (which the
+//     Spawner does too, just earlier),
+//   - persisting the new session ID and managing the in-process WS
+//     subscriber state (Spawner has no WS — it polls),
+//   - the appOnly path, which is a vestigial mode for chatting
+//     against a pre-configured Helix app instead of a per-Worker
+//     project. Kept separate because that mode has no project and
+//     derives agent_type/provider/model server-side from the app.
 func (b *HelixBridge) send(ctx context.Context, msg string) error {
-	var projectID, agentAppID string
-	var err error
 	appOnly := b.appID != "" || b.appIDFunc != nil
 	if appOnly {
-		// App-only mode: skip ProjectApplier. The session is opened
-		// against an existing Helix app; agent_type, provider, model,
-		// and organization_id are derived server-side from the app
-		// (see session_handlers.go:383). This is the path for the
-		// embedded SaaS alpha where helix-org reuses agents the
-		// operator already configured under /orgs/<org>/agents.
-		if b.appIDFunc != nil {
-			agentAppID, err = b.appIDFunc(ctx)
-			if err != nil {
-				return fmt.Errorf("look up chat.app_id: %w", err)
-			}
-			if agentAppID == "" {
-				return fmt.Errorf("no Helix agent picked yet — set chat.app_id under /ui/settings or via the alpha agent picker")
-			}
-		} else {
-			agentAppID = b.appID
-		}
-	} else {
-		projectID, agentAppID, _, err = b.ensure.Ensure(ctx, b.ownerID)
-		if err != nil {
-			return fmt.Errorf("ensure owner project: %w", err)
-		}
+		return b.sendAppOnly(ctx, msg)
+	}
+
+	projectID, agentAppID, _, err := b.ensure.Ensure(ctx, b.ownerID)
+	if err != nil {
+		return fmt.Errorf("ensure owner project: %w", err)
+	}
+	orgID, err := b.resolveProjectOrg(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("resolve project org: %w", err)
 	}
 
 	// On the bridge's first send after process boot, recover the
@@ -466,12 +455,82 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 	sid := b.sessionID
 	b.mu.Unlock()
 
-	// Follow-up: continue the existing Helix session by re-posting
-	// /sessions/chat with SessionID set. The /sessions/{id}/messages
-	// queue endpoint helix-org's standalone build targets does not
-	// exist in this embedded Helix yet; falling back to the
-	// well-supported continuation path keeps follow-ups working
-	// without a server-side change.
+	// attachOnNew is the OnSessionID callback EnsureAndSend invokes
+	// the moment Helix emits the session ID. We only need to spin up
+	// a fresh WS subscriber when the ID is *different* from the one
+	// we're already tracking — on a successful resume EnsureAndSend
+	// echoes the same ID back, and the existing subscriber should
+	// keep running rather than churn.
+	attachOnNew := func(newSID string) {
+		b.mu.Lock()
+		current := b.sessionID
+		b.mu.Unlock()
+		if newSID == current {
+			return
+		}
+		b.attachSession(newSID)
+		b.logger.Info("chat helix session opened", "sid", newSID, "project", projectID, "app", agentAppID)
+	}
+
+	activeSID, fresh, err := helixclient.EnsureAndSend(ctx, b.client, helixclient.SendPromptParams{
+		SessionID:      sid,
+		ProjectID:      projectID,
+		OrganizationID: orgID,
+		AppID:          agentAppID,
+		AgentType:      agenthelix.AgentType,
+		Provider:       b.provider,
+		Model:          b.model,
+		Prompt:         msg,
+		OnSessionID:    attachOnNew,
+	})
+	if err != nil {
+		return fmt.Errorf("helix send: %w", err)
+	}
+	if fresh && sid != "" {
+		b.logger.Warn("chat helix: persisted session unusable, opened fresh", "old_sid", sid, "new_sid", activeSID)
+	}
+	// attachSession (invoked via attachOnNew when fresh) persists the
+	// new ID, so we don't need to repeat that here.
+	return nil
+}
+
+// sendAppOnly handles the legacy app-only mode where helix-org chats
+// against an existing Helix app instead of a per-Worker project. This
+// path doesn't go through EnsureAndSend because the request shape is
+// different (no project, no external-agent config, agent_type derived
+// server-side from the app). Kept for completeness — current installs
+// use project-applier mode.
+func (b *HelixBridge) sendAppOnly(ctx context.Context, msg string) error {
+	agentAppID := b.appID
+	if b.appIDFunc != nil {
+		got, err := b.appIDFunc(ctx)
+		if err != nil {
+			return fmt.Errorf("look up chat.app_id: %w", err)
+		}
+		if got == "" {
+			return fmt.Errorf("no Helix agent picked yet — set chat.app_id under /ui/settings or via the alpha agent picker")
+		}
+		agentAppID = got
+	}
+
+	b.loadOnce.Do(func() {
+		if b.loadSessionID == nil {
+			return
+		}
+		persisted, err := b.loadSessionID(ctx, b.ownerID)
+		if err != nil {
+			b.logger.Warn("chat helix: load persisted session id (appOnly)", "worker", b.ownerID, "err", err)
+			return
+		}
+		if persisted != "" {
+			b.attachSession(persisted)
+		}
+	})
+
+	b.mu.Lock()
+	sid := b.sessionID
+	b.mu.Unlock()
+
 	if sid != "" {
 		req := helixclient.StartChatRequest{
 			SessionID:   sid,
@@ -480,152 +539,35 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 			Type:        "text",
 			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
 		}
-		// In project-applier mode the session is zed_external —
-		// signal that on the follow-up so Helix routes through
-		// startChatStreaming (returns immediately, agent runs async,
-		// transcript flows via the WS subscriber) instead of the
-		// blocking non-streaming path. Without this the followup
-		// blocks until the agent finishes AND returns the full
-		// response in session.Interactions, so both broadcastInteractions
-		// AND the WS subscriber render it — every reply ends up
-		// doubled in the chat surface.
-		if !appOnly {
-			req.AgentType = agenthelix.AgentType
-			req.ExternalAgentConfig = &helixclient.ExternalAgentConfig{}
-		}
 		session, err := helixclient.SendToSession(ctx, b.client, req)
-		if err != nil {
-			// Followup failed for any reason — stale persisted pointer
-			// (api restart / sandbox eviction), Helix-side hiccup,
-			// whatever. SendToSession folds the HTTP-error and
-			// SSE-stream-error cases together (the same single source
-			// of truth Spawner uses for worker activations), so the
-			// recovery is symmetric across owner-chat and worker
-			// resume. Drop the pointer and fall through to the
-			// first-turn block, which spins up a fresh sandbox and
-			// saves the new ID. Worst case the user pays one
-			// cold-start; that beats blocking every subsequent send
-			// forever.
-			b.logger.Warn("chat helix followup failed, restarting session", "sid", sid, "err", err)
-			b.mu.Lock()
-			if b.wsCancel != nil {
-				b.wsCancel()
-				b.wsCancel = nil
-			}
-			b.sessionID = ""
-			b.seen = make(map[string]struct{})
-			b.mu.Unlock()
-			b.wsWG.Wait()
-			if b.saveSessionID != nil {
-				persistCtx, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
-				go func() {
-					defer cancelPersist()
-					if err := b.saveSessionID(persistCtx, b.ownerID, ""); err != nil {
-						b.logger.Warn("chat helix: clear stale session id", "worker", b.ownerID, "err", err)
-					}
-				}()
-			}
-			// fall through to first-turn block below
-		} else {
-			b.logger.Info("chat helix followup", "sid", sid, "project", projectID, "app", agentAppID)
-			// Only the synchronous (helix_basic / app-only) path returns
-			// session.Interactions populated inline. For zed_external the
-			// WS subscriber is the canonical source — calling
-			// broadcastInteractions there would double-render every reply.
-			if appOnly {
-				b.broadcastInteractions(session.Interactions)
-			}
+		if err == nil {
+			b.broadcastInteractions(session.Interactions)
 			return nil
 		}
+		b.logger.Warn("chat helix followup (appOnly) failed, restarting", "sid", sid, "err", err)
+		b.mu.Lock()
+		if b.wsCancel != nil {
+			b.wsCancel()
+			b.wsCancel = nil
+		}
+		b.sessionID = ""
+		b.seen = make(map[string]struct{})
+		b.mu.Unlock()
+		b.wsWG.Wait()
 	}
 
-	// First turn: build the StartChat request. In app-only mode we
-	// rely on Helix to derive agent_type/provider/model/org from the
-	// app — we leave them empty. In project-applier mode we explicitly
-	// set zed_external + the configured provider/model, and pre-flight
-	// the desktop quota since project-applier sessions always spin up
-	// a Zed sandbox.
-	// Attach the WS subscriber the moment Helix emits the session ID,
-	// not after the SSE stream finishes. Without this the SSE read can
-	// outrun the agent's whole reply (no error chunk to break early
-	// on), and by the time we attach the WS subscriber there are no
-	// more events to receive — the user sees their own bubble but no
-	// assistant response.
-	onID := func(sid string) {
-		b.attachSession(sid)
-		b.logger.Info("chat helix session opened", "sid", sid, "project", projectID, "app", agentAppID)
+	req := helixclient.StartChatRequest{
+		AppID:       agentAppID,
+		SessionRole: b.sessionRole,
+		Type:        "text",
+		Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+		OnSessionID: b.attachSession,
 	}
-	var req helixclient.StartChatRequest
-	if appOnly {
-		req = helixclient.StartChatRequest{
-			AppID:       agentAppID,
-			SessionRole: b.sessionRole,
-			Type:        "text",
-			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
-			OnSessionID: onID,
-		}
-	} else {
-		if err := helixclient.CheckDesktopQuota(ctx, b.client); err != nil {
-			return err
-		}
-		orgID, err := b.resolveProjectOrg(ctx, projectID)
-		if err != nil {
-			return fmt.Errorf("resolve project org: %w", err)
-		}
-		// AppID MUST be set — it becomes session.ParentApp, and Helix's
-		// external MCP proxy at /api/v1/mcp/external/{name} bails with
-		// "session has no associated agent" if ParentApp is empty
-		// (mcp_backend_external.go:272).
-		req = helixclient.StartChatRequest{
-			ProjectID:           projectID,
-			OrganizationID:      orgID,
-			AppID:               agentAppID,
-			SessionRole:         b.sessionRole,
-			AgentType:           agenthelix.AgentType,
-			Type:                "text",
-			Provider:            b.provider,
-			Model:               b.model,
-			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
-			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
-			OnSessionID:         onID,
-		}
-	}
-	session, hadWSError, err := b.client.StartChatWithStatus(ctx, req)
+	session, _, err := b.client.StartChatWithStatus(ctx, req)
 	if err != nil {
-		return fmt.Errorf("start helix chat: %w", err)
+		return fmt.Errorf("start helix chat (appOnly): %w", err)
 	}
-	// onID already attached the session; nothing more to do here for
-	// the WS subscriber path.
-
-	// Only render synchronous (helix_basic / app-only) interactions
-	// inline. zed_external streams the transcript via the WS
-	// subscriber attachSession just started; calling
-	// broadcastInteractions there too would double-render the reply.
-	if appOnly {
-		b.broadcastInteractions(session.Interactions)
-	}
-
-	// Cold-start race: Helix's first /sessions/chat raced the desktop's
-	// WS connect, so the prompt is sitting in state=error. Re-issue via
-	// /sessions/chat with SessionID set — embedded Helix has no
-	// /sessions/{id}/messages queue endpoint, but the SessionID-based
-	// continuation path lands the prompt on the same session.
-	if hadWSError {
-		b.broadcast(renderAssistantText("_Warming up the Zed desktop. This usually takes a minute or two on a cold session..._"))
-		req := helixclient.StartChatRequest{
-			SessionID:           session.ID,
-			ProjectID:           projectID,
-			AppID:               agentAppID,
-			SessionRole:         b.sessionRole,
-			AgentType:           agenthelix.AgentType,
-			Type:                "text",
-			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
-			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
-		}
-		if _, _, err := b.client.StartChatWithStatus(ctx, req); err != nil {
-			b.logger.Warn("chat helix queue cold-start retry", "sid", session.ID, "err", err)
-		}
-	}
+	b.broadcastInteractions(session.Interactions)
 	return nil
 }
 

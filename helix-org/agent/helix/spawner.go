@@ -277,77 +277,34 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.Worker
 	// standard Helix supports for both new and continued sessions.
 	// If the session is gone (404 / not found) we fall through and
 	// open a fresh one.
-	if state.SessionID != "" {
-		_, err := helixclient.SendToSession(ctx, c.Client, helixclient.StartChatRequest{
-			SessionID: state.SessionID,
-			ProjectID: state.ProjectID,
-			AppID:     state.AgentAppID,
-			AgentType: AgentType,
-			Type:      "text",
-			Messages:  []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", prompt)},
-		})
-		if err == nil {
-			return state.SessionID, nil
-		}
-		// Persisted session is unusable — log and fall through to open
-		// a fresh one. SendToSession surfaces both transport errors
-		// (api restart, network) and SSE-reported dispatch failures
-		// (external-agent state evicted), so this single check handles
-		// every "stale pointer" case identically to the bridge path.
-		if c.Logger != nil {
-			c.Logger.Info("spawner: persisted session unusable, opening fresh",
-				"worker", workerID, "stale_sid", state.SessionID, "err", err)
-		}
-	}
-
-	// First activation (or stale session): create one. Refuse early if
-	// the operator's desktop quota is already exhausted — Helix would
-	// otherwise spin up the project's plumbing (apply secrets, create
-	// the agent app) and fail at the StartDesktop step with a generic
-	// "desktop limit reached" 500 minutes later. We can't reserve a
-	// slot atomically (Helix doesn't expose that) so this is a soft
-	// pre-flight; a parallel caller could still beat us to the last
-	// slot, in which case Helix will return its own error.
-	if err := helixclient.CheckDesktopQuota(ctx, c.Client); err != nil {
-		return "", err
-	}
-	// We post the activation prompt through StartChat so Helix has
-	// *something* to dispatch — but if the desktop's WS hasn't
-	// connected yet (hadWSError) the interaction is in error state,
-	// so we re-queue the same prompt durably.
-	req := helixclient.StartChatRequest{
-		ProjectID:           state.ProjectID,
-		AppID:               state.AgentAppID,
-		SessionRole:         "job",
-		AgentType:           AgentType,
-		Type:                "text",
-		ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
-		Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", prompt)},
-	}
-	session, hadWSError, err := c.Client.StartChatWithStatus(ctx, req)
+	// EnsureAndSend is the single primitive shared with the owner-chat
+	// bridge: it resumes the persisted session if possible, falls
+	// through to a fresh one on any failure (HTTP, SSE-error chunk,
+	// stale in-memory state after api restart), and posts the
+	// activation prompt — all with session_role="exploratory" so the
+	// new session is discoverable from Helix's per-project UI. Without
+	// one shared primitive the two paths drift apart and develop
+	// independent stale-session bugs.
+	sid, fresh, err := helixclient.EnsureAndSend(ctx, c.Client, helixclient.SendPromptParams{
+		SessionID: state.SessionID,
+		ProjectID: state.ProjectID,
+		AppID:     state.AgentAppID,
+		AgentType: AgentType,
+		Prompt:    prompt,
+	})
 	if err != nil {
-		return "", fmt.Errorf("start chat: %w", err)
+		return "", fmt.Errorf("ensure session: %w", err)
 	}
-	if err := SaveSession(ctx, c.Store, workerID, session.ID); err != nil {
-		return "", fmt.Errorf("persist session id: %w", err)
-	}
-	if hadWSError {
-		// Re-issue via SessionID-based continuation (same /sessions/chat
-		// endpoint; embedded Helix has no /messages queue). Best-effort:
-		// the cold-start WS race is rare in the embedded path because
-		// the API and sandbox run in the same docker network.
-		if _, _, err := c.Client.StartChatWithStatus(ctx, helixclient.StartChatRequest{
-			SessionID: session.ID,
-			ProjectID: state.ProjectID,
-			AppID:     state.AgentAppID,
-			AgentType: AgentType,
-			Type:      "text",
-			Messages:  []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", prompt)},
-		}); err != nil {
-			return "", fmt.Errorf("queue activation prompt: %w", err)
+	if fresh {
+		if c.Logger != nil && state.SessionID != "" {
+			c.Logger.Info("spawner: persisted session unusable, opened fresh",
+				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
+		}
+		if err := SaveSession(ctx, c.Store, workerID, sid); err != nil {
+			return "", fmt.Errorf("persist session id: %w", err)
 		}
 	}
-	return session.ID, nil
+	return sid, nil
 }
 
 // pollUntilDone polls GetOutput with exponential backoff until a
