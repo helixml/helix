@@ -2414,13 +2414,14 @@ type AdminResetPasswordRequest struct {
 }
 
 type UserResponse struct {
-	ID                  string `json:"id"`
-	Email               string `json:"email"`
-	Token               string `json:"token"`
-	Name                string `json:"name"`
-	Admin               bool   `json:"admin"`
-	OnboardingCompleted bool   `json:"onboarding_completed"`
-	Waitlisted          bool   `json:"waitlisted"`
+	ID                  string   `json:"id"`
+	Email               string   `json:"email"`
+	Token               string   `json:"token"`
+	Name                string   `json:"name"`
+	Admin               bool     `json:"admin"`
+	OnboardingCompleted bool     `json:"onboarding_completed"`
+	Waitlisted          bool     `json:"waitlisted"`
+	AlphaFeatures       []string `json:"alpha_features"`
 }
 
 type AuthenticatedResponse struct {

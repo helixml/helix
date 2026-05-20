@@ -50,6 +50,29 @@ func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(f)
 }
 
+// requireFeature returns middleware that gates access on the given
+// alpha-feature flag. The flag must be present in the authenticated
+// user's AlphaFeatures slice; missing returns 403. This is the
+// server-side gate — frontend toggles are cosmetic only.
+func requireFeature(name string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := getRequestUser(r)
+			if !hasUser(user) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			for _, f := range user.AlphaFeatures {
+				if f == name {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+		})
+	}
+}
+
 func requireRunner(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		user := getRequestUser(r)

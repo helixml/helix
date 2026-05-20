@@ -742,6 +742,47 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
 
+	// helix-org alpha: embed the standalone helix-org HTTP surface as
+	// an in-process handler, gated per-user by the `helix-org` alpha
+	// feature. See design/2026-05-17-helix-org-saas-alpha.md.
+	//
+	// The MCP / webhook JSON-RPC API lives at /api/v1/org/. The htmx
+	// UI is mounted at top-level /ui/ (outside /api/v1) because its
+	// templates use absolute /ui/... hrefs — rewriting them at the
+	// proxy layer is more fragile than just serving from the path
+	// they expect. /ui/ is auth-gated via extractMiddleware +
+	// requireUser + requireFeature manually wired (we sit outside the
+	// /api/v1 subrouter so we don't pick up its csrfMiddleware — the
+	// org UI uses standard form POSTs without Helix CSRF tokens; the
+	// feature flag is the gate).
+	if apiServer.Cfg.HelixOrgEnabled {
+		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+			FileStoreType: apiServer.Cfg.FileStore.Type,
+			LocalFSPath:   apiServer.Cfg.FileStore.LocalFSPath,
+		}, apiServer.Store); err != nil {
+			return nil, fmt.Errorf("initialise helix-org: %w", err)
+		} else if orgHandlers != nil {
+			authRouter.PathPrefix("/org/").Handler(
+				requireFeature(alphaFeatureHelixOrg)(
+					http.StripPrefix(APIPrefix+"/org", orgHandlers.api),
+				),
+			)
+			uiRouter := router.PathPrefix("/ui/").Subrouter()
+			uiRouter.Use(apiServer.authMiddleware.extractMiddleware)
+			uiRouter.Use(requireUser)
+			uiRouter.Use(requireFeature(alphaFeatureHelixOrg))
+			uiRouter.PathPrefix("/").Handler(orgHandlers.ui)
+
+			// Expose helix-org's owner MCP through the standard Helix MCP
+			// gateway so picked agents can call it without us having to bake
+			// the agent owner's api_key into the agent's app config. The
+			// gateway already auth-checks the api_key via authRouter; the
+			// backend re-checks the alpha-feature flag for defence in depth.
+			// Route: /api/v1/mcp/helix-org/...
+			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(orgHandlers.api))
+		}
+	}
+
 	// Setup OAuth routes with the auth router (except for callback)
 	apiServer.setupOAuthRoutes(authRouter)
 
