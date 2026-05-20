@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -72,6 +73,9 @@ func (s *HelixAPIServer) populateActiveAgentSessions(projects []*types.Project) 
 func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *types.User, orgRef string) ([]*types.Project, *system.HTTPError) {
 	org, err := s.lookupOrg(ctx, orgRef)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(err.Error())
+		}
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 	}
 
@@ -140,7 +144,7 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// Prune stale sandbox entries from DockerCacheStatus (lazy cleanup on read).
 	// Remove entries for sandboxes that no longer exist in the database.
 	if project.Metadata.DockerCacheStatus != nil && len(project.Metadata.DockerCacheStatus.Sandboxes) > 0 {
-		sandboxes, sbErr := s.Store.ListSandboxes(r.Context())
+		sandboxes, sbErr := s.Store.ListSandboxInstances(r.Context())
 		if sbErr == nil {
 			knownIDs := make(map[string]bool, len(sandboxes))
 			for _, sb := range sandboxes {
@@ -302,8 +306,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	if req.OrganizationID != "" {
-		// Check if user is a member of the organization
-		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
+		org, err := s.lookupOrg(r.Context(), req.OrganizationID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(err.Error())
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+		}
+		req.OrganizationID = org.ID
+
+		_, err = s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
@@ -312,6 +324,26 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	defaultApp, err := s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
+	}
+	if req.OrganizationID != "" && defaultApp.OrganizationID != "" && defaultApp.OrganizationID != req.OrganizationID {
+		return nil, system.NewHTTPError400("default app must be in the same organization as the project")
+	}
+	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("primary repository not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if primaryRepo.OrganizationID != req.OrganizationID {
+		return nil, system.NewHTTPError400("primary repository must be in the same organization as the project")
+	}
+	if err := s.authorizeUserToRepository(r.Context(), user, primaryRepo, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Deduplicate project name within the workspace (org or personal)
@@ -383,15 +415,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
-	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("project_id", created.ID).
-			Str("primary_repo_id", req.DefaultRepoID).
-			Msg("failed to get primary repository")
-		// Don't fail project creation - startup script can be added later
-	} else if primaryRepo.LocalPath != "" {
+	if primaryRepo.LocalPath != "" {
 		// Use WithExternalRepoWrite with lenient options - don't fail project creation
 		// if startup script sync/push fails. The utility still handles rollback on push failure.
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
@@ -2309,7 +2333,7 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Send delete to all online sandboxes
-	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
 	}
@@ -2369,7 +2393,7 @@ func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
 	}

@@ -45,9 +45,21 @@
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
-                overscroll-behavior: none;
             }
         </style>
+        <script type="text/javascript">
+            // Set body bg + text color BEFORE React mounts so we don't flash
+            // dark mode for users who prefer light. Mirrors the logic in
+            // contexts/theme.tsx getInitialMode().
+            (function () {
+                var mode = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+                    ? 'light' : 'dark';
+                var bg = mode === 'light' ? '#ffffff' : '#121214';
+                var fg = mode === 'light' ? '#333' : '#e0e0e0';
+                document.documentElement.style.backgroundColor = bg;
+                document.documentElement.style.color = fg;
+            })();
+        </script>
         <script type="text/javascript">
             window.$crisp = [];
             window.CRISP_WEBSITE_ID = "d69e5955-fa6a-4fe6-b1bb-c87cf7515d09";

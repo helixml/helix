@@ -144,6 +144,18 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			wantMisconfig:    false,
 			why:              "runner-side callers without a manager handle opt out of resolution and pass through verbatim",
 		},
+		{
+			name: "subscription_agent_no_default_model_written",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			}},
+			snapshot:         []ProviderRef{globalAnthropic},
+			wantDefaultModel: nil,
+			wantMisconfig:    false,
+			why:              "subscription agents auth upstream directly; Zed must use its built-in defaults rather than a Helix-routed model. wantMisconfig=false so the spec-task entry handler does not 422.",
+		},
 	}
 
 	for _, tc := range cases {
@@ -392,4 +404,163 @@ func TestMergeContextServers(t *testing.T) {
 		assert.NotContains(t, got, "agent")
 		assert.NotContains(t, got, "language_models")
 	})
+}
+
+func TestBuildLanguageModels(t *testing.T) {
+	const helixURL = "http://api:8080"
+
+	cases := []struct {
+		name     string
+		snapshot []ProviderRef
+		want     map[string]LanguageModelConfig
+	}{
+		{
+			name:     "nil snapshot preserves legacy both-providers behaviour",
+			snapshot: nil,
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name:     "empty snapshot injects nothing",
+			snapshot: []ProviderRef{},
+			want:     map[string]LanguageModelConfig{},
+		},
+		{
+			name:     "openai-only does not inject anthropic",
+			snapshot: []ProviderRef{{Name: "openai"}},
+			want: map[string]LanguageModelConfig{
+				"openai": {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name:     "anthropic-only does not inject openai",
+			snapshot: []ProviderRef{{Name: "anthropic"}},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+			},
+		},
+		{
+			name: "both global providers inject both entries",
+			snapshot: []ProviderRef{
+				{Name: "openai"},
+				{Name: "anthropic"},
+			},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name: "non-anthropic custom provider unlocks openai entry only",
+			snapshot: []ProviderRef{
+				{ID: "p_nebius", Name: "Nebius EU"},
+			},
+			want: map[string]LanguageModelConfig{
+				"openai": {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name: "case insensitive anthropic match",
+			snapshot: []ProviderRef{
+				{Name: "Anthropic"},
+				{Name: "OpenAI"},
+			},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildLanguageModels(tc.snapshot, helixURL)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestValidateAssistantModelConfig_SubscriptionBypass guards the carve-out for
+// subscription-credential agents (e.g. Claude Code with OAuth). These agents
+// deliberately ship empty provider/model — the upstream auth lives in the
+// container, not in a Helix provider — so the validator must not 422 them.
+// The api_key cases stay as regression guards so we don't silently widen the
+// bypass to runtimes that DO need a Helix-routed provider.
+func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
+	globalAnthropic := ProviderRef{ID: "", Name: "anthropic"}
+
+	cases := []struct {
+		name      string
+		assistant types.AssistantConfig
+		snapshot  []ProviderRef
+		wantValid bool // true = no error returned (config considered valid)
+		why       string
+	}{
+		{
+			name: "subscription_empty_fields_ok",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantValid: true,
+			why:       "subscription agents auth upstream directly; empty provider/model is the documented shape",
+		},
+		{
+			name: "subscription_populated_fields_also_ok",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+				GenerationModelProvider: "anthropic",
+				GenerationModel:         "claude-sonnet-4-5",
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantValid: true,
+			why:       "even with stored fields, subscription bypass short-circuits validation",
+		},
+		{
+			name: "api_key_empty_fields_still_errors",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantValid: false,
+			why:       "regression guard: api_key runtimes must still surface missing provider/model",
+		},
+		{
+			name: "empty_credential_type_treated_as_api_key",
+			assistant: types.AssistantConfig{
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantValid: false,
+			why:       "default (empty) credential type is api_key per the type docs; validator must still catch misconfig",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &types.App{
+				ID: "test-app",
+				Config: types.AppConfig{
+					Helix: types.AppHelixConfig{
+						Assistants: []types.AssistantConfig{tc.assistant},
+					},
+				},
+			}
+			got := ValidateAssistantModelConfig(app, tc.snapshot)
+			if tc.wantValid {
+				assert.Empty(t, got, tc.why)
+			} else {
+				assert.NotEmpty(t, got, tc.why)
+			}
+		})
+	}
 }

@@ -23,10 +23,6 @@ import {
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
-// SYSTEM means the system prompt, NOT an assistant message (as it previously
-// did). At time of writing, it's unused in the frontend because the frontend
-// doesn't have system prompt support.
-export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
 
 export type ISessionMode = 'inference' | 'finetune'
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
@@ -37,32 +33,23 @@ export const SESSION_TYPE_TEXT: ISessionType = 'text'
 export const SESSION_TYPE_IMAGE: ISessionType = 'image'
 
 export type ISessionOriginType = 'user_created' | 'cloned'
-export const SESSION_ORIGIN_TYPE_USER_CREATED: ISessionOriginType = 'user_created'
-export const SESSION_ORIGIN_TYPE_CLONED: ISessionOriginType = 'cloned'
 
 export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
-export const INTERACTION_STATE_WAITING: IInteractionState = 'waiting'
 export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
 export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'interaction_patch' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
-export const WEBSOCKET_EVENT_TYPE_INTERACTION_UPDATE: IWebSocketEventType = 'interaction_update'
 export const WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH: IWebSocketEventType = 'interaction_patch'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
-export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
-export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
-export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
 
 export type ICloneInteractionMode = 'just_data' | 'with_questions' | 'all'
 export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_data'
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
-
-export type IModelName = string
 
 export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
@@ -91,8 +78,6 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
   TEXT_DATA_PREP_STAGE_FINETUNE,
 ]
-
-export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
 // Agent Types
 // Note: 'helix_basic' kept in type union for backward compatibility with existing agents in DB
@@ -388,17 +373,6 @@ export interface ISessionFilterModel {
   model_name?: string,
   lora_dir?: string,
 }
-export interface ISessionFilter {
-  mode?: ISessionMode | "",
-  type?: ISessionType | "",
-  model_name?: string,
-  lora_dir?: string,
-  memory?: number,
-  reject?: ISessionFilterModel[],
-  older?: string,
-}
-
-
 export interface LLMInferenceRequest {
   RequestID: string,
   CreatedAt: string,
@@ -411,11 +385,6 @@ export interface LLMInferenceRequest {
     messages: IInteractionMessage[],
     stream: boolean,
   }
-}
-
-export interface ISlotAttributesWorkload {
-  Session: TypesSession,
-  LLMInferenceRequest: LLMInferenceRequest,
 }
 
 export interface ISessionSummary {
@@ -433,13 +402,6 @@ export interface ISessionSummary {
   lora_dir?: string,
   summary: string,
   app_id?: string,
-}
-
-export interface ISessionMetaUpdate {
-  id: string,
-  name: string,
-  owner?: string,
-  owner_type?: string,
 }
 
 export interface IUploadFile {
@@ -465,17 +427,6 @@ export interface ISerializedPage {
 
 export interface ICounter {
   count: number,
-}
-
-export interface ISessionsList {
-  sessions: ISessionSummary[],
-  counter: ICounter,
-}
-
-export interface IPaginationState {
-  total: number,
-  limit: number,
-  offset: number,
 }
 
 export type IButtonStateColor = 'primary' | 'secondary'
@@ -564,12 +515,6 @@ export interface ITool {
   config: IToolConfig,
 }
 
-export interface IKeyPair {
-  type: string,
-  private_key: string,
-  public_key: string,
-}
-
 export interface IAppHelixConfigGptScript {
   source?: string,
   name?: string,
@@ -579,41 +524,11 @@ export interface IAppHelixConfigGptScript {
   env?: string[],
 }
 
-export interface IAppHelixConfigGptScripts {
-  files?: string[],
-  scripts?: IAppHelixConfigGptScript[],
-}
-
-export interface IAssistantApi {
-  name: string,
-  description: string,
-  schema: string,
-  url: string,
-  headers?: Record<string, string>,
-  query?: Record<string, string>,
-  request_prep_template?: string,
-  response_success_template?: string,
-  response_error_template?: string,
-  system_prompt?: string,
-  oauth_provider?: string,
-  oauth_scopes?: string[],
-  skip_unknown_keys?: boolean,
-  transform_output?: boolean,
-}
-
 export interface IAssistantGPTScript {
   name: string,
   description: string,
   file?: string,
   content: string,
-}
-
-export interface IAssistantZapier {
-  name: string,
-  description: string,
-  api_key?: string,
-  model?: string,
-  max_iterations?: number,
 }
 
 export interface IAssistantConfig {
@@ -907,16 +822,6 @@ export interface IAppFlatState {
   tools?: ITool[]
 }
 
-export interface IGptScriptRequest {
-  file_path: string,
-  input: string,
-}
-
-export interface IGptScriptResponse {
-  output: string,
-  error: string,
-}
-
 export type IRagDistanceFunction = 'l2' | 'inner_product' | 'cosine'
 export interface ICreateSessionConfig {
   activeToolIDs: string[],
@@ -1008,8 +913,6 @@ export type IMessageContentPartImage = {
   };
 };
 
-export type IMessageContentPart = IMessageContentPartText | IMessageContentPartImage;
-
 export interface ISessionLearnRequest {
   type: ISessionType,
   data_entity_id: string,
@@ -1044,11 +947,6 @@ export interface ISessionChatRequest {
   session_role?: string,
 }
 
-export interface IDataEntity {
-  id: string,
-  // TODO: the rest
-}
-
 export interface IPageBreadcrumb {
   title: string,
   tooltip?: string,
@@ -1056,13 +954,6 @@ export interface IPageBreadcrumb {
   params?: Record<string, any>,
   // Override the page's orgBreadcrumbs setting for this specific breadcrumb
   useOrgRouter?: boolean,
-}
-
-// Add this interface near the top of the file, with other interfaces
-export interface IApiOptions {
-  snackbar?: boolean;
-  errorCapture?: (error: any) => void;
-  signal?: AbortSignal;
 }
 
 export interface ICreateSecret {
@@ -1140,6 +1031,7 @@ export interface IAccessGrant {
   user_id?: string;
   user?: IUser;
   roles?: IRole[];
+  added_to_organization?: boolean;
 }
 
 // Request to create a new access grant
@@ -1193,17 +1085,3 @@ export interface IAppCreateResponse {
   model_substitutions?: IModelSubstitution[]
 }
 
-export interface IWallet {
-  id?: string;
-  balance?: number;
-  created_at?: string;
-  updated_at?: string;
-  stripe_customer_id?: string;
-  stripe_subscription_id?: string;
-  subscription_status?: string;
-  subscription_current_period_start?: number;
-  subscription_current_period_end?: number;
-  subscription_created?: number;
-  user_id?: string;
-  org_id?: string;
-}

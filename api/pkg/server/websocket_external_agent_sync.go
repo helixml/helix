@@ -670,6 +670,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleChatResponseError(sessionID, syncMsg)
 	case "agent_ready":
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
+	case "turn_cancelled":
+		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:
@@ -919,10 +921,21 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(createdSession.ID, createdSession.Owner, createdInteraction)
 
+	// Store request_id → interaction_id mapping so that cancel and completion
+	// handlers can look up the correct interaction.
+	if requestID != "" {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
+		apiServer.contextMappingsMutex.Unlock()
+	}
 
 	log.Info().
 		Str("helix_session_id", createdSession.ID).
 		Str("interaction_id", createdInteraction.ID).
+		Str("request_id", requestID).
 		Msg("✅ [HELIX] Created initial interaction and stored mapping")
 
 	// Check if this external agent belongs to a spectask session
@@ -1749,6 +1762,14 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 					_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
 				}
 			}
+			// Before flushing, refresh the State field from the store.
+			// Other handlers (e.g. handleTurnCancelled) may have changed
+			// the state while streaming was in progress. We must not
+			// overwrite those state transitions with our stale cached state.
+			freshInteraction, refreshErr := apiServer.Controller.Options.Store.GetInteraction(ctx, sctx.interaction.ID)
+			if refreshErr == nil {
+				sctx.interaction.State = freshInteraction.State
+			}
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
 			if err != nil {
 				log.Error().Err(err).
@@ -1815,7 +1836,12 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // to an external agent. It creates a waiting interaction, enqueues it for response
 // routing, and sends the WebSocket command. All callers that need to send a message
 // to an agent should use this function.
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) (interactionID string, err error) {
+//
+// interrupt=true tells the agent to cancel its current turn before processing the
+// message, matching the semantic used by prompt-history queue messages. Used for
+// reactive feedback (e.g. design review comments) where the latest input should
+// take priority over in-flight work.
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool) (interactionID string, err error) {
 	ctx := context.Background()
 
 	// Look up the session to get its ZedThreadID and agent name
@@ -1872,6 +1898,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
 			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
+			"interrupt":     interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
 		},
 	}
 
@@ -1924,6 +1951,100 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		}
 	}()
 	return sendErr
+}
+
+// sendCancelToExternalAgent sends a cancel_current_turn command to Zed and waits
+// for a turn_cancelled response (up to timeout). Returns the status ("cancelled" or "noop")
+// or an error if the timeout expires or the command can't be sent.
+func (apiServer *HelixAPIServer) sendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
+	// Create a channel to receive the turn_cancelled response
+	ch := make(chan string, 1)
+	apiServer.contextMappingsMutex.Lock()
+	apiServer.pendingCancelChannels[requestID] = ch
+	apiServer.contextMappingsMutex.Unlock()
+
+	// Clean up on exit
+	defer func() {
+		apiServer.contextMappingsMutex.Lock()
+		delete(apiServer.pendingCancelChannels, requestID)
+		apiServer.contextMappingsMutex.Unlock()
+	}()
+
+	// Send cancel command
+	command := types.ExternalAgentCommand{
+		Type: "cancel_current_turn",
+		Data: map[string]interface{}{
+			"request_id": requestID,
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		return "", fmt.Errorf("failed to send cancel command: %w", err)
+	}
+
+	// Wait for response or timeout
+	select {
+	case status := <-ch:
+		return status, nil
+	case <-time.After(timeout):
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("Timeout waiting for turn_cancelled from Zed")
+		return "", fmt.Errorf("timeout waiting for turn_cancelled")
+	}
+}
+
+// handleTurnCancelled processes the turn_cancelled event from Zed
+func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, _ := syncMsg.Data["request_id"].(string)
+	status, _ := syncMsg.Data["status"].(string)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Str("status", status).
+		Msg("Received turn_cancelled from Zed")
+
+	// Notify any pending cancel channel
+	apiServer.contextMappingsMutex.RLock()
+	ch, exists := apiServer.pendingCancelChannels[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if exists {
+		select {
+		case ch <- status:
+		default:
+			// Channel full or already received — ignore
+		}
+	}
+
+	// If the turn was actually cancelled, mark the interaction as interrupted
+	if status == "cancelled" {
+		apiServer.contextMappingsMutex.RLock()
+		interactionID, hasInteraction := apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
+
+		if hasInteraction {
+			interaction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), interactionID)
+			if err == nil && interaction.State == types.InteractionStateWaiting {
+				interaction.State = types.InteractionStateInterrupted
+				interaction.Completed = time.Now()
+				interaction.Updated = time.Now()
+				if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
+					log.Error().Err(err).Str("interaction_id", interactionID).Msg("Failed to mark interaction as interrupted")
+				} else {
+					log.Info().Str("interaction_id", interactionID).Msg("Marked interaction as interrupted")
+					// Publish update to frontend
+					session, sessionErr := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+					if sessionErr == nil {
+						apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, interaction)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // registerConnection registers a new external agent connection
@@ -2501,8 +2622,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return nil
 	}
 
-	// Mark the interaction as complete
-	targetInteraction.State = types.InteractionStateComplete
+	// Mark the interaction as complete — but don't overwrite "interrupted" state.
+	// When a turn is cancelled, handleTurnCancelled marks the interaction as
+	// interrupted. The message_completed event may arrive shortly after (the agent
+	// finishes its in-flight work), and we must not clobber the interrupted state.
+	if targetInteraction.State == types.InteractionStateInterrupted {
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("⏭️ [HELIX] Interaction already interrupted — skipping state transition to complete")
+	} else {
+		targetInteraction.State = types.InteractionStateComplete
+	}
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
 
@@ -2552,8 +2683,36 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if helixSession.Metadata.SpecTaskID != "" {
 		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
 
-		// Emit attention event: agent interaction completed
-		if apiServer.attentionService != nil {
+		// Emit attention event: agent interaction completed.
+		//
+		// Skip the notification when the user is clearly already active in the
+		// session — either they interrupted the agent (sent a new message that
+		// caused this completion) or they sent a quick follow-up. In both cases
+		// a newer interaction with state=waiting already exists, and notifying
+		// is just noise because the user is looking right at the UI.
+		skipAttention := false
+		latestInteractions, _, listErr := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1,
+		})
+		if listErr != nil {
+			log.Warn().Err(listErr).
+				Str("session_id", helixSessionID).
+				Msg("Failed to list interactions for attention-event suppression check; emitting event as default")
+		} else if len(latestInteractions) > 0 {
+			latest := latestInteractions[len(latestInteractions)-1]
+			if latest.State == types.InteractionStateWaiting && latest.Created.After(targetInteraction.Created) {
+				log.Debug().
+					Str("session_id", helixSessionID).
+					Str("completed_interaction_id", targetInteraction.ID).
+					Str("newer_waiting_interaction_id", latest.ID).
+					Msg("Skipping agent_interaction_completed attention event: user already active in session")
+				skipAttention = true
+			}
+		}
+
+		if !skipAttention && apiServer.attentionService != nil {
 			go func() {
 				task, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
 				if err != nil {
@@ -3056,10 +3215,18 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	return nil
 }
 
-// autoStartDevContainerForSession checks if a session belongs to a spec task and,
-// if so, auto-starts its dev container. This is fire-and-forget — the caller's
+// autoStartDevContainerForSession boots the dev container for any zed_external
+// session that has no live WebSocket connection. Fire-and-forget — the caller's
 // message is already persisted and will be picked up by pickupWaitingInteraction
 // when the agent reconnects.
+//
+// Handles three session shapes via startDevContainerForSession:
+//   - spec-task sessions  (session.Metadata.SpecTaskID set)
+//   - exploratory sessions (session.Metadata.ProjectID set)
+//   - legacy sessions      (session.ProjectID set)
+//
+// Sessions with none of the above are logged and skipped (we cannot invent project
+// config). Non-zed_external sessions are also skipped (they have no desktop to wake).
 func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
 	ctx := context.Background()
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
@@ -3071,21 +3238,25 @@ func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID strin
 		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
 		return
 	}
-	if session.Metadata.SpecTaskID == "" {
-		log.Debug().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: no spec task ID on session, skipping")
+	if session.Metadata.AgentType != "zed_external" {
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("autoStartDevContainerForSession: not a zed_external session, skipping")
 		return
 	}
-	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-	if err != nil {
-		log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for dev container auto-start")
-		return
-	}
+
 	log.Info().
 		Str("session_id", sessionID).
-		Str("spec_task_id", specTask.ID).
+		Str("spec_task_id", session.Metadata.SpecTaskID).
+		Bool("has_spec_task", session.Metadata.SpecTaskID != "").
 		Msg("Auto-starting dev container for session with no WebSocket connection")
-	if startErr := apiServer.startDevContainerForSpecTask(ctx, specTask); startErr != nil {
-		log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start dev container")
+
+	if startErr := apiServer.startDevContainerForSession(ctx, session); startErr != nil {
+		log.Error().Err(startErr).
+			Str("session_id", sessionID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Msg("Failed to auto-start dev container")
 	}
 }
 
@@ -3730,6 +3901,50 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	existingSession, err := apiServer.Controller.Options.Store.GetSession(ctx, agentSessionID)
 	if err != nil {
 		return fmt.Errorf("failed to load existing session: %w", err)
+	}
+
+	// PHANTOM-DRAFT GUARD (belt-and-braces against helixml/zed Fix 1a not being
+	// in this Zed binary): on every container restart, Zed's agent panel
+	// speculatively calls new_session() to back its empty input editor — see
+	// crates/agent_ui/src/agent_panel.rs `activate_draft`. That fires
+	// UserCreatedThread to us even though the user never typed anything in the
+	// new "draft" thread. Without this guard, every restart leaks an empty
+	// "New Chat" row in spec_task_zed_threads and a duplicate Claude spawn that
+	// races against the existing one for npm `_npx/<hash>` cache, surfacing as
+	// 180s `chrome-devtools/github context server failed to start` errors.
+	//
+	// If this spec_task already has an active work_session whose helix_session
+	// has no interactions, the incoming UserCreatedThread is almost certainly
+	// such a phantom draft. Refuse and log loudly. The user creating a genuine
+	// new chat is unaffected: they only do that AFTER typing in the existing
+	// thread (which gives it ≥1 interaction), so the dedup wouldn't fire.
+	//
+	// Full diagnosis: design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md
+	if specTaskID := existingSession.Metadata.SpecTaskID; specTaskID != "" {
+		existingThreads, listErr := apiServer.Controller.Options.Store.ListSpecTaskZedThreads(ctx, specTaskID)
+		if listErr == nil {
+			for _, et := range existingThreads {
+				if et.Status != types.SpecTaskZedStatusActive {
+					continue
+				}
+				ws, wErr := apiServer.Controller.Options.Store.GetSpecTaskWorkSession(ctx, et.WorkSessionID)
+				if wErr != nil || ws == nil {
+					continue
+				}
+				_, count, iErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+					SessionID: ws.HelixSessionID,
+				})
+				if iErr == nil && count == 0 {
+					log.Warn().
+						Str("acp_thread_id", acpThreadID).
+						Str("spec_task_id", specTaskID).
+						Str("phantom_zed_thread_id", et.ZedThreadID).
+						Str("phantom_helix_session", ws.HelixSessionID).
+						Msg("⚠️ [HELIX] Refusing to create new session — spec_task already has empty active work_session (probable phantom draft from Zed agent panel; see design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md)")
+					return nil
+				}
+			}
+		}
 	}
 
 	// Create new Helix session for this user-created thread.

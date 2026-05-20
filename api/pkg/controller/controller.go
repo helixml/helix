@@ -136,8 +136,11 @@ func NewController(
 		browserCache:        browserCache,
 	}
 
-	// Default provider
-	toolsOpenAIClient, err := controller.getClient(ctx, "", "", options.Config.Inference.Provider)
+	// Default provider — boot-time client used by the tools planner for
+	// actionable detection. We pass model="" so we don't spuriously validate
+	// against a model that hasn't been chosen yet; that path is the real
+	// inference call, not this bootstrap.
+	toolsOpenAIClient, err := controller.getClient(ctx, "", "", options.Config.Inference.Provider, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}

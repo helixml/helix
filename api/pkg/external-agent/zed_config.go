@@ -161,6 +161,15 @@ func GenerateZedMCPConfig(
 		// those sessions still come up.
 		provider = "anthropic"
 		model = "claude-sonnet-4-5-latest"
+	} else if assistant.CodeAgentCredentialType.IsSubscription() {
+		// Subscription-credential agents (e.g. Claude Code with OAuth) handle
+		// inference upstream, not through a Helix provider. Don't write a
+		// Helix-routed default into settings.json — Zed falls back to its
+		// built-in defaults for inline assistant / commit messages / thread
+		// summaries, and the agent itself (Claude Code) routes via its own
+		// OAuth path. The pre-flight ValidateAssistantModelConfig already
+		// applies the same bypass so spec-task start handlers don't 422.
+		useAgentModel = false
 	} else if reason := ValidateAssistantModelConfig(app, providerSnapshot); reason != "" {
 		log.Error().
 			Str("app_id", app.ID).
@@ -212,7 +221,7 @@ func GenerateZedMCPConfig(
 	}
 	config.Theme = "Ayu Dark"
 
-	// Configure language_models to route API calls through Helix proxy
+	// Configure language_models to route API calls through Helix proxy.
 	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!
 	// We must explicitly set api_url in language_models for each provider.
 	//
@@ -221,14 +230,14 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	// api_key is NOT set here — Zed reads ANTHROPIC_API_KEY / OPENAI_API_KEY from
 	// container env vars (set by DesktopAgentAPIEnvVars). Only api_url routing is needed.
-	config.LanguageModels = map[string]LanguageModelConfig{
-		"anthropic": {
-			APIURL: helixAPIURL, // Zed appends /v1/messages
-		},
-		"openai": {
-			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
-		},
-	}
+	//
+	// We only inject the entries the user actually has Helix providers for.
+	// If we unconditionally inject "anthropic", Zed's bottom-left model picker
+	// shows Claude Sonnet as a default option even when the user has no
+	// Anthropic provider configured — picking it then fails with
+	// "provider \"openai\" not found" from /v1/messages because Zed sends
+	// the wrong provider on the Anthropic-only endpoint.
+	config.LanguageModels = buildLanguageModels(providerSnapshot, helixAPIURL)
 
 	// 1. Add Helix native tools via HTTP MCP gateway (APIs, Knowledge, Zapier)
 	// Uses the unified MCP gateway at /api/v1/mcp/helix instead of helix-cli
@@ -287,8 +296,17 @@ func GenerateZedMCPConfig(
 	// console access, network analysis, and input automation.
 	// Uses Puppeteer internally to control Chrome via CDP (Chrome DevTools Protocol).
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
+	//
+	// Invoke the globally-installed binary directly (Dockerfile.ubuntu-helix
+	// pins `chrome-devtools-mcp` via `npm install -g`). Going through
+	// `npx chrome-devtools-mcp@latest` instead causes npm's `_npx/<hash>`
+	// cache to do a "reify mark retired" rename dance every spawn; when Zed
+	// and Claude Code spawn in parallel the renames race and the JSON-RPC
+	// `initialize` never returns — Zed surfaces this as
+	// `chrome-devtools context server failed to start: Context server
+	// request timeout` (180s).
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
-		Command: "npx",
+		Command: "/usr/bin/chrome-devtools-mcp",
 		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
 		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
 		// so sites still render in desktop mode, and the resulting Chrome window leaves
@@ -298,7 +316,6 @@ func GenerateZedMCPConfig(
 		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
 		// and prevents extension probing (e.g. LinkedIn bot detection).
 		Args: []string{
-			"chrome-devtools-mcp@latest",
 			"--viewport", "1280x800",
 			"--chrome-arg=--disable-blink-features=AutomationControlled",
 			"--chrome-arg=--no-first-run",
@@ -698,14 +715,18 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if assistant == nil {
 		return ""
 	}
-	// Subscription-credentialed runtimes (e.g. Claude Code via the
-	// operator's OAuth) don't route through Helix's anthropic proxy
-	// and don't need a Helix-side provider/model selection at all —
-	// the in-sandbox CLI authenticates directly. The save-time
-	// validator in app_handlers.go already exempts these; mirror that
-	// behaviour here so /sessions/{id}/zed-config doesn't 422 such
-	// agents at session start.
-	if assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeSubscription {
+	// Subscription-credential agents (e.g. Claude Code with OAuth) auth
+	// directly with the upstream provider and do not route inference through
+	// a Helix provider, so empty provider/model is the documented shape
+	// (see types.CodeAgentCredentialTypeSubscription). Validating against a
+	// Helix provider snapshot would be meaningless and incorrectly 422s any
+	// task started on such an agent.
+	//
+	// Today only zed_external+claude_code uses subscription credentials. If
+	// other runtimes ever adopt OAuth, audit this bypass — and the matching
+	// useAgentModel=false branch in GenerateZedMCPConfig — so we don't mask
+	// misconfig on agents that DO need a Helix-routed provider.
+	if assistant.CodeAgentCredentialType.IsSubscription() {
 		return ""
 	}
 	provider := assistant.GenerationModelProvider
@@ -726,6 +747,45 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
 	}
 	return ""
+}
+
+// buildLanguageModels returns the language_models block for Zed's settings.json,
+// containing only the provider entries the user actually has Helix providers
+// for. The mapping mirrors mapHelixToZedProvider:
+//
+//   - A Helix "anthropic" provider unlocks Zed's "anthropic" entry (routes to
+//     Helix's /v1/messages).
+//   - Any other Helix provider (openai, nebius, together, openrouter, ...)
+//     unlocks Zed's "openai" entry (routes to Helix's /v1/chat/completions).
+//
+// snapshot==nil is the runner-side opt-out path; we preserve historical
+// behaviour there by injecting both entries.
+func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]LanguageModelConfig {
+	if snapshot == nil {
+		return map[string]LanguageModelConfig{
+			"anthropic": {APIURL: helixAPIURL},
+			"openai":    {APIURL: helixAPIURL + "/v1"},
+		}
+	}
+
+	hasAnthropic := false
+	hasOpenAICompat := false
+	for _, p := range snapshot {
+		if strings.EqualFold(p.Name, "anthropic") {
+			hasAnthropic = true
+		} else {
+			hasOpenAICompat = true
+		}
+	}
+
+	out := map[string]LanguageModelConfig{}
+	if hasAnthropic {
+		out["anthropic"] = LanguageModelConfig{APIURL: helixAPIURL}
+	}
+	if hasOpenAICompat {
+		out["openai"] = LanguageModelConfig{APIURL: helixAPIURL + "/v1"}
+	}
+	return out
 }
 
 // mapHelixToZedProvider maps a Helix provider name to a Zed provider type and formats the model name.

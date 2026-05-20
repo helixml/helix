@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -68,7 +69,10 @@ func (s *HelixAPIServer) createQuestionSet(_ http.ResponseWriter, req *http.Requ
 	if orgID != "" {
 		org, err := s.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError404(err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(err.Error())
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
 
 		_, err = s.authorizeOrgMember(ctx, user, org.ID)
@@ -243,7 +247,10 @@ func (s *HelixAPIServer) listQuestionSets(_ http.ResponseWriter, req *http.Reque
 	if orgID != "" {
 		org, err := s.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError404(err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(err.Error())
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
 
 		_, err = s.authorizeOrgMember(ctx, user, org.ID)

@@ -202,9 +202,9 @@ const InferenceTextField: FC<{
           sx={{
             width: '95%',
             margin: '0 auto',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.2)'}`,
             borderRadius: '12px',
-            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            backgroundColor: lightTheme.isLight ? '#fff' : 'rgba(255, 255, 255, 0.05)',
             p: 2,
             display: 'flex',
             flexDirection: 'column',
@@ -225,7 +225,7 @@ const InferenceTextField: FC<{
                 width: '100%',
                 backgroundColor: 'transparent',
                 border: 'none',
-                color: '#fff',
+                color: lightTheme.textColor,
                 opacity: 0.7,
                 resize: 'none',
                 outline: 'none',
@@ -250,18 +250,18 @@ const InferenceTextField: FC<{
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    border: '2px solid rgba(255, 255, 255, 0.7)',
+                    border: `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                     borderRadius: '50%',
                     '&:hover': {
-                      borderColor: 'rgba(255, 255, 255, 0.9)',
-                      '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                      borderColor: lightTheme.textColor,
+                      '& svg': { color: lightTheme.textColor }
                     }
                   }}
                   onClick={() => {
                     if (imageInputRef.current) imageInputRef.current.click();
                   }}
                 >
-                  <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                  <AttachFileIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                 </Box>
               </Tooltip>
               {selectedImage && (
@@ -284,11 +284,11 @@ const InferenceTextField: FC<{
                         height: 36,
                         objectFit: 'cover',
                         borderRadius: '6px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                       }}
                     />
                   </Tooltip>
-                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ color: lightTheme.textColorFaded, fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {selectedImageName}
                   </Typography>
                   <Box
@@ -309,11 +309,11 @@ const InferenceTextField: FC<{
                       justifyContent: 'center',
                       cursor: 'pointer',
                       fontSize: '12px',
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      color: lightTheme.textColorFaded,
+                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)'}`,
                       '&:hover': {
-                        color: 'rgba(255, 255, 255, 1)',
-                        borderColor: 'rgba(255, 255, 255, 0.6)',
+                        color: lightTheme.textColor,
+                        borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.6)',
                       },
                     }}
                   >
@@ -339,19 +339,19 @@ const InferenceTextField: FC<{
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: loading || disabled ? 'default' : 'pointer',
-                  border: '1px solid rgba(255, 255, 255, 0.7)',
+                  border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                   borderRadius: '8px',
                   opacity: loading || disabled ? 0.5 : 1,
                   '&:hover': loading || disabled ? {} : {
-                    borderColor: 'rgba(255, 255, 255, 0.9)',
-                    '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                    borderColor: lightTheme.textColor,
+                    '& svg': { color: lightTheme.textColor }
                   }
                 }}
               >
                 {loading ? (
                   <LoadingSpinner />
                 ) : (
-                  <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                  <ArrowUpwardIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                 )}
               </Box>
             </Tooltip>

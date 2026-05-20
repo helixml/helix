@@ -85,10 +85,13 @@ spec:
       web_search: true
       browser: false
     mcps:
+      # github MCP is pre-installed globally in the desktop image — invoke
+      # the binary directly. `npx -y @modelcontextprotocol/server-github`
+      # also works but races on the shared _npx cache when spawned in
+      # parallel with chrome-devtools, causing 180s initialize timeouts.
       - name: github
         transport: stdio
-        command: npx
-        args: ["-y", "@modelcontextprotocol/server-github"]
+        command: mcp-server-github
         env:
           GITHUB_TOKEN: "${GITHUB_TOKEN}"
 ```
@@ -234,10 +237,13 @@ spec:
       browser: false
       calculator: false
     mcps:
+      # github MCP is pre-installed globally in the desktop image — invoke
+      # the binary directly. `npx -y @modelcontextprotocol/server-github`
+      # also works but races on the shared _npx cache when spawned in
+      # parallel with chrome-devtools, causing 180s initialize timeouts.
       - name: github
         transport: stdio
-        command: npx
-        args: ["-y", "@modelcontextprotocol/server-github"]
+        command: mcp-server-github
         env:
           GITHUB_TOKEN: "${GITHUB_TOKEN}"
     knowledge:

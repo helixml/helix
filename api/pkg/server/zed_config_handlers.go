@@ -305,13 +305,28 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
 
+	// Resolve session owner's color scheme preference. The desktop follows the
+	// owner — not whoever is currently watching — so two reviewers viewing the
+	// same session can't fight over light/dark.
+	ownerColorScheme := ""
+	if ownerMeta, err := apiServer.Store.GetUserMeta(ctx, session.Owner); err == nil && ownerMeta != nil {
+		ownerColorScheme = ownerMeta.Config.ColorScheme
+	}
+	zedTheme := zedConfig.Theme
+	if ownerColorScheme == "light" {
+		zedTheme = "One Light"
+	} else if ownerColorScheme == "dark" {
+		zedTheme = "Ayu Dark"
+	}
+
 	response := &types.ZedConfigResponse{
 		ContextServers:              contextServers,
 		LanguageModels:              languageModels,
 		Assistant:                   assistant,
 		ExternalSync:                externalSync,
 		Agent:                       agentConfig,
-		Theme:                       zedConfig.Theme,
+		Theme:                       zedTheme,
+		ColorScheme:                 ownerColorScheme,
 		Version:                     version,
 		CodeAgentConfig:             codeAgentConfig,
 		ClaudeSubscriptionAvailable: claudeSubAvailable,

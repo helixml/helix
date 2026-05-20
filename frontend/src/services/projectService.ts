@@ -13,6 +13,14 @@ export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['proj
 export const projectGuidelinesHistoryQueryKey = (projectId: string) => ['project-guidelines-history', projectId];
 export const projectUsageQueryKey = (projectId: string) => ['project-usage', projectId];
 
+export const getHTTPStatus = (error: unknown): number | undefined => {
+  return (error as any)?.response?.status;
+};
+
+export const isProjectAccessDeniedError = (error: unknown): boolean => {
+  return getHTTPStatus(error) === 403;
+};
+
 /**
  * Hook to list all projects for the current user
  */
@@ -44,6 +52,7 @@ export const useGetProject = (projectId: string, enabled = true) => {
       return response.data;
     },
     enabled: enabled && !!projectId,
+    retry: (failureCount, error) => !isProjectAccessDeniedError(error) && failureCount < 3,
   });
 };
 
@@ -80,9 +89,11 @@ export const useUpdateProject = (projectId: string) => {
       return response.data;
     },
     onSuccess: () => {
-      // Standard React Query pattern: invalidate to refetch latest data
       queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
+      // Short prefix ['projects'] matches every per-org variant of
+      // projectsListQueryKey(orgId). projectsListQueryKey() would produce
+      // ['projects', undefined] which does NOT match ['projects', 'org_xxx'].
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 };
@@ -100,8 +111,12 @@ export const useDeleteProject = () => {
       const response = await apiClient.v1ProjectsDelete(projectId);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
+    onSuccess: async (_data, projectId) => {
+      queryClient.removeQueries({ queryKey: projectQueryKey(projectId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        queryClient.invalidateQueries({ queryKey: pinnedProjectsQueryKey() }),
+      ]);
     },
   });
 };

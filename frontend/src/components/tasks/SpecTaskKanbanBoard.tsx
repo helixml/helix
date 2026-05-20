@@ -60,6 +60,7 @@ import {
   PlayArrowRounded as AutoPlayIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
+  Celebration as CelebrationIcon,
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
@@ -72,6 +73,7 @@ import useAccount from "../../hooks/useAccount";
 import useRouter from "../../hooks/useRouter";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
+import TaDaAnimation from "./TaDaAnimation";
 import TaskCard, {
   SpecTaskWithExtras,
   KanbanColumn as TaskCardKanbanColumn,
@@ -251,7 +253,6 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
-  searchFilter?: string; // Filter tasks by name, description, or implementation_plan
 }
 
 const DroppableColumn: React.FC<{
@@ -279,6 +280,7 @@ const DroppableColumn: React.FC<{
   batchUsageData?: Record<string, ServerBatchTaskUsageMetric[]>;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
+  onArchiveAllMerged?: () => void;
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
@@ -303,6 +305,7 @@ const DroppableColumn: React.FC<{
   batchUsageData,
   autoStartBacklogTasks,
   onToggleAutoStart,
+  onArchiveAllMerged,
   highlightedTaskIds,
   onDependencyHoverStart,
   onDependencyHoverEnd,
@@ -562,6 +565,41 @@ const DroppableColumn: React.FC<{
                 </Box>
               </Tooltip>
             )}
+            {column.id === "completed" &&
+              onArchiveAllMerged &&
+              column.tasks.length > 0 && (
+                <Tooltip
+                  title={`Archive all ${column.tasks.length} merged task${column.tasks.length === 1 ? "" : "s"}`}
+                  arrow
+                >
+                  <Box
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArchiveAllMerged();
+                    }}
+                    sx={{
+                      width: 24,
+                      height: 24,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      borderRadius: "50%",
+                      transition: "background-color 0.2s ease",
+                      "&:hover": {
+                        backgroundColor: "rgba(245, 158, 11, 0.12)",
+                      },
+                    }}
+                  >
+                    <CelebrationIcon
+                      sx={{
+                        fontSize: 16,
+                        color: "#f59e0b",
+                      }}
+                    />
+                  </Box>
+                </Tooltip>
+              )}
           </Box>
         </Box>
 
@@ -629,7 +667,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
-  searchFilter: searchFilterProp = "",
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -637,6 +674,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const account = useAccount();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   // OAuth flow — if the planner has no GitHub OAuth, the start-planning
   // endpoint returns 422 with error=oauth_required. Drop into the connect
@@ -664,9 +702,34 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [highlightedDependencyTaskIds, setHighlightedDependencyTaskIds] =
     useState<string[] | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
+  const [archiveAllConfirmOpen, setArchiveAllConfirmOpen] = useState(false);
+  const [archivingAllMerged, setArchivingAllMerged] = useState(false);
+  const [showTaDa, setShowTaDa] = useState(false);
 
-  // Local search filter state (use prop as initial value, but manage locally)
-  const [searchFilter, setSearchFilter] = useState(searchFilterProp);
+  // Search filter — persisted in the URL (?search=...) so Back / refresh
+  // restore the filtered view. We keep a local controlled-input value for
+  // snappy typing and debounce the URL write to avoid history churn.
+  const urlSearch = (router.params.search as string | undefined) || "";
+  const [searchFilter, setSearchFilter] = useState(urlSearch);
+  useEffect(() => {
+    if (searchFilter === urlSearch) return;
+    const handle = setTimeout(() => {
+      if (searchFilter) {
+        router.mergeParams({ search: searchFilter });
+      } else {
+        // Drop the param entirely when empty so the URL stays clean.
+        // replaceParams replaces the full param set in replace mode.
+        const next: Record<string, string> = {};
+        for (const k of Object.keys(router.params)) {
+          if (k === "search") continue;
+          next[k] = router.params[k] as string;
+        }
+        router.replaceParams(next);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchFilter, urlSearch]);
 
   // Label filter state — persisted to localStorage per project
   const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
@@ -1196,6 +1259,67 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   };
 
+  const mergedTasks = useMemo(
+    () =>
+      tasks.filter(
+        (t) => (t as any).phase === "completed" || t.status === "done",
+      ),
+    [tasks],
+  );
+
+  const handleArchiveAllMerged = () => {
+    if (mergedTasks.length === 0) return;
+    setArchiveAllConfirmOpen(true);
+  };
+
+  const performArchiveAllMerged = async () => {
+    if (mergedTasks.length === 0) return;
+    setArchiveAllConfirmOpen(false);
+    setShowTaDa(true);
+    setArchivingAllMerged(true);
+    try {
+      await Promise.all(
+        mergedTasks.map((t) =>
+          api
+            .getApiClient()
+            .v1SpecTasksArchivePartialUpdate(t.id!, { archived: true }),
+        ),
+      );
+
+      const response = await api.get("/api/v1/spec-tasks", {
+        params: {
+          project_id: projectId || "default",
+          archived_only: showArchived,
+          with_depends_on: true,
+        },
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+      const enhancedTasks: BoardTask[] = specTasks.map((t) => {
+        const { phase, planningStatus, hasSpecs } = mapStatusToPhase(
+          t.status || "backlog",
+        );
+        return {
+          ...t,
+          hasSpecs,
+          planningStatus,
+          phase,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+        } as unknown as BoardTask;
+      });
+      setTasks(enhancedTasks);
+      snackbar.success(
+        `Archived ${mergedTasks.length} merged task${mergedTasks.length === 1 ? "" : "s"}`,
+      );
+    } catch (error) {
+      console.error("Failed to archive merged tasks:", error);
+      setError("Failed to archive merged tasks");
+    } finally {
+      setArchivingAllMerged(false);
+    }
+  };
+
   // Handle starting planning for a task
   const handleStartPlanning = async (task: BoardTask) => {
     // Check WIP limit
@@ -1628,6 +1752,49 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         </Box>
       </Box>
 
+      {/* Mobile search bar */}
+      <Box
+        sx={{
+          display: { xs: "flex", md: "none" },
+          flexShrink: 0,
+          px: 1,
+          pb: 1,
+          gap: 1,
+          alignItems: "center",
+        }}
+      >
+        <TextField
+          size="small"
+          placeholder="Search tasks..."
+          value={searchFilter}
+          onChange={(e) => setSearchFilter(e.target.value)}
+          fullWidth
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              height: 36,
+            },
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+              </InputAdornment>
+            ),
+            endAdornment: searchFilter && (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  onClick={() => setSearchFilter("")}
+                  sx={{ padding: 0.25 }}
+                >
+                  <ClearIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Box>
+
       {error && (
         <Alert
           severity="error"
@@ -1709,6 +1876,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 batchUsageData={batchUsageData}
                 autoStartBacklogTasks={autoStartBacklogTasks}
                 onToggleAutoStart={handleToggleAutoStart}
+                onArchiveAllMerged={handleArchiveAllMerged}
                 fullWidth
                 searchFilter={searchFilter}
               />
@@ -1748,6 +1916,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               batchUsageData={batchUsageData}
               autoStartBacklogTasks={autoStartBacklogTasks}
               onToggleAutoStart={handleToggleAutoStart}
+              onArchiveAllMerged={handleArchiveAllMerged}
               searchFilter={searchFilter}
             />
           ))
@@ -1847,6 +2016,50 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         }}
         taskName={taskToArchive?.name}
         isArchiving={!!archivingTaskId}
+      />
+
+      {/* Archive All Merged Confirmation Dialog */}
+      <Dialog
+        open={archiveAllConfirmOpen}
+        onClose={() =>
+          !archivingAllMerged && setArchiveAllConfirmOpen(false)
+        }
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          Archive all {mergedTasks.length} merged task
+          {mergedTasks.length === 1 ? "" : "s"}?
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            This will archive every task currently in the Merged column.
+            They can be restored later from the archive view. Time to
+            celebrate!
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setArchiveAllConfirmOpen(false)}
+            disabled={archivingAllMerged}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={performArchiveAllMerged}
+            variant="contained"
+            color="warning"
+            disabled={archivingAllMerged}
+            startIcon={<CelebrationIcon />}
+          >
+            {archivingAllMerged ? "Archiving..." : "Archive All"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <TaDaAnimation
+        show={showTaDa}
+        onComplete={() => setShowTaDa(false)}
       />
     </Box>
   );

@@ -25,7 +25,7 @@ import MenuItem from '@mui/material/MenuItem'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 
@@ -90,7 +90,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   const account = useAccount()
 
   const organizations = account.organizationTools.organizations || []
@@ -286,7 +286,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   if (variant === 'account') {
     return (
       <>
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Box>

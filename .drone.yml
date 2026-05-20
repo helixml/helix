@@ -870,6 +870,9 @@ kind: pipeline
 type: docker
 name: build-controlplane-amd64
 
+depends_on:
+  - default
+
 platform:
   os: linux
   arch: amd64
@@ -917,6 +920,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-controlplane-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -1006,254 +1012,6 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-runner
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  # Retag 2.7.12 runner images instead of rebuilding.
-  # All runner tags after 2.7.12 are identical to 2.7.12.
-  - name: retag-runner
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12
-      - |
-        if [ -n "$DRONE_TAG" ]; then
-          docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:$DRONE_TAG
-          docker push registry.helixml.tech/helix/runner:$DRONE_TAG
-          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:$DRONE_TAG
-        fi
-      - docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:latest
-      - docker push registry.helixml.tech/helix/runner:latest
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
----
-kind: pipeline
-type: docker
-name: build-runner-small
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  # Retag 2.7.12-small runner images instead of rebuilding.
-  - name: retag-runner
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
-      - |
-        if [ -n "$DRONE_TAG" ]; then
-          docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_TAG}-small
-          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-small
-          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-small
-        fi
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:latest-small
-      - docker push registry.helixml.tech/helix/runner:latest-small
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-small
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  - name: retag-runner-branch
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
-      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
-    when:
-      branch:
-        exclude:
-          - main
-
----
-kind: pipeline
-type: docker
-name: build-runner-large
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  # Retag 2.7.12-large runner images instead of rebuilding.
-  - name: retag-runner
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
-      - |
-        if [ -n "$DRONE_TAG" ]; then
-          docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_TAG}-large
-          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-large
-          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-large
-        fi
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:latest-large
-      - docker push registry.helixml.tech/helix/runner:latest-large
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-large
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  - name: retag-runner-branch
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
-      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
-    when:
-      branch:
-        exclude:
-          - main
-
----
-kind: pipeline
-type: docker
-name: build-demos
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-demos
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.demos
-      auto_tag: true
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/demos
-      username: admin
-      password:
-        from_secret: helix_registry_password
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  - name: mirror-demos-to-ghcr
-    image: docker:cli
-    environment:
-      GITHUB_TOKEN:
-        from_secret: github_token
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        # auto_tag produces "latest" on main, semver tags on git tags
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION="latest"
-        fi
-        docker pull registry.helixml.tech/helix/demos:$${VERSION}
-        scripts/ghcr-push.sh registry.helixml.tech/helix/demos:$${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-    depends_on: [publish-demos]
 
 ---
 # See integration-test/smoke/README.md
@@ -1596,6 +1354,9 @@ kind: pipeline
 type: docker
 name: build-sandbox-amd64
 
+depends_on:
+  - default
+
 platform:
   os: linux
   arch: amd64
@@ -1873,9 +1634,11 @@ steps:
       # Build and push helix-sway
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
         echo "Building helix-sway..."
         docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
+          --build-arg GO_VERSION=$${GO_VERSION} \
           -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
@@ -1884,10 +1647,12 @@ steps:
       # Build and push helix-ubuntu
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1 \
+          --build-arg GO_VERSION=$${GO_VERSION} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
@@ -1990,6 +1755,9 @@ kind: pipeline
 type: docker
 name: build-sandbox-arm64
 
+depends_on:
+  - default
+
 platform:
   os: linux
   arch: arm64
@@ -2004,9 +1772,27 @@ volumes:
   - name: dockersocket
     host:
       path: /var/run/docker.sock
+  # Persistent cache for clone-dependencies / build-zed. The bind target
+  # lives inside Docker's VM-internal volume storage, so I/O goes through
+  # virtio-blk → Linux ext4 inside Docker.raw, NOT through Docker Desktop's
+  # fakeowner virtiofs. (Docker.raw itself still lives on /Volumes/Big on
+  # the runner — we can't escape that — but virtio-blk block I/O doesn't
+  # have the metadata-sync race that virtiofs does.)
+  #   * Fixes the `getcwd()` ENOENT race that killed `git init` mid-step
+  #     when the prior path was on virtiofs (see builds 1428 and 1432).
+  #   * Docker auto-creates this path on first bind (verified), so a fresh
+  #     runner or full Docker Desktop reset just rebuilds the Zed binary
+  #     once (~12 min) and is warm again from then on — no admin step
+  #     required to "bless" the runner.
+  #   * The dir is not a registered `docker volume`, so `docker volume
+  #     prune` can't touch it. Only a full Docker reset clears it.
+  # What's in it:
+  #   * /drone/src/cache/{zed,qwen}-source — transient (re-cloned each build)
+  #   * /drone/src/cache/zed-bin-<sha>/zed — the prize: avoids a ~12 min
+  #     `docker build` of Zed when ZED_COMMIT hasn't changed.
   - name: sandbox-build-cache
     host:
-      path: /Volumes/Big/drone-cache/sandbox-build
+      path: /var/lib/docker/volumes/helix-sandbox-build-cache/_data
 
 steps:
   # Step 1: Clone external repositories (same as amd64)
@@ -2029,24 +1815,30 @@ steps:
         if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
           echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
+      # Re-create the source dirs each run to avoid stale state from a
+      # previous build at a different commit. Safe here: we're on the VM's
+      # ext4 (no virtiofs), so rm/mkdir/cd are synchronous and `git init`
+      # works inline.
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning Zed at commit $${ZED_COMMIT}..."
-        cd /
         rm -rf /drone/src/cache/zed-source
-        git init /drone/src/cache/zed-source
-        git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-        git -C /drone/src/cache/zed-source checkout FETCH_HEAD
-        echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
+        mkdir -p /drone/src/cache/zed-source
+        cd /drone/src/cache/zed-source
+        git init -q .
+        git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+        git checkout FETCH_HEAD
+        echo "✓ Zed source at $$(git rev-parse HEAD)"
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
-        cd /
         rm -rf /drone/src/cache/qwen-source
-        git init /drone/src/cache/qwen-source
-        git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-        git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
-        echo "✓ qwen-code source at $$(git -C /drone/src/cache/qwen-source rev-parse HEAD)"
+        mkdir -p /drone/src/cache/qwen-source
+        cd /drone/src/cache/qwen-source
+        git init -q .
+        git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+        git checkout FETCH_HEAD
+        echo "✓ qwen-code source at $$(git rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
@@ -2164,9 +1956,11 @@ steps:
       # Build and push helix-sway (arm64)
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
         echo "Building helix-sway (arm64)..."
         docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
+          --build-arg GO_VERSION=$${GO_VERSION} \
           -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
@@ -2175,10 +1969,12 @@ steps:
       # Build and push helix-ubuntu (arm64, no CUDA)
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
         echo "Building helix-ubuntu (arm64, no CUDA)..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b \
+          --build-arg GO_VERSION=$${GO_VERSION} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
@@ -2526,10 +2322,6 @@ depends_on:
   - build-controlplane-amd64
   - build-controlplane-arm64
   - manifest-controlplane
-  - build-runner
-  - build-runner-small
-  - build-runner-large
-  - build-demos
   - build-sandbox-amd64
   - build-sandbox-arm64
   - manifest-sandbox

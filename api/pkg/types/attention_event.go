@@ -39,6 +39,8 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
+	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
 )
 
 // AttentionEventFilters controls optional filtering when listing attention events.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -64,18 +65,35 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		return
 	}
 
+	wasSandboxBillingEnabled := false
+	if req.SandboxBillingEnabled != nil {
+		currentSettings, err := apiServer.Store.GetSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("error getting current system settings")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		wasSandboxBillingEnabled = currentSettings.SandboxBillingEnabled
+	}
+
 	settings, err := apiServer.Store.UpdateSystemSettings(r.Context(), &req)
 	if err != nil {
 		log.Error().Err(err).Msg("error updating system settings")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if req.SandboxBillingEnabled != nil && *req.SandboxBillingEnabled && !wasSandboxBillingEnabled {
+		if err := apiServer.Store.SetRunningSandboxesBillingLastChargedAt(r.Context(), time.Now()); err != nil {
+			log.Error().Err(err).Msg("error initializing running sandbox billing windows")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	log.Info().
 		Str("admin_user", user.ID).
 		Bool("hf_token_updated", req.HuggingFaceToken != nil).
 		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
-		Bool("max_concurrent_desktops_updated", req.MaxConcurrentDesktops != nil).
 		Bool("providers_management_enabled_updated", req.ProvidersManagementEnabled != nil).
 		Bool("enforce_quotas_updated", req.EnforceQuotas != nil).
 		Msg("system settings updated by admin")

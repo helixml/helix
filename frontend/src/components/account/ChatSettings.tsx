@@ -11,6 +11,7 @@ import Typography from '@mui/material/Typography'
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
 
+import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import {
@@ -42,6 +43,8 @@ const parseOptionalInt = (value: string): number | undefined => {
 const ChatSettings: FC = () => {
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
+  const panelBg = lightTheme.isLight ? lightTheme.panelColor : themeConfig.darkPanel
 
   const { data: serverConfig } = useGetConfig()
   const { data: chatSettings, isLoading: isLoadingChatSettings } = useGetUserChatSettings()
@@ -139,7 +142,7 @@ const ChatSettings: FC = () => {
 
   return (
     <>
-      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
         <Grid item xs={12}>
           <Typography variant="h6">Chat Defaults</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -272,7 +275,7 @@ const ChatSettings: FC = () => {
         sx={{
           position: 'sticky',
           bottom: 0,
-          backgroundColor: themeConfig.darkPanel,
+          backgroundColor: panelBg,
           borderTop: '1px solid',
           borderColor: 'divider',
           borderRadius: 2,

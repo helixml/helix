@@ -160,13 +160,21 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
         return;
       }
 
-      // Create the MCP skill object using official GitHub MCP server
+      // Create the MCP skill object using official GitHub MCP server.
+      // Invoke the globally-installed binary directly — Dockerfile.ubuntu-helix
+      // pins `@modelcontextprotocol/server-github` via `npm install -g`.
+      // Going through `npx -y @modelcontextprotocol/server-github` instead
+      // hits the shared `_npx/<hash>` cache, and when Zed and Claude Code
+      // spawn in parallel the npm "reify mark retired" rename dance races
+      // and the JSON-RPC `initialize` never returns — Zed surfaces this as
+      // `github context server failed to start: Context server request
+      // timeout` (180s).
       const mcpSkill: TypesAssistantMCP = {
         name: GITHUB_MCP_NAME,
         description: 'GitHub integration for issues, PRs, repos, and more',
         transport: 'stdio',
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-github'],
+        command: 'mcp-server-github',
+        args: [],
       };
 
       if (authMethod === 'oauth') {
@@ -394,7 +402,7 @@ const GitHubMcpSkill: React.FC<GitHubMcpSkillProps> = ({
           </SectionCard>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+      <DialogActions sx={{ background: lightTheme.panelColor, borderTop: lightTheme.border, flexDirection: 'column', alignItems: 'stretch' }}>
         {error && (
           <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
             <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>

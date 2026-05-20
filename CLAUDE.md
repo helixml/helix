@@ -27,6 +27,12 @@
 - Use `mv` to temp location instead of `rm` when uncertain
 
 ### Commits & Debugging
+- **Use conventional commit format**: `type(scope): description`
+  - Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `style`, `perf`, `ci`, `build`, `revert`
+  - Scope is optional but encouraged (e.g., `api`, `frontend`, `specs`, `zed`)
+  - Subject ≤ 72 chars, imperative mood, no trailing period
+  - Examples: `feat(api): add PR content reading from helix-specs`, `fix(frontend): handle empty task list`, `chore(specs): update progress`
+  - The `commit-msg` hook enforces this — non-conforming commits are rejected
 - Commit and push frequently, keep commits atomic, update design docs
 - No unsubstantiated claims about code severity/importance without evidence
 - Ask user to verify UI changes; when stuck, use `git bisect`
@@ -97,6 +103,15 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
+**Experimental desktop pulls.** The sandbox startup script
+(`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
+(`helix-ubuntu`) on every container start. Experimental desktops
+(`helix-sway`, `helix-zorin`, `helix-xfce`, `helix-kde`) are gated behind
+the `HELIX_EXPERIMENTAL_DESKTOPS` env var (space-separated, default
+empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
+to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
+Docker the first time someone launches a sway desktop session.
+
 ### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
 
 `sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
@@ -143,6 +158,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@
 - GORM AutoMigrate only, gomock not testify/mock
 - **NO FALLBACKS** — one approach, fix properly, no dead code paths
 - **CLEAN UP DEAD CODE** immediately
+- **Org lookup in API handlers**: when a handler reads an `{org_id}` URL segment (or any `org_id` request field), ALWAYS resolve it via `s.lookupOrg(ctx, orgStr)` (in `wallet_handlers.go`) before using it as a key for store lookups, authorization, or persisting onto a row. `lookupOrg` accepts both an `org_…` id AND an org name/slug, so handlers transparently work whether the frontend sent the canonical id or the URL-facing slug. Never write the raw URL segment into a row's `OrganizationID` column — the slug doesn't match wallet/membership rows keyed by id (this caused sandbox delete to fail with `get org wallet: not found`).
 
 Test suite pattern:
 ```golang
@@ -167,6 +183,31 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - Invalidate queries after mutations, don't use `setQueryData`
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
 - **Search/filter**: use `matchesAllTokens()` from `utils/searchUtils.ts` — splits on whitespace, requires all tokens to match (AND logic). NEVER use raw `.includes(query)` for search boxes — it fails on multi-word queries
+
+### UI Styles
+
+These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
+
+#### Tables
+- **ALWAYS use `SimpleTable`** from `frontend/src/components/widgets/SimpleTable.tsx`. Don't reach for raw MUI `<Table>` / `<TableContainer>`. References: `TasksTable.tsx`, `SandboxesTable.tsx`, `AppsTable.tsx`.
+- Build rows via a `tableData` `useMemo` that maps each entity to `{ id, _data: <entity>, <field>: <ReactNode>, ... }`. Always include `_data` so action handlers can recover the typed entity.
+- Cells are `<Typography>` nodes, not raw strings. Use `variant="body2" color="text.secondary"` for non-primary cells. Make the name cell a bold link via an inline `<a>` (see `TasksTable.tsx`); call `e.preventDefault()` + `e.stopPropagation()` in its `onClick`.
+- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><MoreVertIcon/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading icon: `<Icon sx={{ mr: 1, fontSize: 20 }} />`). Track the active row via `currentX` state set on menu open; clear it on close.
+- `e.stopPropagation()` in every menu/icon click handler so row clicks don't fire.
+- Status chips: build a small dedicated component (e.g. `SandboxStatusBadge`) rather than inlining `<Chip>` styling.
+
+#### Cards (cards view)
+- Render via the shared `CardGrid` (`components/widgets/CardGrid.tsx`) — never roll a new MUI `Grid container` (its negative margins break flush alignment with the page title).
+- Card chrome: `<Card>` with `border: '1px solid rgba(0, 0, 0, 0.08)'`, `borderRadius: 1`, `boxShadow: 'none'`, hover bumps `borderColor` to `rgba(0,0,0,0.12)` and tints `backgroundColor: 'rgba(0,0,0,0.01)'`. `height: '100%'` + `display: 'flex'; flexDirection: 'column'` so the grid rows align.
+- Inside, `<CardContent>` uses `p: 2`, `'&:last-child': { pb: 2 }`, `cursor: 'pointer'`, and an `onClick` that opens the detail view.
+- **Top-right corner gets the vertical-dot menu** (`<IconButton><MoreVertIcon sx={{ fontSize: 16 }}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
+- Status indicator goes inline next to the dot menu (e.g. status badge), or as the leading icon by the title (see `CronTaskCard.tsx` — green clock vs paused-circle, with tooltip).
+- Dense stat strip uses the gradient panel: `background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)'`, `border: '1px solid rgba(255,255,255,0.06)'`, `borderRadius: 2`, `p: 1.5`. Stats are label (caption, `0.65rem`, `text.secondary`) + value (body2, `0.8rem`, `monospace`, `fontWeight: 600`).
+
+#### Table ↔ cards toggle
+- Use `ViewModeToggle` (`components/widgets/ViewModeToggle.tsx`) + the `useViewMode(storageKey, defaultMode)` hook. State persists via URL `?view=` param + localStorage automatically.
+- Toggle sits **directly above the table/grid, right-aligned**, in its own row inside the page `Stack`. Don't park it in `topbarContent` — the topbar is reserved for the primary action button (e.g. "New Sandbox").
+- Page header (`<Typography variant="h5">Title</Typography>` + secondary description) sits above the toggle in the same `Stack`.
 
 ## Architecture
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
@@ -198,7 +239,8 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ```
 
 ### Never Give Up on Testing
-- Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
+- **PREFER end-to-end testing in the inner Helix over every other form of verification.** Setup is fast, not "substantial work" — register (`test@helix.ml` / `helixtest`), complete onboarding (testorg → testproj → claude-opus-4-6 auto-selects), create a spectask, navigate to its detail page. Do this *every time* a UI change is testable in the inner Helix. The inner Helix exists for exactly this — there is no point having it and not using it. Isolated DOM harnesses, JS-only algorithm replays, and unit tests are NOT substitutes; they verify the algorithm, not the wired-up production component.
+- Always test changes end-to-end in the inner Helix browser using the `mcp__chrome-devtools__*` MCP tools (they're under that prefix — easy to miss in the tool listing).
 - Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
 
@@ -396,3 +438,103 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 
 ## CLI Development
 Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
+
+## Sandboxes API
+
+User-facing ephemeral containers for exec / files / terminal — different from spec-task sandboxes (those run the full Zed/agent stack). Source of truth: `design/2026-04-29-sandboxes-api.md`.
+
+### Architecture
+
+```
+helix CLI / UI ─REST/WS─▶ helix API (sandbox controller)
+                                  │ store.Sandbox row
+                                  ▼ Postgres
+                                  │
+                       picks hydra host (heartbeat-versioned for desktop, any online host for headless/custom)
+                                  │
+                                  ▼ RevDial
+                          hydra (in helix-sandbox-nvidia-1)
+                                  │ docker exec / cp / inspect
+                                  ▼
+                          /sbx-{id} container (configured runtime image)
+```
+
+- Org-scoped, optional `project_id`. Cross-org id-guessing is blocked by `loadAuthorizedSandbox`.
+- 1 vCPU / 2GB RAM, default TTL 1h, soft-delete on expiry by the reaper goroutine (`StartReaper`, polls 60s).
+- Headless containers use plain public images (`ubuntu:22.04`, `node:22-bookworm-slim`, …); `SkipImageValidation=true` triggers a proactive `docker pull` in hydra.
+- Desktop runtime is heartbeat-versioned (`helix-ubuntu:<sha>`) and runs the full GNOME shell. Currently broken in pure sandbox-API mode (gnome-shell exits) — prefer headless runtimes.
+
+### Runtime configuration
+
+Operators configure runtimes via env vars (parsed by `config.Sandboxes`):
+
+| Env | Default |
+|---|---|
+| `HELIX_SANDBOX_RUNTIMES` | `headless-ubuntu=ubuntu:22.04\|sleep infinity,node22=node:22-bookworm-slim\|tail -f /dev/null,python313=python:3.13-slim\|tail -f /dev/null` |
+| `HELIX_SANDBOX_DEFAULT_RUNTIME` | `headless-ubuntu` |
+| `HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE` | `false` (set true to let API callers pass arbitrary `image`) |
+
+Format: `name=image[\|keep-alive-shell-cmd]`. Add new runtimes (go, rust, java, …) by extending the CSV — no code change.
+
+### CLI
+
+All commands honour `$HELIX_API_KEY` and `$HELIX_URL`. Org defaults to `$HELIX_ORG` or your first org.
+
+```bash
+helix sandbox runtimes                                    # discover what's available
+helix sandbox create --name x --runtime node22 --ttl 600  # create + wait for running
+helix sandbox create --image alpine:3.19                  # custom image (requires gate enabled)
+helix sandbox list [--project prj_…]                      # filter by project
+helix sandbox get <sbx_…>                                 # full row as JSON
+
+# exec
+helix sandbox exec <sbx_…> -- <cmd> [args...]             # synchronous, prints stdout/stderr
+helix sandbox exec <sbx_…> --detached -- <cmd>            # fire-and-forget, prints cmd id
+helix sandbox commands <sbx_…>                            # list commands tracked
+helix sandbox logs <sbx_…> <sbcmd_…> [--follow]           # SSE log stream
+helix sandbox kill <sbx_…> <sbcmd_…> [--signal TERM]
+
+# files
+helix sandbox ls <sbx_…> --path /tmp
+echo data | helix sandbox write <sbx_…> /tmp/x.txt --mode 644
+helix sandbox read <sbx_…> /tmp/x.txt
+
+# terminal
+helix sandbox terminal <sbx_…>                            # interactive PTY (xterm)
+
+# cleanup
+helix sandbox delete <sbx_…>                              # immediate teardown
+```
+
+### Workflow expectations
+
+- `create → wait` is fast (~1-2s for headless after the image is pulled). First create of a new image incurs a `docker pull`.
+- `exec` synchronous: 60s default per-command timeout. Use `--detached` for anything longer or interactive — then poll via `commands` / stream via `logs --follow`.
+- TTL is enforced server-side: row's `expires_at` is set on create, refreshed on `PATCH timeout_seconds`. Reaper deletes after expiry.
+- Container is ephemeral. Nothing survives `delete` — no snapshots in v1.
+
+### Where things live
+
+| File | Purpose |
+|---|---|
+| `api/pkg/types/sandbox.go` | `Sandbox`, `CreateSandboxRequest`, status enums |
+| `api/pkg/sandbox/runtimes.go` | `RuntimeRegistry` — config-driven runtime spec resolution |
+| `api/pkg/sandbox/controller.go` | Lifecycle: create, provision, delete, reaper |
+| `api/pkg/server/sandboxes_api_handlers.go` | REST handlers (auth, JSON, ws bridge for terminal) |
+| `api/pkg/hydra/sandbox_handlers.go` / `sandbox_ops.go` | hydra-side exec/file/terminal implementation |
+| `api/pkg/hydra/client_sandbox.go` | RevDial client used by API → hydra |
+| `api/pkg/client/sandbox.go` | Public Go client (used by CLI; available to external SDKs) |
+| `api/pkg/cli/sandbox/sandbox.go` | `helix sandbox …` cobra subcommands |
+| `frontend/src/pages/Sandboxes.tsx`, `SandboxDetail.tsx` | UI list + detail (Overview/Terminal/Commands/Files) |
+
+### Hot-rebuild loop
+
+- API code changes → Air rebuilds `helix-api-1` automatically.
+- **hydra code changes** (`api/pkg/hydra/`) require redeploying the binary into the sandbox container — Air does NOT rebuild it:
+  ```bash
+  cd api && CGO_ENABLED=0 GOOS=linux go build -o /tmp/hydra-linux ./cmd/hydra
+  docker cp /tmp/hydra-linux helix-sandbox-nvidia-1:/usr/local/bin/hydra
+  docker compose -f docker-compose.dev.yaml exec -T sandbox-nvidia pkill -TERM hydra
+  ```
+  hydra restarts automatically; tail `docker logs helix-sandbox-nvidia-1` and look for `RevDial control connection established` to confirm.
+- Frontend → Vite HMR (port 8081 mounted into `helix-frontend-1`).

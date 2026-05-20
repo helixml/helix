@@ -48,8 +48,14 @@ const SystemSettingsTable: FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [newHfToken, setNewHfToken] = useState('')
   const [showToken, setShowToken] = useState(false)
-  const [editingMaxDesktops, setEditingMaxDesktops] = useState(false)
-  const [maxDesktopsValue, setMaxDesktopsValue] = useState('')
+  const [editingSandboxHeadlessPrice, setEditingSandboxHeadlessPrice] = useState(false)
+  const [sandboxHeadlessPriceValue, setSandboxHeadlessPriceValue] = useState('')
+  const [editingSandboxDesktopPrice, setEditingSandboxDesktopPrice] = useState(false)
+  const [sandboxDesktopPriceValue, setSandboxDesktopPriceValue] = useState('')
+  const [editingSandboxHeadlessLimit, setEditingSandboxHeadlessLimit] = useState(false)
+  const [sandboxHeadlessLimitValue, setSandboxHeadlessLimitValue] = useState('')
+  const [editingSandboxDesktopLimit, setEditingSandboxDesktopLimit] = useState(false)
+  const [sandboxDesktopLimitValue, setSandboxDesktopLimitValue] = useState('')
 
   const saving = updateSettings.isPending
 
@@ -102,27 +108,6 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
-  const handleSaveMaxDesktops = async () => {
-    try {
-      const value = parseInt(maxDesktopsValue, 10)
-      if (isNaN(value) || value < 0) {
-        snackbar.error('Please enter a valid non-negative number')
-        return
-      }
-      await updateSettings.mutateAsync({
-        max_concurrent_desktops: value,
-      })
-      setEditingMaxDesktops(false)
-      snackbar.success('Max concurrent desktops updated')
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        snackbar.error('Access denied: Admin privileges required')
-      } else {
-        snackbar.error(`Failed to update settings: ${err.message}`)
-      }
-    }
-  }
-
   const handleToggleProvidersManagement = async (enabled: boolean) => {
     try {
       await updateSettings.mutateAsync({
@@ -144,6 +129,79 @@ const SystemSettingsTable: FC = () => {
         enforce_quotas: enabled,
       })
       snackbar.success(`Quota enforcement ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleToggleSandboxBilling = async (enabled: boolean) => {
+    try {
+      await updateSettings.mutateAsync({
+        sandbox_billing_enabled: enabled,
+      })
+      snackbar.success(`Sandbox billing ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSaveSandboxPrice = async (kind: 'headless' | 'desktop') => {
+    const rawValue = kind === 'headless' ? sandboxHeadlessPriceValue : sandboxDesktopPriceValue
+    const value = parseFloat(rawValue)
+    if (Number.isNaN(value) || value < 0) {
+      snackbar.error('Please enter a valid non-negative price')
+      return
+    }
+
+    try {
+      await updateSettings.mutateAsync(
+        kind === 'headless'
+          ? { sandbox_headless_price_credits_per_second: value }
+          : { sandbox_desktop_price_credits_per_second: value },
+      )
+      if (kind === 'headless') {
+        setEditingSandboxHeadlessPrice(false)
+      } else {
+        setEditingSandboxDesktopPrice(false)
+      }
+      snackbar.success(`${kind === 'headless' ? 'Headless' : 'Desktop'} sandbox price updated`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSaveSandboxLimit = async (kind: 'headless' | 'desktop') => {
+    const rawValue = kind === 'headless' ? sandboxHeadlessLimitValue : sandboxDesktopLimitValue
+    const value = parseInt(rawValue, 10)
+    if (Number.isNaN(value) || value <= 0) {
+      snackbar.error('Please enter a valid positive limit')
+      return
+    }
+
+    try {
+      await updateSettings.mutateAsync(
+        kind === 'headless'
+          ? { max_concurrent_headless_sandboxes: value }
+          : { max_concurrent_desktop_sandboxes: value },
+      )
+      if (kind === 'headless') {
+        setEditingSandboxHeadlessLimit(false)
+      } else {
+        setEditingSandboxDesktopLimit(false)
+      }
+      snackbar.success(`${kind === 'headless' ? 'Headless' : 'Desktop'} sandbox limit updated`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -643,73 +701,6 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                 </TableRow>
 
-                {/* Max Concurrent Desktops Row */}
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Max Concurrent Desktops
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Maximum number of concurrent desktop sessions per user (0 = unlimited)
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.max_concurrent_desktops ? `Limit: ${settings.max_concurrent_desktops}` : 'Unlimited'}
-                      color={settings?.max_concurrent_desktops ? 'primary' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {settings?.max_concurrent_desktops ?? 0}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={1} alignItems="center">
-                      {editingMaxDesktops ? (
-                        <>
-                          <TextField
-                            size="small"
-                            type="number"
-                            value={maxDesktopsValue}
-                            onChange={(e) => setMaxDesktopsValue(e.target.value)}
-                            inputProps={{ min: 0 }}
-                            sx={{ width: 100 }}
-                          />
-                          <Button
-                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-                            onClick={handleSaveMaxDesktops}
-                            size="small"
-                            variant="contained"
-                            disabled={saving}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            onClick={() => setEditingMaxDesktops(false)}
-                            size="small"
-                            disabled={saving}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          startIcon={<EditIcon />}
-                          onClick={() => {
-                            setMaxDesktopsValue(String(settings?.max_concurrent_desktops ?? 0))
-                            setEditingMaxDesktops(true)
-                          }}
-                          size="small"
-                        >
-                          Edit
-                        </Button>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
                 {/* Providers Management Row */}
                 <TableRow>
                   <TableCell>
@@ -769,6 +760,292 @@ const SystemSettingsTable: FC = () => {
                       onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
                       disabled={saving}
                     />
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Sandbox Billing
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Charge org credits for running Sandboxes API containers
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.sandbox_billing_enabled ? 'Enabled' : 'Disabled'}
+                      color={settings?.sandbox_billing_enabled ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {settings?.sandbox_billing_enabled ? 'Enabled' : 'Disabled'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={settings?.sandbox_billing_enabled ?? false}
+                      onChange={(e) => handleToggleSandboxBilling(e.target.checked)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Headless Sandbox Price
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Credits charged per core-second for headless and custom-image sandboxes
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.sandbox_headless_price_credits_per_second ?? 0} credits/core-sec`}
+                      color={(settings?.sandbox_headless_price_credits_per_second ?? 0) > 0 ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.sandbox_headless_price_credits_per_second ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxHeadlessPrice ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxHeadlessPriceValue}
+                            onChange={(e) => setSandboxHeadlessPriceValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxPrice('headless')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxHeadlessPrice(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxHeadlessPriceValue(String(settings?.sandbox_headless_price_credits_per_second ?? 0))
+                            setEditingSandboxHeadlessPrice(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Desktop Sandbox Price
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Credits charged per core-second for ubuntu-desktop sandboxes
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.sandbox_desktop_price_credits_per_second ?? 0} credits/core-sec`}
+                      color={(settings?.sandbox_desktop_price_credits_per_second ?? 0) > 0 ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.sandbox_desktop_price_credits_per_second ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxDesktopPrice ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxDesktopPriceValue}
+                            onChange={(e) => setSandboxDesktopPriceValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxPrice('desktop')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxDesktopPrice(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxDesktopPriceValue(String(settings?.sandbox_desktop_price_credits_per_second ?? 0))
+                            setEditingSandboxDesktopPrice(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Headless Sandbox Limit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum concurrent headless and custom-image sandboxes per organization
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.max_concurrent_headless_sandboxes ?? 10} concurrent`}
+                      color="primary"
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_headless_sandboxes ?? 10}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxHeadlessLimit ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxHeadlessLimitValue}
+                            onChange={(e) => setSandboxHeadlessLimitValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxLimit('headless')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxHeadlessLimit(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxHeadlessLimitValue(String(settings?.max_concurrent_headless_sandboxes ?? 10))
+                            setEditingSandboxHeadlessLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Desktop Sandbox Limit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum concurrent ubuntu-desktop sandboxes per organization
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.max_concurrent_desktop_sandboxes ?? 10} concurrent`}
+                      color="primary"
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_desktop_sandboxes ?? 10}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxDesktopLimit ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxDesktopLimitValue}
+                            onChange={(e) => setSandboxDesktopLimitValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxLimit('desktop')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxDesktopLimit(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxDesktopLimitValue(String(settings?.max_concurrent_desktop_sandboxes ?? 10))
+                            setEditingSandboxDesktopLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               </TableBody>

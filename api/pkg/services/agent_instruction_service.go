@@ -145,6 +145,7 @@ Your design has been approved. Implement the code changes now.
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
 3. **Update tasks.md** - Mark [~] when you START a task, [x] when DONE, push immediately
 4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
+5. **Use conventional commit format** - ` + "`type(scope): description`" + ` (e.g., ` + "`feat(api): add X`" + `, ` + "`fix(frontend): handle Y`" + `, ` + "`docs(specs): update progress`" + `). Types: feat, fix, refactor, chore, docs, test, style, perf, ci, build, revert. The ` + "`commit-msg`" + ` hook in code repos enforces this.
 
 ## CRITICAL: Use tasks.md, NOT Internal To-Do Tools
 
@@ -177,7 +178,7 @@ Small frequent pushes are better than one big push at the end.
 
 ` + "```bash" + `
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "Progress update" && git push origin helix-specs
+git add -A && git commit -m "chore(specs): update progress" && git push origin helix-specs
 ` + "```" + `
 
 ## Steps
@@ -185,8 +186,19 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
-4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
-5. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient — the Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
+4. Before pushing code, merge the latest default branch into your feature branch in every repo that has changes:
+   ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git fetch origin {{.BaseBranch}} && git merge origin/{{.BaseBranch}}`" + `
+   Resolve any conflicts and commit before pushing.
+5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
+6. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient. The Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
+
+## How Pushing Works (Read This Before Debugging Any Push Failure)
+
+` + "`origin`" + ` in every repo under ` + "`/home/retro/work/`" + ` points at the Helix-hosted intermediate git server over HTTPS. Credentials come from ` + "`~/.git-credentials`" + ` via the ` + "`store`" + ` credential helper. There is no SSH, no SSH agent, no SSH keys, and no GitHub CLI in this environment. The Helix API relays your pushes to the external GitHub/GitLab/ADO repo using the OAuth credential the user configured.
+
+**Do NOT run any of these to "debug" a push failure:** ` + "`gh`" + ` (any subcommand), ` + "`ssh-add`" + `, ` + "`ssh-keygen`" + `, ` + "`ssh-agent`" + `, ` + "`eval $(ssh-agent)`" + `, or anything that touches ` + "`~/.ssh/`" + `. None of those tools or files exist or apply here. Running them is a waste of turns and produces misleading output.
+
+If ` + "`git push`" + ` fails: paste the full verbatim stderr to the user in the chat, then stop. Do not guess at the cause, do not invent "SSH authentication issues" or "credential" explanations, and do not retry with alternative tools. The user (or a Helix engineer) will diagnose the underlying issue from the actual error message.
 
 {{if .KoditSection}}
 {{.KoditSection}}
@@ -310,7 +322,7 @@ What changed in {{.}} and why.
 - Key change 2
 EOF
 {{end}}
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR descriptions" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR descriptions" && git push origin helix-specs
 ` + "```" + `
 {{else}}
 ` + "```bash" + `
@@ -327,7 +339,7 @@ Brief description of what this PR does and why.
 ## Testing
 How this was tested (if applicable).
 EOF
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR description" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR description" && git push origin helix-specs
 ` + "```" + `
 {{end}}
 **Tips for good PR descriptions:**
@@ -383,7 +395,7 @@ Speak English.
 
 If changes are needed, update /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ and push:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
 ` + "```" + `
 `))
 
@@ -413,7 +425,7 @@ Update your design based on this feedback:
 
 After updating, push immediately:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
 ` + "```" + `
 `))
 
@@ -657,7 +669,8 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
 	// and overwrite the requestToInteractionMapping, causing responses to go
 	// to the wrong (empty) interaction.
-	_, _, err := s.messageSender(ctx, task, message, userID)
+	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
+	_, _, err := s.messageSender(ctx, task, message, userID, false)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}

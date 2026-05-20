@@ -914,6 +914,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/trial-activate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Activate a trial for a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Trial parameters (days, credits)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Revoke an admin-granted trial (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ActivateTrialResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -3281,23 +3358,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.ContextMenuResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/dashboard": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.DashboardData"
                         }
                     }
                 }
@@ -6630,130 +6690,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/helix-models/memory-estimate": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Estimate memory requirements for a model on different GPU configurations",
-                "tags": [
-                    "models"
-                ],
-                "summary": "Estimate model memory requirements",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Model ID",
-                        "name": "model_id",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Number of GPUs (default: auto-detect)",
-                        "name": "gpu_count",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Context length (default: model default)",
-                        "name": "context_length",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Batch size (default: 512)",
-                        "name": "batch_size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Number of parallel sequences/concurrent requests (default: 2)",
-                        "name": "num_parallel",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/controller.MemoryEstimationResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request parameters",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Model not found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/helix-models/memory-estimates": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get memory estimates for multiple models with different GPU configurations",
-                "tags": [
-                    "models"
-                ],
-                "summary": "List memory estimates for multiple models",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Comma-separated list of model IDs",
-                        "name": "model_ids",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Number of GPUs (default: auto-detect)",
-                        "name": "gpu_count",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/controller.MemoryEstimationResponse"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request parameters",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/helix-models/{id}": {
             "put": {
                 "security": [
@@ -7157,77 +7093,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.PaginatedLLMCalls"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/logs/{slot_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve logs for a specific slot by proxying the request to the runner",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "logs"
-                ],
-                "summary": "Get logs for a specific slot",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Slot ID",
-                        "name": "slot_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Maximum number of lines to return (default: 500)",
-                        "name": "lines",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Return logs since this timestamp (RFC3339 format)",
-                        "name": "since",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by log level (ERROR, WARN, INFO, DEBUG)",
-                        "name": "level",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 }
@@ -8355,6 +8220,823 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{org_id}/sandboxes": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "List sandboxes belonging to an organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandboxes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SandboxListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new sandbox in an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Create sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Sandbox spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateSandboxRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.Sandbox"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Get sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Sandbox"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Delete sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Update sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Patch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateSandboxRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Sandbox"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/billing": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Sandbox billing summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SandboxBillingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandbox commands",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/hydra.ListSandboxCommandsResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Run a command in a sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Command spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RunSandboxCommandRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/hydra.SandboxCommandResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Get a sandbox command",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Command ID",
+                        "name": "cmd_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/hydra.SandboxCommandResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Kill a sandbox command",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Command ID",
+                        "name": "cmd_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Signal name (default TERM)",
+                        "name": "signal",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Stream sandbox command logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Command ID",
+                        "name": "cmd_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "stdout|stderr|both",
+                        "name": "stream",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1 to follow",
+                        "name": "follow",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/files": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Read/write/delete sandbox file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Absolute path inside the sandbox",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Octal permission for write",
+                        "name": "mode",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1 to delete recursively",
+                        "name": "recursive",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Read/write/delete sandbox file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Absolute path inside the sandbox",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Octal permission for write",
+                        "name": "mode",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1 to delete recursively",
+                        "name": "recursive",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Read/write/delete sandbox file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Absolute path inside the sandbox",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Octal permission for write",
+                        "name": "mode",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1 to delete recursively",
+                        "name": "recursive",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/files/list": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List directory in sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Directory path (default /root)",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/hydra.ListSandboxFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/screenshot": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "image/jpeg"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Get a sandbox screenshot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "JPEG quality (1-100, default 60)",
+                        "name": "quality",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Desktop bridge not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/terminal": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Sandbox terminal websocket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandbox tmux sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects": {
             "get": {
                 "security": [
@@ -8792,7 +9474,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.AccessGrant"
+                            "$ref": "#/definitions/types.CreateAccessGrantResponse"
                         }
                     }
                 }
@@ -11411,51 +12093,48 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/sample-projects": {
+        "/api/v1/runner-profiles": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a list of all available sample projects that users can fork and use",
+                "description": "Return all compose-based runner profiles, ordered by name.",
                 "tags": [
-                    "sample-projects"
+                    "runner_profiles"
                 ],
-                "summary": "List available sample projects",
+                "summary": "List runner profiles",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/server.SampleProject"
+                                "$ref": "#/definitions/types.RunnerProfile"
                             }
                         }
                     }
                 }
-            }
-        },
-        "/api/v1/sample-projects/fork": {
+            },
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Fork a sample project to the user's GitHub account and create a new Helix project",
                 "tags": [
-                    "sample-projects"
+                    "runner_profiles"
                 ],
-                "summary": "Fork a sample project",
+                "summary": "Create a runner profile",
                 "parameters": [
                     {
-                        "description": "Fork request details",
-                        "name": "request",
+                        "description": "Profile fields",
+                        "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSampleProjectRequest"
+                            "$ref": "#/definitions/server.runnerProfileSaveRequest"
                         }
                     }
                 ],
@@ -11463,7 +12142,273 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSampleProjectResponse"
+                            "$ref": "#/definitions/types.RunnerProfile"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/runner-profiles/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "Get a runner profile by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Profile ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerProfile"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "Update a runner profile (full replace)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Profile ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Profile fields",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.runnerProfileSaveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerProfile"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "Delete a runner profile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Profile ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "no content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/runners/{runner_id}/assign-profile": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validates GPU compatibility, persists the assignment, and notifies\nthe runner over NATS to apply the profile.",
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "Assign a profile to a runner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner ID",
+                        "name": "runner_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Profile ID",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.runnerProfileAssignRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerAssignment"
+                        }
+                    },
+                    "422": {
+                        "description": "incompatible: \u003cconstraint\u003e — \u003cdetail\u003e",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/runners/{runner_id}/assignment": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "Get a runner's current profile assignment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner ID",
+                        "name": "runner_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerAssignment"
+                        }
+                    },
+                    "404": {
+                        "description": "no assignment",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/runners/{runner_id}/clear-profile": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes the runner-to-profile assignment and tells the runner\nto tear down any active compose stack. Idempotent.",
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "Clear a runner's profile assignment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner ID",
+                        "name": "runner_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "no content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/runners/{runner_id}/compatible-profiles": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the subset of profiles whose GPU compatibility specification\nis satisfied by the runner's reported hardware inventory.",
+                "tags": [
+                    "runner_profiles"
+                ],
+                "summary": "List runner profiles compatible with the given runner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner ID",
+                        "name": "runner_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.RunnerProfile"
+                            }
                         }
                     }
                 }
@@ -11641,122 +12586,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/sample-projects/{projectId}/archive": {
-            "get": {
-                "description": "Get all files for a sample project as a flat map (for container initialization)",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Get sample project code as archive",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "projectId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects/{projectId}/code": {
-            "get": {
-                "description": "Get the starter code and file structure for a sample project",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Get sample project starter code",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "projectId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.SampleProjectCode"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects/{project_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get details of a specific sample project by ID",
-                "tags": [
-                    "sample-projects"
-                ],
-                "summary": "Get a specific sample project",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Sample project ID",
-                        "name": "project_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.SampleProject"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/samples/initialize": {
             "post": {
                 "security": [
@@ -11860,6 +12689,37 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sandbox-runtimes": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "List the sandbox runtimes available on this server",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandbox runtimes",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     }
                 }
@@ -12064,29 +12924,6 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/scheduler/heartbeats": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the health status of all scheduler goroutines",
-                "tags": [
-                    "dashboard"
-                ],
-                "summary": "Get scheduler goroutine heartbeat status",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
                         }
                     }
                 }
@@ -13272,6 +14109,82 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/messages": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Persists a Waiting interaction and dispatches it via the external-agent\nWebSocket. If no agent is connected the interaction is held until the\nagent reconnects, at which point pickupWaitingInteraction delivers it —\ncallers do not need to manage WebSocket readiness or retries.\nDistinct from POST /sessions/chat (synchronous SSE chat); use this\nendpoint for fire-and-forget delivery to an external (e.g. desktop) agent.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Queue a message to a session's external agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/output": {
             "get": {
                 "security": [
@@ -13916,7 +14829,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get merged Helix + user Zed settings for a session",
+                "description": "Returns the union of helix-managed and user-side MCP context_servers,\nfor the session \"MCP Tools\" panel in the UI. Other Zed settings\n(agent.*, language_models, theme) are owned by the daemon — anything\nthat needs the full Zed view goes through the settings-sync-daemon\non /zed-config + a local merge.",
                 "consumes": [
                     "application/json"
                 ],
@@ -13926,7 +14839,7 @@ const docTemplate = `{
                 "tags": [
                     "Zed"
                 ],
-                "summary": "Get merged Zed settings",
+                "summary": "Get merged Zed MCP context_servers for a session",
                 "parameters": [
                     {
                         "type": "string",
@@ -14085,38 +14998,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.SkillDefinition"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/slots/{slot_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner",
-                "tags": [
-                    "dashboard"
-                ],
-                "summary": "Delete a slot from scheduler state",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Slot ID",
-                        "name": "slot_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
                         }
                     }
                 }
@@ -16241,6 +17122,169 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/usage/org-summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usage"
+                ],
+                "summary": "Get organization usage summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Provider",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Model",
+                        "name": "model",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "User search",
+                        "name": "user_search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "User page size",
+                        "name": "user_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "User page offset",
+                        "name": "user_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Project page size",
+                        "name": "project_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Project page offset",
+                        "name": "project_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Task page size",
+                        "name": "task_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Task page offset",
+                        "name": "task_offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session page size",
+                        "name": "session_limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session page offset",
+                        "name": "session_offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgUsageSummaryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users": {
             "get": {
                 "security": [
@@ -16419,6 +17463,57 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/color-scheme": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the user's UI color scheme. Propagates instantly to GNOME and Zed in any spec-task sessions owned by this user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user color scheme preference",
+                "parameters": [
+                    {
+                        "description": "Color scheme update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserColorSchemeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserColorSchemeRequest"
                         }
                     },
                     "400": {
@@ -17208,23 +18303,6 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "controller.MemoryEstimationResponse": {
-            "type": "object",
-            "properties": {
-                "cached": {
-                    "type": "boolean"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "estimate": {
-                    "$ref": "#/definitions/memory.MemoryEstimate"
-                },
-                "model_id": {
-                    "type": "string"
-                }
-            }
-        },
         "filestore.Config": {
             "type": "object",
             "properties": {
@@ -17445,6 +18523,101 @@ const docTemplate = `{
                 }
             }
         },
+        "hydra.ListSandboxCommandsResponse": {
+            "type": "object",
+            "properties": {
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/hydra.SandboxCommandResponse"
+                    }
+                }
+            }
+        },
+        "hydra.ListSandboxFilesResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/hydra.SandboxFileEntry"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "hydra.SandboxCommandResponse": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "cmd": {
+                    "type": "string"
+                },
+                "cwd": {
+                    "type": "string"
+                },
+                "detached": {
+                    "type": "boolean"
+                },
+                "exit_code": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "stderr": {
+                    "type": "string"
+                },
+                "stdout": {
+                    "type": "string"
+                },
+                "sudo": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "hydra.SandboxFileEntry": {
+            "type": "object",
+            "properties": {
+                "is_dir": {
+                    "type": "boolean"
+                },
+                "mod_time": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
         "mcp.Icon": {
             "type": "object",
             "properties": {
@@ -17636,176 +18809,6 @@ const docTemplate = `{
                 },
                 "type": {
                     "type": "string"
-                }
-            }
-        },
-        "memory.EstimateOptions": {
-            "type": "object",
-            "properties": {
-                "flash_attention": {
-                    "description": "Advanced options",
-                    "type": "boolean"
-                },
-                "kv_cache_type": {
-                    "description": "\"f16\", \"q8_0\", \"q4_0\"",
-                    "type": "string"
-                },
-                "num_batch": {
-                    "description": "Batch size",
-                    "type": "integer"
-                },
-                "num_ctx": {
-                    "description": "Context size",
-                    "type": "integer"
-                },
-                "num_gpu": {
-                    "description": "⚠️  CRITICAL CONFUSION WARNING ⚠️\nNumGPU is NOT the number of GPUs in your hardware configuration!\nNumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)\n\nExamples:\n- NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)\n- NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)\n- NumGPU = 0:  CPU only (no GPU layers)\n\nTo estimate for different GPU hardware configs (1 GPU vs 4 GPUs),\nyou pass different GPU configuration arrays to the estimation function,\nNOT different NumGPU values!",
-                    "type": "integer"
-                },
-                "num_parallel": {
-                    "description": "Number of parallel sequences",
-                    "type": "integer"
-                }
-            }
-        },
-        "memory.GPUInfo": {
-            "type": "object",
-            "properties": {
-                "compute": {
-                    "type": "string"
-                },
-                "dependency_path": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "driver_major": {
-                    "type": "integer"
-                },
-                "driver_minor": {
-                    "type": "integer"
-                },
-                "env_workarounds": {
-                    "type": "array",
-                    "items": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "free_memory": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "library": {
-                    "description": "\"cuda\", \"rocm\", \"metal\", \"cpu\"",
-                    "type": "string"
-                },
-                "minimum_memory": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "total_memory": {
-                    "type": "integer"
-                },
-                "unreliable_free_memory": {
-                    "type": "boolean"
-                },
-                "variant": {
-                    "description": "Additional fields for compatibility with Ollama's estimation",
-                    "type": "string"
-                }
-            }
-        },
-        "memory.MemoryEstimate": {
-            "type": "object",
-            "properties": {
-                "architecture": {
-                    "description": "Metadata",
-                    "type": "string"
-                },
-                "estimated_at": {
-                    "type": "string"
-                },
-                "fully_loaded": {
-                    "description": "Whether all layers fit on GPU",
-                    "type": "boolean"
-                },
-                "gpu_sizes": {
-                    "description": "Memory allocation per GPU",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "gpus": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/memory.GPUInfo"
-                    }
-                },
-                "graph": {
-                    "description": "Graph memory requirement",
-                    "type": "integer"
-                },
-                "graph_mem": {
-                    "description": "Graph computation memory",
-                    "type": "integer"
-                },
-                "kv_cache": {
-                    "description": "Breakdown for analysis",
-                    "type": "integer"
-                },
-                "layers": {
-                    "description": "Core results",
-                    "type": "integer"
-                },
-                "model_path": {
-                    "type": "string"
-                },
-                "options": {
-                    "description": "Configuration used for estimation",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/memory.EstimateOptions"
-                        }
-                    ]
-                },
-                "projectors": {
-                    "description": "Projector weights (for multimodal)",
-                    "type": "integer"
-                },
-                "requires_fallback": {
-                    "description": "Whether CPU fallback is needed",
-                    "type": "boolean"
-                },
-                "tensor_split": {
-                    "description": "Layers per GPU for tensor parallel",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "total_size": {
-                    "description": "Total memory requirement",
-                    "type": "integer"
-                },
-                "vram_size": {
-                    "description": "Total VRAM usage",
-                    "type": "integer"
-                },
-                "weights": {
-                    "description": "Model weights memory",
-                    "type": "integer"
                 }
             }
         },
@@ -18476,6 +19479,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ActivateTrialRequest": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                },
+                "days": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.ActivateTrialResponse": {
+            "type": "object",
+            "properties": {
+                "org_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
+                }
+            }
+        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -18842,37 +19870,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "url": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ForkSampleProjectRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "private": {
-                    "type": "boolean"
-                },
-                "project_name": {
-                    "type": "string"
-                },
-                "sample_project_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ForkSampleProjectResponse": {
-            "type": "object",
-            "properties": {
-                "github_repo_url": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "project_id": {
                     "type": "string"
                 }
             }
@@ -19839,32 +20836,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.LogsSummary": {
-            "type": "object",
-            "properties": {
-                "active_instances": {
-                    "type": "integer"
-                },
-                "error_retention_hours": {
-                    "type": "integer"
-                },
-                "instances_with_errors": {
-                    "type": "integer"
-                },
-                "max_lines_per_buffer": {
-                    "type": "integer"
-                },
-                "recent_errors": {
-                    "type": "integer"
-                },
-                "slots": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.SlotLogSummary"
-                    }
-                }
-            }
-        },
         "server.ModelSubstitution": {
             "type": "object",
             "properties": {
@@ -20006,99 +20977,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.SampleProject": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "description": "\"web\", \"api\", \"mobile\", \"data\", \"ai\"",
-                    "type": "string"
-                },
-                "default_branch": {
-                    "type": "string"
-                },
-                "demo_url": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "difficulty": {
-                    "description": "\"beginner\", \"intermediate\", \"advanced\"",
-                    "type": "string"
-                },
-                "github_repo": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "readme_url": {
-                    "type": "string"
-                },
-                "sample_tasks": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.SampleProjectTask"
-                    }
-                },
-                "technologies": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "server.SampleProjectTask": {
-            "type": "object",
-            "properties": {
-                "acceptance_criteria": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "estimated_hours": {
-                    "type": "integer"
-                },
-                "files_to_modify": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "labels": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "priority": {
-                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"backlog\", \"ready\", \"in_progress\", \"review\", \"done\"",
-                    "type": "string"
-                },
-                "technical_notes": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                },
-                "type": {
-                    "description": "\"feature\", \"bug\", \"task\", \"epic\"",
-                    "type": "string"
-                }
-            }
-        },
         "server.SampleTaskPrompt": {
             "type": "object",
             "properties": {
@@ -20157,20 +21035,93 @@ const docTemplate = `{
                 }
             }
         },
+        "server.SandboxBillingResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "pending_credits": {
+                    "type": "number"
+                },
+                "price_credits_per_second": {
+                    "type": "number"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "total_credits_charged": {
+                    "type": "number"
+                },
+                "vcpus": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.SandboxInstanceInfo": {
             "type": "object",
             "properties": {
+                "active_profile_id": {
+                    "description": "Inference profile state — populated from the heartbeat. Empty for\npure-agent sandboxes with no profile assigned.",
+                    "type": "string"
+                },
                 "container_id": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
+                "profile_error": {
+                    "type": "string"
+                },
+                "profile_progress": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.ServiceDownloadProgress"
+                    }
+                },
+                "profile_status": {
+                    "type": "string"
+                },
+                "service_health": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "session_id": {
                     "type": "string"
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "server.SandboxTerminalSession": {
+            "type": "object",
+            "properties": {
+                "attached": {
+                    "type": "boolean"
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "windows": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.SandboxTerminalSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SandboxTerminalSession"
+                    }
                 }
             }
         },
@@ -20185,6 +21136,31 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ClaudeOAuthCredentials"
                 },
                 "setup_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionMessageRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "interrupt": {
+                    "type": "boolean"
+                },
+                "notify_user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionMessageResponse": {
+            "type": "object",
+            "properties": {
+                "interaction_id": {
+                    "type": "string"
+                },
+                "request_id": {
                     "type": "string"
                 }
             }
@@ -20360,23 +21336,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.SlotLogSummary": {
-            "type": "object",
-            "properties": {
-                "has_logs": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "runner_id": {
-                    "type": "string"
-                }
-            }
-        },
         "server.TaskProgressResponse": {
             "type": "object",
             "properties": {
@@ -20468,46 +21427,71 @@ const docTemplate = `{
                 }
             }
         },
-        "services.SampleProjectCode": {
+        "server.openaiModelEntry": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "files": {
-                    "description": "filepath -\u003e content",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "github_repo": {
-                    "type": "string"
-                },
-                "gitignore": {
-                    "type": "string"
+                "created": {
+                    "type": "integer"
                 },
                 "id": {
                     "type": "string"
                 },
-                "language": {
+                "object": {
+                    "type": "string"
+                },
+                "owned_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.openaiModelsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.openaiModelEntry"
+                    }
+                },
+                "object": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.runnerProfileAssignRequest": {
+            "type": "object",
+            "properties": {
+                "profile_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.runnerProfileSaveRequest": {
+            "type": "object",
+            "properties": {
+                "architectures": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "compose_yaml": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "min_vram_bytes": {
+                    "type": "integer"
+                },
+                "model_match": {
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
-                "readme_url": {
-                    "type": "string"
-                },
-                "startup_script": {
-                    "description": "Custom startup script for this project",
-                    "type": "string"
-                },
-                "technologies": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
+                "vendor": {
+                    "$ref": "#/definitions/types.GPUVendor"
                 }
             }
         },
@@ -20572,7 +21556,7 @@ const docTemplate = `{
                 "message": {
                     "type": "string"
                 },
-                "statusCode": {
+                "status_code": {
                     "type": "integer"
                 }
             }
@@ -20812,6 +21796,9 @@ const docTemplate = `{
                 "response_size_bytes": {
                     "type": "integer"
                 },
+                "sandbox_cost": {
+                    "type": "number"
+                },
                 "total_cost": {
                     "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
@@ -20821,74 +21808,6 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
-                }
-            }
-        },
-        "types.AllocationPlanView": {
-            "type": "object",
-            "properties": {
-                "cost": {
-                    "type": "integer"
-                },
-                "evictions_needed": {
-                    "description": "Slot IDs",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "gpu_count": {
-                    "type": "integer"
-                },
-                "gpus": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_multi_gpu": {
-                    "type": "boolean"
-                },
-                "is_valid": {
-                    "type": "boolean"
-                },
-                "memory_per_gpu": {
-                    "type": "integer"
-                },
-                "requires_eviction": {
-                    "type": "boolean"
-                },
-                "runner_capacity": {
-                    "description": "GPU index -\u003e total memory",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "runner_id": {
-                    "type": "string"
-                },
-                "runner_memory_state": {
-                    "description": "GPU index -\u003e allocated memory",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "runtime": {
-                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
-                },
-                "tensor_parallel_size": {
-                    "type": "integer"
-                },
-                "total_memory_required": {
-                    "type": "integer"
-                },
-                "validation_error": {
-                    "type": "string"
                 }
             }
         },
@@ -21616,14 +22535,18 @@ const docTemplate = `{
                 "agent_interaction_completed",
                 "spec_failed",
                 "implementation_failed",
-                "pr_ready"
+                "pr_ready",
+                "ci_passed",
+                "ci_failed"
             ],
             "x-enum-varnames": [
                 "AttentionEventSpecsPushed",
                 "AttentionEventAgentInteractionCompleted",
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
-                "AttentionEventPRReady"
+                "AttentionEventPRReady",
+                "AttentionEventCIPassed",
+                "AttentionEventCIFailed"
             ]
         },
         "types.AttentionEventUpdateRequest": {
@@ -22586,6 +23509,53 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateAccessGrantResponse": {
+            "type": "object",
+            "properties": {
+                "added_to_organization": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "If granted to an organization",
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "App ID, Knowledge ID, etc",
+                    "type": "string"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "team_id": {
+                    "description": "If granted to a team",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "If granted to a user",
+                    "type": "string"
+                }
+            }
+        },
         "types.CreateBranchRequest": {
             "type": "object",
             "properties": {
@@ -22698,6 +23668,64 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateSandboxRequest": {
+            "type": "object",
+            "properties": {
+                "display_fps": {
+                    "type": "integer"
+                },
+                "display_height": {
+                    "type": "integer"
+                },
+                "display_width": {
+                    "type": "integer"
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "image": {
+                    "description": "Image is an optional explicit Docker image override. Only honoured\nwhen the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.\nMutually exclusive with Runtime.",
+                    "type": "string"
+                },
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "persistent": {
+                    "description": "Persistent makes the sandbox keep a workspace mount across container\nrestarts. Files written under /home/retro/work survive teardown until\nthe sandbox is explicitly deleted.",
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "description": "ProjectID optionally associates the sandbox with a project the caller\nbelongs to. Empty means org-scoped only.",
+                    "type": "string"
+                },
+                "runtime": {
+                    "description": "Runtime selects one of the operator-configured runtimes\n(e.g. \"headless-ubuntu\", \"node22\", \"ubuntu-desktop\"). Mutually\nexclusive with Image.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
+                "tags": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                },
+                "vcpus": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.CreateSecretRequest": {
             "type": "object",
             "properties": {
@@ -22722,6 +23750,14 @@ const docTemplate = `{
                 "app_id": {
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
+                },
+                "assignee_id": {
+                    "description": "Optional: team member assigned to the task",
+                    "type": "string"
+                },
+                "auto_start": {
+                    "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
+                    "type": "boolean"
                 },
                 "base_branch": {
                     "description": "For new mode: branch to create from (defaults to repo default)",
@@ -22865,107 +23901,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "schedule": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.DashboardData": {
-            "type": "object",
-            "properties": {
-                "global_allocation_decisions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GlobalAllocationDecision"
-                    }
-                },
-                "queue": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.WorkloadSummary"
-                    }
-                },
-                "runners": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.DashboardRunner"
-                    }
-                },
-                "scheduling_decisions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SchedulingDecision"
-                    }
-                }
-            }
-        },
-        "types.DashboardRunner": {
-            "type": "object",
-            "properties": {
-                "allocated_memory": {
-                    "type": "integer"
-                },
-                "created": {
-                    "type": "string"
-                },
-                "free_memory": {
-                    "type": "integer"
-                },
-                "gpu_count": {
-                    "description": "Number of GPUs detected",
-                    "type": "integer"
-                },
-                "gpu_memory_stats": {
-                    "description": "GPU memory stabilization statistics",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.GPUMemoryStats"
-                        }
-                    ]
-                },
-                "gpus": {
-                    "description": "Per-GPU memory status",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GPUStatus"
-                    }
-                },
-                "id": {
-                    "type": "string"
-                },
-                "labels": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "memory_string": {
-                    "type": "string"
-                },
-                "models": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.RunnerModelStatus"
-                    }
-                },
-                "process_stats": {
-                    "description": "Process tracking and cleanup statistics"
-                },
-                "slots": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.RunnerSlot"
-                    }
-                },
-                "total_memory": {
-                    "type": "integer"
-                },
-                "updated": {
-                    "type": "string"
-                },
-                "used_memory": {
-                    "type": "integer"
-                },
-                "version": {
                     "type": "string"
                 }
             }
@@ -23655,182 +24590,17 @@ const docTemplate = `{
                 }
             }
         },
-        "types.GPUMemoryDataPoint": {
-            "type": "object",
-            "properties": {
-                "actual_free_mb": {
-                    "description": "Actual free memory (from nvidia-smi)",
-                    "type": "integer"
-                },
-                "actual_total_mb": {
-                    "description": "Total GPU memory",
-                    "type": "integer"
-                },
-                "actual_used_mb": {
-                    "description": "Actual memory used (from nvidia-smi)",
-                    "type": "integer"
-                },
-                "allocated_mb": {
-                    "description": "Memory allocated by Helix scheduler",
-                    "type": "integer"
-                },
-                "gpu_index": {
-                    "type": "integer"
-                },
-                "timestamp": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.GPUMemoryReading": {
-            "type": "object",
-            "properties": {
-                "delta_mb": {
-                    "type": "integer"
-                },
-                "is_stable": {
-                    "type": "boolean"
-                },
-                "memory_mb": {
-                    "type": "integer"
-                },
-                "poll_number": {
-                    "type": "integer"
-                },
-                "stable_count": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.GPUMemoryStabilizationEvent": {
-            "type": "object",
-            "properties": {
-                "context": {
-                    "description": "\"startup\" or \"deletion\"",
-                    "type": "string"
-                },
-                "error_message": {
-                    "type": "string"
-                },
-                "memory_delta_threshold_mb": {
-                    "type": "integer"
-                },
-                "memory_readings": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GPUMemoryReading"
-                    }
-                },
-                "poll_interval_ms": {
-                    "type": "integer"
-                },
-                "polls_taken": {
-                    "type": "integer"
-                },
-                "required_stable_polls": {
-                    "type": "integer"
-                },
-                "runtime": {
-                    "type": "string"
-                },
-                "slot_id": {
-                    "type": "string"
-                },
-                "stabilized_memory_mb": {
-                    "type": "integer"
-                },
-                "success": {
-                    "type": "boolean"
-                },
-                "timeout_seconds": {
-                    "type": "integer"
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "total_wait_seconds": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.GPUMemoryStats": {
-            "type": "object",
-            "properties": {
-                "average_wait_time_seconds": {
-                    "type": "number"
-                },
-                "failed_stabilizations": {
-                    "type": "integer"
-                },
-                "last_stabilization": {
-                    "type": "string"
-                },
-                "max_wait_time_seconds": {
-                    "type": "integer"
-                },
-                "memory_time_series": {
-                    "description": "Last 10 minutes of memory data",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GPUMemoryDataPoint"
-                    }
-                },
-                "min_wait_time_seconds": {
-                    "type": "integer"
-                },
-                "recent_events": {
-                    "description": "Last 20 events",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GPUMemoryStabilizationEvent"
-                    }
-                },
-                "scheduling_events": {
-                    "description": "Last 10 minutes of scheduling events",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SchedulingEvent"
-                    }
-                },
-                "successful_stabilizations": {
-                    "type": "integer"
-                },
-                "total_stabilizations": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.GPUState": {
-            "type": "object",
-            "properties": {
-                "active_slots": {
-                    "description": "Slot IDs using this GPU",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "allocated_memory": {
-                    "type": "integer"
-                },
-                "free_memory": {
-                    "type": "integer"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "total_memory": {
-                    "type": "integer"
-                },
-                "utilization": {
-                    "description": "0.0 - 1.0",
-                    "type": "number"
-                }
-            }
-        },
         "types.GPUStatus": {
             "type": "object",
             "properties": {
+                "architecture": {
+                    "description": "canonical arch from gpuarch (e.g. \"hopper\")",
+                    "type": "string"
+                },
+                "compute_capability": {
+                    "description": "NVIDIA only — raw \"9.0\" / \"8.6\" etc.",
+                    "type": "string"
+                },
                 "driver_version": {
                     "description": "GPU driver version (NVIDIA or AMD)",
                     "type": "string"
@@ -23858,8 +24628,27 @@ const docTemplate = `{
                 "used_memory": {
                     "description": "Used memory in bytes",
                     "type": "integer"
+                },
+                "vendor": {
+                    "description": "Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).\nPopulated by the worker on its periodic status report; consumed by\nthe API server's profile-compatibility check.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.GPUVendor"
+                        }
+                    ]
                 }
             }
+        },
+        "types.GPUVendor": {
+            "type": "string",
+            "enum": [
+                "nvidia",
+                "amd"
+            ],
+            "x-enum-varnames": [
+                "GPUVendorNVIDIA",
+                "GPUVendorAMD"
+            ]
         },
         "types.GitHub": {
             "type": "object",
@@ -24305,83 +25094,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.GlobalAllocationDecision": {
-            "type": "object",
-            "properties": {
-                "after_state": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/types.RunnerStateView"
-                    }
-                },
-                "before_state": {
-                    "description": "Global state snapshots",
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/types.RunnerStateView"
-                    }
-                },
-                "considered_plans": {
-                    "description": "All plans considered",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AllocationPlanView"
-                    }
-                },
-                "created": {
-                    "type": "string"
-                },
-                "error_message": {
-                    "type": "string"
-                },
-                "execution_time_ms": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "model_name": {
-                    "type": "string"
-                },
-                "optimization_score": {
-                    "description": "How optimal the final decision was",
-                    "type": "number"
-                },
-                "planning_time_ms": {
-                    "description": "Timing information",
-                    "type": "integer"
-                },
-                "reason": {
-                    "type": "string"
-                },
-                "runtime": {
-                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
-                },
-                "selected_plan": {
-                    "$ref": "#/definitions/types.AllocationPlanView"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "success": {
-                    "description": "Decision outcome",
-                    "type": "boolean"
-                },
-                "total_plans_generated": {
-                    "type": "integer"
-                },
-                "total_runners_evaluated": {
-                    "description": "Decision metadata",
-                    "type": "integer"
-                },
-                "total_time_ms": {
-                    "type": "integer"
-                },
-                "workload_id": {
-                    "type": "string"
-                }
-            }
-        },
         "types.GuidelinesHistory": {
             "type": "object",
             "properties": {
@@ -24491,6 +25203,10 @@ const docTemplate = `{
                 "mode": {
                     "$ref": "#/definitions/types.SessionMode"
                 },
+                "prompt_id": {
+                    "description": "PromptID links this interaction back to the prompt_history_entry that\ncreated it (when the interaction was dispatched by the queue, as opposed\nto being initiated by Zed when the user types in the IDE). Empty for\nZed-initiated interactions. Used by handleMessageAdded /\nhandleMessageCompleted to mark the originating prompt as 'sent' without\nrelying on an in-memory map that doesn't survive API restarts. See\ndesign/2026-04-30-queue-and-other-stuck-state-bugs.md.",
+                    "type": "string"
+                },
                 "prompt_message": {
                     "description": "User prompt (text)",
                     "type": "string"
@@ -24599,14 +25315,16 @@ const docTemplate = `{
                 "waiting",
                 "editing",
                 "complete",
-                "error"
+                "error",
+                "interrupted"
             ],
             "x-enum-varnames": [
                 "InteractionStateNone",
                 "InteractionStateWaiting",
                 "InteractionStateEditing",
                 "InteractionStateComplete",
-                "InteractionStateError"
+                "InteractionStateError",
+                "InteractionStateInterrupted"
             ]
         },
         "types.Item": {
@@ -25829,6 +26547,149 @@ const docTemplate = `{
                 }
             }
         },
+        "types.OrgUsageSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "active_apps": {
+                    "type": "integer"
+                },
+                "active_projects": {
+                    "type": "integer"
+                },
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "active_users": {
+                    "type": "integer"
+                },
+                "apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "export_users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "filter_apps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "model_time_series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageModelTimeSeries"
+                    }
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "project_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "projects_total": {
+                    "type": "integer"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "sessions_total": {
+                    "type": "integer"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "tasks_total": {
+                    "type": "integer"
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "users_total": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Organization": {
             "type": "object",
             "properties": {
@@ -26115,6 +26976,55 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "web_search": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProfileGPURequirement": {
+            "type": "object",
+            "properties": {
+                "architectures": {
+                    "description": "optional whitelist (canonical strings from gpuarch)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "count": {
+                    "description": "derived from compose: union of device_ids",
+                    "type": "integer"
+                },
+                "min_vram_bytes": {
+                    "description": "optional, per-GPU minimum",
+                    "type": "integer"
+                },
+                "model_match": {
+                    "description": "optional regex against GPU marketing name",
+                    "type": "string"
+                },
+                "vendor": {
+                    "description": "optional",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.GPUVendor"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.ProfileModel": {
+            "type": "object",
+            "properties": {
+                "container_name": {
+                    "description": "service.container_name (or service key if absent)",
+                    "type": "string"
+                },
+                "internal_port": {
+                    "description": "first published or exposed port",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "--served-model-name (preferred) or --model basename",
                     "type": "string"
                 }
             }
@@ -27005,6 +27915,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "head_sha": {
+                    "description": "HeadSHA is the commit SHA at the tip of the PR's source branch.\nUsed by the CI status poller to detect new pushes and to query the\nprovider's CI/build APIs for the right commit. Empty if the\nprovider response did not include it.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -27216,7 +28130,21 @@ const docTemplate = `{
                 "active_concurrent_desktops": {
                     "type": "integer"
                 },
+                "active_desktop_sandboxes": {
+                    "description": "Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —\nthat one counts external_agent sessions (the spec-task desktop stack),\nwhile these count rows in the sandboxes table by runtime category.\n\"Active\" = pending|running|stopping (matches ensureSandboxLimits).",
+                    "type": "integer"
+                },
+                "active_headless_sandboxes": {
+                    "type": "integer"
+                },
                 "max_concurrent_desktops": {
+                    "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited.",
+                    "type": "integer"
+                },
+                "max_desktop_sandboxes": {
+                    "type": "integer"
+                },
+                "max_headless_sandboxes": {
                     "type": "integer"
                 },
                 "max_projects": {
@@ -27327,6 +28255,19 @@ const docTemplate = `{
         "types.RepoPR": {
             "type": "object",
             "properties": {
+                "ci_head_sha": {
+                    "type": "string"
+                },
+                "ci_status": {
+                    "description": "CI status, populated by the spec task orchestrator's PR poll loop.\nCIStatus is one of: \"\" (not yet evaluated), \"running\", \"passed\",\n\"failed\", \"none\" (CI not configured for the PR's head SHA).\nCIHeadSHA is the head commit we last evaluated; it lets the poller\ndetect a new push and reset CIStatus so a stale \"passed\" doesn't\nsuppress a fresh notification when the next commit fails.",
+                    "type": "string"
+                },
+                "ci_updated_at": {
+                    "type": "string"
+                },
+                "ci_url": {
+                    "type": "string"
+                },
                 "pr_id": {
                     "type": "string"
                 },
@@ -27604,131 +28545,182 @@ const docTemplate = `{
                 }
             }
         },
-        "types.RunnerModelStatus": {
+        "types.RunSandboxCommandRequest": {
             "type": "object",
             "properties": {
-                "download_in_progress": {
+                "args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "cmd": {
+                    "type": "string"
+                },
+                "cwd": {
+                    "type": "string"
+                },
+                "detached": {
                     "type": "boolean"
                 },
-                "download_percent": {
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "sudo": {
+                    "type": "boolean"
+                },
+                "timeout_seconds": {
+                    "description": "TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and !detached.",
                     "type": "integer"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "memory": {
-                    "description": "Memory requirement in bytes",
-                    "type": "integer"
-                },
-                "model_id": {
-                    "type": "string"
-                },
-                "runtime": {
-                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
                 }
             }
         },
-        "types.RunnerSlot": {
+        "types.RunnerAssignment": {
             "type": "object",
             "properties": {
-                "active": {
-                    "type": "boolean"
-                },
-                "active_requests": {
-                    "type": "integer"
-                },
-                "command_line": {
+                "assigned_at": {
                     "type": "string"
                 },
-                "context_length": {
-                    "type": "integer"
-                },
-                "created": {
+                "assigned_by": {
+                    "description": "user ID for audit",
                     "type": "string"
                 },
-                "gpu_allocation_data": {
-                    "type": "object",
-                    "additionalProperties": {}
+                "profile_id": {
+                    "type": "string"
                 },
-                "gpu_index": {
+                "runner_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RunnerProfile": {
+            "type": "object",
+            "properties": {
+                "compose_yaml": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "gpu_requirement": {
+                    "$ref": "#/definitions/types.ProfileGPURequirement"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProfileModel"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Sandbox": {
+            "type": "object",
+            "properties": {
+                "billing_last_charged_at": {
+                    "type": "string"
+                },
+                "container_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "display_fps": {
                     "type": "integer"
                 },
-                "gpu_indices": {
+                "display_height": {
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Display fields apply to desktop runtimes.",
+                    "type": "integer"
+                },
+                "env": {
                     "type": "array",
                     "items": {
                         "type": "integer"
                     }
                 },
+                "expires_at": {
+                    "type": "string"
+                },
+                "host_device_id": {
+                    "description": "HostDeviceID is the RevDial device ID of the hydra host that runs the\nunderlying container. Empty until the controller schedules it.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
-                "max_concurrency": {
-                    "type": "integer"
-                },
-                "memory_estimation_meta": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "model": {
+                "image": {
                     "type": "string"
                 },
-                "model_memory_requirement": {
+                "memory_mb": {
                     "type": "integer"
                 },
-                "ready": {
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "persistent": {
+                    "description": "Persistent indicates that the sandbox should mount a persistent\nworkspace volume (so files survive across reboots/restarts of the\nunderlying container). Non-persistent sandboxes use the container's\nephemeral filesystem only.",
                     "type": "boolean"
                 },
-                "runner_id": {
+                "project_id": {
+                    "description": "ProjectID is optional. When set, the sandbox is associated with a\nspecific project for organisational/UI grouping purposes; nothing in the\nlifecycle path branches on it. Empty means org-scoped only.",
                     "type": "string"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
+                    "$ref": "#/definitions/types.SandboxRuntime"
                 },
-                "runtime_args": {
-                    "type": "object",
-                    "additionalProperties": {}
+                "started_at": {
+                    "type": "string"
                 },
                 "status": {
+                    "$ref": "#/definitions/types.SandboxStatus"
+                },
+                "status_message": {
                     "type": "string"
                 },
-                "tensor_parallel_size": {
-                    "type": "integer"
-                },
-                "updated": {
+                "stopped_at": {
                     "type": "string"
                 },
-                "version": {
-                    "type": "string"
-                },
-                "workload_data": {
-                    "type": "object",
-                    "additionalProperties": {}
-                }
-            }
-        },
-        "types.RunnerStateView": {
-            "type": "object",
-            "properties": {
-                "active_slots": {
-                    "type": "integer"
-                },
-                "gpu_states": {
-                    "description": "GPU index -\u003e state",
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/types.GPUState"
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
                     }
                 },
-                "is_connected": {
-                    "type": "boolean"
-                },
-                "runner_id": {
-                    "type": "string"
-                },
-                "total_slots": {
+                "timeout_seconds": {
+                    "description": "TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt + TimeoutSeconds.",
                     "type": "integer"
                 },
-                "warm_slots": {
+                "updated_at": {
+                    "type": "string"
+                },
+                "vcpus": {
                     "type": "integer"
                 }
             }
@@ -27801,6 +28793,13 @@ const docTemplate = `{
                     "description": "GPU configuration",
                     "type": "string"
                 },
+                "gpus": {
+                    "description": "GPUs is the per-GPU inventory used by the API server's profile\ncompatibility check. Empty for sandboxes that don't host inference.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUStatus"
+                    }
+                },
                 "helix_version": {
                     "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
@@ -27809,15 +28808,41 @@ const docTemplate = `{
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
                 },
+                "profile_error": {
+                    "description": "ProfileError carries the failure detail when ProfileStatus=\"failed\".",
+                    "type": "string"
+                },
+                "profile_progress": {
+                    "description": "ProfileProgress is per-service model-weights download progress,\nsurfaced when ProfileStatus=\"starting\". Empty once all services\nfinish downloading.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.ServiceDownloadProgress"
+                    }
+                },
+                "profile_status": {
+                    "description": "ProfileStatus reports the compose stack lifecycle. Empty when no\nprofile is assigned. Allowed values: \"assigning\" | \"pulling\" |\n\"starting\" | \"running\" | \"failed\".",
+                    "type": "string"
+                },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE",
                     "type": "string"
+                },
+                "service_health": {
+                    "description": "ServiceHealth maps compose service name -\u003e health string.\n\"healthy\" | \"starting\" | \"failed\" | \"unknown\".",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 }
             }
         },
         "types.SandboxInstance": {
             "type": "object",
             "properties": {
+                "active_profile_id": {
+                    "description": "ActiveProfileID is the ID of the runner profile this sandbox is\ncurrently running (or attempting to run). Empty for pure-agent\nsandboxes with no profile assigned.",
+                    "type": "string"
+                },
                 "active_sandboxes": {
                     "description": "Sandbox capacity",
                     "type": "integer"
@@ -27835,6 +28860,13 @@ const docTemplate = `{
                 "gpu_vendor": {
                     "description": "GPU configuration",
                     "type": "string"
+                },
+                "gpus": {
+                    "description": "GPUs is the per-GPU inventory the sandbox reports for inference\nscheduling. Vendor / Architecture / ComputeCapability on each\nentry are the load-bearing fields for profile compatibility.\nExplicit column tag because GORM's default snake_case derivation\nturns ` + "`" + `GPUs` + "`" + ` into ` + "`" + `gp_us` + "`" + `.",
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    }
                 },
                 "helix_version": {
                     "description": "Helix version running on this sandbox (git commit hash or release version)",
@@ -27862,9 +28894,31 @@ const docTemplate = `{
                 "privileged_mode": {
                     "type": "boolean"
                 },
+                "profile_error": {
+                    "description": "ProfileError carries the failure detail when ProfileStatus=\"failed\".",
+                    "type": "string"
+                },
+                "profile_progress": {
+                    "description": "ProfileProgress is per-service download progress for model weights,\nsurfaced when ProfileStatus=\"starting\" and a vLLM container is\npulling weights from Hugging Face Hub. Empty once all services are\nhealthy. Map key is compose service name.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object"
+                    }
+                },
+                "profile_status": {
+                    "description": "ProfileStatus tracks the compose stack lifecycle:\n\"\" | \"assigning\" | \"pulling\" | \"starting\" | \"running\" | \"failed\".",
+                    "type": "string"
+                },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE",
                     "type": "string"
+                },
+                "service_health": {
+                    "description": "ServiceHealth maps compose service name -\u003e health string\n(\"healthy\" | \"starting\" | \"failed\" | \"unknown\"). Reported by\ncompose-manager polling each container's /v1/models endpoint\n(or vendor-specific health endpoint).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "status": {
                     "description": "\"online\", \"offline\", \"degraded\"",
@@ -27875,133 +28929,47 @@ const docTemplate = `{
                 }
             }
         },
-        "types.SchedulingDecision": {
+        "types.SandboxListResponse": {
             "type": "object",
             "properties": {
-                "available_runners": {
+                "sandboxes": {
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/types.Sandbox"
                     }
                 },
-                "created": {
-                    "type": "string"
-                },
-                "decision_type": {
-                    "$ref": "#/definitions/types.SchedulingDecisionType"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "memory_available": {
+                "total": {
                     "type": "integer"
-                },
-                "memory_required": {
-                    "type": "integer"
-                },
-                "mode": {
-                    "$ref": "#/definitions/types.SessionMode"
-                },
-                "model_name": {
-                    "type": "string"
-                },
-                "processing_time_ms": {
-                    "type": "integer"
-                },
-                "queue_position": {
-                    "type": "integer"
-                },
-                "reason": {
-                    "type": "string"
-                },
-                "repeat_count": {
-                    "type": "integer"
-                },
-                "runner_id": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "slot_id": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                },
-                "total_slot_count": {
-                    "type": "integer"
-                },
-                "warm_slot_count": {
-                    "type": "integer"
-                },
-                "workload_id": {
-                    "type": "string"
                 }
             }
         },
-        "types.SchedulingDecisionType": {
+        "types.SandboxRuntime": {
             "type": "string",
             "enum": [
-                "queued",
-                "reuse_warm_slot",
-                "create_new_slot",
-                "evict_stale_slot",
-                "rejected",
-                "error",
-                "unschedulable"
+                "ubuntu-desktop",
+                "headless-ubuntu"
             ],
-            "x-enum-comments": {
-                "SchedulingDecisionTypeCreateNewSlot": "Started new model instance",
-                "SchedulingDecisionTypeError": "Error during scheduling",
-                "SchedulingDecisionTypeEvictStaleSlot": "Evicted stale slot to free memory",
-                "SchedulingDecisionTypeQueued": "Added to queue",
-                "SchedulingDecisionTypeRejected": "Rejected (insufficient resources, etc.)",
-                "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance",
-                "SchedulingDecisionTypeUnschedulable": "Cannot be scheduled (no warm slots available)"
-            },
             "x-enum-varnames": [
-                "SchedulingDecisionTypeQueued",
-                "SchedulingDecisionTypeReuseWarmSlot",
-                "SchedulingDecisionTypeCreateNewSlot",
-                "SchedulingDecisionTypeEvictStaleSlot",
-                "SchedulingDecisionTypeRejected",
-                "SchedulingDecisionTypeError",
-                "SchedulingDecisionTypeUnschedulable"
+                "SandboxRuntimeUbuntuDesktop",
+                "SandboxRuntimeHeadlessUbuntu"
             ]
         },
-        "types.SchedulingEvent": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "event_type": {
-                    "description": "\"slot_created\", \"slot_deleted\", \"eviction\", \"stabilization_start\", \"stabilization_end\"",
-                    "type": "string"
-                },
-                "gpu_indices": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "memory_mb": {
-                    "type": "integer"
-                },
-                "model_name": {
-                    "type": "string"
-                },
-                "runtime": {
-                    "type": "string"
-                },
-                "slot_id": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "string"
-                }
-            }
+        "types.SandboxStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "stopping",
+                "stopped",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SandboxStatusPending",
+                "SandboxStatusRunning",
+                "SandboxStatusStopping",
+                "SandboxStatusStopped",
+                "SandboxStatusFailed"
+            ]
         },
         "types.Secret": {
             "type": "object",
@@ -28090,6 +29058,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
                 "max_concurrent_desktops": {
+                    "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                     "type": "integer"
                 },
                 "organizations_create_enabled_for_non_admins": {
@@ -28276,6 +29245,30 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ServiceDownloadProgress": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "description": "Current and Total are the raw N/M from the progress line (e.g.\nshards 12 of 47). Useful when Percent is computed.",
+                    "type": "integer"
+                },
+                "eta": {
+                    "description": "ETA is the rendered remaining-time string from the source line\n(e.g. \"27:18\"). Verbatim — not parsed into a duration.",
+                    "type": "string"
+                },
+                "percent": {
+                    "description": "Percent is 0-100. Zero means \"no progress line parsed yet\".",
+                    "type": "integer"
+                },
+                "stage": {
+                    "description": "Stage is a short tag for what's downloading: \"shards\", \"files\",\n\"weights\" or \"\" if unknown. Drives UI labelling.",
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -29271,6 +30264,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "rebase_requested_at": {
+                    "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
+                    "type": "string"
+                },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
                     "type": "array",
@@ -30001,6 +30998,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "rebase_requested_at": {
+                    "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
+                    "type": "string"
+                },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
                     "type": "array",
@@ -30390,7 +31391,10 @@ const docTemplate = `{
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
-                "max_concurrent_desktops": {
+                "max_concurrent_desktop_sandboxes": {
+                    "type": "integer"
+                },
+                "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
                 "optimus_generation_model": {
@@ -30425,6 +31429,15 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
+                },
+                "sandbox_billing_enabled": {
+                    "type": "boolean"
+                },
+                "sandbox_desktop_price_credits_per_second": {
+                    "type": "number"
+                },
+                "sandbox_headless_price_credits_per_second": {
+                    "type": "number"
                 }
             }
         },
@@ -30479,8 +31492,10 @@ const docTemplate = `{
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
-                "max_concurrent_desktops": {
-                    "description": "Per user",
+                "max_concurrent_desktop_sandboxes": {
+                    "type": "integer"
+                },
+                "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
                 "optimus_generation_model": {
@@ -30516,6 +31531,15 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
+                },
+                "sandbox_billing_enabled": {
+                    "type": "boolean"
+                },
+                "sandbox_desktop_price_credits_per_second": {
+                    "type": "number"
+                },
+                "sandbox_headless_price_credits_per_second": {
+                    "type": "number"
                 },
                 "updated": {
                     "type": "string"
@@ -31341,10 +32365,36 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UpdateSandboxRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.UpdateTeamRequest": {
             "type": "object",
             "properties": {
                 "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UpdateUserColorSchemeRequest": {
+            "type": "object",
+            "properties": {
+                "color_scheme": {
+                    "description": "\"light\", \"dark\", or \"\" (follow OS)",
                     "type": "string"
                 }
             }
@@ -31372,6 +32422,147 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.UsageBreakdownRow": {
+            "type": "object",
+            "properties": {
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_cost": {
+                    "type": "number"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "ended_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "last_activity_at": {
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "number"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "prompt_cost": {
+                    "type": "number"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "request_size_bytes": {
+                    "type": "integer"
+                },
+                "response_size_bytes": {
+                    "type": "integer"
+                },
+                "session_count": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "total_requests": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                },
+                "unique_apps": {
+                    "type": "integer"
+                },
+                "unique_projects": {
+                    "type": "integer"
+                },
+                "unique_sessions": {
+                    "type": "integer"
+                },
+                "unique_users": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UsageFilterOption": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.UsageModelTimeSeries": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
                 }
             }
         },
@@ -31451,6 +32642,23 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.TokenType"
                         }
                     ]
+                },
+                "trial_credits_on_first_org": {
+                    "type": "number"
+                },
+                "trial_days_on_first_org": {
+                    "description": "Trial intent stashed by admin before the user has created their first org.\nConsumed by wallet creation on first owned org, then cleared.",
+                    "type": "integer"
+                },
+                "trial_ends_at": {
+                    "type": "integer"
+                },
+                "trial_org_id": {
+                    "type": "string"
+                },
+                "trial_status": {
+                    "description": "Transient trial-display fields populated by the admin users list when\n?include=trial is set. Not persisted (gorm:\"-\") and not emitted unless\nexplicitly populated (json:\"...,omitempty\").",
+                    "type": "string"
                 },
                 "type": {
                     "description": "these are set by the keycloak user based on the token\nif it's an app token - the keycloak user is loaded from the owner of the app\nif it's a runner token - these values will be empty",
@@ -31754,35 +32962,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.WorkloadSummary": {
-            "type": "object",
-            "properties": {
-                "created": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "lora_dir": {
-                    "type": "string"
-                },
-                "mode": {
-                    "type": "string"
-                },
-                "model_name": {
-                    "type": "string"
-                },
-                "runtime": {
-                    "type": "string"
-                },
-                "summary": {
-                    "type": "string"
-                },
-                "updated": {
-                    "type": "string"
-                }
-            }
-        },
         "types.ZFSTree": {
             "type": "object",
             "properties": {
@@ -31854,6 +33033,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentConfig"
                         }
                     ]
+                },
+                "color_scheme": {
+                    "description": "Session owner's UI color scheme: \"light\", \"dark\", or \"\" (follow OS). Daemon applies via gsettings to GNOME.",
+                    "type": "string"
                 },
                 "context_servers": {
                     "type": "object",

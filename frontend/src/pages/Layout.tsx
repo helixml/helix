@@ -115,7 +115,7 @@ const SettingsDialogs: FC = () => {
             <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
           </Box>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard tab={adminTab} />
+            <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
           </Box>
         </Box>
       </FullScreenDialog>
@@ -432,11 +432,14 @@ const Layout: FC<{
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />;
 
+      case "org_general":
       case "org_settings":
       case "org_people":
       case "org_teams":
       case "org_billing":
+      case "org_usage":
       case "org_api_keys":
+      case "org_providers":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
@@ -530,13 +533,13 @@ const Layout: FC<{
                 : 64,
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
-              // Mobile gets full height, desktop respects user menu
-              // Use dvh (dynamic viewport height) for iOS Safari compatibility
-              height: isBigScreen
-                ? userMenuHeight > 0
-                  ? `calc(100dvh - ${userMenuHeight}px)`
-                  : "100%"
-                : "100dvh",
+              // Drawer takes full viewport height. The floating user menu is
+              // rendered position: absolute INSIDE the Drawer (in the LEFT
+              // rail), so shrinking the Drawer here would just leave a
+              // visible gap below it. The shrink-by-userMenuHeight happens in
+              // Sidebar.tsx for the secondary nav's content column only.
+              // Use dvh (dynamic viewport height) for iOS Safari compatibility.
+              height: isBigScreen ? "100%" : "100dvh",
               overflowY: "auto", // Both columns scroll together
               display: "flex",
               flexDirection: "row",
@@ -570,11 +573,10 @@ const Layout: FC<{
                 py: 0,
                 ...(shouldShowSidebar
                   ? {
-                      // Only show border when sidebar is visible
                       borderRight: lightTheme.border,
+                      bgcolor: lightTheme.backgroundColor,
                     }
                   : {
-                      // When sidebar is hidden, no border and background
                       bgcolor: lightTheme.backgroundColor,
                     }),
               }}
@@ -616,10 +618,7 @@ const Layout: FC<{
             component="div"
             sx={{
               flexGrow: 1,
-              backgroundColor:
-                theme.palette.mode === "light"
-                  ? themeConfig.lightBackgroundColor
-                  : themeConfig.darkBackgroundColor,
+              backgroundColor: lightTheme.backgroundColor,
               height: "100%",
               minHeight: "100%",
               minWidth: 0,

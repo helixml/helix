@@ -71,6 +71,11 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 		return s.CreateUserMeta(ctx, user)
 	}
 
+	// Track whether we actually need to write. EnsureUserMeta is called from auth
+	// middleware on every request, so an unconditional UPDATE here turns every API
+	// call into two DB round-trips for no gain.
+	dirty := false
+
 	// Ensure existing user has a slug, or regenerate if it looks like a UUID
 	shouldRegenerateSlug := false
 	if existing.Slug == "" {
@@ -88,29 +93,34 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 	if shouldRegenerateSlug {
 		oldSlug := existing.Slug
 		newSlug := s.generateUserSlug(ctx, existing.ID)
-		// Only update if the new slug is different (to avoid unnecessary DB writes)
 		if newSlug != oldSlug {
 			existing.Slug = newSlug
+			dirty = true
 			log.Info().
 				Str("user_id", existing.ID).
 				Str("old_slug", oldSlug).
 				Str("new_slug", newSlug).
 				Msg("regenerating user_meta slug with proper name")
-			return s.UpdateUserMeta(ctx, *existing)
 		}
 	}
 
 	// Merge any new config values from the parameter
-	if user.Config.StripeCustomerID != "" {
+	if user.Config.StripeCustomerID != "" && existing.Config.StripeCustomerID != user.Config.StripeCustomerID {
 		existing.Config.StripeCustomerID = user.Config.StripeCustomerID
+		dirty = true
 	}
-	if user.Config.StripeSubscriptionID != "" {
+	if user.Config.StripeSubscriptionID != "" && existing.Config.StripeSubscriptionID != user.Config.StripeSubscriptionID {
 		existing.Config.StripeSubscriptionID = user.Config.StripeSubscriptionID
+		dirty = true
 	}
-	if user.Config.StripeSubscriptionActive {
+	if user.Config.StripeSubscriptionActive && !existing.Config.StripeSubscriptionActive {
 		existing.Config.StripeSubscriptionActive = user.Config.StripeSubscriptionActive
+		dirty = true
 	}
 
+	if !dirty {
+		return existing, nil
+	}
 	return s.UpdateUserMeta(ctx, *existing)
 }
 
@@ -228,6 +238,9 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 				// Support ILIKE matching for username
 				db = db.Where("username ILIKE ?", "%"+query.Username+"%")
 			}
+		}
+		if query.Waitlisted != nil {
+			db = db.Where("waitlisted = ?", *query.Waitlisted)
 		}
 	}
 

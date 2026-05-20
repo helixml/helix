@@ -137,7 +137,7 @@ const OrgSettings: FC = () => {
       snackbar.success("Organization updated successfully");
 
       if (slug != organization.name) {
-        router.navigate("org_settings", { org_id: slug });
+        router.navigate("org_general", { org_id: slug });
       }
     } catch (error) {
       console.error("Error updating organization:", error);
@@ -195,7 +195,7 @@ const OrgSettings: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={organization ? `Settings` : "Organization Settings"}
+      breadcrumbTitle={organization ? `General` : "General"}
       breadcrumbParent={{
         title: "Organizations",
         routeName: "orgs",
@@ -207,7 +207,7 @@ const OrgSettings: FC = () => {
       <Container maxWidth="xl">
         <Box sx={{ mt: 3, p: 2 }}>
           <Typography variant="h5" component="h2" gutterBottom>
-            Organization Settings
+            General
             {isReadOnly && (
               <Typography
                 variant="caption"

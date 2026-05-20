@@ -13,6 +13,7 @@ import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
 import OrgApiKeys from './pages/OrgApiKeys'
 import OrgBilling from './components/orgs/OrgBilling'
+import OrgUsage from './components/orgs/OrgUsage'
 import App from './pages/App'
 import Create from './pages/Create'
 import Home from './pages/Home'
@@ -29,6 +30,8 @@ import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import EmbedTaskPage from './pages/EmbedTaskPage'
 import Projects from './pages/Projects'
+import Sandboxes from './pages/Sandboxes'
+import SandboxDetail from './pages/SandboxDetail'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
@@ -107,6 +110,26 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Jobs />
+  ),
+}, {
+  name: 'org_sandboxes',
+  path: '/orgs/:org_id/sandboxes',
+  meta: {
+    drawer: false,
+    title: 'Sandboxes',
+  },
+  render: () => (
+    <Sandboxes />
+  ),
+}, {
+  name: 'org_sandbox_detail',
+  path: '/orgs/:org_id/sandboxes/:sandbox_id',
+  meta: {
+    drawer: false,
+    title: 'Sandbox',
+  },
+  render: () => (
+    <SandboxDetail />
   ),
 }, {
   // Backward compat: redirect /apps to /agents
@@ -325,14 +348,36 @@ const routes: IApplicationRoute[] = [
     <Orgs />
   ),
 }, {
-  name: 'org_settings',
-  path: '/orgs/:org_id/settings',
+  name: 'org_general',
+  path: '/orgs/:org_id/general',
   meta: {
     drawer: true,
     menu: 'orgs',
   },
   render: () => (
     <OrgSettings />
+  ),
+}, {
+  // Backward compat: redirect /settings to /general
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_general', { org_id: params.org_id })
+    }, [])
+    return null
+  },
+}, {
+  name: 'org_usage',
+  path: '/orgs/:org_id/usage',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgUsage />
   ),
 }, {
   name: 'org_people',

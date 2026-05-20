@@ -33,6 +33,7 @@ type ServerConfig struct {
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
+	Sandboxes          Sandboxes
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -64,11 +65,44 @@ type ServerConfig struct {
 	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
 }
 
+// Sandboxes configures the user-facing Sandboxes API.
+//
+// Each entry in Runtimes maps a runtime name (the value users put in
+// `runtime` on POST /sandboxes) to a container image and the command that
+// keeps the container alive. Operators can add new runtimes (e.g. node22,
+// python3.13) by extending HELIX_SANDBOX_RUNTIMES without changing code.
+//
+// AllowCustomImage controls whether end users may pass an arbitrary `image`
+// in CreateSandboxRequest, which bypasses the curated runtime list. Off by
+// default — turn on for trusted single-tenant deployments.
+type Sandboxes struct {
+	// Runtimes is a comma-separated list of runtime specs, each of the form
+	//   <name>=<image>[|<entrypoint and cmd shell expression>]
+	// Examples:
+	//   headless-ubuntu=ubuntu:22.04|sleep infinity
+	//   node22=node:22-bookworm-slim|tail -f /dev/null
+	//   python313=python:3.13-slim|tail -f /dev/null
+	// If the trailing `|...` is omitted the default keep-alive command
+	// (`tail -f /dev/null`) is used.
+	Runtimes string `envconfig:"HELIX_SANDBOX_RUNTIMES" default:"headless-ubuntu=ubuntu:22.04|sleep infinity,node22=node:22-bookworm-slim|tail -f /dev/null,python313=python:3.13-slim|tail -f /dev/null"`
+
+	// AllowCustomImage lets API callers pass an arbitrary image name in the
+	// create request. False blocks anything outside the configured runtimes.
+	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
+
+	// DefaultRuntime is the runtime applied when the create request omits
+	// both `runtime` and `image`. Must match one of the names in Runtimes.
+	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
+}
+
 func LoadServerConfig() (ServerConfig, error) {
 	var cfg ServerConfig
 	err := envconfig.Process("", &cfg)
 	if err != nil {
 		return ServerConfig{}, err
+	}
+	if cfg.Notifications.AppURL == "" {
+		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
 	return cfg, nil
 }
@@ -248,7 +282,9 @@ type OIDC struct {
 // Notifications is used for sending notifications to users when certain events happen
 // such as finetuning starting or completing.
 type Notifications struct {
-	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
+	// AppURL is the public-facing base URL used in user-visible links (Slack/email/etc).
+	// When unset, falls back to WebServer.URL (SERVER_URL) — see LoadServerConfig.
+	AppURL string `envconfig:"APP_URL"`
 	Email  EmailConfig
 	// Agent progress notifications (Slack/Teams threads with screenshots)
 	AgentNotifications AgentNotificationsConfig
@@ -520,12 +556,18 @@ type SubscriptionQuotas struct {
 	Projects struct {
 		Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true" description:"Enable project quotas"`
 		Free    struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// without an active Stripe subscription. Enforced per organisation
+			// when the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
 			MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
 			MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
 			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
 		}
 		Pro struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// with an active Stripe subscription. Enforced per organisation when
+			// the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
 			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
 			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`

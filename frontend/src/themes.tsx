@@ -10,6 +10,10 @@ export interface ITheme {
   url: string,
   primary: string,
   secondary: string,
+  // Brand cyan is lovely on dark, but #00d5ff on a white background fails
+  // basic contrast. Use this darker teal for light-mode MUI secondary so
+  // buttons / accents stay readable in sunlight.
+  lightSecondary: string,
   darkIcon: string,
   darkIconHover: string,
   darkHighlight: string,
@@ -30,6 +34,9 @@ export interface ITheme {
   lightBorder: string,
   lightText: string,
   lightTextFaded: string,
+  lightScrollbar: string,
+  lightScrollbarThumb: string,
+  lightScrollbarHover: string,
   lightPanel: string,
   neutral900: string,
   neutral800: string,
@@ -90,6 +97,7 @@ export const THEMES: Record<string, ITheme> = {
     // secondary: '#00d5ff',
     primary: '#8989a5',
     secondary: '#00d5ff',
+    lightSecondary: '#0e7490', // cyan-700 — passes WCAG AA on white
     darkIcon: '#7fd8ff',
     darkIconHover: '#4fc3f7',
     darkHighlight: '#4fc3f7',
@@ -102,14 +110,19 @@ export const THEMES: Record<string, ITheme> = {
     darkText: "#e0e0e0",
     darkTextFaded: "#a0a0b0",
     darkPanel: "#1e1e24",
-    lightIcon: ' #5d5d7b',
-    lightIconHover: '#00d5ff',
-    lightHighlight: '#00d5ff',
+    lightScrollbar: '#e8e8e8',
+    lightScrollbarThumb: '#c0c0c0',
+    lightScrollbarHover: '#a0a0a0',
+    lightIcon: '#5d5d7b',
+    lightIconHover: '#0e7490', // cyan-700 — passes WCAG AA on white
+    lightHighlight: '#0e7490',
     lightBackgroundColor: "#ffffff",
     lightBackgroundImage: "url('/img/nebula-light.png')",
     lightBorder: "1px solid #aeaeae",
-    lightText: "#333",
-    lightTextFaded: "#aeaeae",
+    lightText: "#000000",
+    // "Faded" in light mode = sunlit-iPad readable, not actually faded.
+    // 7.7:1 contrast vs white (#aeaeae was 3.3:1 — failed AA for body text).
+    lightTextFaded: "#4a4a4a",
     lightPanel: "#f4f4f4",
     // colors
     neutral900: '#000000',

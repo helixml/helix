@@ -64,11 +64,11 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
             key={item.id}
             sx={{
               borderRadius: '12px',
-              cursor: 'pointer',              
+              cursor: 'pointer',
               mx: 1,
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
               },
             }}
             disablePadding
@@ -82,20 +82,24 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                 px: isCompact ? 1.5 : 2,
                 minHeight: isCompact ? 40 : 48,
                 '&.Mui-selected': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
                   '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.12)',
                   },
                 },
                 '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                 },
               }}
             >
               <ListItemIcon
                 sx={{
                   minWidth: isCompact ? 34 : 40,
-                  color: item.isActive ? '#00E5FF' : lightTheme.textColorFaded,
+                  // Light mode = sunlit-iPad mode. Inactive icons go near-black,
+                  // not the default faded grey, so they survive glare.
+                  color: item.isActive
+                    ? (lightTheme.isLight ? '#0e7490' : '#00E5FF')
+                    : (lightTheme.isLight ? '#000' : lightTheme.textColorFaded),
                   transition: 'color 0.2s ease-in-out',
                   '& svg': {
                     fontSize: isCompact ? 18 : 22,
@@ -115,8 +119,10 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                 }}
                 primaryTypographyProps={{
                   fontSize: isCompact ? '0.78rem' : '0.85rem',
-                  fontWeight: item.isActive ? 600 : 500,
-                  color: item.isActive ? '#fff' : lightTheme.textColorFaded,
+                  fontWeight: item.isActive ? 700 : (lightTheme.isLight ? 700 : 500),
+                  color: item.isActive
+                    ? lightTheme.textColor
+                    : (lightTheme.isLight ? '#000' : lightTheme.textColorFaded),
                 }}
               />
             </ListItemButton>
