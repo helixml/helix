@@ -7,14 +7,18 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix-org/agent"
 	agenthelix "github.com/helixml/helix-org/agent/helix"
+	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/helix/helixclient"
 	"github.com/helixml/helix-org/server/chat"
+	orgstore "github.com/helixml/helix-org/store"
 
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -62,7 +66,7 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // Returns nil + nil if helix.api_key isn't set yet (auto-provision
 // happens at startup; a fresh DB with no admin user is a legitimate
 // "not configured" state).
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *agenthelix.ProjectApplier, client helixclient.Client, logger *slog.Logger) (chat.Backend, error) {
+func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *agenthelix.ProjectApplier, client helixclient.Client, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Broadcaster, newID func() string, now func() time.Time) (chat.Backend, error) {
 	if applier == nil {
 		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
 		return nil, nil
@@ -100,6 +104,16 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 		},
 		SaveSessionID: func(ctx context.Context, workerID domain.WorkerID, sessionID string) error {
 			return agenthelix.SaveSession(ctx, applier.Store, workerID, sessionID)
+		},
+		// Publish owner-chat turns to s-activations-w-owner using the
+		// same helper every AI Worker activation uses. /ui/streams
+		// surfaces the owner's stream alongside every other Worker's
+		// — the owner is just-another-Worker from the data model
+		// perspective; the only difference is *who triggers* the
+		// activation (human typing into the chat surface vs.
+		// dispatcher reacting to a stream event).
+		PublishActivation: func(ctx context.Context, workerID domain.WorkerID, body string) {
+			_, _ = agent.PublishActivationEvent(ctx, orgSt, bc, newID, now, logger, workerID, body)
 		},
 	})
 	if err != nil {

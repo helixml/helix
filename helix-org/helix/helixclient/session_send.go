@@ -122,23 +122,13 @@ func EnsureAndSend(ctx context.Context, client Client, params SendPromptParams) 
 		return "", false, fmt.Errorf("open fresh helix session: %w", err)
 	}
 
-	// Step 4 — cold-start race recovery. Helix's /sessions/chat reports
-	// "agent ready" on a heuristic (~500ms after the sandbox starts),
-	// then immediately tries to dispatch the prompt to the agent's
-	// WebSocket. The agent often isn't actually plumbed yet at that
-	// point, so the dispatch fails with "no external agent WebSocket
-	// connection" — Helix surfaces that on the SSE stream
-	// (hadStreamErr=true) AND marks the interaction state=error.
-	// Because the interaction is `error` (not `waiting`),
-	// pickupWaitingInteraction won't redeliver it when the agent
-	// finally connects: the prompt is *lost*.
-	//
-	// Re-issue the same prompt with SessionID set. The continuation
-	// path persists a fresh `waiting` interaction on the same session;
-	// pickupWaitingInteraction delivers it as soon as the agent's WS
-	// dials in. This is the same mechanism the previous bespoke
-	// owner-chat / spawner code paths each had — folded into one
-	// helper so both callers get the recovery without duplication.
+	// Step 4 — cold-start fallback. With Helix's per-session readiness
+	// check (waitForExternalAgentReady now polls the agent's own WS
+	// rather than the global connection list), the first dispatch
+	// should land cleanly. If hadStreamErr is still set we re-issue
+	// once on the same session via SessionID continuation. Belt-and-
+	// braces — the original race that made this critical has been
+	// fixed at the source, so this should be rare.
 	if hadStreamErr {
 		retryReq := StartChatRequest{
 			SessionID:           session.ID,
@@ -150,11 +140,6 @@ func EnsureAndSend(ctx context.Context, client Client, params SendPromptParams) 
 			ExternalAgentConfig: &ExternalAgentConfig{},
 			Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
 		}
-		// Best-effort: if the second send also fails we let the caller
-		// proceed with the session ID anyway — the user can resend, or
-		// the next event-driven activation will reuse this session and
-		// hit a warm path. Hard failure here would surface as a worse
-		// UX (nothing visible at all) than letting the session exist.
 		_, _, _ = client.StartChatWithStatus(ctx, retryReq)
 	}
 	return session.ID, true, nil

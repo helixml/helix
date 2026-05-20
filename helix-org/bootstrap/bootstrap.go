@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix-org/agent"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/tools"
@@ -138,6 +139,37 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.ReadEventsName,
 		tools.WorkerLogName,
 	}
+	// Every Worker — including the owner — has an activations stream
+	// (s-activations-<workerID>) where its turns are recorded. For AI
+	// Workers this stream is created by hire_worker; w-owner is
+	// bootstrapped (not hired), so we mint the stream and self-
+	// subscription here so /ui/streams shows the owner alongside
+	// every other Worker. The owner-chat bridge publishes activation
+	// events to this stream via agent.PublishActivationEvent.
+	ownerActStreamID := agent.ActivationStreamID(owner.ID())
+	ownerActStream, err := domain.NewStream(
+		ownerActStreamID,
+		"Activations: "+string(owner.ID()),
+		"Per-message activation transcript for "+string(owner.ID())+
+			" — the owner's chat turns appear here, same as every AI Worker's.",
+		owner.ID(),
+		now,
+		domain.Transport{},
+	)
+	if err != nil {
+		return Result{}, fmt.Errorf("owner activation stream: %w", err)
+	}
+	if err := s.Streams.Create(ctx, ownerActStream); err != nil {
+		return Result{}, fmt.Errorf("create owner activation stream: %w", err)
+	}
+	ownerActSub, err := domain.NewSubscription(owner.ID(), ownerActStreamID, now)
+	if err != nil {
+		return Result{}, fmt.Errorf("owner activation subscription: %w", err)
+	}
+	if err := s.Subscriptions.Create(ctx, ownerActSub); err != nil {
+		return Result{}, fmt.Errorf("subscribe owner to activation stream: %w", err)
+	}
+
 	for _, name := range defaults {
 		g, err := domain.NewToolGrant(
 			domain.GrantID("g-owner-"+uuid.NewString()),

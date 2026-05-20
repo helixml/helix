@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix-org/agent"
@@ -354,20 +353,35 @@ func newBridge(publish func(body string)) *bridge {
 
 // onEvent renders one settled EntryStream event into the line shape
 // claude.Spawner has emitted historically. Both backends emit the
-// same shape so observers don't have to discriminate.
+// same shape so observers don't have to discriminate. The owner-chat
+// bridge in server/chat uses the same TranscriptBody helper to
+// publish identical lines to s-activations-w-owner.
 func (b *bridge) onEvent(e helixclient.Event) {
+	if body := TranscriptBody(e); body != "" {
+		b.publish(body)
+	}
+}
+
+// TranscriptBody renders one Helix WS event into the line shape every
+// Worker's activation transcript uses (assistant: …, tool_use foo:
+// …, tool_result: …). Exported so the owner-chat bridge in
+// server/chat can produce identical lines for s-activations-w-owner
+// without duplicating the rendering. Empty string for kinds that
+// shouldn't appear on the transcript.
+func TranscriptBody(e helixclient.Event) string {
 	switch e.Kind {
 	case helixclient.EventAssistant:
-		b.publish("assistant: " + agent.OneLine(e.Text, 500))
+		return "assistant: " + agent.OneLine(e.Text, 500)
 	case helixclient.EventToolUse:
-		b.publish(fmt.Sprintf("tool_use %s: %s", e.ToolName, agent.OneLine(e.Text, 500)))
+		return fmt.Sprintf("tool_use %s: %s", e.ToolName, agent.OneLine(e.Text, 500))
 	case helixclient.EventToolResult:
-		b.publish("tool_result: " + agent.OneLine(e.Text, 500))
+		return "tool_result: " + agent.OneLine(e.Text, 500)
 	case helixclient.EventToolResultError:
-		b.publish("tool_result-error: " + agent.OneLine(e.Text, 500))
+		return "tool_result-error: " + agent.OneLine(e.Text, 500)
 	case helixclient.EventError:
-		b.publish("error: " + agent.OneLine(e.Text, 500))
+		return "error: " + agent.OneLine(e.Text, 500)
 	}
+	return ""
 }
 
 func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
@@ -397,30 +411,11 @@ func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
 	}
 }
 
-func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID domain.WorkerID, streamID domain.StreamID, body string) {
-	if cfg.Store == nil || cfg.NewID == nil || cfg.Now == nil || strings.TrimSpace(body) == "" {
-		return
-	}
-	event, err := domain.NewMessageEvent(
-		domain.EventID("e-"+cfg.NewID()),
-		streamID,
-		workerID,
-		domain.Message{From: string(workerID), Body: body},
-		cfg.Now(),
-	)
-	if err != nil {
-		if cfg.Logger != nil {
-			cfg.Logger.Warn("helix activation event: build", "worker", workerID, "err", err)
-		}
-		return
-	}
-	if err := cfg.Store.Events.Append(ctx, event); err != nil {
-		if cfg.Logger != nil {
-			cfg.Logger.Warn("helix activation event: append", "worker", workerID, "err", err)
-		}
-		return
-	}
-	if cfg.Broadcaster != nil {
-		cfg.Broadcaster.Notify(streamID)
-	}
+// publishActivationEvent is a thin wrapper around the shared
+// agent.PublishActivationEvent so the helix spawner's call sites
+// stay terse. The owner-chat bridge uses the same shared helper
+// directly — both paths produce identical event shapes on
+// s-activations-<workerID>.
+func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID domain.WorkerID, _ domain.StreamID, body string) {
+	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Broadcaster, cfg.NewID, cfg.Now, cfg.Logger, workerID, body)
 }

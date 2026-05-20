@@ -18,6 +18,12 @@ import (
 	"github.com/helixml/helix-org/prompts"
 )
 
+// ActivationPublisher writes activation events to
+// s-activations-<workerID> for every owner-chat turn — same shape
+// the spawner uses for AI workers. Optional: when nil, owner-chat
+// runs without publishing (useful for tests).
+type ActivationPublisher func(ctx context.Context, workerID domain.WorkerID, body string)
+
 // HelixBridge drives the owner chat surface against a Helix chat
 // session instead of a local `claude` subprocess. Each Bridge owns
 // **one** Helix session at a time (the "current" session); New chat
@@ -55,6 +61,11 @@ type HelixBridge struct {
 	loadSessionID func(ctx context.Context, workerID domain.WorkerID) (string, error)
 	saveSessionID func(ctx context.Context, workerID domain.WorkerID, sessionID string) error
 	loadOnce      sync.Once
+
+	// publishActivation writes events to s-activations-<workerID> so
+	// the owner's turns are observable in /ui/streams alongside every
+	// AI Worker's. nil disables publishing (tests, app-only mode).
+	publishActivation ActivationPublisher
 
 	mu           sync.Mutex // guards sessionID, listeners, ws, freshFromBlank
 	sessionID    string     // current Helix session ID; "" means "next Send creates one"
@@ -124,6 +135,13 @@ type HelixConfig struct {
 	// in-memory-only behaviour for tests and standalone deploys.
 	LoadSessionID func(ctx context.Context, workerID domain.WorkerID) (string, error)
 	SaveSessionID func(ctx context.Context, workerID domain.WorkerID, sessionID string) error
+
+	// PublishActivation writes events to s-activations-<workerID> so
+	// every owner-chat turn is recorded the same way every AI Worker's
+	// activations are recorded. Optional — leave nil to suppress
+	// (tests, app-only mode). Wire it to agent.PublishActivationEvent
+	// with the embedding host's store / broadcaster / id / clock.
+	PublishActivation ActivationPublisher
 }
 
 // NewHelix returns a HelixBridge bound to the supplied Helix client.
@@ -170,8 +188,9 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 		model:          cfg.Model,
 		cwd:            cfg.CWD,
 		logger:         logger,
-		loadSessionID:  cfg.LoadSessionID,
-		saveSessionID:  cfg.SaveSessionID,
+		loadSessionID:     cfg.LoadSessionID,
+		saveSessionID:     cfg.SaveSessionID,
+		publishActivation: cfg.PublishActivation,
 		listeners:      make(map[chan string]struct{}),
 		seen:           make(map[string]struct{}),
 		orgIDByProject: make(map[string]string),
@@ -389,9 +408,24 @@ func (b *HelixBridge) SendHandler() http.Handler {
 			if bearer != "" {
 				ctx = helixclient.WithBearerToken(ctx, bearer)
 			}
-			if err := b.send(ctx, msg); err != nil {
+			// Activation start marker — same shape the AI worker
+			// spawner publishes. Recorded BEFORE the send so the
+			// stream shows the turn even if the send itself errors.
+			if b.publishActivation != nil {
+				b.publishActivation(ctx, b.ownerID, "=== activation: human chat ===")
+				b.publishActivation(ctx, b.ownerID, "user: "+bubble)
+			}
+			err := b.send(ctx, msg)
+			if err != nil {
 				b.logger.Error("chat send (detached)", "err", err)
 				b.broadcast(renderTurnError(err.Error()))
+			}
+			if b.publishActivation != nil {
+				if err != nil {
+					b.publishActivation(ctx, b.ownerID, fmt.Sprintf("=== exit: error: %v ===", err))
+				} else {
+					b.publishActivation(ctx, b.ownerID, "=== exit: ok ===")
+				}
 			}
 		}()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -657,6 +691,15 @@ func (b *HelixBridge) runWebsocket(ctx context.Context, sid string) {
 	defer b.wsWG.Done()
 	stream := helixclient.NewEntryStream(func(e helixclient.Event) {
 		b.broadcast(b.renderEvent(e))
+		// Also publish transcript fragments to the owner's activation
+		// stream so /ui/streams shows the same shape every AI Worker's
+		// activation produces. Matches the helix Spawner's
+		// transcript-bridge output (helix/bridge.go).
+		if b.publishActivation != nil {
+			if body := agenthelix.TranscriptBody(e); body != "" {
+				b.publishActivation(ctx, b.ownerID, body)
+			}
+		}
 	})
 	delay := time.Second
 	for {

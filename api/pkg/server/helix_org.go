@@ -195,7 +195,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// same MCP wiring, same desktop runtime as any AI Worker.
 	var chatBridge chat.Backend
 	if projectApplier != nil && serviceClient != nil {
-		bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, serviceClient, logger)
+		bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, serviceClient, logger, st, bc, deps.NewID, deps.Now)
 		if err != nil {
 			log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
 		} else {
