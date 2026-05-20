@@ -42,12 +42,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY go.mod go.sum ./
+# go.mod has `replace github.com/helixml/helix-org => ./helix-org`, so the
+# replaced module's go.mod must exist at module-resolution time even though
+# none of the binaries built in this stage import it. Without these two
+# files `go mod download` fails with "reading helix-org/go.mod: no such
+# file or directory" on any fresh checkout. See PR #2286 (helix-org alpha).
+COPY helix-org/go.mod helix-org/go.sum ./helix-org/
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy Go source AFTER dependencies are downloaded for better caching.
 # Note: any Go file change invalidates this layer, but the go build cache
 # mount below ensures only changed packages are recompiled.
 COPY api ./api
+COPY helix-org ./helix-org
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
