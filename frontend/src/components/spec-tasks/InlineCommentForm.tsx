@@ -11,6 +11,9 @@ interface InlineCommentFormProps {
   onCancel: () => void;
   isNarrowViewport?: boolean;
   isSubmitting?: boolean;
+  // Optional outer ref used by the parent to measure the rendered form
+  // height — needed so the bubble-stacking algorithm can include this form.
+  outerRef?: (el: HTMLDivElement | null) => void;
 }
 
 export default function InlineCommentForm({
@@ -23,8 +26,14 @@ export default function InlineCommentForm({
   onCancel,
   isNarrowViewport = false,
   isSubmitting = false,
+  outerRef,
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
+
+  const setRefs = (el: HTMLDivElement | null) => {
+    (paperRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    if (outerRef) outerRef(el);
+  };
 
   // Auto-scroll to ensure the comment form is visible after it appears
   useEffect(() => {
@@ -64,7 +73,7 @@ export default function InlineCommentForm({
 
   return (
     <Paper
-      ref={paperRef}
+      ref={setRefs}
       sx={{
         ...(isNarrowViewport ? narrowStyles : wideStyles),
         p: 2,
