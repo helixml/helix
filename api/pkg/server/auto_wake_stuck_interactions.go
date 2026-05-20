@@ -537,25 +537,31 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // Re-kicking during the boot window only races against the existing
 // per-session lock and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
-	// Skip if a StartDesktop is genuinely in progress and we're still
-	// inside the grace period. Failing to load the session is non-fatal
-	// — fall through to the existing path so a transient store error
-	// doesn't permanently disable the cold-start kick.
-	if session, err := apiServer.Store.GetSession(ctx, stuck.SessionID); err == nil && session != nil {
-		if session.Metadata.ExternalAgentStatus == "starting" &&
-			time.Since(stuck.Created) < coldStartGracePeriod() {
-			log.Debug().
-				Str("interaction_id", stuck.ID).
-				Str("session_id", stuck.SessionID).
-				Dur("interaction_age", time.Since(stuck.Created)).
-				Dur("grace_period", coldStartGracePeriod()).
-				Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
-			return
-		}
-	} else if err != nil {
+	// Load the session once for the two checks below: the
+	// StartDesktop-in-progress gate, and (on cap-exhaustion) the
+	// SandboxID lookup used to read the workspace-setup failure
+	// sentinel. Failing to load is non-fatal — fall through so a
+	// transient store error doesn't permanently disable cold-start.
+	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
+	if err != nil {
 		log.Warn().Err(err).
 			Str("interaction_id", stuck.ID).
 			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; proceeding with kick")
+		session = nil
+	}
+
+	// Skip if a StartDesktop is genuinely in progress and we're still
+	// inside the grace period.
+	if session != nil &&
+		session.Metadata.ExternalAgentStatus == "starting" &&
+		time.Since(stuck.Created) < coldStartGracePeriod() {
+		log.Debug().
+			Str("interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Dur("interaction_age", time.Since(stuck.Created)).
+			Dur("grace_period", coldStartGracePeriod()).
+			Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
+		return
 	}
 
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
@@ -565,8 +571,10 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		// container's workspace-setup script wrote a failure sentinel.
 		// If it did, the real cause is in there (e.g. a clone 403) and
 		// the user deserves to see that instead of an infrastructure
-		// timeout.
-		if session, err := apiServer.Store.GetSession(ctx, stuck.SessionID); err == nil && session != nil {
+		// timeout. Reuses the session loaded at the top of this
+		// function — no extra store roundtrip (and no extra mock
+		// expectation in the cap-exhausted unit tests).
+		if session != nil {
 			if sentinel := apiServer.readSetupFailureSentinel(ctx, stuck.SessionID, session.SandboxID); sentinel != nil {
 				// Truncate aggressively: the Interaction.Error column
 				// renders inline in the UI. Full log lives in the
