@@ -19,6 +19,7 @@ integration-test/frontend/screenshots
 instructions.txt
 build-errors.log
 .DS_Store
+*.tsbuildinfo
 
 # Built Go binaries that may land in repo root from local builds
 /compose-manager

@@ -55,7 +55,8 @@ const OrgBilling: FC = () => {
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
   
   const { data: wallet } = useGetWallet(orgId, !isLoadingServerConfig && serverConfig?.billing_enabled)
-  const { data: usage } = useGetOrgUsage(orgId || '', !!orgId)
+  const { data: usage } = useGetOrgUsage(orgId || '', { enabled: !!orgId })
+  const usageMetrics = usage?.metrics || []
   
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
   const [isSubscribing, setIsSubscribing] = useState<boolean>(false)
@@ -133,9 +134,10 @@ const OrgBilling: FC = () => {
   // Check subscription state from wallet
   const extendedWallet = wallet as ExtendedWallet
   const isSubscriptionActive = extendedWallet?.subscription_status === 'active'
+  const isTrialing = extendedWallet?.subscription_status === 'trialing'
   const isPastDue = extendedWallet?.subscription_status === 'past_due'
-  const isCancelling = isSubscriptionActive && !!extendedWallet?.subscription_cancel_at_period_end
-  const hasSubscription = isSubscriptionActive || isPastDue
+  const isCancelling = (isSubscriptionActive || isTrialing) && !!extendedWallet?.subscription_cancel_at_period_end
+  const hasSubscription = isSubscriptionActive || isTrialing || isPastDue
 
   return (
     <Page
@@ -156,16 +158,16 @@ const OrgBilling: FC = () => {
             </Typography>
 
             {/* Usage Charts Row */}
-            {usage && (
+            {usageMetrics.length > 0 && (
               <Grid container spacing={2} sx={{ mb: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
                 <Grid item xs={12} md={4}>
-                  <TokenUsage usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+                  <TokenUsage usageData={[{ metrics: usageMetrics }]} isLoading={false} />
                 </Grid>
                 <Grid item xs={12} md={4}>
-                  <TotalCost usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+                  <TotalCost usageData={[{ metrics: usageMetrics }]} isLoading={false} />
                 </Grid>
                 <Grid item xs={12} md={4}>
-                  <TotalRequests usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+                  <TotalRequests usageData={[{ metrics: usageMetrics }]} isLoading={false} />
                 </Grid>
               </Grid>
             )}
@@ -236,11 +238,11 @@ const OrgBilling: FC = () => {
                                   py: 0.5,
                                   borderRadius: 1,
                                   fontWeight: 'bold',
-                                  backgroundColor: isCancelling ? 'warning.main' : isPastDue ? 'error.main' : 'success.main',
+                                  backgroundColor: isCancelling ? 'warning.main' : isPastDue ? 'error.main' : isTrialing ? 'info.main' : 'success.main',
                                   color: '#fff',
                                 }}
                               >
-                                {isCancelling ? 'Cancelled' : isPastDue ? 'Past Due' : 'Active'}
+                                {isCancelling ? 'Cancelled' : isPastDue ? 'Past Due' : isTrialing ? 'Trial' : 'Active'}
                               </Typography>
                             </Box>
                             <Typography variant="h4" gutterBottom color="primary">Helix Business</Typography>
@@ -252,6 +254,17 @@ const OrgBilling: FC = () => {
                               <Typography variant="body2" color="error.main" gutterBottom>
                                 Your last payment failed. Please update your payment method to avoid service interruption.
                               </Typography>
+                            ) : isTrialing ? (
+                              <>
+                                <Typography variant="body2" gutterBottom>
+                                  Free trial active. No payment method required - add one before the trial ends to keep your subscription.
+                                </Typography>
+                                {extendedWallet?.subscription_current_period_end && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                    Trial ends: {new Date(extendedWallet.subscription_current_period_end * 1000).toLocaleDateString()}
+                                  </Typography>
+                                )}
+                              </>
                             ) : (
                               <>
                                 <Typography variant="body2" gutterBottom>

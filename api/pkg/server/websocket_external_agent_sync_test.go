@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -61,6 +62,7 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		contextMappings:             make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
+		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -953,6 +955,153 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	s.NoError(err)
 
 	time.Sleep(100 * time.Millisecond)
+}
+
+// TestMessageCompleted_SkipsAttentionWhenUserActive verifies that the
+// agent_interaction_completed attention event is suppressed when a newer
+// waiting interaction already exists in the session — i.e. the user has
+// either interrupted the agent or sent a quick follow-up. In both cases the
+// user is clearly looking at the UI and an "agent finished" notification
+// would just be noise.
+func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive() {
+	s.server.contextMappings["thread-skip"] = "ses_skip"
+	s.server.requestToInteractionMapping["req-skip"] = "int-target-skip"
+	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
+
+	session := &types.Session{
+		ID:    "ses_skip",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task-skip",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_skip").Return(session, nil).AnyTimes()
+
+	baseTime := time.Now().Add(-1 * time.Minute)
+	targetInteraction := &types.Interaction{
+		ID:              "int-target-skip",
+		SessionID:       "ses_skip",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "AI response",
+		Created:         baseTime,
+	}
+	newerWaiting := &types.Interaction{
+		ID:        "int-newer-skip",
+		SessionID: "ses_skip",
+		State:     types.InteractionStateWaiting,
+		Created:   baseTime.Add(30 * time.Second),
+	}
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
+
+	// ListInteractions is called for both the suppression check (PerPage=1)
+	// and the final session publish (PerPage=1000). Both return the same
+	// list — newerWaiting at the end is what triggers suppression.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{targetInteraction, newerWaiting}, int64(2), nil,
+	).AnyTimes()
+
+	// updateSpecTaskZedThreadActivity goroutine — not a tracked thread
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_skip").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	// CRITICAL: GetSpecTask MUST NOT be called when the notification is suppressed.
+	// gomock's default strict mode will fail the test if it is called without an EXPECT.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-skip",
+			"request_id":    "req-skip",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Give any goroutines (which we expect NOT to fire GetSpecTask) time to run
+	time.Sleep(150 * time.Millisecond)
+}
+
+// TestMessageCompleted_EmitsAttentionWhenNoFollowup verifies that the
+// agent_interaction_completed attention event IS emitted when there is no
+// newer waiting interaction — the normal completion case where the user is
+// not actively engaged.
+func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup() {
+	s.server.contextMappings["thread-emit"] = "ses_emit"
+	s.server.requestToInteractionMapping["req-emit"] = "int-target-emit"
+	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
+
+	session := &types.Session{
+		ID:    "ses_emit",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task-emit",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_emit").Return(session, nil).AnyTimes()
+
+	baseTime := time.Now().Add(-1 * time.Minute)
+	targetInteraction := &types.Interaction{
+		ID:              "int-target-emit",
+		SessionID:       "ses_emit",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "AI response",
+		Created:         baseTime,
+	}
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-emit").Return(targetInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
+
+	// Only the target interaction exists — no newer waiting one. Suppression
+	// check sees Created.After(targetInteraction.Created) == false → emit.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{targetInteraction}, int64(1), nil,
+	).AnyTimes()
+
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_emit").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	// GetSpecTask MUST be called when the notification is not suppressed.
+	// We return an error to short-circuit before EmitEvent — the test only
+	// needs to verify the goroutine reached this point.
+	gotSpecTaskCall := make(chan struct{}, 1)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "task-emit").DoAndReturn(
+		func(_ context.Context, _ string) (*types.SpecTask, error) {
+			select {
+			case gotSpecTaskCall <- struct{}{}:
+			default:
+			}
+			return nil, fmt.Errorf("test stub: spectask not loaded")
+		},
+	).MinTimes(1)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-emit",
+			"request_id":    "req-emit",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	select {
+	case <-gotSpecTaskCall:
+		// success — GetSpecTask was reached, meaning the goroutine fired
+	case <-time.After(500 * time.Millisecond):
+		s.Fail("GetSpecTask was not called within timeout — attention event goroutine did not fire")
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2194,12 +2343,16 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	).AnyTimes()
+	// GetInteraction is now called twice: once inside flushAndClearStreamingContext
+	// to refresh the State field (so concurrent state changes from handleTurnCancelled
+	// aren't clobbered), and once inside handleMessageCompleted to reload the latest
+	// response content from the DB.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-flush").Return(&types.Interaction{
 		ID:              "int-flush",
 		SessionID:       "ses_flush",
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "dirty unflushed content", // DB was just flushed
-	}, nil)
+	}, nil).Times(2)
 
 	// Final UpdateInteraction to mark complete (must come after flush)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -2789,6 +2942,11 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_CreatesWorkSessionForSpectask
 
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
 
+	// Phantom-draft guard: returns empty list (no existing zed_threads to dedup
+	// against), so the guard falls through to the normal create path.
+	s.store.EXPECT().ListSpecTaskZedThreads(gomock.Any(), "spt_test").
+		Return([]*types.SpecTaskZedThread{}, nil)
+
 	// Expect new session to be created with all metadata copied
 	var capturedSession types.Session
 	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -2865,6 +3023,157 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_CreatesWorkSessionForSpectask
 	mappedSession := s.server.contextMappings["thread-new-from-user"]
 	s.server.contextMappingsMutex.RUnlock()
 	s.Equal(capturedSession.ID, mappedSession)
+}
+
+// TestUserCreatedThread_PhantomDraftGuard_RefusesWhenEmptyWorkSessionExists
+// is the regression test for the bug documented in
+// design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md.
+//
+// Without the guard at handleUserCreatedThread, every container restart
+// of a long-running spec_task leaks an empty "New Chat" helix_session +
+// spec_task_zed_threads row. Cause: Zed's agent panel speculatively calls
+// new_session() to back its empty input editor (the "draft" thread), then
+// fires UserCreatedThread back to us — even though the user never typed
+// anything in it.
+//
+// The guard refuses to create a new session if the spec_task already has
+// an active work_session whose helix_session has zero interactions.
+//
+// To make this test fail when the guard is removed, comment out the
+// "PHANTOM-DRAFT GUARD" block in handleUserCreatedThread and re-run.
+func (s *WebSocketSyncSuite) TestUserCreatedThread_PhantomDraftGuard_RefusesWhenEmptyWorkSessionExists() {
+	// Existing helix_session that the dev container is bound to.
+	existingSession := &types.Session{
+		ID:             "ses_existing",
+		Owner:          "user-1",
+		OrganizationID: "org-1",
+		ProjectID:      "prj-1",
+		ParentApp:      "app-1",
+		Metadata: types.SessionMetadata{
+			AgentType:        "zed_external",
+			SpecTaskID:       "spt_phantom_test",
+			CodeAgentRuntime: "claude_code",
+			ZedThreadID:      "thread-real",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
+
+	// The spec_task already has one active zed_thread (thread-real) tied to
+	// a helix_session with no interactions. This is the scenario the bug
+	// produces on every container restart.
+	existingZedThread := &types.SpecTaskZedThread{
+		ID:            "stzt_existing",
+		WorkSessionID: "stws_existing",
+		SpecTaskID:    "spt_phantom_test",
+		ZedThreadID:   "thread-real",
+		Status:        types.SpecTaskZedStatusActive,
+	}
+	s.store.EXPECT().ListSpecTaskZedThreads(gomock.Any(), "spt_phantom_test").
+		Return([]*types.SpecTaskZedThread{existingZedThread}, nil)
+
+	existingWorkSession := &types.SpecTaskWorkSession{
+		ID:             "stws_existing",
+		SpecTaskID:     "spt_phantom_test",
+		HelixSessionID: "ses_existing",
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	s.store.EXPECT().GetSpecTaskWorkSession(gomock.Any(), "stws_existing").
+		Return(existingWorkSession, nil)
+
+	// helix_session has zero interactions — this is the signal that the
+	// existing work_session is itself a phantom draft (or just not yet
+	// touched by the user). The incoming UserCreatedThread is therefore a
+	// duplicate phantom from another panel-restore cycle. Refuse it.
+	s.store.EXPECT().ListInteractions(gomock.Any(), &types.ListInteractionsQuery{
+		SessionID: "ses_existing",
+	}).Return([]*types.Interaction{}, int64(0), nil)
+
+	// THE ASSERTION: the guard must short-circuit BEFORE any of these
+	// store mutations fire. If the guard is removed, gomock will fail
+	// with "missing call to CreateSession" / "missing call to
+	// CreateSpecTaskWorkSession" / "missing call to CreateSpecTaskZedThread"
+	// because the handler will fall through to the create path (which we
+	// have NOT mocked here). That test failure IS the regression signal.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "user_created_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-phantom-from-zed-draft",
+			"title":         "New Chat",
+		},
+	}
+
+	err := s.server.handleUserCreatedThread("ses_existing", syncMsg)
+	s.NoError(err, "guard should silently skip creation, not return an error")
+
+	// Belt-and-braces: also verify no context mapping was created for the
+	// phantom thread_id (it would only be set if we'd fallen through to
+	// the create path).
+	s.server.contextMappingsMutex.RLock()
+	_, mapped := s.server.contextMappings["thread-phantom-from-zed-draft"]
+	s.server.contextMappingsMutex.RUnlock()
+	s.False(mapped, "phantom thread should not be added to contextMappings")
+}
+
+// TestUserCreatedThread_PhantomDraftGuard_AllowsWhenExistingSessionHasInteractions
+// verifies the guard does NOT block when the existing work_session has
+// real activity in it. A user typing a follow-up that creates a genuinely
+// new thread on top of an active conversation MUST still work.
+func (s *WebSocketSyncSuite) TestUserCreatedThread_PhantomDraftGuard_AllowsWhenExistingSessionHasInteractions() {
+	existingSession := &types.Session{
+		ID:             "ses_existing",
+		Owner:          "user-1",
+		OrganizationID: "org-1",
+		Metadata: types.SessionMetadata{
+			AgentType:        "zed_external",
+			SpecTaskID:       "spt_active_test",
+			CodeAgentRuntime: "claude_code",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
+
+	existingZedThread := &types.SpecTaskZedThread{
+		ID:            "stzt_existing",
+		WorkSessionID: "stws_existing",
+		SpecTaskID:    "spt_active_test",
+		ZedThreadID:   "thread-active",
+		Status:        types.SpecTaskZedStatusActive,
+	}
+	s.store.EXPECT().ListSpecTaskZedThreads(gomock.Any(), "spt_active_test").
+		Return([]*types.SpecTaskZedThread{existingZedThread}, nil)
+
+	existingWorkSession := &types.SpecTaskWorkSession{
+		ID:             "stws_existing",
+		SpecTaskID:     "spt_active_test",
+		HelixSessionID: "ses_existing",
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	s.store.EXPECT().GetSpecTaskWorkSession(gomock.Any(), "stws_existing").
+		Return(existingWorkSession, nil)
+
+	// Existing session HAS interactions → guard does not fire → fall through
+	// to the create path.
+	s.store.EXPECT().ListInteractions(gomock.Any(), &types.ListInteractionsQuery{
+		SessionID: "ses_existing",
+	}).Return([]*types.Interaction{{ID: "int_one"}}, int64(1), nil)
+
+	// Expect normal create path to execute.
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(&types.Session{ID: "ses_new_active"}, nil)
+	s.store.EXPECT().GetSpecTaskWorkSessionByHelixSession(gomock.Any(), "ses_existing").
+		Return(existingWorkSession, nil)
+	s.store.EXPECT().CreateSpecTaskWorkSession(gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().CreateSpecTaskZedThread(gomock.Any(), gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "user_created_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-genuinely-new",
+			"title":         "Continuation",
+		},
+	}
+
+	err := s.server.handleUserCreatedThread("ses_existing", syncMsg)
+	s.NoError(err)
 }
 
 func (s *WebSocketSyncSuite) TestUserCreatedThread_NonSpectaskSkipsWorkSession() {

@@ -65,9 +65,12 @@ spec:
     tools:
       web_search: true
     mcps:
+      # The github MCP server is pre-installed globally in the spec-task
+      # desktop image; invoke it by binary name. Using `npx -y` instead
+      # races on the shared npm cache when spawned in parallel with
+      # chrome-devtools and times out after 180s.
       - name: github
         transport: stdio
-        command: npx
-        args: ["-y", "@modelcontextprotocol/server-github"]
+        command: mcp-server-github
         env:
           GITHUB_TOKEN: "${GITHUB_TOKEN}"

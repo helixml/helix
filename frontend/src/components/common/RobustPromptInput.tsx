@@ -53,6 +53,7 @@ import {
   Paperclip,
   FileText,
   Camera,
+  StopCircle,
 } from 'lucide-react'
 import {
   DndContext,
@@ -109,6 +110,10 @@ interface RobustPromptInputProps {
   onFileUpload?: (file: File) => Promise<string | null>
   // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
+  // Called when user clicks the cancel button to stop the agent's current turn
+  onCancel?: () => void
+  // Whether the agent is currently processing (has a waiting interaction)
+  isAgentBusy?: boolean
   // Fires synchronously inside handleSend the moment the user submits a
   // prompt, before the local queue persist or the backend sync POST. The
   // parent uses this hook to do optimistic UI updates (e.g. flip the cached
@@ -525,6 +530,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   appendText,
   onFileUpload,
   onImagePaste,
+  onCancel,
+  isAgentBusy = false,
   onWillSend,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1545,6 +1552,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               )}
             </IconButton>
           </Tooltip>
+
+          {/* Cancel button - visible when agent is busy */}
+          {isAgentBusy && onCancel && (
+            <Tooltip title="Cancel current turn">
+              <IconButton
+                onClick={onCancel}
+                sx={{
+                  flexShrink: 0,
+                  width: 30,
+                  height: 30,
+                  color: 'warning.main',
+                  '&:hover': {
+                    bgcolor: (theme) => alpha(theme.palette.warning.main, 0.1),
+                  },
+                }}
+              >
+                <StopCircle size={18} />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* Send button */}
           {(() => {

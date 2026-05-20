@@ -28,6 +28,8 @@ export type AttentionEventType =
   | 'spec_failed'
   | 'implementation_failed'
   | 'pr_ready'
+  | 'ci_passed'
+  | 'ci_failed'
 
 export function useAttentionEvents(enabled: boolean = true, filterMine: boolean = false) {
   const api = useApi()

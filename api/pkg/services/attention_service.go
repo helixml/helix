@@ -119,6 +119,26 @@ func (s *AttentionService) EmitEvent(
 	return created, nil
 }
 
+// DismissTaskAttentionEvents clears all active attention events for a task
+// that has reached a terminal state (typically "done" / merged to main). It is
+// best-effort: failures are logged but never propagated, so a notification
+// cleanup error cannot roll back a task state transition.
+func DismissTaskAttentionEvents(ctx context.Context, s store.Store, taskID string) {
+	if s == nil || taskID == "" {
+		return
+	}
+	n, err := s.DismissAttentionEventsForTask(ctx, taskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).
+			Msg("Failed to clear attention events for finished task (non-fatal)")
+		return
+	}
+	if n > 0 {
+		log.Info().Int64("dismissed", n).Str("task_id", taskID).
+			Msg("Cleared attention events for finished task")
+	}
+}
+
 // notifySlack posts an attention event as a threaded reply in the project's
 // Slack channel. It looks up the project's app with ProjectUpdates enabled,
 // finds the existing SlackThread for this spectask, and posts a reply.
