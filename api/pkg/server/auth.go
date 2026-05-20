@@ -747,6 +747,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 						Admin:               dbUser.Admin,
 						OnboardingCompleted: dbUser.OnboardingCompleted,
 						Waitlisted:          dbUser.Waitlisted,
+						AlphaFeatures:       []string(dbUser.AlphaFeatures),
 					}
 					writeResponse(w, response, http.StatusOK)
 					return
@@ -780,6 +781,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				Admin:               user.Admin,
 				OnboardingCompleted: user.OnboardingCompleted,
 				Waitlisted:          user.Waitlisted,
+				AlphaFeatures:       []string(user.AlphaFeatures),
 			}
 			writeResponse(w, response, http.StatusOK)
 			return
@@ -863,6 +865,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		Admin:               user.Admin,
 		OnboardingCompleted: user.OnboardingCompleted,
 		Waitlisted:          user.Waitlisted,
+		AlphaFeatures:       []string(user.AlphaFeatures),
 	}
 	writeResponse(w, response, http.StatusOK)
 }

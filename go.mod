@@ -4,6 +4,8 @@ go 1.25.4
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
+replace github.com/helixml/helix-org => ./helix-org
+
 require (
 	cloud.google.com/go/storage v1.51.0
 	code.gitea.io/gitea v1.25.5
@@ -42,6 +44,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
+	github.com/helixml/helix-org v0.0.0-00010101000000-000000000000
 	github.com/helixml/kodit v1.3.7
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jfrog/froggit-go v1.20.1
@@ -75,7 +78,7 @@ require (
 	gocloud.dev v0.41.0
 	golang.org/x/crypto v0.49.0
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
-	golang.org/x/oauth2 v0.32.0
+	golang.org/x/oauth2 v0.35.0
 	golang.org/x/term v0.41.0
 	google.golang.org/api v0.228.0
 	google.golang.org/genai v1.51.0
@@ -130,6 +133,8 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
+	github.com/glebarez/sqlite v1.11.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/go-git/v5 v5.17.2 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
@@ -170,6 +175,7 @@ require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-sqlite3 v1.14.41 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/modelcontextprotocol/go-sdk v1.5.0 // indirect
 	github.com/neurlang/wayland v0.2.1 // indirect
 	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
@@ -181,6 +187,9 @@ require (
 	github.com/otiai10/gosseract/v2 v2.4.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
@@ -189,6 +198,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tsawler/tabula v1.6.6 // indirect
+	github.com/tylermmorton/tmpl v1.1.0 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/unknwon/com v1.0.1 // indirect
 	github.com/viant/afs v1.30.0 // indirect
@@ -206,6 +216,10 @@ require (
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
+	modernc.org/libc v1.22.5 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.5.0 // indirect
+	modernc.org/sqlite v1.23.1 // indirect
 )
 
 require (
@@ -309,7 +323,7 @@ require (
 	github.com/ysmood/got v0.40.0 // indirect
 	github.com/ysmood/gson v0.7.3 // indirect
 	github.com/ysmood/leakless v0.9.0 // indirect
-	github.com/yuin/goldmark v1.7.16
+	github.com/yuin/goldmark v1.8.2
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
@@ -326,7 +340,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/text v0.35.0
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect

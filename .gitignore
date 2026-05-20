@@ -35,12 +35,14 @@ charts/helix-controlplane/charts/*.tgz
 # Source-of-truth is the .tmpl file; the rendered Chart.yaml is build output.
 charts/*/Chart.yaml
 # Anchor helix-runner to repo root so it does not shadow charts/helix-runner/.
-# Other unanchored patterns below (helix, zed-build, tmp) are left as-is to
-# avoid regressing the ignoring of build artifacts in subdirectories such as
-# api/cmd/helix/helix or runner-cmd/helix-runner/helix-runner.
+# `helix` and friends are anchored to specific build-artifact paths because a
+# bare `helix` pattern matches any directory named `helix` at any depth — which
+# accidentally swallowed helix-org/helix/ and helix-org/agent/helix/ entirely.
 /helix-runner
 zed-build
-helix
+/helix
+/api/helix
+/api/cmd/helix/helix
 tmp
 zed-config/development_credentials
 

@@ -450,7 +450,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
             </Paper>
 
             <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeMenu}>
-                {isCloud && menuUser?.waitlisted && (
+                {menuUser?.waitlisted && (
                     <MenuItem onClick={handleApprove}>
                         <ListItemIcon><CheckCircleIcon fontSize="small" sx={{ color: "success.main" }} /></ListItemIcon>
                         <ListItemText>Approve</ListItemText>
