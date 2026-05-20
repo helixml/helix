@@ -27,25 +27,6 @@ const fall = keyframes`
   }
 `;
 
-const tadaFlash = keyframes`
-  0% {
-    transform: translate(-50%, -50%) scale(0.4) rotate(-15deg);
-    opacity: 0;
-  }
-  20% {
-    transform: translate(-50%, -50%) scale(1.4) rotate(10deg);
-    opacity: 1;
-  }
-  60% {
-    transform: translate(-50%, -50%) scale(1.1) rotate(-5deg);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1.6) rotate(0deg);
-    opacity: 0;
-  }
-`;
-
 interface ConfettiPiece {
   left: number;
   drift: number;
@@ -128,20 +109,6 @@ const TaDaAnimation: React.FC<TaDaAnimationProps> = ({
           }}
         />
       ))}
-      <Box
-        sx={{
-          position: "absolute",
-          top: "40%",
-          left: "50%",
-          fontSize: "8rem",
-          lineHeight: 1,
-          userSelect: "none",
-          textShadow: "0 4px 24px rgba(0, 0, 0, 0.4)",
-          animation: `${tadaFlash} 1800ms ease-out forwards`,
-        }}
-      >
-        🎉
-      </Box>
     </Box>
   );
 };
