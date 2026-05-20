@@ -40,15 +40,11 @@ type ProjectApplier struct {
 	// Credentials selects the in-sandbox auth source for the runtime.
 	// `"subscription"` tells `claude_code` to authenticate Anthropic
 	// via the operator's Claude OAuth subscription (no Provider/Model
-	// needed). Empty falls back to Helix-routed inference via
-	// Provider/Model — only meaningful for `zed_agent` / `qwen_code` /
-	// etc. runtimes that go through Helix's anthropic proxy.
+	// needed). `"api_key"` (or any non-subscription value) routes
+	// inference through Helix via Provider/Model — the only valid mode
+	// for `zed_agent` / `qwen_code` / etc. The actual key lives in
+	// Helix's Providers config, not here.
 	Credentials string
-	// AnthropicAPIKey, when non-empty, is injected into every Worker's
-	// per-Worker Helix project as the ANTHROPIC_API_KEY secret. Used
-	// by `claude_code` in API-key mode (Credentials != "subscription")
-	// to authenticate the in-sandbox CLI without an operator OAuth.
-	AnthropicAPIKey string
 	// AgentMD is the org-wide agent policy pushed verbatim to
 	// `.context/agent.md` on every Worker's helix-specs branch. Empty
 	// string skips the push.
@@ -145,9 +141,6 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (
 	// Project secrets — env-var injection.
 	_ = a.Client.PutProjectSecret(ctx, resp.ProjectID, "HELIX_ORG_URL", a.HelixOrgURL)
 	_ = a.Client.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID))
-	if a.AnthropicAPIKey != "" {
-		_ = a.Client.PutProjectSecret(ctx, resp.ProjectID, "ANTHROPIC_API_KEY", a.AnthropicAPIKey)
-	}
 	// Discover the project's primary repo and its org (we need the
 	// org to create a same-org repo; Helix rejects cross-org attaches).
 	repoID = ""

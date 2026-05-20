@@ -36,12 +36,23 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 		Key:         "worker.runtime",
 		Type:        config.TypeString,
 		Default:     `"claude_code"`,
-		Description: "Code-agent runtime applied to every Worker's Helix project. Default `claude_code` uses the operator's Claude OAuth subscription with no provider/model required. Set to `zed_agent` (or another supported value) only if you have a different inference path configured.",
+		Description: "Code-agent runtime applied to every Worker's Helix project. `claude_code` (default) is the Anthropic Claude CLI; `zed_agent` is the Helix-routed conversational agent. Other runtimes (e.g. `qwen_code`) work if Helix supports them.",
 	})
 	r.Register(config.Spec{
-		Key:         "worker.anthropic_api_key",
+		Key:         "worker.credentials",
 		Type:        config.TypeString,
-		Description: "Anthropic API key for the `claude_code` runtime. Empty (default) = OAuth subscription mode (the operator's `claude login` credentials are used in the sandbox). Setting this flips Workers to API-key mode: credentials=api_key, and the key is injected into each Worker's sandbox as ANTHROPIC_API_KEY. Use this on deployments without a Claude subscription. SENSITIVE — value not redacted by `config get` yet (string specs don't support field-level secrets).",
+		Default:     `"subscription"`,
+		Description: "Auth source for the runtime. `subscription` (default) uses the operator's connected Claude OAuth (only valid for `claude_code`). `api_key` routes inference through Helix's anthropic/openai/etc. provider (configured separately in Helix Providers); requires `worker.provider` and `worker.model` to be set. For `zed_agent` and other non-subscription runtimes this is effectively always `api_key`.",
+	})
+	r.Register(config.Spec{
+		Key:         "worker.provider",
+		Type:        config.TypeString,
+		Description: "Helix provider name (e.g. `anthropic`, `openai`) routed-through inference uses. Required when `worker.credentials=api_key` or when `worker.runtime` is anything other than `claude_code`. Must match a provider configured in Helix's Providers panel (or auto-provisioned from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars at startup).",
+	})
+	r.Register(config.Spec{
+		Key:         "worker.model",
+		Type:        config.TypeString,
+		Description: "Model ID for the chosen provider (e.g. `claude-sonnet-4-5`, `gpt-4o-mini`). Required alongside `worker.provider` whenever inference routes through Helix. Ignored for `claude_code`+`subscription` (the CLI picks its own model).",
 	})
 	r.Register(config.Spec{
 		Key:         "helix.url",
