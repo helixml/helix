@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/People';
 import { X, User } from 'lucide-react';
-import { TypesAccessGrant, TypesCreateAccessGrantRequest } from '../../api/api';
+import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse } from '../../api/api';
 import AccessManagement from '../app/AccessManagement';
 
 const MAX_VISIBLE_AVATARS = 3;
@@ -106,7 +106,7 @@ interface InviteDialogProps {
   currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
   projectOwnerId?: string;
   accessGrants: TypesAccessGrant[];
-  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
+  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
 
@@ -169,7 +169,7 @@ export interface ProjectMembersBarProps {
   inviteOpen: boolean;
   onOpenInvite: () => void;
   onCloseInvite: () => void;
-  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
+  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
 

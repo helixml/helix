@@ -381,6 +381,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
+	services.DismissTaskAttentionEvents(ctx, s.Store, specTask.ID)
 
 	log.Info().
 		Str("task_id", specTask.ID).
@@ -653,6 +654,26 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	// Create new PR
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, userID)
 	if err != nil {
+		// If a PR already exists for this branch (race condition), find and return it rather than failing.
+		if strings.Contains(err.Error(), "already exists") {
+			log.Info().Str("branch", branch).Str("repo_name", repo.Name).Msg("PR already exists (race), looking it up")
+			freshPRs, listErr := s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
+			if listErr == nil {
+				for _, pr := range freshPRs {
+					branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
+					if branchMatches && pr.State == types.PullRequestStateOpen {
+						return &types.RepoPR{
+							RepositoryID:   repo.ID,
+							RepositoryName: repo.Name,
+							PRID:           pr.ID,
+							PRNumber:       pr.Number,
+							PRURL:          pr.URL,
+							PRState:        string(pr.State),
+						}, nil
+					}
+				}
+			}
+		}
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
 
@@ -660,6 +681,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	prs, err = s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("pr_id", prID).Msg("Failed to fetch PR details after creation")
+		s.emitPRReadyEvent(task, prID, "")
 		// Return partial info
 		return &types.RepoPR{
 			RepositoryID:   repo.ID,
@@ -672,6 +694,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	for _, pr := range prs {
 		if pr.ID == prID {
 			log.Info().Str("pr_id", prID).Str("branch", branch).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Created pull request")
+			s.emitPRReadyEvent(task, pr.ID, pr.URL)
 			return &types.RepoPR{
 				RepositoryID:   repo.ID,
 				RepositoryName: repo.Name,
@@ -684,12 +707,41 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}
 
 	// Fallback if we can't find the PR we just created
+	s.emitPRReadyEvent(task, prID, "")
 	return &types.RepoPR{
 		RepositoryID:   repo.ID,
 		RepositoryName: repo.Name,
 		PRID:           prID,
 		PRState:        "open",
 	}, nil
+}
+
+// emitPRReadyEvent fires the pr_ready attention event immediately after Helix
+// creates a PR, rather than waiting for the orchestrator polling loop to detect
+// it. The orchestrator emits the same event with the same idempotency qualifier
+// (PR ID), so the later emission becomes a no-op.
+func (s *HelixAPIServer) emitPRReadyEvent(task *types.SpecTask, prID, prURL string) {
+	if s.attentionService == nil || task == nil || prID == "" {
+		return
+	}
+	go func() {
+		_, err := s.attentionService.EmitEvent(
+			context.Background(),
+			types.AttentionEventPRReady,
+			task,
+			prID,
+			map[string]interface{}{
+				"pr_id":  prID,
+				"pr_url": prURL,
+			},
+		)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("spec_task_id", task.ID).
+				Str("pr_id", prID).
+				Msg("Failed to emit pr_ready attention event")
+		}
+	}()
 }
 
 // ensurePullRequestsForAllRepos creates PRs across all project repos that have external URLs

@@ -870,6 +870,22 @@ definitions:
       severity:
         type: string
     type: object
+  server.ActivateTrialRequest:
+    properties:
+      credits:
+        type: number
+      days:
+        type: integer
+    type: object
+  server.ActivateTrialResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
+    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       dev_containers:
@@ -2234,7 +2250,7 @@ definitions:
     properties:
       message:
         type: string
-      statusCode:
+      status_code:
         type: integer
     type: object
   types.APIError:
@@ -3637,6 +3653,37 @@ definitions:
         description: User ID or email
         type: string
     type: object
+  types.CreateAccessGrantResponse:
+    properties:
+      added_to_organization:
+        type: boolean
+      created_at:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: If granted to an organization
+        type: string
+      resource_id:
+        description: App ID, Knowledge ID, etc
+        type: string
+      roles:
+        items:
+          $ref: '#/definitions/types.Role'
+        type: array
+      team_id:
+        description: If granted to a team
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
+      user_id:
+        description: If granted to a user
+        type: string
+    type: object
   types.CreateBranchRequest:
     properties:
       base_branch:
@@ -4901,6 +4948,7 @@ definitions:
     - editing
     - complete
     - error
+    - interrupted
     type: string
     x-enum-varnames:
     - InteractionStateNone
@@ -4908,6 +4956,7 @@ definitions:
     - InteractionStateEditing
     - InteractionStateComplete
     - InteractionStateError
+    - InteractionStateInterrupted
   types.Item:
     properties:
       b64_json:
@@ -5762,6 +5811,101 @@ definitions:
         type: array
       wallet:
         $ref: '#/definitions/types.Wallet'
+    type: object
+  types.OrgUsageSummaryResponse:
+    properties:
+      active_apps:
+        type: integer
+      active_projects:
+        type: integer
+      active_sessions:
+        type: integer
+      active_users:
+        type: integer
+      apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      filter_apps:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_models:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_projects:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_users:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      model_time_series:
+        items:
+          $ref: '#/definitions/types.UsageModelTimeSeries'
+        type: array
+      models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      project_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      projects_total:
+        type: integer
+      sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      sessions_total:
+        type: integer
+      tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      tasks_total:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      users_total:
+        type: integer
     type: object
   types.Organization:
     properties:
@@ -6789,6 +6933,10 @@ definitions:
       active_headless_sandboxes:
         type: integer
       max_concurrent_desktops:
+        description: |-
+          MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+          organisation when the session has an org, per user otherwise.
+          -1 = unlimited.
         type: integer
       max_desktop_sandboxes:
         type: integer
@@ -7496,6 +7644,11 @@ definitions:
       license:
         $ref: '#/definitions/types.FrontendLicenseInfo'
       max_concurrent_desktops:
+        description: |-
+          MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+          organisation when the session has an org, per user otherwise.
+          -1 = unlimited. Note: /config is unauthenticated, so this is the
+          Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
       organizations_create_enabled_for_non_admins:
         type: boolean
@@ -9202,8 +9355,6 @@ definitions:
         type: string
       max_concurrent_desktop_sandboxes:
         type: integer
-      max_concurrent_desktops:
-        type: integer
       max_concurrent_headless_sandboxes:
         type: integer
       optimus_generation_model:
@@ -9273,9 +9424,6 @@ definitions:
         description: Kodit vision embedding model configuration
         type: string
       max_concurrent_desktop_sandboxes:
-        type: integer
-      max_concurrent_desktops:
-        description: Per user
         type: integer
       max_concurrent_headless_sandboxes:
         type: integer
@@ -9924,6 +10072,99 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.UsageBreakdownRow:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      email:
+        type: string
+      ended_at:
+        type: string
+      id:
+        type: string
+      interaction_id:
+        type: string
+      last_activity_at:
+        type: string
+      latency_ms:
+        type: number
+      model:
+        type: string
+      name:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      request_size_bytes:
+        type: integer
+      response_size_bytes:
+        type: integer
+      session_count:
+        type: integer
+      session_id:
+        type: string
+      started_at:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
+        type: integer
+      unique_apps:
+        type: integer
+      unique_projects:
+        type: integer
+      unique_sessions:
+        type: integer
+      unique_users:
+        type: integer
+      username:
+        type: string
+    type: object
+  types.UsageFilterOption:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      username:
+        type: string
+    type: object
+  types.UsageModelTimeSeries:
+    properties:
+      id:
+        type: string
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+    type: object
   types.User:
     properties:
       admin:
@@ -9979,6 +10220,23 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.TokenType'
         description: none, runner. keycloak, api_key
+      trial_credits_on_first_org:
+        type: number
+      trial_days_on_first_org:
+        description: |-
+          Trial intent stashed by admin before the user has created their first org.
+          Consumed by wallet creation on first owned org, then cleared.
+        type: integer
+      trial_ends_at:
+        type: integer
+      trial_org_id:
+        type: string
+      trial_status:
+        description: |-
+          Transient trial-display fields populated by the admin users list when
+          ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+          explicitly populated (json:"...,omitempty").
+        type: string
       type:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
@@ -10866,6 +11124,58 @@ paths:
       security:
       - BearerAuth: []
       summary: Reset a user's password (Admin only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/trial-activate:
+    delete:
+      description: Clears any stashed trial intent on the user and cancels the Stripe
+        subscription on the user's oldest owned org if it is currently in a trialing
+        state. Paid (active) subscriptions are never cancelled.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ActivateTrialResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke an admin-granted trial (Admin, cloud only)
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: 'Stash a trial intent on the user, or immediately create a Stripe
+        trial subscription on the user''s oldest-owned org. Defaults: 90 days, $100
+        credits.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Trial parameters (days, credits)
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/server.ActivateTrialRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ActivateTrialResponse'
+      security:
+      - BearerAuth: []
+      summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
   /api/v1/api_keys:
@@ -16238,7 +16548,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.AccessGrant'
+            $ref: '#/definitions/types.CreateAccessGrantResponse'
       security:
       - BearerAuth: []
       summary: Grant access to a project to a team or organization member
@@ -21240,6 +21550,114 @@ paths:
       security:
       - BearerAuth: []
       summary: Get daily usage
+      tags:
+      - usage
+  /api/v1/usage/org-summary:
+    get:
+      consumes:
+      - application/json
+      description: Get organization usage summary with breakdowns by user, project,
+        app, session, task/model, and model/provider
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: User ID
+        in: query
+        name: user_id
+        type: string
+      - description: Project ID
+        in: query
+        name: project_id
+        type: string
+      - description: App ID
+        in: query
+        name: app_id
+        type: string
+      - description: Session ID
+        in: query
+        name: session_id
+        type: string
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      - description: Model
+        in: query
+        name: model
+        type: string
+      - description: User search
+        in: query
+        name: user_search
+        type: string
+      - description: User page size
+        in: query
+        name: user_limit
+        type: integer
+      - description: User page offset
+        in: query
+        name: user_offset
+        type: integer
+      - description: Project page size
+        in: query
+        name: project_limit
+        type: integer
+      - description: Project page offset
+        in: query
+        name: project_offset
+        type: integer
+      - description: Task page size
+        in: query
+        name: task_limit
+        type: integer
+      - description: Task page offset
+        in: query
+        name: task_offset
+        type: integer
+      - description: Session page size
+        in: query
+        name: session_limit
+        type: integer
+      - description: Session page offset
+        in: query
+        name: session_offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrgUsageSummaryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization usage summary
       tags:
       - usage
   /api/v1/users:

@@ -1,8 +1,8 @@
 {
   "uuid": "helix-cursor@helix.ml",
   "name": "Helix Cursor Tracker",
-  "description": "Tracks cursor shape changes and sends them to Helix desktop-bridge via Unix socket. Auto-minimizes ACP Agent Logs terminal.",
+  "description": "Tracks cursor shape changes and sends them to Helix desktop-bridge via Unix socket. Moves ACP Agent Logs terminal to last workspace.",
   "shell-version": ["45", "46", "47", "48", "49"],
-  "version": 2,
+  "version": 3,
   "url": "https://helix.ml"
 }

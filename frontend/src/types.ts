@@ -1030,6 +1030,7 @@ export interface IAccessGrant {
   user_id?: string;
   user?: IUser;
   roles?: IRole[];
+  added_to_organization?: boolean;
 }
 
 // Request to create a new access grant

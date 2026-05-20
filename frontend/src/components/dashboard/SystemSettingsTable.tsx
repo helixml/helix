@@ -48,8 +48,6 @@ const SystemSettingsTable: FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [newHfToken, setNewHfToken] = useState('')
   const [showToken, setShowToken] = useState(false)
-  const [editingMaxDesktops, setEditingMaxDesktops] = useState(false)
-  const [maxDesktopsValue, setMaxDesktopsValue] = useState('')
   const [editingSandboxHeadlessPrice, setEditingSandboxHeadlessPrice] = useState(false)
   const [sandboxHeadlessPriceValue, setSandboxHeadlessPriceValue] = useState('')
   const [editingSandboxDesktopPrice, setEditingSandboxDesktopPrice] = useState(false)
@@ -101,27 +99,6 @@ const SystemSettingsTable: FC = () => {
         kodit_enrichment_model: model,
       })
       snackbar.success(`Code Intelligence model set to ${provider}/${model}`)
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        snackbar.error('Access denied: Admin privileges required')
-      } else {
-        snackbar.error(`Failed to update settings: ${err.message}`)
-      }
-    }
-  }
-
-  const handleSaveMaxDesktops = async () => {
-    try {
-      const value = parseInt(maxDesktopsValue, 10)
-      if (isNaN(value) || value < 0) {
-        snackbar.error('Please enter a valid non-negative number')
-        return
-      }
-      await updateSettings.mutateAsync({
-        max_concurrent_desktops: value,
-      })
-      setEditingMaxDesktops(false)
-      snackbar.success('Max concurrent desktops updated')
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -718,73 +695,6 @@ const SystemSettingsTable: FC = () => {
                           disabled={saving}
                         >
                           Clear
-                        </Button>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
-                {/* Max Concurrent Desktops Row */}
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Max Concurrent Desktops
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Maximum number of concurrent desktop sessions per user (0 = unlimited)
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.max_concurrent_desktops ? `Limit: ${settings.max_concurrent_desktops}` : 'Unlimited'}
-                      color={settings?.max_concurrent_desktops ? 'primary' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {settings?.max_concurrent_desktops ?? 0}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={1} alignItems="center">
-                      {editingMaxDesktops ? (
-                        <>
-                          <TextField
-                            size="small"
-                            type="number"
-                            value={maxDesktopsValue}
-                            onChange={(e) => setMaxDesktopsValue(e.target.value)}
-                            inputProps={{ min: 0 }}
-                            sx={{ width: 100 }}
-                          />
-                          <Button
-                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-                            onClick={handleSaveMaxDesktops}
-                            size="small"
-                            variant="contained"
-                            disabled={saving}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            onClick={() => setEditingMaxDesktops(false)}
-                            size="small"
-                            disabled={saving}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          startIcon={<EditIcon />}
-                          onClick={() => {
-                            setMaxDesktopsValue(String(settings?.max_concurrent_desktops ?? 0))
-                            setEditingMaxDesktops(true)
-                          }}
-                          size="small"
-                        >
-                          Edit
                         </Button>
                       )}
                     </Box>

@@ -9,7 +9,7 @@
 # BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
 # Update digests when intentionally upgrading base images.
 # - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25-bookworm -> sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c
+# - golang:1.25-bookworm -> sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547
 
 # ====================================================================
 # Build grim from source with JPEG support
@@ -36,7 +36,7 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 # Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS go-build-env
+FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -401,13 +401,14 @@ PINEOF
 
 _INSTALL_BASE
 
-# Install Go (version extracted from go.mod)
-# This makes Go available for agents running inside the container (Helix-in-Helix)
-COPY go.mod /tmp/go.mod
-RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
+# Install Go (version passed via --build-arg from stack, derived from go.mod on host).
+# Passing as a build-arg (instead of COPY-ing go.mod) means dependency bumps in
+# go.mod don't invalidate this layer or any of the downstream apt/npm/install layers —
+# only an actual Go-version change does. TARGETARCH is set by Docker buildx.
+ARG GO_VERSION
+RUN [ -n "${GO_VERSION}" ] || { echo "ERROR: --build-arg GO_VERSION=... is required" >&2; exit 1; } && \
     echo "Installing Go ${GO_VERSION} for ${TARGETARCH}..." && \
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz && \
-    rm /tmp/go.mod && \
     /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
 

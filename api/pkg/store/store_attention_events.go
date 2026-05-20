@@ -202,6 +202,26 @@ func (s *PostgresStore) BulkDismissAttentionEvents(ctx context.Context, userID, 
 	return result.RowsAffected, nil
 }
 
+// DismissAttentionEventsForTask marks every active (not yet dismissed) attention
+// event for the given spec task as dismissed. Used to auto-clear notifications
+// when a task transitions to a terminal state. Idempotent.
+func (s *PostgresStore) DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error) {
+	if specTaskID == "" {
+		return 0, fmt.Errorf("spec task ID is required")
+	}
+
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.AttentionEvent{}).
+		Where("spec_task_id = ? AND dismissed_at IS NULL", specTaskID).
+		Update("dismissed_at", &now)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to dismiss attention events for task: %w", result.Error)
+	}
+
+	return result.RowsAffected, nil
+}
+
 // CleanupExpiredAttentionEvents deletes dismissed events older than the given duration.
 func (s *PostgresStore) CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan)

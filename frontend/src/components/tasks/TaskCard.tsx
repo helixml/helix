@@ -90,6 +90,15 @@ const spin = keyframes`
   }
 `;
 
+const pulseDot = keyframes`
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+`;
+
 
 type SpecTaskPhase =
   | "backlog"
@@ -147,6 +156,7 @@ export interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   description?: string;
+  original_prompt?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
@@ -330,7 +340,7 @@ const TaskProgressDisplay: React.FC<{
   return (
     <Box
       sx={{
-        mt: 1.5,
+        mt: 1,
         mb: 0.5,
         background: lightTheme.isLight
           ? "linear-gradient(145deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.01) 100%)"
@@ -344,7 +354,7 @@ const TaskProgressDisplay: React.FC<{
       <Box
         sx={{
           px: 1.5,
-          py: 0.75,
+          py: 0.5,
           background:
             "linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)",
           borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)'}`,
@@ -383,7 +393,7 @@ const TaskProgressDisplay: React.FC<{
       </Box>
 
       {/* Task list with fade effect */}
-      <Box sx={{ py: 0.5 }}>
+      <Box sx={{ py: 0.25 }}>
         {visibleTasks.map((task, idx) => {
           const isActive = task.status === "in_progress";
           const isCompleted =
@@ -396,10 +406,10 @@ const TaskProgressDisplay: React.FC<{
               key={task.index}
               sx={{
                 px: 1.5,
-                py: 0.5,
+                py: 0.25,
                 display: "flex",
                 alignItems: "flex-start",
-                gap: 0.75,
+                gap: 0.5,
                 opacity,
                 transition: "opacity 0.3s ease",
               }}
@@ -407,8 +417,8 @@ const TaskProgressDisplay: React.FC<{
               {/* Status indicator */}
               <Box
                 sx={{
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -418,7 +428,7 @@ const TaskProgressDisplay: React.FC<{
               >
                 {isActive ? (
                   // Animated spinner for active task
-                  <Box sx={{ position: "relative", width: 14, height: 14 }}>
+                  <Box sx={{ position: "relative", width: 12, height: 12 }}>
                     <Box
                       sx={{
                         position: "absolute",
@@ -440,10 +450,10 @@ const TaskProgressDisplay: React.FC<{
                     />
                   </Box>
                 ) : isCompleted ? (
-                  <CheckCircleIcon sx={{ fontSize: 14, color: "#10b981" }} />
+                  <CheckCircleIcon sx={{ fontSize: 12, color: "#10b981" }} />
                 ) : (
                   <UncheckedIcon
-                    sx={{ fontSize: 14, color: lightTheme.isLight ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.25)" }}
+                    sx={{ fontSize: 12, color: lightTheme.isLight ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.25)" }}
                   />
                 )}
               </Box>
@@ -630,6 +640,7 @@ function TaskCardInner({
 
   const { acknowledge } = useAttentionEvents();
   const hasUnreadNotification = attentionEvents.length > 0;
+  const isAgentWorking = task.agent_work_state === "working";
 
   const runningDuration = useRunningDuration(
     task.started_at,
@@ -752,7 +763,25 @@ function TaskCardInner({
         },
       }}
     >
-      {hasUnreadNotification && (
+      {isAgentWorking ? (
+        <Tooltip title="Agent is running">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "success.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+              animation: `${pulseDot} 1.5s ease-in-out infinite`,
+            }}
+          />
+        </Tooltip>
+      ) : hasUnreadNotification ? (
         <Tooltip title="Agent finished - click to dismiss">
           <Box
             sx={{
@@ -769,7 +798,7 @@ function TaskCardInner({
             }}
           />
         </Tooltip>
-      )}
+      ) : null}
       <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box
@@ -786,7 +815,7 @@ function TaskCardInner({
               <span style={{ whiteSpace: "pre-wrap" }}>
                 {(() => {
                   const created = formatCreatedAt(task.created_at);
-                  const body = task.description || task.name;
+                  const body = task.original_prompt || task.description || task.name;
                   return created ? `Created ${created}\n\n${body}` : body;
                 })()}
               </span>
@@ -1077,7 +1106,7 @@ function TaskCardInner({
 
         {/* Label chips */}
         {task.labels && task.labels.length > 0 && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5 }}>
             {task.labels.map((label) => (
               <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
             ))}
@@ -1143,12 +1172,17 @@ function TaskCardInner({
           </Box>
         )}
 
-        {/* Live screenshot for active sessions - click opens desktop viewer */}
-        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {/* Live screenshot for active sessions - click opens desktop viewer.
+            Only render when the sandbox is actually live ("running"/"starting").
+            Polling absent sandboxes burns API requests and dumps a fleet of
+            503s in the logs every time the page loads, since each card spins
+            up its own poll loop until it hits one. */}
         {task.planning_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
-          !taskError && (
+          !taskError &&
+          (task.sandbox_state === "running" ||
+            task.sandbox_state === "starting") && (
             <LiveAgentScreenshot
               sessionId={task.planning_session_id}
               projectId={projectId}
