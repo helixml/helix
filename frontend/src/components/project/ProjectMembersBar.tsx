@@ -142,6 +142,7 @@ const InviteDialog: FC<InviteDialogProps> = ({
             accessGrants={accessGrants}
             isLoading={false}
             isReadOnly={!isOwnerOrAdmin}
+            organizationId={organizationId}
             currentUser={currentUser}
             projectOwnerId={projectOwnerId}
             onCreateGrant={onCreateGrant}

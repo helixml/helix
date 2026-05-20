@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -90,6 +91,25 @@ func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, age
 	tokenEnvVars := types.DesktopAgentAPIEnvVars(apiKey)
 	agent.Env = append(agent.Env, tokenEnvVars...)
 
+	// Subscription-mode claude_code overrides: when the session's
+	// parent app runs Claude Code on the operator's OAuth, the
+	// in-sandbox `claude` process needs CLAUDE_CODE_OAUTH_TOKEN and
+	// an Anthropic-direct ANTHROPIC_BASE_URL — not the Helix proxy
+	// envs DesktopAgentAPIEnvVars sets above. Resolved here at
+	// session-start time so the claude process inherits them, rather
+	// than relying on Zed's `agent_servers.env` to propagate (it
+	// doesn't, for registry-type agents). The setup token lookup
+	// honours session ownership: each Worker session runs under the
+	// hiring user, so test@helix.ml's workers get test@helix.ml's
+	// subscription.
+	if extra := apiServer.subscriptionEnvForSession(ctx, session); len(extra) > 0 {
+		agent.Env = append(agent.Env, extra...)
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Int("count", len(extra)).
+			Msg("✅ Added claude_code subscription env vars to agent (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_BASE_URL override)")
+	}
+
 	log.Info().
 		Str("user_id", userID).
 		Str("session_id", agent.SessionID).
@@ -99,6 +119,69 @@ func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, age
 		Msg("✅ Added session-scoped API tokens to agent (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
 
 	return nil
+}
+
+// subscriptionEnvForSession returns extra container env vars when
+// the session's parent app uses claude_code runtime with subscription
+// credentials. Each var "K=V" appears AFTER DesktopAgentAPIEnvVars in
+// hydra_executor's env list, so process env honours these overrides
+// (last write wins). Empty slice when the runtime is anything else or
+// the lookup fails — callers degrade to the base API-key env.
+func (apiServer *HelixAPIServer) subscriptionEnvForSession(ctx context.Context, session *types.Session) []string {
+	if session.ParentApp == "" {
+		return nil
+	}
+	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+	if err != nil || len(app.Config.Helix.Assistants) == 0 {
+		return nil
+	}
+	asst := app.Config.Helix.Assistants[0]
+	if asst.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode {
+		return nil
+	}
+	if !asst.CodeAgentCredentialType.IsSubscription() {
+		return nil
+	}
+	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	if err != nil || sub.Status != "active" {
+		log.Warn().Str("session_id", session.ID).Str("owner", session.Owner).
+			Msg("claude_code subscription mode but no active Claude subscription found for session owner")
+		return nil
+	}
+	out := []string{
+		// Anthropic-direct; overrides the helix-proxy URL baked into
+		// the container env list.
+		"ANTHROPIC_BASE_URL=https://api.anthropic.com",
+		// Clear ANTHROPIC_API_KEY so Claude Code falls back to OAuth.
+		"ANTHROPIC_API_KEY=",
+	}
+	encKey, err := crypto.GetEncryptionKey()
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("claude_code subscription mode: encryption key unavailable")
+		return out
+	}
+	plaintext, err := crypto.DecryptAES256GCM(sub.EncryptedCredentials, encKey)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("claude_code subscription mode: decrypt subscription failed")
+		return out
+	}
+	credType := sub.CredentialType
+	if credType == "" {
+		credType = "oauth"
+	}
+	switch credType {
+	case "setup_token":
+		var tok types.ClaudeSetupTokenCredentials
+		if err := json.Unmarshal(plaintext, &tok); err == nil && tok.SetupToken != "" {
+			out = append(out, "CLAUDE_CODE_OAUTH_TOKEN="+tok.SetupToken)
+		}
+	case "oauth":
+		// OAuth credentials are normally written to
+		// ~/.claude/.credentials.json by settings-sync-daemon on
+		// container start. The daemon path is more correct for OAuth
+		// since it can refresh tokens; we don't duplicate it here.
+	}
+	return out
 }
 
 // RegisterRequestToSessionMapping registers a request_id to session_id mapping for external agent sessions
