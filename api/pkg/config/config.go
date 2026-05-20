@@ -55,6 +55,14 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
+
+	// HelixOrgEnabled is the deployment-wide kill switch for the
+	// embedded helix-org alpha. When false (the default), none of
+	// the helix-org init runs and none of its HTTP surfaces
+	// (/api/v1/org/, /ui/, /api/v1/mcp/helix-org/) are mounted —
+	// the per-user alpha feature flag in the DB has no effect.
+	// Set HELIX_ORG_ENABLED=true to opt in.
+	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.

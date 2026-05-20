@@ -337,10 +337,15 @@ const AppSettings: FC<AppSettingsProps> = ({
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
       setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
+      // Default to api_key when the field is unset. The previous fallback
+      // (`generation_model_provider ? 'api_key' : 'subscription'`) flipped a
+      // freshly-created zed_agent assistant to subscription mode, which then
+      // strips the Helix-routed default_model and leaves the dev container
+      // stuck at "Agent never connected" because start-zed-helix.sh waits for
+      // the default_model key before launching Zed. Subscription is opt-in
+      // (user must explicitly click the radio for a Claude Code agent).
       setClaudeCodeMode(
-        app.code_agent_credential_type === 'subscription' ? 'subscription' :
-        app.code_agent_credential_type === 'api_key' ? 'api_key' :
-        app.generation_model_provider ? 'api_key' : 'subscription'
+        app.code_agent_credential_type === 'subscription' ? 'subscription' : 'api_key'
       )
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')

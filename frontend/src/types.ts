@@ -133,6 +133,7 @@ export interface IKeycloakUser {
   onboarding_completed?: boolean,
   waitlisted?: boolean,
   admin?: boolean,
+  alpha_features?: string[],
 }
 
 export interface IUserConfig {
