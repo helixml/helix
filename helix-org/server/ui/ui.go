@@ -79,6 +79,7 @@ func Handler(deps Deps) http.Handler {
 	mux.HandleFunc("GET /ui/org/detail", u.handleOrgDetail)
 	mux.HandleFunc("POST /ui/org/identity/set", u.handleOrgIdentitySet)
 	mux.HandleFunc("GET /ui/streams", u.handleStreams)
+	mux.HandleFunc("GET /ui/streams/events", u.handleStreamsEventsSSE)
 	mux.HandleFunc("POST /ui/streams/publish", u.handleStreamsPublish)
 	return mux
 }
@@ -420,6 +421,119 @@ func (u *uiHandler) handleStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render(w, streamsTpl, page)
+}
+
+// handleStreamsEventsSSE pushes the events-list fragment to the
+// browser on every Broadcaster.Notify, replacing the polling
+// triggers that previously caused the 20s freeze on /ui/streams
+// (htmx 2's timer cleanup is racy on outerHTML swap; SSE has one
+// persistent connection and no timer to leak). ?id= selects a
+// stream; absent ?id= subscribes to every stream (unified feed).
+func (u *uiHandler) handleStreamsEventsSSE(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	if u.deps.Broadcaster == nil {
+		http.Error(w, "broadcaster not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	selectedID := strings.TrimSpace(r.URL.Query().Get("id"))
+	var wake chan struct{}
+	if selectedID != "" {
+		wake = u.deps.Broadcaster.Subscribe([]domain.StreamID{domain.StreamID(selectedID)})
+		defer u.deps.Broadcaster.Unsubscribe([]domain.StreamID{domain.StreamID(selectedID)}, wake)
+	} else {
+		wake = u.deps.Broadcaster.SubscribeAll()
+		defer u.deps.Broadcaster.UnsubscribeAll(wake)
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	// Emit initial state immediately so the client picks up any
+	// events that landed between the page-load query and SSE
+	// connect. After that, only emit on wake.
+	if err := u.writeStreamsEventsSSE(r.Context(), w, flusher, selectedID); err != nil {
+		return
+	}
+
+	ping := time.NewTicker(15 * time.Second)
+	defer ping.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-wake:
+			if err := u.writeStreamsEventsSSE(r.Context(), w, flusher, selectedID); err != nil {
+				return
+			}
+		case <-ping.C:
+			_, _ = fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+// writeStreamsEventsSSE renders the events fragment for the
+// selectedID (or unified feed when empty) and emits it as one SSE
+// message. Errors here are terminal — return them so the caller
+// closes the connection and the browser auto-reconnects.
+func (u *uiHandler) writeStreamsEventsSSE(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, selectedID string) error {
+	frag := &StreamsEventsFragment{IsAllStreams: selectedID == ""}
+	var events []domain.Event
+	var err error
+	if selectedID == "" {
+		events, err = u.deps.Store.Events.ListAll(ctx, 50)
+	} else {
+		events, err = u.deps.Store.Events.ListForStream(ctx, domain.StreamID(selectedID), 50)
+	}
+	if err != nil {
+		return err
+	}
+	for _, ev := range events {
+		card := EventCard{
+			ID:        string(ev.ID),
+			Source:    string(ev.Source),
+			StreamID:  string(ev.StreamID),
+			CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+			Body:      ev.Body,
+		}
+		if msg, err := ev.Message(); err == nil {
+			card.From = msg.From
+			card.Subject = msg.Subject
+			card.MessageBody = msg.Body
+			card.HasMessage = true
+			if len(msg.To) > 0 {
+				card.To = strings.Join(msg.To, ", ")
+			}
+		}
+		frag.Events = append(frag.Events, card)
+	}
+	frag.HasEvents = len(frag.Events) > 0
+
+	var buf strings.Builder
+	if err := streamsEventsTpl.Render(&buf, frag); err != nil {
+		return err
+	}
+	html := buf.String()
+	// Each SSE data line must be prefixed; collapse the multi-line
+	// fragment into one data line by stripping newlines (the rendered
+	// markup is whitespace-tolerant). Avoids one data: prefix per line
+	// which would otherwise inflate the payload.
+	html = strings.ReplaceAll(html, "\r", "")
+	html = strings.ReplaceAll(html, "\n", " ")
+	_, _ = fmt.Fprint(w, "event: message\n")
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", html)
+	flusher.Flush()
+	return nil
 }
 
 // fillAllStreamsFeed populates the no-selection landing view with a

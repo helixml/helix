@@ -255,6 +255,58 @@ type StreamsPage struct {
 // TemplateText returns the streams page body.
 func (*StreamsPage) TemplateText() string { return streamsHTML }
 
+// StreamsEventsFragment is the SSE swap target served by
+// /ui/streams/events. It renders just the event list (no header, no
+// shell, no send box) so htmx-ext-sse can drop it into the page's
+// stable wrapper on every Broadcaster.Notify, replacing the previous
+// fragile hx-trigger="every Ns" + hx-swap="outerHTML" polling that
+// caused the 20s freeze. IsAllStreams toggles whether each card
+// carries a stream-id chip (unified feed) or just from/subject
+// (single-stream view).
+type StreamsEventsFragment struct {
+	Events       []EventCard
+	HasEvents    bool
+	IsAllStreams bool
+}
+
+// TemplateText emits the event-list block — exactly the markup the
+// full page template uses, lifted into a sub-template so both renders
+// produce byte-identical HTML.
+func (*StreamsEventsFragment) TemplateText() string { return streamsEventsHTML }
+
+// streamsEventsHTML is the shared events-list fragment. Two layouts
+// share one structure: unified feed (with stream-id chip) and
+// single-stream (without). Keeping both in one template means a
+// change to event-card markup lands in one place.
+const streamsEventsHTML = `
+{{ if .HasEvents }}
+<ul class="flex flex-col gap-2">
+    {{ range .Events }}
+    <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
+        <div class="flex items-baseline justify-between gap-3">
+            <div class="font-mono text-[12px]" style="color: var(--ink);">
+                {{ if $.IsAllStreams }}<a href="/ui/streams?id={{ .StreamID }}" style="color: var(--accent);">{{ .StreamID }}</a>{{ end }}
+                {{ if ne .From "" }}<span style="color: {{ if $.IsAllStreams }}var(--ink-muted){{ else }}var(--accent){{ end }};">{{ if $.IsAllStreams }} · {{ end }}{{ .From }}</span>{{ else if ne .Source "" }}<span style="color: {{ if $.IsAllStreams }}var(--ink-muted){{ else }}var(--accent){{ end }};">{{ if $.IsAllStreams }} · {{ end }}{{ .Source }}</span>{{ end }}
+                {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+            </div>
+            <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
+        </div>
+        {{ if ne .Subject "" }}
+        <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+        {{ end }}
+        {{ if .HasMessage }}
+        <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
+        {{ else }}
+        <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
+        {{ end }}
+        <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
+    </li>
+    {{ end }}
+</ul>
+{{ else }}
+<p class="px-3 py-3 font-mono text-[12px]" style="color: var(--ink-muted);">No events yet.</p>
+{{ end }}`
+
 // StreamRow renders one entry in the left-hand stream list. IsActive
 // drives the highlighted state for the currently-selected row.
 type StreamRow struct {
@@ -294,4 +346,5 @@ var (
 	orgDetailTpl = tmpl.MustCompile(&OrgDetail{})
 	settingsTpl  = tmpl.MustCompile(&SettingsPage{})
 	streamsTpl   = tmpl.MustCompile(&StreamsPage{})
+	streamsEventsTpl = tmpl.MustCompile(&StreamsEventsFragment{})
 )

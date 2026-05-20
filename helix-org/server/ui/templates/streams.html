@@ -74,34 +74,43 @@
                         <header class="mb-6">
                             <div class="flex items-baseline gap-3">
                                 <h2 class="font-display text-[24px] font-light" style="color: var(--ink);">All streams</h2>
-                                <span class="font-mono text-[11px] uppercase tracking-[.16em]" style="color: var(--ink-muted);">unified feed</span>
+                                <span class="font-mono text-[11px] uppercase tracking-[.16em]" style="color: var(--ink-muted);">unified feed · live</span>
                             </div>
                             <p class="font-mono text-[12px] mt-1" style="color: var(--ink-soft);">Recent events across every Stream — newest first, capped at 50. Pick a stream on the left to drill in.</p>
                         </header>
-                        <section id="streams-events">
-                            <ul class="flex flex-col gap-2">
-                                {{ range .Events }}
-                                <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
-                                    <div class="flex items-baseline justify-between gap-3">
-                                        <div class="font-mono text-[12px]" style="color: var(--ink);">
-                                            <a href="/ui/streams?id={{ .StreamID }}" style="color: var(--accent);">{{ .StreamID }}</a>
-                                            {{ if ne .From "" }}<span style="color: var(--ink-muted);"> · {{ .From }}</span>{{ else if ne .Source "" }}<span style="color: var(--ink-muted);"> · {{ .Source }}</span>{{ end }}
-                                            {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+                        {{/*
+                          SSE-driven live event list. The stable wrapper
+                          is the sse-connect node; the inner sse-swap
+                          node receives a full <ul> on every server
+                          push. Server-rendered initial content covers
+                          the gap between page-load and SSE connect.
+                        */}}
+                        <section id="streams-events" hx-ext="sse" sse-connect="/ui/streams/events">
+                            <div sse-swap="message" hx-swap="innerHTML">
+                                <ul class="flex flex-col gap-2">
+                                    {{ range .Events }}
+                                    <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
+                                        <div class="flex items-baseline justify-between gap-3">
+                                            <div class="font-mono text-[12px]" style="color: var(--ink);">
+                                                <a href="/ui/streams?id={{ .StreamID }}" style="color: var(--accent);">{{ .StreamID }}</a>
+                                                {{ if ne .From "" }}<span style="color: var(--ink-muted);"> · {{ .From }}</span>{{ else if ne .Source "" }}<span style="color: var(--ink-muted);"> · {{ .Source }}</span>{{ end }}
+                                                {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+                                            </div>
+                                            <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
                                         </div>
-                                        <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
-                                    </div>
-                                    {{ if ne .Subject "" }}
-                                    <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+                                        {{ if ne .Subject "" }}
+                                        <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+                                        {{ end }}
+                                        {{ if .HasMessage }}
+                                        <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
+                                        {{ else }}
+                                        <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
+                                        {{ end }}
+                                        <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
+                                    </li>
                                     {{ end }}
-                                    {{ if .HasMessage }}
-                                    <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
-                                    {{ else }}
-                                    <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
-                                    {{ end }}
-                                    <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
-                                </li>
-                                {{ end }}
-                            </ul>
+                                </ul>
+                            </div>
                         </section>
                         {{ end }}
 
@@ -150,37 +159,39 @@
                             {{ end }}
                         </section>
 
-                        <section id="streams-events">
+                        <section id="streams-events" hx-ext="sse" sse-connect="/ui/streams/events?id={{ .SelectedID }}">
                             <div class="flex items-baseline justify-between mb-2">
                                 <h3 class="font-display text-[15px] font-light" style="color: var(--ink);">Recent events</h3>
                                 <span class="font-mono text-[11px]" style="color: var(--ink-muted);">newest first · up to 50 · live</span>
                             </div>
-                            {{ if .HasEvents }}
-                            <ul class="flex flex-col gap-2">
-                                {{ range .Events }}
-                                <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
-                                    <div class="flex items-baseline justify-between gap-3">
-                                        <div class="font-mono text-[12px]" style="color: var(--ink);">
-                                            <span style="color: var(--accent);">{{ if ne .From "" }}{{ .From }}{{ else }}{{ .Source }}{{ end }}</span>
-                                            {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+                            <div sse-swap="message" hx-swap="innerHTML">
+                                {{ if .HasEvents }}
+                                <ul class="flex flex-col gap-2">
+                                    {{ range .Events }}
+                                    <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
+                                        <div class="flex items-baseline justify-between gap-3">
+                                            <div class="font-mono text-[12px]" style="color: var(--ink);">
+                                                <span style="color: var(--accent);">{{ if ne .From "" }}{{ .From }}{{ else }}{{ .Source }}{{ end }}</span>
+                                                {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+                                            </div>
+                                            <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
                                         </div>
-                                        <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
-                                    </div>
-                                    {{ if ne .Subject "" }}
-                                    <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+                                        {{ if ne .Subject "" }}
+                                        <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+                                        {{ end }}
+                                        {{ if .HasMessage }}
+                                        <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
+                                        {{ else }}
+                                        <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
+                                        {{ end }}
+                                        <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
+                                    </li>
                                     {{ end }}
-                                    {{ if .HasMessage }}
-                                    <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
-                                    {{ else }}
-                                    <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
-                                    {{ end }}
-                                    <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
-                                </li>
+                                </ul>
+                                {{ else }}
+                                <p class="px-3 py-3 font-mono text-[12px]" style="color: var(--ink-muted);">No events on this stream yet.</p>
                                 {{ end }}
-                            </ul>
-                            {{ else }}
-                            <p class="px-3 py-3 font-mono text-[12px]" style="color: var(--ink-muted);">No events on this stream yet.</p>
-                            {{ end }}
+                            </div>
                         </section>
                         {{ end }}
                     </section>
