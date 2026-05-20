@@ -194,8 +194,12 @@ steps:
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v
+      # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled).
+      # First arg "600" sets the script's wall-clock timeout — it parses
+      # the first numeric arg. Without it the script defaults to 300s,
+      # which is shorter than the inner `-timeout 8m` and kills the
+      # suite during pkg/tools (real TogetherAI calls take ~280s).
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v
     when:
       event:
         - push
@@ -268,7 +272,7 @@ steps:
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
       # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v ./integration-test/api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
