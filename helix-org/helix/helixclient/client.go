@@ -32,6 +32,11 @@ import (
 // timeout — the caller controls its lifetime via context.
 const defaultRESTTimeout = 30 * time.Second
 
+// ErrNotFound wraps every 404 response so callers can detect a
+// missing resource with errors.Is and react (e.g. clear stale
+// persisted IDs and re-create).
+var ErrNotFound = errors.New("helix: resource not found")
+
 // Client is the surface helix-org depends on. Defining it as an
 // interface lets tests inject a fake without HTTP.
 type Client interface {
@@ -589,7 +594,11 @@ func (c *realClient) do(ctx context.Context, method, path string, body any, out 
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw)))
+		base := fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw)))
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: %w", ErrNotFound, base)
+		}
+		return base
 	}
 	if out == nil {
 		return nil

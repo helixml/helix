@@ -131,3 +131,19 @@ func SaveSession(ctx context.Context, st *store.Store, workerID domain.WorkerID,
 	}
 	return st.WorkerRuntimeState.Set(ctx, workerID, Backend, keySessionID, sessionID)
 }
+
+// ClearProject nulls the project triple AND the session pointer when
+// the persisted project no longer exists on the Helix side (operator
+// deleted it directly). Wiping the session too prevents follow-up
+// sends from attaching to a dead container.
+func ClearProject(ctx context.Context, st *store.Store, workerID domain.WorkerID) error {
+	if st == nil || st.WorkerRuntimeState == nil {
+		return errors.New("helix state: store is nil")
+	}
+	return st.WorkerRuntimeState.SetMany(ctx, workerID, Backend, map[string]string{
+		keyProjectID:  "",
+		keyAgentAppID: "",
+		keyRepoID:     "",
+		keySessionID:  "",
+	})
+}
