@@ -24,7 +24,7 @@ func TestBuildPlanningPrompt_TitleFormatRule(t *testing.T) {
 		DesignDocPath: "000001_add-dark-mode",
 	}
 
-	out := BuildPlanningPrompt(task, "", "", "")
+	out := BuildPlanningPrompt(task, "", "", "", "")
 
 	mustContain := []string{
 		"## CRITICAL: Title Format",

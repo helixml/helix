@@ -8598,6 +8598,35 @@ definitions:
       archived:
         type: boolean
     type: object
+  types.SpecTaskAttachment:
+    properties:
+      caption:
+        description: optional user note
+        type: string
+      committed_sha:
+        description: helix-specs commit hash once staged
+        type: string
+      created_at:
+        type: string
+      filename:
+        description: original filename, sanitised
+        type: string
+      id:
+        description: att_01k...
+        type: string
+      mime_type:
+        type: string
+      project_id:
+        description: denormalised for fast authz
+        type: string
+      size_bytes:
+        type: integer
+      spec_task_id:
+        type: string
+      user_id:
+        description: who uploaded
+        type: string
+    type: object
   types.SpecTaskDesignReview:
     properties:
       approved_at:
@@ -20729,6 +20758,130 @@ paths:
       security:
       - BearerAuth: []
       summary: Archive or unarchive a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments:
+    get:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskAttachment'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List attachments for a spec task
+      tags:
+      - spec-driven-tasks
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one or more files (images, PDFs, text) to be made available
+        to the agent.
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Files to attach (multipart form data, field 'files')
+        in: formData
+        name: files
+        required: true
+        type: file
+      - description: Optional caption for the attachment (single file uploads only)
+        in: formData
+        name: caption
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskAttachment'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Upload attachments for a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments/{attId}:
+    delete:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete a spec task attachment
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments/{attId}/content:
+    get:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attId
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Stream the bytes of a spec task attachment
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/clone:

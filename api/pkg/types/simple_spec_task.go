@@ -354,6 +354,48 @@ type SpecApprovalResponse struct {
 	ApprovedAt time.Time `json:"approved_at"`
 }
 
+// SpecTaskAttachment is a user-uploaded file (screenshot, document) attached to a SpecTask.
+// Files live in the user's filestore under spec-tasks/{task_id}/attachments/ and are
+// committed into the helix-specs branch under design/tasks/{design_doc_path}/attachments/
+// when spec generation starts so the agent can read them from its workspace.
+type SpecTaskAttachment struct {
+	ID            string    `json:"id" gorm:"primaryKey;size:255"` // att_01k...
+	SpecTaskID    string    `json:"spec_task_id" gorm:"size:255;index;not null"`
+	ProjectID     string    `json:"project_id" gorm:"size:255;index;not null"` // denormalised for fast authz
+	UserID        string    `json:"user_id" gorm:"size:255;index"`             // who uploaded
+	Filename      string    `json:"filename" gorm:"size:512;not null"`         // original filename, sanitised
+	MimeType      string    `json:"mime_type" gorm:"size:128;not null"`
+	SizeBytes     int64     `json:"size_bytes" gorm:"not null"`
+	Caption       string    `json:"caption,omitempty" gorm:"size:1024"`   // optional user note
+	FilestorePath string    `json:"-" gorm:"size:1024;not null"`          // absolute filestore path (server-internal)
+	CommittedSHA  string    `json:"committed_sha,omitempty" gorm:"size:64"` // helix-specs commit hash once staged
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (SpecTaskAttachment) TableName() string {
+	return "spec_task_attachments"
+}
+
+// SpecTask attachment limits
+const (
+	SpecTaskAttachmentMaxBytes   = 10 * 1024 * 1024 // 10 MB per file
+	SpecTaskAttachmentMaxPerTask = 10               // 10 files per task
+)
+
+// SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.
+// Kept narrow on purpose: images the agent can visually read, plus common text formats.
+var SpecTaskAttachmentAllowedMimeTypes = map[string]bool{
+	"image/png":        true,
+	"image/jpeg":       true,
+	"image/gif":        true,
+	"image/webp":       true,
+	"image/svg+xml":    true,
+	"application/pdf":  true,
+	"text/plain":       true,
+	"text/markdown":    true,
+	"text/csv":         true,
+}
+
 // SpecTaskExternalAgent represents the external agent (desktop container) for a SpecTask
 // Single agent per SpecTask that spans multiple Helix sessions via Zed threads
 type SpecTaskExternalAgent struct {
