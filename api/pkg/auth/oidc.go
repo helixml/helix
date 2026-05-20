@@ -374,17 +374,18 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	isAdmin := c.adminConfig.IsUserInAdminList(userInfo.Subject) || user.Admin
 
 	return &types.User{
-		ID:          userInfo.Subject,
-		Username:    userInfo.Subject,
-		Email:       userInfo.Email,
-		FullName:    fullName,
-		Token:       accessToken,
-		TokenType:   types.TokenTypeOIDC,
-		Type:        types.OwnerTypeUser,
-		Admin:       isAdmin,
-		SB:          user.SB,
-		Deactivated: user.Deactivated,
-		Waitlisted:  user.Waitlisted,
+		ID:            userInfo.Subject,
+		Username:      userInfo.Subject,
+		Email:         userInfo.Email,
+		FullName:      fullName,
+		Token:         accessToken,
+		TokenType:     types.TokenTypeOIDC,
+		Type:          types.OwnerTypeUser,
+		Admin:         isAdmin,
+		SB:            user.SB,
+		Deactivated:   user.Deactivated,
+		Waitlisted:    user.Waitlisted,
+		AlphaFeatures: user.AlphaFeatures,
 	}, nil
 }
 
