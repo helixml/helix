@@ -440,7 +440,7 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 
 	// Authorize user to access the project
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 

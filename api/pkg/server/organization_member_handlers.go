@@ -20,10 +20,14 @@ import (
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	// Check if user has access to view members
-	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgMember(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
@@ -52,10 +56,14 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	// Check if user has owner permissions (not just membership)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Only organization owners can add members: "+err.Error(), http.StatusForbidden)
@@ -114,11 +122,15 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	userIDToRemove := mux.Vars(r)["user_id"]
 
 	// Check if user has owner permissions (not just membership)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Only organization owners can remove members: "+err.Error(), http.StatusForbidden)
@@ -185,11 +197,15 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) updateOrganizationMember(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	userIDToUpdate := mux.Vars(r)["user_id"]
 
 	// Check if user has access to modify members (needs to be an owner)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)

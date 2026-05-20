@@ -306,8 +306,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	if req.OrganizationID != "" {
-		// Check if user is a member of the organization
-		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
+		org, err := s.lookupOrg(r.Context(), req.OrganizationID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(err.Error())
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+		}
+		req.OrganizationID = org.ID
+
+		_, err = s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
@@ -316,6 +324,26 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	defaultApp, err := s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
+	}
+	if req.OrganizationID != "" && defaultApp.OrganizationID != "" && defaultApp.OrganizationID != req.OrganizationID {
+		return nil, system.NewHTTPError400("default app must be in the same organization as the project")
+	}
+	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("primary repository not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if primaryRepo.OrganizationID != req.OrganizationID {
+		return nil, system.NewHTTPError400("primary repository must be in the same organization as the project")
+	}
+	if err := s.authorizeUserToRepository(r.Context(), user, primaryRepo, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Deduplicate project name within the workspace (org or personal)
@@ -387,15 +415,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
-	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("project_id", created.ID).
-			Str("primary_repo_id", req.DefaultRepoID).
-			Msg("failed to get primary repository")
-		// Don't fail project creation - startup script can be added later
-	} else if primaryRepo.LocalPath != "" {
+	if primaryRepo.LocalPath != "" {
 		// Use WithExternalRepoWrite with lenient options - don't fail project creation
 		// if startup script sync/push fails. The utility still handles rollback on push failure.
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
