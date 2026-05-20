@@ -1345,6 +1345,31 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Msg("Failed to update container git identity at approval; commits may be attributed to previous actor")
 		}
 
+		// For BranchMode=new tasks the feature branch name is only generated
+		// here (line ~1268 above), not when the planning container started.
+		// helix-workspace-setup.sh therefore couldn't create the branch at
+		// container boot (HELIX_WORKING_BRANCH was empty), so the working
+		// tree is still on the base branch (typically `main`). The
+		// implementation-phase prompt tells the agent to "verify branch" but
+		// never says "check out the feature branch" — agents that find
+		// themselves on `main` commit there and try to push to `main`. The
+		// server's pre-receive hook restricts pushes to helix-specs +
+		// the feature branch, so the push is rejected — but we've already
+		// wasted a turn and the agent is in a confused state.
+		//
+		// Make the branch state correct *before* the implementation prompt
+		// arrives. Idempotent: `checkout -B` works whether the branch exists
+		// locally, remotely, or not at all; `push -u` is a no-op if the
+		// remote already has it. Errors are logged but don't block the
+		// transition: the existing pre-receive hook stops genuinely-bad
+		// pushes, and the agent prompt still names the right branch.
+		if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, repo.DefaultBranch); err != nil {
+			log.Error().Err(err).
+				Str("task_id", task.ID).Str("session_id", sessionID).
+				Str("repo", repo.Name).Str("branch", branchName).Str("base", repo.DefaultBranch).
+				Msg("Failed to check out feature branch in container at approval; agent may start on base branch")
+		}
+
 		// Send instruction to existing agent session (reuse planning session)
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
@@ -1531,6 +1556,67 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 		Str("actor_name", actorName).Str("actor_email", actorEmail).
 		Msg("Updated git identity in container")
 	return nil
+}
+
+// ensureFeatureBranchInContainer checks out the spec task's feature branch
+// in the dev container's primary repo working tree at the moment we
+// transition the task into the implementation phase.
+//
+// Why this is needed: for BranchMode=new tasks the feature branch name
+// is only generated in ApproveSpecs (above) — well after the planning
+// container started. helix-workspace-setup.sh runs once at container
+// boot and only creates a feature branch when HELIX_WORKING_BRANCH is
+// already set in the container env. For planning-phase containers that
+// env var is empty (task.BranchName is empty until specs land), so the
+// working tree is left on the base branch. The implementation-phase
+// prompt assumes the right branch is already checked out, so agents
+// just commit to base (typically `main`). The pre-receive hook
+// rejects the push, the agent gets confused, and the user loses a turn.
+//
+// The fix runs the same git plumbing the workspace-setup script would
+// have run, but at the point we actually know the branch name. Safe to
+// re-run: `checkout -B` works whether the branch exists locally,
+// remotely, or not at all; `push -u` is a no-op if the remote already
+// has it.
+//
+// Failures are non-fatal: this is best-effort and the existing
+// pre-receive hook still stops genuinely-bad pushes to base. We log
+// loudly so operators see when it falls back to the broken default.
+func (s *SpecDrivenTaskService) ensureFeatureBranchInContainer(ctx context.Context, sessionID, repoName, branchName, baseBranch string) error {
+	if s.testMode || s.ExecInDesktop == nil {
+		return nil
+	}
+	if sessionID == "" || repoName == "" || branchName == "" || baseBranch == "" {
+		return fmt.Errorf("missing required arg: sessionID=%q repoName=%q branchName=%q baseBranch=%q",
+			sessionID, repoName, branchName, baseBranch)
+	}
+
+	// Single bash command so we get atomic chained semantics and one
+	// docker-exec round-trip. -B is idempotent. -u sets upstream once;
+	// subsequent runs are no-ops.
+	script := fmt.Sprintf(
+		"cd /home/retro/work/%s && git fetch origin %s && git checkout -B %s origin/%s && git push -u origin %s",
+		shellQuoteArg(repoName), shellQuoteArg(baseBranch),
+		shellQuoteArg(branchName), shellQuoteArg(baseBranch),
+		shellQuoteArg(branchName),
+	)
+	if err := s.ExecInDesktop(ctx, sessionID, []string{"bash", "-c", script}); err != nil {
+		return fmt.Errorf("git checkout/push feature branch: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).Str("repo", repoName).
+		Str("branch", branchName).Str("base", baseBranch).
+		Msg("Feature branch checked out and pushed in container")
+	return nil
+}
+
+// shellQuoteArg wraps an argument in single quotes and escapes any
+// embedded single quotes. Repository / branch names are validated
+// elsewhere but we don't want this helper to be the place an unexpected
+// metacharacter causes an injection — defence in depth.
+func shellQuoteArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // syncGitIdentityAsync runs syncGitIdentityToUser in the background, retrying
