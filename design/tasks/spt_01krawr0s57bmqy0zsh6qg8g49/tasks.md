@@ -4,8 +4,8 @@
 - [x] Add `width: '100%', minWidth: 0` to the outer `<Box>` of `RobustPromptInput` at `frontend/src/components/common/RobustPromptInput.tsx:1142–1146`
 - [x] Add `flexWrap: 'wrap'` to the action-buttons row in `RobustPromptInput` at `frontend/src/components/common/RobustPromptInput.tsx:1424–1430`
 - [x] Add `pt: 2` and change `px: 1` → `px: 2` on the mobile search bar container at `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx:1654–1661`
-- [~] Run `cd frontend && yarn build` to confirm no TypeScript / build errors
-- [ ] Verify in the inner Helix at `http://localhost:8080`: open the spec tasks list page on a narrow viewport (DevTools → device toolbar → ~360px wide), confirm the mobile search bar is no longer flush against the top and has visible side margins
-- [ ] In the inner Helix, open a spec task detail page in the same narrow viewport, switch to the "Chat" tab, queue at least one message (so the queue panel above the input is visible), and confirm the queue panel and the prompt input box both sit fully within the viewport with no horizontal clipping
-- [ ] Test the desktop view (≥ 900px wide) to confirm no visual regressions on the split-view layout, the chat panel, or the kanban header search input
-- [ ] Capture before/after screenshots if helpful and attach to the PR
+- [x] Run `cd frontend && yarn tsc` to confirm no TypeScript errors (used `yarn tsc` instead of `yarn build` because `dist/` is bind-mounted read-only into the prod container — see Implementation Notes in design.md)
+- [x] Verify in the inner Helix at `http://localhost:8080`: open the spec tasks list page on a narrow viewport (DevTools → device toolbar → ~360px wide), confirm the mobile search bar is no longer flush against the top and has visible side margins → screenshot `01-mobile-search-bar-after.png` confirms visible top + side spacing
+- [x] In the inner Helix, open a spec task detail page in the same narrow viewport, switch to the "Chat" tab, queue at least one message (so the queue panel above the input is visible), and confirm the queue panel and the prompt input box both sit fully within the viewport with no horizontal clipping → screenshots `02-mobile-chat-input-after.png` (empty queue) and `03-mobile-chat-with-queue-after.png` (2 queued messages) confirm input + queue both fit inside the viewport
+- [x] Test the desktop view (≥ 900px wide) to confirm no visual regressions on the split-view layout, the chat panel, or the kanban header search input → screenshots `04-desktop-split-view-after.png` (chat+desktop split view) and `05-desktop-kanban-after.png` (kanban header) show no regressions
+- [x] Capture before/after screenshots if helpful and attach to the PR → saved 5 after-state screenshots in `screenshots/`
