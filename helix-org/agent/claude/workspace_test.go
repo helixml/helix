@@ -11,7 +11,7 @@ func TestWorkspaceWritesUnderEnvDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	w := NewWorkspace(dir)
-	if err := w.PublishFile(context.Background(), "w-eng", "role.md", "# Role", ""); err != nil {
+	if err := w.MirrorFile(context.Background(), "w-eng", "role.md", "# Role", ""); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "w-eng", "role.md")) //nolint:gosec // dir is t.TempDir()
@@ -28,7 +28,7 @@ func TestWorkspaceRejectsBadName(t *testing.T) {
 	dir := t.TempDir()
 	w := NewWorkspace(dir)
 	for _, bad := range []string{"", "/role.md", "../role.md", "a/../../b"} {
-		if err := w.PublishFile(context.Background(), "w-eng", bad, "x", ""); err == nil {
+		if err := w.MirrorFile(context.Background(), "w-eng", bad, "x", ""); err == nil {
 			t.Errorf("name %q: expected error", bad)
 		}
 	}

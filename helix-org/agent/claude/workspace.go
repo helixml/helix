@@ -17,10 +17,10 @@ import (
 // identity edits land on disk between activations without waiting for
 // the spawner's projection step on the next run.
 //
-// The spawner re-projects role.md / identity.md / agent.md from the
-// DB at the start of every activation as a backstop, so a missed
-// PublishFile is recoverable. The WorkspaceSync push is just to keep
-// the on-disk view fresh between activations.
+// The spawner re-projects role.md / identity.md / worker-policy.md
+// from the DB at the start of every activation as a backstop, so a
+// missed MirrorFile is recoverable. The WorkspaceSync push is just to
+// keep the on-disk view fresh between activations.
 type Workspace struct {
 	EnvsDir string
 }
@@ -31,11 +31,13 @@ func NewWorkspace(envsDir string) *Workspace {
 	return &Workspace{EnvsDir: envsDir}
 }
 
-// PublishFile writes content to <envsDir>/<workerID>/<name>. `name`
+// MirrorFile writes content to <envsDir>/<workerID>/<name>. `name`
 // must satisfy agent.ValidateWorkspaceName (no absolute paths, no
 // upward traversal). `message` is unused by this backend (no commit
 // log on the local filesystem).
-func (w *Workspace) PublishFile(_ context.Context, workerID domain.WorkerID, name, content, _ string) error {
+//
+// Renamed from PublishFile per ADR-0001 §7.
+func (w *Workspace) MirrorFile(_ context.Context, workerID domain.WorkerID, name, content, _ string) error {
 	if w.EnvsDir == "" {
 		return errors.New("claude workspace: EnvsDir is empty")
 	}

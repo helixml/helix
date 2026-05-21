@@ -45,7 +45,7 @@ type EventDispatcher interface {
 // itself owns the Spawner.
 //
 // Workspace is required (use agent.NoopWorkspaceSync{} for tests).
-// update_role and update_identity call PublishFile on it after
+// update_role and update_identity call MirrorFile on it after
 // persisting to the DB so the per-runtime view of role/identity stays
 // in sync with the canonical domain copy.
 type Deps struct {

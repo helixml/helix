@@ -33,9 +33,10 @@ import (
 // separate grant_tool tool stays for granting to Workers that already
 // exist.
 //
-// hire_worker does not subscribe to Channels; the manager does that
-// explicitly after the Worker is alive, typically via the Worker's own
-// on-hire activation.
+// hire_worker does not subscribe to Streams; the hiring Worker does
+// that explicitly after the Worker is alive, typically via the Worker's
+// own on-hire activation. (Per ADR-0001 §1 the canonical term is
+// Stream, not Channel.)
 //
 // For AI Workers, hire_worker also creates the per-Worker activation
 // Stream (s-activations-<workerID>) and subscribes the hiring Worker to

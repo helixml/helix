@@ -9,15 +9,19 @@ package agent
 
 import _ "embed"
 
-// Policy is the org-wide agent.md text every AI Worker reads at the
-// start of every activation. It is fixed across Roles and hires — it
-// tells the agent how to *be* an agent in helix-org, not what its job
-// is. Roles cover the latter.
+// Policy is the org-wide worker-policy.md text every AI Worker reads
+// at the start of every activation. It is fixed across Roles and hires
+// — it tells the Worker how to *be* an AI Worker in helix-org, not what
+// its job is. Roles cover the latter.
 //
 // Both runtimes embed this verbatim: the claude runtime writes it as
-// `agent.md` in the Worker's env directory, the Helix runtime pushes
-// it to `.context/agent.md` on the per-Worker repo's helix-specs
-// branch.
+// `worker-policy.md` in the Worker's env directory, the Helix runtime
+// pushes it to `.context/worker-policy.md` on the per-Worker repo's
+// helix-specs branch.
 //
-//go:embed policy.md
+// Naming: see ADR-0001 §2 — "agent" is reserved for the LLM-client-
+// binary sense (Claude Code, external-agent runtime). The file used
+// to be called `agent.md`.
+//
+//go:embed worker-policy.md
 var Policy string

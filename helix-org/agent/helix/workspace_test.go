@@ -49,7 +49,7 @@ func TestWorkspaceWritesToWorkerRepo(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeClient{}
 	w := NewWorkspace(fc, s, "helix-specs", "helix-org", "ho@example.com")
-	if err := w.PublishFile(context.Background(), wid, "role.md", "# Role", "update_role: r-eng"); err != nil {
+	if err := w.MirrorFile(context.Background(), wid, "role.md", "# Role", "update_role: r-eng"); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	if fc.lastRepoID != "repo-1" {
@@ -67,7 +67,7 @@ func TestWorkspaceUnboundWorkerIsNoop(t *testing.T) {
 	s, wid := newSeededStore(t, "")
 	fc := &fakeClient{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.PublishFile(context.Background(), wid, "role.md", "# Role", ""); err != nil {
+	if err := w.MirrorFile(context.Background(), wid, "role.md", "# Role", ""); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	if fc.lastRepoID != "" {
@@ -80,7 +80,7 @@ func TestWorkspaceSurfacesErrors(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeClient{err: errors.New("boom")}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.PublishFile(context.Background(), wid, "role.md", "x", ""); err == nil {
+	if err := w.MirrorFile(context.Background(), wid, "role.md", "x", ""); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -91,7 +91,7 @@ func TestWorkspaceRejectsBadName(t *testing.T) {
 	fc := &fakeClient{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	for _, bad := range []string{"", "/role.md", "../role.md", "a/../b"} {
-		if err := w.PublishFile(context.Background(), wid, bad, "x", ""); err == nil {
+		if err := w.MirrorFile(context.Background(), wid, bad, "x", ""); err == nil {
 			t.Errorf("name %q: expected error", bad)
 		}
 	}

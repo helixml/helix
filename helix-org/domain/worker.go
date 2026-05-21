@@ -37,11 +37,12 @@ func (k WorkerKind) Validate() error {
 // Positions. HumanWorker and AIWorker are the only concrete
 // implementations; the unexported marker method keeps the set closed.
 //
-// IdentityContent is the per-Worker description (persona for AI, profile
-// for a human). It lives in the domain — never on disk — so it survives
-// any change in env layout (local files today, remote workspaces
-// tomorrow). Spawners project it into whatever the env channel needs at
-// activation time.
+// IdentityContent is the per-Worker Identity description (the
+// canonical term per ADR-0001 §4 — replaces the earlier "persona /
+// profile / candidate" usage). It lives in the domain — never on disk
+// — so it survives any change in env layout (local files today, remote
+// workspaces tomorrow). Spawners project it into the runtime's
+// `identity.md` at activation time.
 //
 // Domain.Worker carries no runtime-backend state (Helix project IDs,
 // session pointers, etc.). That state lives in the WorkerRuntimeState

@@ -2,11 +2,11 @@ package domain
 
 import "errors"
 
-// ToolGrant records that a Worker holds a Tool. Granularity comes from
-// the design of tools, not from gating one tool with a scope — if a
-// Worker should only be able to hire a CFO, that's a CFO-specific tool
-// or a role-prompt constraint, not a per-grant rule the runtime
-// enforces.
+// ToolGrant records that a Worker holds a Tool. The only authorisation
+// primitive is `(WorkerID, ToolName)` — per ADR-0001 §3 there is no
+// `Scope` field. If a Worker should only be able to hire a CFO, that's
+// a CFO-specific tool or a role-prompt constraint, not a per-grant rule
+// the runtime enforces.
 type ToolGrant struct {
 	ID       GrantID
 	WorkerID WorkerID

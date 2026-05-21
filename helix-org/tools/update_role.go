@@ -84,7 +84,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 			continue
 		}
 		for _, wid := range positionWorkers[p.ID] {
-			_ = t.deps.Workspace.PublishFile(ctx, wid, "role.md", args.Content, fmt.Sprintf("update_role: %s", roleID))
+			_ = t.deps.Workspace.MirrorFile(ctx, wid, "role.md", args.Content, fmt.Sprintf("update_role: %s", roleID))
 		}
 	}
 	return json.Marshal(map[string]string{"id": string(roleID)})

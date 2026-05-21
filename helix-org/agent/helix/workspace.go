@@ -54,12 +54,14 @@ func NewWorkspace(client helixclient.Client, st *store.Store, branch, author, em
 	}
 }
 
-// PublishFile satisfies agent.WorkspaceSync. `name` is the logical
+// MirrorFile satisfies agent.WorkspaceSync. `name` is the logical
 // filename for this Worker (e.g. "role.md"); the Helix backend writes
 // it at `workers/<workerID>/.context/<name>` on the helix-specs
 // branch. Returns nil for Workers that aren't yet bound to a Helix
 // project — callers don't have to gate on activation status.
-func (w *Workspace) PublishFile(ctx context.Context, workerID domain.WorkerID, name, content, message string) error {
+//
+// Renamed from PublishFile per ADR-0001 §7.
+func (w *Workspace) MirrorFile(ctx context.Context, workerID domain.WorkerID, name, content, message string) error {
 	if workerID == "" {
 		return errors.New("helix workspace: workerID is empty")
 	}

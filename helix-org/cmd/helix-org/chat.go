@@ -16,9 +16,14 @@ import (
 // runChat exec's a `claude` session pointed at a Worker's MCP endpoint,
 // so a human can drive the org from the perspective of that Worker.
 //
-// By default the session is interactive and continues the most recent
-// conversation in the current directory (claude's per-cwd session store
-// handles persistence). Pass `-p`/`--print` for one-shot use:
+// By default the session is interactive and resumes the most recent
+// conversation in the current directory. We do this by reading the
+// per-cwd `.jsonl` files claude writes under
+// `~/.claude/projects/<cwd-with-slashes-replaced>/`, picking the newest,
+// and passing its session id to `--resume <sid>` — see
+// `latestClaudeSessionID()` below. We deliberately do NOT use claude's
+// own `--continue` flag because it refuses some resumable sessions in
+// practice. Pass `-p`/`--print` for one-shot use:
 //
 //	helix-org chat                          # interactive, restorable
 //	helix-org chat --new                    # fresh interactive session

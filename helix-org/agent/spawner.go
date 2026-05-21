@@ -64,10 +64,13 @@ type Trigger struct {
 type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []Trigger) error
 
 // WorkspaceSync mirrors the canonical Role and Identity content of a
-// Worker into wherever that Worker's agent reads them at activation
-// time. Tools (update_role, update_identity) call PublishFile after
+// Worker into wherever that Worker's runtime reads them at activation
+// time. Tools (update_role, update_identity) call MirrorFile after
 // persisting to the DB so the next activation sees fresh content
 // without waiting for the spawner's projection step.
+//
+// Naming: see ADR-0001 §7 — `MirrorFile` (not `PublishFile`). "Publish"
+// is reserved for the MCP-tool sense ("append an Event to a Stream").
 //
 // `name` is a logical filename for this Worker — typically "role.md"
 // or "identity.md". Each backend maps the name to its own on-target
@@ -89,15 +92,15 @@ type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string,
 // Helix Worker before its first activation creates the project) are
 // safe no-ops — implementations skip the publish and return nil.
 type WorkspaceSync interface {
-	PublishFile(ctx context.Context, workerID domain.WorkerID, name, content, message string) error
+	MirrorFile(ctx context.Context, workerID domain.WorkerID, name, content, message string) error
 }
 
 // NoopWorkspaceSync is a WorkspaceSync that does nothing. Useful for
-// tests and for backends that have no out-of-band publish surface.
+// tests and for backends that have no out-of-band mirror surface.
 type NoopWorkspaceSync struct{}
 
-// PublishFile is the no-op WorkspaceSync: ignore the call and return nil.
-func (NoopWorkspaceSync) PublishFile(_ context.Context, _ domain.WorkerID, _, _, _ string) error {
+// MirrorFile is the no-op WorkspaceSync: ignore the call and return nil.
+func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ domain.WorkerID, _, _, _ string) error {
 	return nil
 }
 
