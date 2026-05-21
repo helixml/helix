@@ -10,7 +10,7 @@
 - [x] Add a `case "goose_code":` branch in `generateAgentServerConfig` in `api/cmd/settings-sync-daemon/main.go` that emits the plain `agent_servers.goose` entry with `command: "goose"`, `args: ["acp"]`, and the right env vars (`GOOSE_PROVIDER`, `GOOSE_MODEL`, provider-specific `*_API_KEY`, `*_BASE_URL` with `rewriteLocalhostURL` applied)
 - [x] Extend the frontend runtime union (`frontend/src/types.ts`, `frontend/src/contexts/apps.tsx`, `AppSettings.tsx`, `CodingAgentForm.tsx`) to include `'goose_code'` with display name "Goose" *(api.ts regen reverted due to unrelated McpTool drift — see design.md)*
 - [x] Add "Goose" as a selectable runtime in `Onboarding.tsx` and `ProjectSettings.tsx` *(implicit — both delegate to `CodingAgentForm.tsx` which now has the Goose menu item)*
-- [~] Manual end-to-end test in the inner Helix: create a project with Goose runtime, open Zed, start a "Goose" thread, send a prompt, confirm a tool call executes
+- [x] Manual end-to-end test in the inner Helix: create a project with Goose runtime, open Zed, start a "Goose" thread, send a prompt, confirm a tool call executes *(✅ verified: spec task with prompt "Just say hello and tell me what files exist in the current directory" produced "Hello! 👋 Let me take a look at..." → tool call "List the `goosetest` directory's contents" with ✓ → response listing README.md. Settings.json confirmed `agent_servers.goose` with command=goose, args=[acp], GOOSE_PROVIDER=anthropic, GOOSE_MODEL=claude-opus-4-6, ANTHROPIC_BASE_URL=http://api:8080/v1.)*
 
 ## Phase 2a — Project-level recipe declaration + slash-command UX (US-4)
 
