@@ -1,18 +1,22 @@
-# Notion integration: webhook trigger + embed-in-row + writeback
+# Notion integration: webhook trigger + status spinner + embed-in-row + writeback
 
-Connect Notion databases to Helix projects. Each row = one spectask. When the user flips the row's action column (a `select` like `Go/NoGo`, or a `status` workflow column — type-agnostic) Notion's Database Automation POSTs a webhook to Helix; Helix creates a spectask in the configured project, writes the spec-task URL back into a column on the row, writes an initial status into a Result column, and appends a live `embed` block to the row's page body. The user sees everything happen inside Notion without leaving. Same flow drives kanban-board views (drag a card across lanes = same property change = same Automation).
+Connect Notion databases to Helix projects. Each row = one spectask. When the user flips the row's action column (a `select` like `Go/NoGo`, or a `status` workflow column — type-agnostic) Notion's Database Automation POSTs a webhook to Helix; Helix creates a spectask in the configured project, writes the spec-task URL back into a column on the row, writes an initial status into a Result column, appends a live `embed` block to the row's page body, **and continues updating the Result column with `🟡 spec_generation → 🟠 spec_review → 🔵 implementation → ✅ done` as the agent works**. The user sees everything happen inside Notion without leaving. Same flow drives kanban-board views (drag a card across lanes = same property change = same Automation). Flipping Go→NoGo cancels the in-flight task; idempotent re-fires don't create duplicate spec tasks.
 
 Design + findings: https://github.com/helixml/helix/tree/helix-specs/design/tasks/002021_investigate-notion
 
 ## What you'll see in Notion when Helix picks up a row
 
-![Notion page with all four writebacks](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002021_investigate-notion/screenshots/10-notion-fish-page-with-embed.png)
+![Notion page with all writebacks + live embed iframe](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002021_investigate-notion/screenshots/17-notion-spinner-with-working-embed-final.png)
 
-That single Notion page shows:
+That single Notion page shows everything Helix is doing:
 - **Helix Task** URL column — clickable link to the live Helix task page
-- **Result** column — initial `🟡 Helix picked this up — see the task page or the embed below.` status (overwritten with the agent's summary on completion when the completion hook lands)
-- **Embed block in the page body** — the live Helix UI rendering inside Notion (fully interactive, including "Start Planning" button)
+- **Result** column — `🟡 Helix picked this up` initially, then `🟡 spec_generation → 🟠 spec_review → 🔵 implementation → ✅ done` as the agent progresses
+- **Embed block in the page body** — the live Helix UI rendering inside Notion (fully interactive: Description, Priority, "Start Planning" button, etc.)
 - **Go/NoGo** column — left untouched, owned by the user
+
+The status spinner in action — Result column updating as the agent walks through phases:
+
+![Status spinner walkthrough](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002021_investigate-notion/screenshots/13-notion-table-status-spinner-done.png)
 
 ## Helix side
 
@@ -24,6 +28,9 @@ That single Notion page shows:
 - **Auth**: dual-path. Either an OAuth connection (full Notion OAuth flow), OR a direct `IntegrationToken` (`ntn_…`) for the simpler internal-integration setup. `resolveAccessToken` picks whichever is set.
 - **URL writeback**: on create, Helix patches the configured `Helix Task` URL column with `${PublicURL}/task/{spectask_id}` so the row becomes a clickable link the moment the agent picks it up.
 - **Initial Result writeback**: on create, Helix patches the configured Result column with `🟡 Helix picked this up — see the task page or the embed below.` so the table immediately shows acknowledgement.
+- **Status spinner writeback**: a pub/sub subscription in `trigger.Manager.runExternalProgressUpdates` watches every `UpdateSpecTask` call, identifies Notion-originated tasks via `ExternalTriggerRef.Type == "notion"`, and overwrites the Result column with a status-emoji line (`🟡 spec_generation`, `🟠 spec_review`, `🔵 implementation`, `🟣 pull_request`, `✅ done`, `❌ cancelled/failed`). Only writes when the status actually changes (in-memory `lastStatus` dedup).
+- **Idempotency lookup**: `store.GetSpecTaskByExternalNotionPageID` searches the JSONB `external_trigger_ref` column to find a live (non-terminal) spec task for a given Notion page. `OnExternalCreate` consults it and short-circuits when one already exists — re-firing a webhook never creates duplicates.
+- **Cancel by external ref**: `OnExternalCancel` (fired when the row flips back to `NoGo`) uses the same lookup, finds the live spec task, and transitions it to `cancelled` via `store.TransitionSpecTaskStatus`. The pub/sub then writes `❌ cancelled` to the Result column.
 - **Embed block insertion**: on create, Helix appends an `embed` block to the row's page body pointing at `${PublicURL}/embed/task/{spectask_id}?access_token=…` — the live Helix UI renders inside Notion.
 - **PublicURL override**: trigger config carries an optional `PublicURL` field that overrides `WebServer.URL` for URLs written into Notion. Required when the deployment URL isn't reachable from Notion (e.g. localhost in dev, internal-only deployment).
 - **Types**: `NotionTrigger`, `NotionColumnMap`, `TriggerTypeNotion`, `OAuthProviderTypeNotion`, generic `ExternalTriggerRef` with opaque `json.RawMessage` payload.
@@ -102,14 +109,22 @@ PASS: 15/15
 
 Frontend `tsc --noEmit` passes.
 
+Status writeback proven live by PUTting `/api/v1/spec-tasks/{id}` with each status and watching Notion's Result column update in <3 seconds each time:
+
+```
+[21:47:59] PUT status=spec_generation     →  🟡 spec_generation
+[21:48:02] PUT status=spec_review         →  🟠 spec_review
+[21:48:11] PUT status=implementation      →  🔵 implementation
+[21:48:15] PUT status=done                →  ✅ done
+```
+
 ## Deferred — explicit follow-ups
 
-1. **Spectask completion hook wiring** — `Notion.OnSpecTaskCompleted` exists, tested, and overwrites the initial `🟡` status with the final summary. Needs a ~30-LOC patch in `api/pkg/services/git_http_server.go` (two call sites near `task.Status = types.TaskStatusDone`) to invoke it. The `GitHTTPServer` constructor needs a `*trigger.Manager`.
-2. **Idempotency lookup** — `notion.SpecTaskByExternalRefLookup` interface defined; needs a `GetSpecTaskByExternalRef` method on the spec-task store (JSONB column search) and wiring in `trigger.go`.
-3. **Cancel by external ref** — same shape as #2 for `CancelTaskByExternalRef`.
-4. **Polished setup wizard** — current form is functional; database-picker and column-name dropdowns sourced live from Notion are a UX win.
-5. **Auto-re-enable paused automations** — Notion auto-pauses after 5 consecutive 500s; ideally Helix should detect this (e.g. a `Test setup` button that POSTs synthetic events) and the trigger config UI should surface a "paused in Notion" state.
-6. **Secondary path dispatch** — verification works, dispatch logs and returns nil. Needed if/when the use case extends beyond database-row events.
+1. **Final-summary writeback** — currently `✅ done` is a status line, not the agent's actual completion summary. Wiring `OnSpecTaskCompleted` with a real summary (test output, PR link, files touched) at the `task.Status = TaskStatusDone` call sites in `git_http_server.go` would replace the generic "done" string with rich detail.
+2. **Polished setup wizard** — current form is functional; database-picker and column-name dropdowns sourced live from Notion are a UX win.
+3. **Auto-detect Notion-paused automations** — Notion auto-pauses after 5 consecutive 500s; ideally Helix should detect this (e.g. a `Test setup` button that POSTs synthetic events) and the trigger config UI should surface a "paused in Notion" state with a one-click re-enable.
+4. **Secondary path dispatch** (Notion API webhook subscription for `comment.created` etc.) — verification works, dispatch logs and returns nil. Needed if/when the use case extends beyond database-row events.
+5. **Full agent cancellation** — `OnExternalCancel` transitions the task to `cancelled` via `TransitionSpecTaskStatus` but doesn't tear down a running Zed agent / sandbox. That's a v2 concern.
 
 ## Coordination
 
@@ -124,5 +139,7 @@ Sentry workstream owner (Priya) was notified before code landed. The `OnExternal
 | 07 | Pure Notion → cloudflared → Helix end-to-end (no relay) |
 | 08 | "make me a fish" with empty Prompt — name fallback kicks in |
 | 09 | Notion table view showing `Helix Task` URL column populated |
-| 10 | **Notion fish page with all four writebacks: URL, Result, embed iframe rendering live Helix UI** |
+| 10 | Notion fish page with all four writebacks: URL, Result, embed iframe rendering live Helix UI |
 | 11 | Helix kanban final state |
+| 13 | **Notion table with status spinner — Result column showing `✅ done` after agent progression** |
+| 17 | **Final: Notion page with Helix Task URL + ✅ Result + live interactive embed iframe** |
