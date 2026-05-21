@@ -38,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
@@ -81,9 +82,17 @@ type Options struct {
 // activeStreamProxy tracks a single active WebSocket proxy for deduplication.
 // When the same browser tab reconnects (same session + client_id), the previous
 // proxy is cancelled to prevent cascading duplicate connections.
+//
+// proxy is populated after NewResilientProxy is constructed so that a supersede
+// can send a clean WebSocket close frame (code 4000 "superseded") on the old
+// client connection before cancelling — otherwise the supersede manifests as a
+// raw TCP close (code 1006) which the browser indistinguishably treats as a
+// network failure and reconnects from, fueling a reconnect storm.
+// See design/2026-05-21-stream-reconnect-storm-root-cause.md.
 type activeStreamProxy struct {
 	proxySessionID string
 	cancel         context.CancelFunc
+	proxy          *proxy.ResilientProxy
 }
 
 type HelixAPIServer struct {

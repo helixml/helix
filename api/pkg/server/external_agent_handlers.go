@@ -1384,10 +1384,9 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer proxyCancel()
 
 	proxySessionID := generateProxySessionID()
+	dedupeKey := "stream:" + sessionID + ":" + clientID
 
 	if clientID != "" {
-		dedupeKey := "stream:" + sessionID + ":" + clientID
-
 		// Look up and replace any existing proxy for this session+client.
 		// Cancel outside the lock to avoid holding it during teardown.
 		apiServer.activeStreamProxiesMu.Lock()
@@ -1405,6 +1404,23 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 				Str("old_proxy", prev.proxySessionID).
 				Str("new_proxy", proxySessionID).
 				Msg("Superseding previous stream proxy for same client")
+			// Send a clean WebSocket close frame with code 4000 "superseded" so the
+			// browser can distinguish a server-initiated handover from a network
+			// failure and skip its own reconnect logic. Without this, the cancel
+			// below results in a raw TCP close (1006 abnormal closure on the
+			// client), which triggers the browser to reconnect, which arrives
+			// while THIS handler's entry is still in activeStreamProxies, which
+			// supersedes again — fueling a reconnect storm.
+			// See design/2026-05-21-stream-reconnect-storm-root-cause.md.
+			if prev.proxy != nil {
+				if err := prev.proxy.CloseClientWithCode(4000, "superseded"); err != nil {
+					log.Debug().
+						Err(err).
+						Str("session_id", sessionID).
+						Str("old_proxy", prev.proxySessionID).
+						Msg("Failed to send superseded close frame (likely client already gone)")
+				}
+			}
 			prev.cancel()
 		}
 
@@ -1521,6 +1537,17 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		UpgradeFunc: upgradeFunc,
 	})
 	defer resilientProxy.Close()
+
+	// Publish the proxy reference so that a subsequent supersede (above) can
+	// send a clean WebSocket close frame on this client connection instead of
+	// dropping the TCP socket abruptly.
+	if clientID != "" {
+		apiServer.activeStreamProxiesMu.Lock()
+		if cur, ok := apiServer.activeStreamProxies[dedupeKey]; ok && cur.proxySessionID == proxySessionID {
+			cur.proxy = resilientProxy
+		}
+		apiServer.activeStreamProxiesMu.Unlock()
+	}
 
 	// Run the proxy (blocks until connection closes or error)
 	if err := resilientProxy.Run(proxyCtx); err != nil {
