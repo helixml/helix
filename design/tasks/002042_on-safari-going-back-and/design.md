@@ -114,6 +114,37 @@ Even if the WebSocket reconnect logic works, the `VideoDecoder` instance may nee
 - WebKit blog: [Page Cache](https://webkit.org/blog/427/webkit-page-cache-i-the-basics/) — Safari's BFCache implementation
 - Chrome devtools has an "Application → Back/Forward Cache" panel to verify a page is bfcache-eligible after the fix
 
+## Implementation Notes
+
+- **No local Safari available**: This Linux dev environment has no Safari, so initial-state reproduction was done via code reading (verified above): no `pageshow`/`pagehide` handlers exist anywhere in `frontend/src/`. Symptoms described by the user (stuck cursor, ignored clicks, frozen video) match the textbook BFCache symptom set exactly. Real before/after Safari testing must be done by the user.
+- **Cross-browser**: Chrome (v96+) and Firefox also use BFCache. The fix applies to all of them — Safari is just the most aggressive.
+
+### Discovery That Simplified the Implementation
+
+The original plan added several new methods (`forceReconnect`, `markBFCacheSuspended`) and a separate
+`pageshow` listener in `DesktopStreamViewer.tsx`. Reading the actual code revealed:
+
+- **`WebSocketStream.reconnect()` is already a public method** (line 2211). It does everything BFCache
+  restore needs: closes the existing socket, cancels pending reconnect timeouts, resets `reconnectAttempts = 0`,
+  and calls `this.connect()`.
+- **`connect()` calls `cleanupDecoders()` and `resetStreamState()`** before opening the new socket
+  (line 378), which sets `this.videoDecoder = null`.
+- **The `VideoDecoder` is created lazily** by `onMessage` when the first keyframe arrives (line 864).
+  So nuking it in `connect()` is correct — it'll be reconstructed automatically.
+- **`connect()` dispatches `dispatchInfoEvent({ type: "connecting" })`** (line 365) which the
+  `DesktopStreamViewer` already subscribes to for its reconnecting UI. No extra wiring needed.
+
+So the entire fix is: register a `pageshow` listener on the same lifecycle as the existing
+`visibilityHandler` (inside `startHeartbeat`/`stopHeartbeat`) that calls `this.reconnect()` when
+`event.persisted === true`. Roughly 10 lines of code in one file. The original plan's `pagehide`
+handler is unnecessary because pages in BFCache are frozen — no JS runs, no input events fire,
+so there's nothing to "suspend".
+
+### Why not also handle `DesktopStreamViewer.tsx`?
+Because `WebSocketStream` owns the decoder, the canvas reference, the cursor state, and all the
+streaming lifecycle. `reconnect()` on the stream object fixes all of them. Adding a separate
+component-level listener would just be redundant.
+
 ## Risks / Open Questions
 - **Unknown:** Whether the `VideoDecoder` constructor parameters (codec config) are captured cleanly enough to reconstruct without re-negotiating with the server. Implementer should verify by reading where the initial config arrives in the stream.
 - **Unknown:** Whether other components on the spec-task detail page (e.g. chat panel) also hold WebSockets that need similar treatment. This task is scoped to the desktop viewer; flag any others as follow-up tickets.
