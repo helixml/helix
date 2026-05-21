@@ -2,9 +2,9 @@
 
 - [ ] Register a fresh user in the inner Helix and capture baseline dark-mode screenshots of all 6 onboarding steps (signin, organization, subscription, provider, project, task) to `screenshots/before-dark-*.png` — deferred until inner stack is up
 - [ ] Capture baseline light-mode screenshots of the same 6 steps (toggle theme via user menu or localStorage) to `screenshots/before-light-*.png` — these are the bug exhibits — deferred until inner stack is up
-- [~] Extend `getOnboardingPalette()` in `frontend/src/pages/Onboarding.tsx` with the new fields from design.md: `CARD_BG`, `CARD_BG_ACTIVE`, `MENU_BG`, `MENU_TEXT`, `STEP_INACTIVE`, `BORDER_SUBTLE`, `BORDER_HOVER`, `OVERLAY_FAINT`, `OVERLAY_DIM`, `RADIO_UNCHECKED`, each with `isLight ? ... : ...` ternaries
-- [ ] Delete the module-level dark-only constants `BG`, `CARD_BG`, `CARD_BG_ACTIVE`, `CARD_BORDER`, `inputSx`, `labelSx`, `helperSx` (lines 112–124) and the misleading "cards always stay dark" comment (lines 84–87)
-- [ ] In `Onboarding()` render path, replace every reference to the deleted module constants with `palette.*` equivalents (`inputSx` → `palette.inputSx`, `CARD_BG` → `palette.CARD_BG`, etc.)
+- [x] Extend `getOnboardingPalette()` in `frontend/src/pages/Onboarding.tsx` with the new fields from design.md: `CARD_BG`, `CARD_BG_ACTIVE`, `MENU_BG`, `MENU_TEXT`, `STEP_INACTIVE`, `BORDER_SUBTLE`, `BORDER_HOVER`, `OVERLAY_FAINT`, `OVERLAY_DIM`, `RADIO_UNCHECKED`, each with `isLight ? ... : ...` ternaries — also added `TEXT_MUTED` and `selectSx`
+- [x] Delete the module-level dark-only constants `BG`, `CARD_BG`, `CARD_BG_ACTIVE`, `CARD_BORDER`, `inputSx`, `labelSx`, `helperSx` (lines 112–124) and the misleading "cards always stay dark" comment (lines 84–87)
+- [~] In `Onboarding()` render path, replace every reference to the deleted module constants with `palette.*` equivalents (`inputSx` → `palette.inputSx`, `CARD_BG` → `palette.CARD_BG`, etc.)
 - [ ] Replace all 5 hardcoded `bgcolor: "#1a1a2e"` menu popovers (lines 1205, 1493, 2062, 2157, 2209) with `bgcolor: palette.MENU_BG` and the matching `color: "#fff"` with `palette.MENU_TEXT`
 - [ ] Replace the inactive-step indicator color `rgba(255,255,255,0.15)` at line 1054 with `palette.STEP_INACTIVE`
 - [ ] Mechanical search-and-replace of remaining hardcoded text colors throughout `renderStepContent` and step-specific render functions: `#fff` → `palette.TEXT_PRIMARY`, `rgba(255,255,255,0.6)` → `palette.TEXT_SECONDARY`, `rgba(255,255,255,0.4)` → `palette.TEXT_FADED`, `rgba(255,255,255,0.25)`/`0.3` → `palette.TEXT_DIM`
