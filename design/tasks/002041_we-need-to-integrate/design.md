@@ -535,3 +535,11 @@ the baked content to the daemon. The daemon stays repo-agnostic.
 - Goose has **no `GOOSE_TELEMETRY_ENABLED` env var** (verified by searching the env-vars docs page). The `telemetry`/`otel` cargo features wire up OpenTelemetry exporters at compile time. The standard kill switch is the OTel SDK env var `OTEL_SDK_DISABLED=true`, added to the global `ENV` block alongside the existing telemetry kill switches.
 - Goose has no auto-updater. `goose update` is a user-invoked command; the binary is pinned in the image, so even a user-triggered update would be overwritten on the next image build.
 - Did NOT write a `~/.config/goose/profiles.yaml` or similar — the global config file is `~/.config/goose/config.yaml`, and Phase 2 will write per-session content there. Adding a baked-in stub now would just get overwritten by the settings-sync-daemon at session start.
+
+### Implementation gotcha: `./stack update_openapi` regen drift
+
+Running `./stack update_openapi` to pick up the new `CodeAgentRuntimeGooseCode` enum value pulled in **unrelated** schema drift — upstream Go modules (notably `github.com/mark3labs/mcp-go`) had added new types and renamed some symbols since the last regen. The frontend `AddMcpSkillDialog.tsx` then failed to compile (`Module '"../../api/api"' has no exported member 'McpTool'`).
+
+Since no frontend code references `TypesCodeAgentRuntime` directly (everything uses string-literal types like `'goose_code'`), we **reverted the regen drift** (`frontend/src/api/api.ts`, `frontend/swagger/swagger.yaml`, `swagger.json`, `openapi.json`, `api/pkg/server/swagger.json|yaml|docs.go`) and rely on the hand-edited string unions in `frontend/src/types.ts`, `frontend/src/contexts/apps.tsx`, and the component-local types in `AppSettings.tsx`/`CodingAgentForm.tsx`.
+
+A separate cleanup task should re-run `update_openapi` cleanly when someone has time to also fix the McpTool import drift — out of scope for this PR.
