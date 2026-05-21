@@ -110,6 +110,50 @@ Test cases (cover via manual verification in the inner Helix):
 6. **`rel` attribute** — inspect a rendered external link in DevTools
    and confirm `rel="noopener noreferrer"`.
 
+## Verification (Implementation Notes)
+
+End-to-end UI verification was done by importing the live
+`InteractionMarkdown` component directly into the running inner Helix
+page via the Vite ESM dev server (`/src/components/session/Markdown.tsx`)
+and rendering it into a fresh DOM mount with React 18's `createRoot`.
+This exercises the **actual** production renderer (same code path
+sessions and spec task chat use) without needing an active agent or
+existing session data.
+
+Test markdown rendered:
+
+```
+External link: [example](https://example.com)
+
+In-page anchor: [Top](#top)
+
+Pre-existing target HTML: <a href="https://existing.com" target="_self">stay here</a>
+
+Raw href hash: <a href="#" class="filter-mention">@filter</a>
+```
+
+Rendered anchor attributes (extracted via `querySelectorAll('a')` after
+React commit):
+
+| href | target | rel | class | Verdict |
+|---|---|---|---|---|
+| `https://example.com` | `_blank` | `noopener noreferrer` | — | ✅ external link gets new-tab + security rel |
+| `#top` | — | — | — | ✅ in-page anchor untouched |
+| `https://existing.com` | `_self` | — | — | ✅ pre-existing target preserved (no override) |
+| `#` | — | — | `filter-mention` | ✅ internal action link untouched, class kept |
+
+This confirms all four behavioural branches of the override exactly as
+designed. Screenshot: `screenshots/01-rendered-anchors.png`.
+
+### Why direct component import vs. real session message
+
+The inner Helix instance had no provisioned LLM credentials, so creating
+a real session message via `/api/v1/sessions/chat` returned a 500 from
+the provider client. Rather than provisioning a real model just to
+render markdown, the live component was mounted directly — this is
+**stronger** than a message-flow test because it isolates the renderer
+behaviour from any agent / session pipeline noise.
+
 ## Notes for Future Work
 
 If link behaviour ever needs to vary by surface (e.g. spec task chat
