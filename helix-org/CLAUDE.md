@@ -119,6 +119,72 @@ When the user says "tdd", follow red-green strictly:
 2. **Green**: Minimal fix. Run test, confirm it passes.
 3. Run the full test suite for regressions.
 
+### Characterisation tests before heavy lifts
+
+For any refactor that moves substantial code between packages, splits a
+file behind a new port, or renames a load-bearing interface — write
+**characterisation tests first**. These pin the *current* behaviour of
+the code, not its intended behaviour. The point is to detect drift
+during the move, not to validate the design.
+
+1. **First commit on the refactor branch is the tests.** Cover the
+   public surface you intend to preserve. Run them, confirm green
+   against the *unmoved* code. Commit before touching anything else.
+2. **Rerun on every meaningful step of the lift.** Any new failure is
+   a real regression — investigate, don't paper over with test edits.
+3. **After the lift, the tests still pass without modification.** If
+   they need to change, the lift was not behaviour-preserving and
+   needs justification (or splitting into two PRs: behaviour-change
+   first with new tests, then pure restructure).
+4. **100% coverage is not the goal.** Cover the public surface, the
+   named guarantees in code comments, and any invariants prior tests
+   already pin. Leave internal helpers uncovered if they have no
+   observable behaviour of their own.
+
+This applies to every migration in `design/2026-05-21-redesign/08-migration-plan.md`
+that moves code between contexts (B1, B2, B3, B4, B5, B6, B9 and the
+helix dissolution moves H1–H8). Pure renames (like B0/ADR-0001) don't
+need characterisation tests — existing tests pin behaviour adequately.
+
+When in doubt: if the diff in this PR could plausibly change runtime
+behaviour for any caller, write the characterisation tests first.
+
+### Refactored files land in `api/pkg/org/` (canonical), not back in helix-org/
+
+The helix-org redesign dissolves this sub-tree into helix
+(see [`design/2026-05-21-redesign/09-integration-reframe.md`](design/2026-05-21-redesign/09-integration-reframe.md)).
+Rather than refactoring code in place under `helix-org/` and then moving
+it later as a separate symbolic step, **every refactor PR lifts its
+target file(s) into their canonical home under `api/pkg/org/` directly**.
+
+Rules for any file landing under `api/pkg/org/`:
+
+1. **The location is a stamp of approval.** Anything under `api/pkg/org/`
+   is canonical, reviewed, and behaviour-locked. Anything still under
+   `helix-org/` is legacy / vibe-coded / slated for dissolution.
+2. **Every file has associated high-level TDD unit tests.** These are
+   e2e-shaped — drive meaningful behaviour through the public surface,
+   not stub-heavy single-method unit tests. They are the
+   characterisation tests written *first* (see previous section) and
+   must remain green throughout and after the lift.
+3. **No type aliases, no shim files.** Parent `helix/CLAUDE.md` forbids
+   them; every lift updates all callers in the same PR. The old
+   `helix-org/<path>` file is deleted, not left as a re-export.
+4. **Imports flow downhill.** `helix-org/` may import from
+   `api/pkg/org/`; `api/pkg/org/` must never import from `helix-org/`.
+   A lift that would invert this direction is a sign more code needs
+   to move at the same time — split the PR or expand it, don't invert
+   the arrow.
+5. **The eventual layout mirrors the bounded contexts** from
+   [`design/2026-05-21-redesign/04-bounded-contexts.md`](design/2026-05-21-redesign/04-bounded-contexts.md) §1:
+   `api/pkg/org/{transport,stream,worker,role,position,grant,activation,...}/`.
+   New sub-directories are added by lifts, not invented up-front.
+
+This collapses Tracks A and B of the migration plan into a single
+track: every B-numbered refactor performs the corresponding move-into-
+helix step at the same time. H8 (symbolic move) goes away — the move
+*is* the refactor.
+
 Practices:
 
 - **Tests live next to the code**: `foo.go` → `foo_test.go` in the same directory. Use package `foo` for whitebox tests and `foo_test` only when the test must exercise the public API in isolation (e.g. to avoid import cycles).
