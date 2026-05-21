@@ -229,18 +229,56 @@ project-repo sync has already placed it on disk.
 recipes can also reference sibling files (subrecipes, prompt
 fragments) by short name relative to the checkout.
 
-> **Open question for implementation**: confirm whether `goose acp`
-> accepts a recipe via CLI flag, env var (`GOOSE_RECIPE`), or only
-> through `goose run --recipe`. The upstream docs cover `goose run` for
-> recipes and `goose acp` for ACP, but don't explicitly document
-> combining them. First step in implementation is to test
-> `goose acp --recipe <file>` in a dev container — if it works, use it;
-> if not, fall back to `goose run --recipe <file> --acp` (or whichever
-> flag upstream provides). If neither works, file an upstream issue and
-> ship US-1/2/3 first; US-4/5 can wait on a Goose release.
+**Upstream validation (2026-05-21)** — checked the goose CLI source at
+[crates/goose-cli/src/cli.rs](https://github.com/aaif-goose/goose/blob/main/crates/goose-cli/src/cli.rs)
+and the open issue
+[aaif-goose/goose#7596](https://github.com/aaif-goose/goose/issues/7596).
+Confirmed state:
 
-The plain `goose` entry is always emitted, even when recipes are
-defined, so users keep access to a vanilla Goose session.
+- `goose acp` accepts **only** `--with-builtin <name>` (built-in
+  extensions). No `--recipe` flag, no recipe env var.
+- `goose serve` (HTTP/WS ACP) has the same constraint at startup but
+  *does* support recipe-backed sessions via its REST API
+  (`update_session_user_recipe_values` → `apply_recipe_to_agent`).
+- `--recipe` lives in `InputOptions`, which is only used by the `Run`
+  and `Recipe` subcommands — both are one-shot/TUI, not ACP servers.
+- Upstream issue #7596 is **open, assigned, snoozed until 2026-05-28**.
+  A collaborator confirmed: PR #8925 has landed (recipe-backed slash
+  command discovery and execution); "full recipe-at-session-creation
+  support is coming next." So the official `goose acp` recipe support
+  is in active development and likely lands within weeks.
+
+**What this means for our plan**:
+
+| User Story | Status |
+|---|---|
+| US-1, US-2, US-3 (base runtime) | ✅ Works today via `goose acp` |
+| US-4 (custom Goose agents) | ⚠️ Blocked on upstream until ~late May 2026 |
+| US-5 (iteration DX) | Falls out of US-4 |
+
+**Decision**: Ship Phase 1 (US-1/2/3) now. Hold Phase 2 (US-4/5)
+until upstream issue #7596 lands, then revisit:
+
+1. **Preferred (post-#7596)**: each `agent_servers.<slug>` invokes
+   `goose acp --recipe <abs-path>` (or whatever flag/protocol-extension
+   upstream ships). This matches the design above with a one-line args
+   change in the daemon.
+2. **Interim workaround (using shipped PR #8925)**: each
+   `agent_servers.<slug>` is a plain `goose acp` instance, and Zed's
+   first user message is the recipe's slash-command invocation
+   (`/my-recipe`). This *partially* works — the recipe's extensions
+   and prompt apply — but parameter prompts surface as plain text
+   inside the chat rather than Zed UI, and there's no clean way to
+   pre-fill parameter values. Documented as a temporary path; not
+   worth shipping if upstream is ~1–2 weeks out.
+3. **Fallback if upstream slips**: pre-cook a per-recipe goose config
+   file (extensions block + system prompt) and launch `goose acp` with
+   `GOOSE_CONFIG_PATH` pointing at it. Loses recipe parameters and
+   activities; preserves extensions + system prompt. Implement only if
+   #7596 stays open past Q3 2026.
+
+The plain `goose` entry (no recipe) is always emitted so users keep
+access to a vanilla Goose session regardless of Phase 2 status.
 
 ### D8: Iteration DX — edit, validate, reload, commit
 
@@ -320,12 +358,17 @@ directory.
 
 - **Goose release URLs are version-pinned.** Use `GOOSE_VERSION` —
   upstream's documented CI/CD-safe install path.
-- **`goose acp` + recipes interaction is undocumented upstream.** See
-  D7 open question. Implementation ships US-1/2/3 first (no recipes),
-  then probes the right flag for US-4. If upstream doesn't support
-  recipe-aware ACP yet, US-4 falls back to per-recipe agent_servers
-  entries that use `goose run --recipe <file> --interactive` if that
-  works over stdio, otherwise file an upstream issue.
+- **`goose acp` does not yet accept recipes — validated against
+  upstream source.** Phase 1 (US-1/2/3) is unaffected and ships now.
+  Phase 2 (US-4/5) is gated on upstream issue
+  [#7596](https://github.com/aaif-goose/goose/issues/7596) (currently
+  snoozed to 2026-05-28, actively being worked on). Mitigation: build
+  the Helix-side YAML schema + UI plumbing during the wait, leaving a
+  feature flag that flips on the recipe-aware `agent_servers` entries
+  once the upstream flag/protocol-extension is known. Re-validate the
+  upstream state before starting Phase 2 implementation work — do not
+  spend engineering time on workaround #2/#3 unless #7596 slips past
+  Q3 2026.
 - **Recipe paths could escape the repo** (e.g.
   `path: ../../etc/passwd`). The server-side path resolver must
   reject any `path` that doesn't `filepath.Clean` to a subdirectory of
