@@ -22,10 +22,21 @@ When goose cuts a stable release containing #8925, the cargo build stage can be 
 
 ## Test plan
 
-- [ ] `./stack build-ubuntu` succeeds with the new goose-build stage
-- [ ] Inside a fresh `helix-ubuntu` container: `goose --version` returns a 1.35+ version string; `goose acp` starts and listens on stdio
-- [ ] Create a project in the inner Helix with code agent runtime "Goose", open Zed, start a "Goose" thread, send a prompt, confirm the LLM responds
-- [ ] Confirm a tool call (e.g. file read) executes inside the Goose thread
+- [x] `./stack build-ubuntu` succeeds with the new goose-build stage (image tag `eb09f6`)
+- [x] Inside a fresh `helix-ubuntu` container: `goose --version` returns `1.35.0`; `goose acp --help` prints expected usage
+- [x] Create a project in the inner Helix with code agent runtime "Goose" — selector now shows Goose alongside the existing options
+- [x] Spec task with prompt "Just say hello and tell me what files exist in the current directory" — agent responds with greeting, executes a directory-listing tool call, returns the file listing
+- [x] Confirm `~/.config/zed/settings.json` inside the container contains the expected `agent_servers.goose` block with `command=goose`, `args=[acp]`, and the right `GOOSE_PROVIDER` / `GOOSE_MODEL` / `ANTHROPIC_*` env vars
+
+## Screenshots
+
+Goose option in the runtime selector during project creation:
+
+![Goose in runtime selector](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002041_we-need-to-integrate/screenshots/01-goose-in-runtime-selector.png)
+
+End-to-end Goose session with a tool call executing inside Zed:
+
+![Goose tool call](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002041_we-need-to-integrate/screenshots/04-goose-tool-call-success.png)
 
 ## Out of scope (deferred to Phase 2)
 
