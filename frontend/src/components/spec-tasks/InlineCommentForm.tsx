@@ -30,16 +30,20 @@ export default function InlineCommentForm({
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
 
-  // Stable ref callback. Defining it inline gives it a new identity on every
-  // render, which makes React invoke it with (null) then (node) every time,
-  // and when outerRef bumps a measure-tick state in the parent, that loops.
-  const setRefs = useCallback(
-    (el: HTMLDivElement | null) => {
-      (paperRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-      if (outerRef) outerRef(el);
-    },
-    [outerRef],
-  );
+  // Stash the latest outerRef in a ref so setRefs can stay identity-stable
+  // ([] deps) regardless of how the parent declares its callback. If setRefs
+  // gets a new identity on every render, React invokes it with (null) then
+  // (node) each time; combined with outerRef bumping parent state (e.g. a
+  // measure tick), that produces an infinite update loop.
+  const outerRefRef = useRef(outerRef);
+  useEffect(() => {
+    outerRefRef.current = outerRef;
+  }, [outerRef]);
+
+  const setRefs = useCallback((el: HTMLDivElement | null) => {
+    (paperRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    outerRefRef.current?.(el);
+  }, []);
 
   // Auto-scroll to ensure the comment form is visible after it appears
   useEffect(() => {
