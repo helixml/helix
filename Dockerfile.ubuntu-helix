@@ -192,14 +192,22 @@ FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb
 RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 ENV DEBIAN_FRONTEND=noninteractive
-# Build deps match goose upstream CI (.github/workflows/build-cli.yml,
-# "Install Linux build dependencies" step) for the standard variant.
+# Build deps. The first block matches goose upstream CI
+# (.github/workflows/build-cli.yml "Install Linux build dependencies"
+# step, standard variant). The extras (libclang-dev, cmake) are needed
+# by the `local-inference` default feature: goose-cli pulls in
+# llama-cpp-sys, which uses bindgen (→ libclang) to generate Rust
+# bindings for llama.cpp, and CMake to build it. GitHub's ubuntu-22.04
+# runner has these pre-installed which is why upstream's CI doesn't
+# list them; our slim base image doesn't.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libssl-dev \
     libdbus-1-dev \
     libxcb1-dev \
+    libclang-dev \
+    cmake \
     curl \
     git \
     ca-certificates \
