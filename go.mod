@@ -4,8 +4,6 @@ go 1.25.4
 
 replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
 
-replace github.com/helixml/helix-org => ./helix-org
-
 require (
 	cloud.google.com/go/storage v1.51.0
 	code.gitea.io/gitea v1.25.5
@@ -30,6 +28,7 @@ require (
 	github.com/function61/holepunch-server v0.0.0-20210312073819-8f5e8775e813
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/getsentry/sentry-go v0.25.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
@@ -40,11 +39,11 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/google/go-github/v57 v57.0.0
 	github.com/google/go-github/v61 v61.0.0
+	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/helixml/helix-org v0.0.0-00010101000000-000000000000
 	github.com/helixml/kodit v1.3.7
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jfrog/froggit-go v1.20.1
@@ -55,6 +54,7 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
+	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/nats-io/nats-server/v2 v2.10.14
 	github.com/nats-io/nats.go v1.38.0
 	github.com/nikoksr/notify v0.41.0
@@ -73,6 +73,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/tmc/langchaingo v0.1.12
+	github.com/tylermmorton/tmpl v1.1.0
 	github.com/xanzy/go-gitlab v0.115.0
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0
@@ -134,7 +135,6 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
-	github.com/glebarez/sqlite v1.11.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/go-git/v5 v5.17.2 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
@@ -152,7 +152,6 @@ require (
 	github.com/gomlx/onnx-gomlx v0.4.2-0.20260327164137-4e2832549fc1 // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/go-github/v75 v75.0.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/graarh/golang-socketio v0.0.0-20170510162725-2c44953b9b5f // indirect
 	github.com/grokify/mogo v0.64.12 // indirect
@@ -175,7 +174,6 @@ require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-sqlite3 v1.14.41 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/modelcontextprotocol/go-sdk v1.5.0 // indirect
 	github.com/neurlang/wayland v0.2.1 // indirect
 	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
@@ -198,7 +196,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tsawler/tabula v1.6.6 // indirect
-	github.com/tylermmorton/tmpl v1.1.0 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/unknwon/com v1.0.1 // indirect
 	github.com/viant/afs v1.30.0 // indirect

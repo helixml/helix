@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 func TestBroadcasterWakesMatchingSubscriber(t *testing.T) {

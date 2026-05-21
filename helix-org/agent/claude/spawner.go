@@ -24,10 +24,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/helixml/helix-org/agent"
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // SpawnerConfig configures the claude-backed Spawner.

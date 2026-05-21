@@ -12,10 +12,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/server"
-	"github.com/helixml/helix-org/store/sqlite"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/server"
+	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 // TestDemoOwnerHiresCEO walks the "manager does the orchestration" story

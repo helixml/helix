@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 func TestStreamsRoundTripAndByName(t *testing.T) {

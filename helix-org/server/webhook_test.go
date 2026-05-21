@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/dispatch"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/server"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/store/sqlite"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/dispatch"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/server"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 // recordingDispatcher captures every Dispatch call so tests can assert

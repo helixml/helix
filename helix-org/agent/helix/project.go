@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/helix/helixclient"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // ProjectApplier ensures a Worker has a Helix project of its own.

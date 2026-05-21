@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // HelpName is the slash-command identifier for the help-listing prompt.

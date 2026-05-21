@@ -13,10 +13,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/helixml/helix-org/agent"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 // ownerRoleContent is the seed markdown for r-owner. Lives in a

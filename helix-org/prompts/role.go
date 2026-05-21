@@ -5,8 +5,8 @@ import (
 	_ "embed"
 	"strings"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 // RoleName is the slash-command identifier for the role-design prompt.

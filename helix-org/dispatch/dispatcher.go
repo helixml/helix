@@ -29,9 +29,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix-org/agent"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // outboundTimeout caps how long an outbound webhook POST may take. A

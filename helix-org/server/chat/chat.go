@@ -27,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix-org/prompts"
+	"github.com/helixml/helix/helix-org/prompts"
 )
 
 // Bridge owns the chat subprocess and the SSE fan-out. Construct one

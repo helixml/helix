@@ -10,7 +10,7 @@ package prompts
 import (
 	"context"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // Name is the identifier MCP clients use to fetch a prompt. Must be

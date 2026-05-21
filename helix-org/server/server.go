@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/prompts"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/prompts"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 // Dispatcher is the subset of the dispatcher this package needs:

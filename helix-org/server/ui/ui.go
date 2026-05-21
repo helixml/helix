@@ -11,12 +11,12 @@ import (
 
 	"github.com/tylermmorton/tmpl"
 
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/dispatch"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/server/chat"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/dispatch"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/server/chat"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // Deps is everything the UI surface needs from its host. The wiring

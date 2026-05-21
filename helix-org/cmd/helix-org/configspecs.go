@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/helixml/helix-org/config"
+	"github.com/helixml/helix/helix-org/config"
 )
 
 // registerAllConfigSpecs declares every config key the running

@@ -12,7 +12,7 @@ package broadcast
 import (
 	"sync"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // Broadcaster is safe for concurrent use. The zero value is not usable;

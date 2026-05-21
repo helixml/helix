@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // Spec describes a single configurable key. Subsystems register

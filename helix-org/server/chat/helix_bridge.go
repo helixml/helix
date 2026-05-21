@@ -12,10 +12,10 @@ import (
 
 	"log/slog"
 
-	agenthelix "github.com/helixml/helix-org/agent/helix"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/helix/helixclient"
-	"github.com/helixml/helix-org/prompts"
+	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/prompts"
 )
 
 // ActivationPublisher writes activation events to

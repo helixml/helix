@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix-org/prompts"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/prompts"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 func TestRoleRequiresCreateRoleGrant(t *testing.T) {
