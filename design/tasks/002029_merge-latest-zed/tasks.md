@@ -43,22 +43,22 @@
 
 ## Sweep for Silent Drift (auto-merged files)
 
-- [ ] `grep -rn "ActiveView" crates/agent_ui/src/` — only `AgentPanelEvent::ActiveView*` valid
-- [ ] `grep -rn "set_active_view" crates/agent_ui/src/` — clean
-- [ ] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — clean (likely now `retained_threads` + `draft_prompt_store`)
-- [ ] `grep -rn "selected_agent_type" crates/agent_ui/src/` — clean
-- [ ] `grep -nE "AcpThreadEvent::Stopped\b([^(]|$)" crates/acp_thread/src/` — clean (only doc comments)
-- [ ] `grep -n "wait_for_tools_ready\|smol::Timer" crates/agent/src/agent.rs` — `wait_for_tools_ready` present, no `smol::Timer`
-- [ ] `grep -n "allow_multiple_instances\|headless" crates/zed/src/main.rs` — both present, all 3 `--headless` sites
-- [ ] `grep -n "debug-embed" Cargo.toml` — present
-- [ ] `grep -n "external_websocket_sync::get_thread" crates/agent_ui/src/agent_panel.rs` — Critical Fix #11 entity guard present
-- [ ] `grep -n "ensure_thread_initialized\|activate_draft" crates/agent_ui/src/agent_panel.rs` — Fix 1b early-return guard present; **read the full function body** and confirm the cfg-gated `return;` is the FIRST statement, before `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches
-- [ ] `grep -n "session_creation_chain" crates/agent_servers/src/acp.rs` — PR #50 chain present; also `grep -n "fn delete_session\|fn logout"` to confirm upstream additions coexist
-- [ ] `grep -n "helix-org" crates/external_websocket_sync/e2e-test/Dockerfile.ci` — fork's `fd26c1a113` Dockerfile.ci fix still present
-- [ ] `grep -n "HELIX: External agent" crates/extensions_ui/src/extensions_ui.rs` — if absent (because upstream `c84c22dab5` deleted the surrounding surface), document the deliberate drop in `portingguide.md`
-- [ ] `grep -n "AcpBetaFeatureFlag\|enabled_for_all" crates/feature_flags/src/flags.rs` — Helix's `enabled_for_all() -> true` override still present
-- [ ] Confirm `ConnectedServerState` field set matches what `from_existing_thread()` constructs (re-grep after merge — upstream may have grown it)
-- [ ] Confirm `BaseView` enum: if upstream added new variants past `AgentThread`, `Uninitialized`, `Terminal`, add arms to the Helix UI state query loop in `agent_panel.rs::new()`
+- [x] `grep -rn "ActiveView" crates/agent_ui/src/` — only `AgentPanelEvent::ActiveView*` valid
+- [x] `grep -rn "set_active_view" crates/agent_ui/src/` — clean
+- [x] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — clean (likely now `retained_threads` + `draft_prompt_store`)
+- [x] `grep -rn "selected_agent_type" crates/agent_ui/src/` — clean
+- [x] `grep -nE "AcpThreadEvent::Stopped\b([^(]|$)" crates/acp_thread/src/` — clean (only doc comments)
+- [x] `grep -n "wait_for_tools_ready\|smol::Timer" crates/agent/src/agent.rs` — `wait_for_tools_ready` present, no `smol::Timer`
+- [x] `grep -n "allow_multiple_instances\|headless" crates/zed/src/main.rs` — both present, all 3 `--headless` sites
+- [x] `grep -n "debug-embed" Cargo.toml` — present
+- [x] `grep -n "external_websocket_sync::get_thread" crates/agent_ui/src/agent_panel.rs` — Critical Fix #11 entity guard present
+- [x] `grep -n "ensure_thread_initialized\|activate_draft" crates/agent_ui/src/agent_panel.rs` — Fix 1b early-return guard present; **read the full function body** and confirm the cfg-gated `return;` is the FIRST statement, before `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches
+- [x] `grep -n "session_creation_chain" crates/agent_servers/src/acp.rs` — PR #50 chain present; also `grep -n "fn delete_session\|fn logout"` to confirm upstream additions coexist
+- [x] `grep -n "helix-org" crates/external_websocket_sync/e2e-test/Dockerfile.ci` — fork's `fd26c1a113` Dockerfile.ci fix still present
+- [x] `grep -n "HELIX: External agent" crates/extensions_ui/src/extensions_ui.rs` — if absent (because upstream `c84c22dab5` deleted the surrounding surface), document the deliberate drop in `portingguide.md`
+- [x] `grep -n "AcpBetaFeatureFlag\|enabled_for_all" crates/feature_flags/src/flags.rs` — Helix's `enabled_for_all() -> true` override still present
+- [x] Confirm `ConnectedServerState` field set matches what `from_existing_thread()` constructs (re-grep after merge — upstream may have grown it)
+- [x] Confirm `BaseView` enum: if upstream added new variants past `AgentThread`, `Uninitialized`, `Terminal`, add arms to the Helix UI state query loop in `agent_panel.rs::new()`
 
 ## Verify Critical Fixes (the 11 in `portingguide.md` §"Critical Fixes")
 
