@@ -103,7 +103,7 @@
 
 ## Build & Test (hard gate)
 
-- [ ] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors
+- [~] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors
 - [ ] If any new `BaseView` variant or trait-signature change surfaces a build failure, fix it and append a "Pre-existing Breakage Repaired" subsection to `portingguide.md` §"Merge 002029"
 - [ ] Pre-flight: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server && go mod tidy`
 - [ ] Copy fresh binary into `e2e-test/zed-binary`: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
