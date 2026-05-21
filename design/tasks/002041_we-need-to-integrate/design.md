@@ -197,37 +197,105 @@ conditionally rendered today.
 - Per-entry `env` lets each recipe pin its own `GOOSE_RECIPE_PATH` or
   use Goose's existing `--recipe` argument-passing convention.
 
-**How `settings-sync-daemon` builds the agent_servers map**:
+**How `settings-sync-daemon` builds the agent_servers map** (the
+config-baking approach — see D7c for why):
 
-For each recipe entry in `agent.goose.recipes`, emit:
+For each recipe attached to the spec task (or registered on the
+project, for ad-hoc Zed sessions), emit:
 
 ```jsonc
 "<slug>": {
   "name": "<recipe.name>",
   "type": "custom",
   "command": "goose",
-  "args": ["run", "--recipe", "<absolute-path-in-container>", "--interactive"],
+  "args": ["acp"],
   "env": {
     /* same provider/model/base-url env as plain goose */
+    "GOOSE_CONFIG_PATH": "/home/retro/.config/goose/<slug>.yaml",
     "GOOSE_RECIPE_PATH": "<recipe-repo-checkout-dir>"
   }
 }
 ```
 
-`<absolute-path-in-container>` is the resolved recipe path inside the
-recipe-repo checkout. The Helix API resolves it server-side from
-`{recipe_repo_url → GitRepository → LocalPath} / recipes[i].path` and
-sends both the per-recipe absolute path and the root dir to the
-daemon. The daemon stays repo-agnostic.
+The recipe-specific `<slug>.yaml` is also written by the daemon. It
+contains:
+- The recipe's `instructions:` baked into goose's system prompt
+  (parameter-substituted server-side — see D7c)
+- The recipe's `extensions:` list registered as goose extensions
+- The recipe's `settings:` overlaying the user's provider/model
+- A single-entry `slash_commands:` map so the recipe can be re-invoked
+  mid-session via `/recipe-name` (Goose's slash-command syntax also
+  accepts inline overrides: `/recipe-name arg=value`)
 
-When `recipe_repo_url` is unset, the resolver falls back to the
-project's primary repo's checkout. Either way, by the time the daemon
-writes Zed settings the directory exists locally — Helix's existing
-project-repo sync has already placed it on disk.
+`<absolute-path-in-container>` (used when the slash command resolves
+the recipe) is `{recipe_repo_url → GitRepository → LocalPath} / recipes[i].path`,
+resolved server-side by the Helix API. When `recipe_repo_url` is
+unset, the resolver falls back to the project's primary repo's
+checkout. Either way, by the time the daemon writes Zed settings the
+directory exists locally — Helix's existing project-repo sync has
+already placed it on disk.
 
-`GOOSE_RECIPE_PATH` is set on every Goose agent_server entry so that
-recipes can also reference sibling files (subrecipes, prompt
-fragments) by short name relative to the checkout.
+`GOOSE_RECIPE_PATH` is set so subrecipes / prompt fragments referenced
+by short name still resolve.
+
+### D7c: Recipe parameters come from spec-task creation, not Zed UI
+
+Zed inside Helix is the *execution surface* for spec tasks; spec-task
+creation is the *configuration surface*. Recipe parameters belong at
+configuration time, not execution time — prompting users mid-Zed-session
+would defeat the point of an automated spec task.
+
+**Flow**:
+
+1. **Spec-task creation (API + UI)**:
+   - User picks a recipe from the project's declared list. The
+     creation page fetches the recipe YAML via a new endpoint
+     `GET /api/v1/projects/{id}/goose/recipes/{name}/schema` that
+     parses the recipe's `parameters:` block and returns the JSON
+     schema needed to render a form.
+   - Form dynamically renders one input per parameter (mapping in
+     US-5). `file:` parameters expect a **repo-relative path** to a
+     file inside the spec task's primary repo.
+   - On submit, the spec task persists `recipe_name string` and
+     `recipe_params map[string]string` on the task row.
+
+2. **Spec-task start (Helix API)**:
+   - Read the recipe YAML from the GitRepository mirror.
+   - For each parameter:
+     - `string`/`number`/`boolean`/`date`/`select` → substitute the
+       value as-is.
+     - `file` → join the value with the primary repo's checkout root,
+       reject paths that escape via `filepath.Clean` containment,
+       read the file, substitute the *contents* (matches Goose's CLI
+       semantics).
+   - Run Jinja-style `{{ var }}` substitution on `instructions:`,
+     `prompt:`, and `activities:`. Use a simple regex substitution
+     (Goose recipes only use `{{ name }}` — no Jinja control flow).
+   - Pack the substituted recipe (system prompt + extensions +
+     settings) into `CodeAgentConfig.GooseBakedRecipe`.
+
+3. **Container start (settings-sync-daemon)**:
+   - Receives the baked recipe via the existing WebSocket config
+     push. No recipe YAML parsing in the daemon.
+   - Writes `~/.config/goose/<slug>.yaml` with the baked content.
+   - Emits the `agent_servers.<slug>` entry pointing at it.
+
+**Why server-side substitution (vs daemon-side)**:
+- The API container already has the GitRepository mirror; the desktop
+  container would have to wait for the project-repo sync to finish
+  before parsing.
+- Keeps the daemon repo-agnostic.
+- Parameter values are part of the spec task — substitution at the API
+  layer keeps the task spec self-describing and reproducible.
+
+**Ad-hoc Zed sessions (no spec task)**:
+- The plain "Goose" agent_servers entry is still emitted with the
+  project's recipes registered as slash commands (Phase 2a's
+  original UX).
+- Users type `/recipe-name arg=value` inline. Goose's CLI parameter
+  syntax handles ad-hoc parameterisation natively.
+- No Helix-side parameter form. This path is for exploratory use, not
+  automated tasks.
 
 **Upstream validation (2026-05-21)** — checked goose CLI source,
 release tags, and merge metadata via GitHub API. Confirmed state:
@@ -348,19 +416,37 @@ type ProjectAgentGooseRecipe struct {
 request is rejected with a 400 telling the user to attach the repo
 first (via the Git Repositories page or `repositories:` block).
 
+**Spec-task model** (`api/pkg/types/spec_task.go` or wherever spec
+tasks live) gains:
+
+```go
+type SpecTask struct {
+    // ...existing fields...
+    GooseRecipeName   string            `json:"goose_recipe_name,omitempty"`
+    GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty"`
+}
+```
+
 `CodeAgentConfig` (sent to settings-sync-daemon) gains:
 
 ```go
 GooseRecipes       []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
 GooseRecipeRootDir string                 `json:"goose_recipe_root_dir,omitempty"` // absolute path in container
+GooseBakedRecipe   *CodeAgentBakedRecipe  `json:"goose_baked_recipe,omitempty"`    // populated for spec-task sessions
 ```
 
-with `CodeAgentGooseRecipe { Name, AbsolutePath string }`. The API
-server reads `LocalPath` from the resolved `GitRepository`, joins it
-with each recipe `Path`, and ships both the per-recipe absolute paths
-and the checkout root to the daemon. The daemon stays repo-agnostic
-and Goose-side env vars (`GOOSE_RECIPE_PATH`) just point at a local
-directory.
+with:
+- `CodeAgentGooseRecipe { Name, AbsolutePath string }` — used for
+  slash-command registration on the plain "Goose" entry.
+- `CodeAgentBakedRecipe { Name, Slug, SystemPrompt string,
+  Extensions []GooseExtension, Settings GooseSettings }` — the
+  parameter-substituted recipe content the daemon writes into
+  `~/.config/goose/<slug>.yaml`.
+
+The API server (a) reads `LocalPath` from the resolved
+`GitRepository`, (b) for spec-task sessions, reads + substitutes the
+chosen recipe, and (c) ships both the per-recipe absolute paths and
+the baked content to the daemon. The daemon stays repo-agnostic.
 
 ## Files Touched
 
@@ -377,6 +463,9 @@ directory.
 | `frontend/src/types.ts`, `api/api.ts`, `contexts/apps.tsx`  | Add `'goose_code'` to runtime union + display name                      |
 | `frontend/src/pages/Onboarding.tsx`, `ProjectSettings.tsx`  | Surface "Goose" as a selectable runtime                                 |
 | `frontend/src/pages/ProjectSettings.tsx` (new section)      | "Goose recipes" card: repo picker + recipe list + reuses `LinkExternalRepositoryDialog` |
+| Spec-task model + creation handler                          | Persist `goose_recipe_name` + `goose_recipe_params`; on task start, parse recipe YAML + substitute params + populate `CodeAgentConfig.GooseBakedRecipe` |
+| New API endpoint `GET /api/v1/projects/{id}/goose/recipes/{name}/schema` | Returns the recipe's `parameters:` block as a form schema for the spec-task creation page |
+| Spec-task creation page (frontend)                          | Recipe picker (visible when project runtime is `goose_code`) + dynamic parameter form generated from the schema endpoint |
 | `examples/project.yaml`                                     | Add commented example of `agent.goose.recipe_repo_url` + `recipes`      |
 
 ## Risks & Mitigations

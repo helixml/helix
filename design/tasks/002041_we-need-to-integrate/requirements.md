@@ -120,7 +120,47 @@ local directory; no goose-specific auth surface is introduced.
   valid credentials (via the existing `LinkExternalRepositoryDialog`
   / `GitProviderConnection` flow). No new auth code in this task.
 
-### US-5: As a custom-agent author, I want to iterate on recipes inside Helix
+### US-5: As a spec-task creator, I want to pick a recipe and supply its parameters at task-creation time
+So that I get a fully automated agent run with the right context, instead
+of being prompted mid-session — which would defeat the point of a spec
+task.
+
+**Rationale**: Zed inside Helix is the *execution surface* for spec
+tasks; spec-task creation is the *configuration surface*. Recipe
+parameters belong at configuration time, not execution time.
+
+**Acceptance Criteria**
+- The spec-task creation page shows a "Goose recipe" selector when the
+  project's runtime is `goose_code` and the project declares recipes.
+  Selecting a recipe dynamically renders a form derived from that
+  recipe's `parameters:` schema:
+  - `string` → text input
+  - `number` → number input
+  - `boolean` → toggle
+  - `select` → dropdown populated from the recipe's `options:`
+  - `date` → date picker
+  - `file` → text input expecting a **repo-relative path** inside the
+    spec task's primary repo (validated to exist + not escape the
+    repo root via `filepath.Clean` containment check)
+- Required parameters are marked required; optional parameters
+  pre-fill with the recipe's `default:` value. Goose's `user_prompt`
+  requirement is treated as required at this layer (no runtime
+  prompt surface in Helix).
+- The spec task persists the chosen recipe (`recipe_name`) and the
+  parameter values (`recipe_params: map[string]string`) on the task
+  row.
+- At task start, the Helix API reads the recipe YAML from the
+  GitRepository mirror, performs Jinja-style `{{ var }}` substitution
+  on `instructions:` and `prompt:` using `recipe_params`, and ships
+  the *substituted* recipe content (system prompt + extensions +
+  settings) to settings-sync-daemon as part of `CodeAgentConfig`.
+- `file:` parameters resolve at substitution time: the API reads the
+  file from the spec task's primary repo checkout and substitutes
+  the **contents** (matching Goose's CLI semantics).
+- A spec task with no recipe chosen continues to use the plain
+  "Goose" agent_servers entry — recipes are opt-in per task.
+
+### US-6: As a custom-agent author, I want to iterate on recipes inside Helix
 So that I can edit a recipe in Zed, try it, fix it, and ship it without
 leaving the Helix session.
 
@@ -136,7 +176,7 @@ leaving the Helix session.
   propagates to all future sessions (same git flow Helix already uses
   for code).
 
-### US-6: As an operator, I need a decision on Sway
+### US-7: As an operator, I need a decision on Sway
 The user explicitly asked: "do we need to install goose in helix-ubuntu
 (and sway, although increasingly I'm thinking we should just delete sway)".
 
