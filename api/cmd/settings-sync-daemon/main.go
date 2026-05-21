@@ -209,6 +209,70 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			"claude-acp": claudeACPConfig,
 		}
 
+	case "goose_code":
+		// Goose: Uses the `goose acp` command as a custom agent_server.
+		// LLM provider/model are passed via GOOSE_PROVIDER + GOOSE_MODEL,
+		// and provider-specific *_API_KEY / *_BASE_URL env vars override
+		// goose's config file at startup.
+		// Phase 2 will add per-recipe agent_servers entries on top of this
+		// plain entry; for now we always emit one "goose" entry.
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		env := map[string]interface{}{}
+
+		// Map Helix APIType → goose provider + env var names. Goose
+		// natively supports multiple providers, so unlike Qwen we don't
+		// shoehorn everything through OPENAI_*.
+		var gooseProvider string
+		switch d.codeAgentConfig.APIType {
+		case "anthropic":
+			gooseProvider = "anthropic"
+			if baseURL != "" {
+				env["ANTHROPIC_BASE_URL"] = baseURL
+			}
+			if d.userAPIKey != "" {
+				env["ANTHROPIC_API_KEY"] = d.userAPIKey
+			}
+		case "openai", "azure_openai", "":
+			// Default to openai for any OpenAI-compatible API.
+			gooseProvider = "openai"
+			if baseURL != "" {
+				env["OPENAI_BASE_URL"] = baseURL
+			}
+			if d.userAPIKey != "" {
+				env["OPENAI_API_KEY"] = d.userAPIKey
+			}
+		default:
+			// Unknown APIType — treat as OpenAI-compatible and log so
+			// operators can see what happened.
+			log.Printf("goose_code: unknown api_type %q, defaulting to openai provider",
+				d.codeAgentConfig.APIType)
+			gooseProvider = "openai"
+			if baseURL != "" {
+				env["OPENAI_BASE_URL"] = baseURL
+			}
+			if d.userAPIKey != "" {
+				env["OPENAI_API_KEY"] = d.userAPIKey
+			}
+		}
+
+		env["GOOSE_PROVIDER"] = gooseProvider
+		if d.codeAgentConfig.Model != "" {
+			env["GOOSE_MODEL"] = d.codeAgentConfig.Model
+		}
+
+		log.Printf("Using goose_code runtime: provider=%s, model=%s, base_url=%s",
+			gooseProvider, d.codeAgentConfig.Model, baseURL)
+
+		return map[string]interface{}{
+			"goose": map[string]interface{}{
+				"name":    "goose",
+				"type":    "custom",
+				"command": "goose",
+				"args":    []string{"acp"},
+				"env":     env,
+			},
+		}
+
 	default: // "zed_agent" or empty (default)
 		// Zed Agent: Uses Zed's built-in agent panel - no agent_servers needed
 		// The container env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) are set by wolf_executor
