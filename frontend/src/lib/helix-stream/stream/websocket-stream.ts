@@ -88,6 +88,12 @@ export class WebSocketStream {
   private pageVisible = true
   private visibilityHandler: (() => void) | null = null
 
+  // BFCache restore tracking - Safari (and Chrome/Firefox) put pages into the
+  // back/forward cache on navigation, which closes the WebSocket without firing
+  // onclose. Without a pageshow listener the component never knows the socket
+  // is dead, leading to a frozen viewer with stuck cursor and ignored clicks.
+  private bfcacheRestoreHandler: ((e: PageTransitionEvent) => void) | null = null
+
   // Cursor cache - maps cursor ID to blob URL (for revoking old blob URLs)
   private cursorCache = new Map<number, CursorImageData>()
   private cursorX = 0  // Current cursor X position from server
@@ -2121,6 +2127,17 @@ export class WebSocketStream {
     }
     document.addEventListener("visibilitychange", this.visibilityHandler)
 
+    // Recover after Safari/Chrome restores the page from the back/forward cache.
+    // The browser silently kills the WebSocket on BFCache entry; without this
+    // listener, the next user interaction sees a dead socket and a frozen viewer.
+    this.bfcacheRestoreHandler = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        console.log("[WebSocketStream] BFCache restored, force-reconnecting")
+        this.reconnect()
+      }
+    }
+    window.addEventListener("pageshow", this.bfcacheRestoreHandler)
+
     this.heartbeatIntervalId = setInterval(() => {
       if (!this.connected) return
 
@@ -2158,6 +2175,12 @@ export class WebSocketStream {
     if (this.visibilityHandler) {
       document.removeEventListener("visibilitychange", this.visibilityHandler)
       this.visibilityHandler = null
+    }
+
+    // Clean up BFCache pageshow listener
+    if (this.bfcacheRestoreHandler) {
+      window.removeEventListener("pageshow", this.bfcacheRestoreHandler)
+      this.bfcacheRestoreHandler = null
     }
   }
 
