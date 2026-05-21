@@ -150,10 +150,20 @@ agent:
         path: workflows/migration-bot.yaml
 ```
 
+**URL, not ID — by design.** `recipe_repo_url` is the upstream URL
+(GitHub/GitLab/etc.), not Helix's internal `GitRepository.ID`.
+Internal IDs are per-Helix-instance UUIDs and would not match across
+deployments — using them would break YAML portability when a project
+spec is moved between Helix installs. URL-keying mirrors how
+`ProjectSpec.Repositories` already references repos in the existing
+`repositories:` block; we're not inventing a new identifier scheme.
+
 **Validation rule** in `applyProject`: if `recipe_repo_url` is set,
 look it up via `GetGitRepositoryByExternalURL(orgID, url)`. If it's
 not found, or it's not attached to the project / accessible to the
 project's org, return a 400 with the exact attach instructions.
+Normalise both sides (trim trailing `/` and `.git`) before comparing
+to match how Helix already dedups attached repos.
 
 ### D7b: UI for selecting / attaching a recipe repo
 

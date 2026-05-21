@@ -107,10 +107,24 @@ local directory; no goose-specific auth surface is introduced.
         - name: "Migration Bot"
           path: workflows/migration-bot.yaml
   ```
-- `recipe_repo_url` MUST match the `url` of a repository already
-  attached to the project (or org). If it doesn't, `applyProject`
-  returns a clear error: "repository <url> not attached — attach it
-  via the Git Repositories page or add it to `repositories:` first".
+- `recipe_repo_url` is the **upstream URL** (e.g. the GitHub URL the
+  user entered when attaching the repo), **not** Helix's internal
+  `GitRepository.ID`. This is deliberate: project YAML must be
+  portable between Helix deployments, and internal IDs are
+  per-instance UUIDs that wouldn't match across installs.
+- Resolution happens server-side at YAML apply time and at task start:
+  `GetGitRepositoryByExternalURL(orgID, recipe_repo_url)` finds the
+  attached repo, then `LocalPath` gives the mirror checkout. The
+  upstream URL goes over the wire; the mirror path stays internal.
+- URL normalisation: trim trailing slashes and optional `.git` suffix,
+  treat `https://github.com/x/y` and `https://github.com/x/y.git` as
+  the same repo. (Helix's existing dedup behaviour in `applyProject`
+  should already handle this; if not, normalise both sides before
+  comparing.)
+- If `recipe_repo_url` doesn't resolve to an attached repo,
+  `applyProject` returns a clear error: "repository <url> not
+  attached — attach it via the Git Repositories page or add it to
+  `repositories:` first".
 - Each entry in `recipes` becomes its own `agent_servers.<slug>` entry
   in Zed settings.json. The Zed agent panel then shows "New Security
   Reviewer", "New Migration Bot", etc. as separate thread options.
