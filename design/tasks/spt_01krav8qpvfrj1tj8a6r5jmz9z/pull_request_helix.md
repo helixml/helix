@@ -89,4 +89,4 @@ follow-up PR would just add review overhead without changing the diff.
 **Backend PR-description sync**:
 - [x] Unit tests for `pullRequestFileChangedForTask` (10 cases) pass.
 - [x] `go build ./api/pkg/services/` is clean.
-- [ ] CI green.
+- [ ] CI green. (Tested platform sync at trigger time T.)
