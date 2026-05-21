@@ -1,41 +1,33 @@
 # Implementation Tasks: Restore Kanban Board Scroll Position on Return Navigation
 
+## Change 1 — Kanban scroll restoration (frontend)
+
 - [x] Create `frontend/src/components/tasks/kanbanScrollMemory.ts` exporting `getKanbanScrollState`, `saveKanbanHorizontalScroll`, `saveKanbanColumnScroll`, `clearKanbanScrollState` backed by a module-scoped `Map<string, { horizontal: number; columns: Record<string, number> }>` keyed by `projectId`.
 - [x] In `SpecTaskKanbanBoard.tsx`, add a `useRef<HTMLDivElement>` for the outer column-strip `<Box>` and attach it.
-- [x] In `SpecTaskKanbanBoard.tsx`, add a `useRef<Map<string, HTMLDivElement>>` registry and a callback-ref factory `getColumnRefSetter(columnId)` that writes the DOM node into the registry (and removes it on null). Memoized per id via a setter cache so identity is stable across renders.
-- [x] In `DroppableColumn`, accept `columnBodyRef` + `onColumnScroll` props; replaced the existing no-op `setNodeRef` stub. Apply both to the scrollable column body Box.
-- [x] Add an `onScroll` to the outer strip that calls `saveKanbanHorizontalScroll(projectId, e.currentTarget.scrollLeft)`. Skip on mobile (`isMobile`). Synchronous save — see Notes.
-- [x] Add an `onScroll` to each column body that calls `saveKanbanColumnScroll(projectId, column.id, e.currentTarget.scrollTop)`. Column id flows from `makeColumnScrollHandler(columnId)`.
-- [x] In `SpecTaskKanbanBoard.tsx`, add `hasRestoredRef`, `userHasScrolledRef`, and `isRestoringRef`; flip `userHasScrolledRef` on any scroll that arrives before restoration completes (and isn't itself the restoration write). Reset both restoration guards when `projectId` changes so switching projects mid-session works as a fresh mount.
-- [x] Add a `useLayoutEffect` whose deps are `[projectId, loading, columns, isMobile]` that: bails if `hasRestoredRef`, marks restored+bails if `userHasScrolledRef`, bails if `loading || columns.length === 0`, reads the saved state for `projectId`, applies clamped `scrollLeft` to the outer strip (desktop only), iterates column refs applying clamped `scrollTop` per id. **Re-runs until all targets satisfied** (distinguishes "data not loaded" from "column shrunk" via `columns.some(c => c.tasks.length > 0)`).
-- [x] In the restoration effect, guard against `scrollWidth === 0` (board hidden behind Paywall, etc.) by returning early without marking restored — the effect re-runs on the next column-content / loading change, so layout converges naturally.
-- [x] Verify the mobile single-column path — vertical restore still applies per column id; horizontal restore + horizontal save are both gated on `!isMobile`.
-- [x] Run `npx tsc --noEmit` to confirm no TS errors.
-- [x] Manually test in the inner Helix at `http://localhost:8080`: scrolled horizontally (200) + scrolled backlog column vertically (400), did SPA navigation away and back, both positions restored to (200, 400). Screenshots: `screenshots/02-kanban-after-restore.png`, `screenshots/03-kanban-restored-with-tasks.png`.
-- [x] Manually test live-save: changed backlog scroll to 700 then navigated; on return, restored to 700 (latest value, not previous 400).
-- [x] Manually test clamping: scrolled backlog to its max (2267), archived 12 tasks so the column shrank, navigated back — scrollTop landed at the new max (0) without throwing.
-- [x] Commit with conventional commit `feat(frontend): restore kanban scroll position on return navigation` and push.
+- [x] In `SpecTaskKanbanBoard.tsx`, add a `useRef<Map<string, HTMLDivElement>>` registry and a callback-ref factory `getColumnRefSetter(columnId)` with stable identity.
+- [x] In `DroppableColumn`, accept `columnBodyRef` + `onColumnScroll` props; replaced the existing no-op `setNodeRef` stub.
+- [x] Add `onScroll` handlers (synchronous save) on the outer strip and each column body; skip horizontal on mobile.
+- [x] Add `hasRestoredRef`, `userHasScrolledRef`, `isRestoringRef`; reset restoration guards when `projectId` changes.
+- [x] Add a `useLayoutEffect` that restores positions; re-runs across renders until satisfied; clamps when columns shrink; distinguishes "data not loaded" from "column shrunk" via `columns.some(c => c.tasks.length > 0)`.
+- [x] Verified mobile single-column path.
+- [x] `npx tsc --noEmit` clean.
+- [x] Manually tested all paths in the inner Helix (horizontal restore, per-column vertical restore, live-save of latest scroll value, clamp after archive). Screenshots `02-kanban-after-restore.png`, `03-kanban-restored-with-tasks.png`.
+
+## Change 2 — Backend re-syncs PR description from helix-specs (platform fix)
+
+Added after the kanban work because the very PR opened for this task (`https://github.com/helixml/helix/pull/2450`) had the wrong body — the original task prompt instead of `pull_request_helix.md` content. Root cause: the backend templated PR descriptions only at creation time, so a `pull_request_*.md` written *after* the first feature-branch push was silently ignored.
+
+- [x] In `api/pkg/services/git_http_server.go`, in `processDesignDocsForBranch`, after the per-task status switch: if the pushed branch is `helix-specs` and the commit touched `pull_request*.md` in that task's design-doc directory, fire `syncOpenPRDescriptions` as a goroutine for that task.
+- [x] Add `syncOpenPRDescriptions(ctx, task, repo, repoPath)`: looks up the open PR for this repo, re-reads `pull_request_<repo-name>.md` (or generic `pull_request.md`) from helix-specs, rebuilds the same footer, calls `GitRepositoryService.UpdatePullRequest`. Bails if file missing/unparseable (don't stomp manually-authored bodies).
+- [x] Add `pullRequestFileChangedForTask(files, designDocPath)` helper that detects whether the commit touched `pull_request*.md` directly in the task dir (subdirs like `screenshots/` ignored).
+- [x] Add unit test `TestPullRequestFileChangedForTask` (10 cases) in `api/pkg/services/git_http_server_test.go`. All pass.
+- [x] `go build ./api/pkg/services/` clean.
+- [x] Patch PR #2450 body directly via GitHub MCP to reflect both changes (the platform code change can't update an already-open PR until it's deployed; manual patch covers the existing case).
+- [ ] **Limitation: end-to-end sync test from inside this inner Helix is not possible.** PR #2450 was created by the *outer* Helix; the inner Helix this task runs in has no link to that PR (its DB has no row for `spt_01krav8qpvfrj1tj8a6r5jmz9z`). The new code path will run for real when the outer Helix picks up this PR after merge.
 
 ## Notes
 
-- Discovered that the existing `setNodeRef` inside `DroppableColumn` was a no-op
-  (`const setNodeRef = (node: HTMLElement | null) => {};`) — the inline comment
-  "Simplified - no drag and drop, no complex interactions" confirms drag/drop
-  was removed earlier. Nothing to compose with, so we cleanly replace it.
-- TS hoisting bug surfaced once: the restoration `useLayoutEffect` must be
-  placed **after** `loading` is destructured from `useSpecTasks`, not next to
-  the `columns` memo. Moved it to sit right after the `useSpecTasks` block.
-- `useSpecTasks` polls every 3.1 s. The `hasRestoredRef` gate prevents
-  restoration from running again after initial success, despite `columns`
-  identity changing on each poll.
-- **Dropped the rAF throttling on save handlers.** Initial design used rAF
-  to batch saves, but the cleanup effect cancelled pending rAFs on unmount —
-  meaning the last scroll position before navigation was lost. Synchronous
-  `Map.set` per scroll event is cheap and reliable.
-- **Restore effect must re-run until satisfied.** On warm-cache remount,
-  render 1 has `tasks=[]` (local state) even though `loading=false` (cache
-  hit). Columns render empty bodies. The restore effect must defer (not mark
-  hasRestored) until columns have actual height. To avoid an infinite-retry
-  loop when a column has *genuinely* shrunk, gate "defer vs clamp" on
-  `columns.some(c => c.tasks.length > 0)` — once any column has tasks, we
-  trust the current state.
+- The Helix backend creates the GitHub PR on the *first* push to the feature branch and templates the body from the spec-task prompt (with a "🔗 Open in Helix / 🚀 Built with Helix" footer). It then never updated the body again — that's the bug Change 2 fixes.
+- `git_http_server.go` and `spec_task_workflow_handlers.go` each have their own near-duplicate `getPullRequestContent` / `parsePullRequestMarkdown` / `buildPRFooter`. Out of scope to dedupe here; Change 2 stays in `git_http_server.go` to match the push path.
+- Existing comment in `ensurePullRequest` ("Do not update the PR title/description here — the user may have renamed the PR") deliberately avoids updates on every feature-branch push. Change 2 doesn't relax that guard; it adds a *new* path that only fires on helix-specs pushes that touched `pull_request*.md` — making the trigger explicit (user edited the description on purpose).
+- Discovered that `docker-compose.dev.yaml` added a `./helix-org:/app/helix-org` mount in a recent main commit; the running api container needs `docker compose up -d api` after pulling main, otherwise the new code referencing `helix-org/*` packages fails to build.
