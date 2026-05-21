@@ -2746,7 +2746,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     gap: 1,
                   }}
                 >
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
                     <RobustPromptInput
                       sessionId={activeSessionId}
                       specTaskId={task.id}
