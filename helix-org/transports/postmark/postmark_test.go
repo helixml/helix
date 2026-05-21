@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
@@ -67,7 +69,7 @@ func setPostmarkConfig(t *testing.T, reg *config.Registry, token, inbound, from 
 	}
 }
 
-func seedEmailStream(t *testing.T, st *store.Store, id domain.StreamID, alias string) domain.Stream {
+func seedEmailStream(t *testing.T, st *store.Store, id stream.ID, alias string) domain.Stream {
 	t.Helper()
 	cfg, _ := json.Marshal(transport.EmailConfig{Alias: alias})
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
@@ -298,7 +300,7 @@ func TestEmitOutbound(t *testing.T) {
 		ThreadID:  "<root@example.com>",
 	}
 	event, err := domain.NewMessageEvent(
-		domain.EventID("e-1"),
+		event.ID("e-1"),
 		stream.ID,
 		"w-sam",
 		msg,

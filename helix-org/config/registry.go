@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -140,7 +141,7 @@ func (r *Registry) Specs() []Spec {
 //
 // updatedBy is the WorkerID for the audit column; empty is allowed
 // today (auth not yet wired) but reserved.
-func (r *Registry) Set(ctx context.Context, key, value string, updatedBy domain.WorkerID) error {
+func (r *Registry) Set(ctx context.Context, key, value string, updatedBy worker.ID) error {
 	spec, ok := r.Spec(key)
 	if !ok {
 		return fmt.Errorf("unknown config key %q (no subsystem has registered it)", key)

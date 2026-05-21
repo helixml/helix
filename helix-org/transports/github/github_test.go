@@ -36,6 +36,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
@@ -97,7 +98,7 @@ func setGitHubConfig(t *testing.T, reg *config.Registry, token, secret string) {
 
 // seedGitHubStream creates a github-transport Stream with the given
 // repo and event whitelist. Returns the persisted Stream.
-func seedGitHubStream(t *testing.T, st *store.Store, id domain.StreamID, repo string, events []string) domain.Stream {
+func seedGitHubStream(t *testing.T, st *store.Store, id stream.ID, repo string, events []string) domain.Stream {
 	t.Helper()
 	cfg, _ := json.Marshal(map[string]any{"repo": repo, "events": events})
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),

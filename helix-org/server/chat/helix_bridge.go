@@ -12,8 +12,8 @@ import (
 
 	"log/slog"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
-	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"
 )
@@ -22,7 +22,7 @@ import (
 // s-activations-<workerID> for every owner-chat turn — same shape
 // the spawner uses for AI workers. Optional: when nil, owner-chat
 // runs without publishing (useful for tests).
-type ActivationPublisher func(ctx context.Context, workerID domain.WorkerID, body string)
+type ActivationPublisher func(ctx context.Context, workerID worker.ID, body string)
 
 // HelixBridge drives the owner chat surface against a Helix chat
 // session instead of a local `claude` subprocess. Each Bridge owns
@@ -44,10 +44,10 @@ type ActivationPublisher func(ctx context.Context, workerID domain.WorkerID, bod
 // renders both backends identically.
 type HelixBridge struct {
 	client      helixclient.Client
-	ensure      ProjectEnsurer // resolves the owner Worker's per-Worker project; nil in app-only mode
-	appID       string         // app-only mode: when set, skip project lifecycle and chat against this existing Helix app
+	ensure      ProjectEnsurer                        // resolves the owner Worker's per-Worker project; nil in app-only mode
+	appID       string                                // app-only mode: when set, skip project lifecycle and chat against this existing Helix app
 	appIDFunc   func(context.Context) (string, error) // app-only mode: dynamic lookup (re-read per send so config changes take effect without restart). Takes precedence over appID.
-	ownerID     domain.WorkerID
+	ownerID     worker.ID
 	sessionRole string
 	provider    string
 	model       string
@@ -58,8 +58,8 @@ type HelixBridge struct {
 	// loadSessionID / saveSessionID persist the owner-chat session
 	// pointer so it survives process restarts. Optional — see
 	// HelixConfig.LoadSessionID / SaveSessionID.
-	loadSessionID func(ctx context.Context, workerID domain.WorkerID) (string, error)
-	saveSessionID func(ctx context.Context, workerID domain.WorkerID, sessionID string) error
+	loadSessionID func(ctx context.Context, workerID worker.ID) (string, error)
+	saveSessionID func(ctx context.Context, workerID worker.ID, sessionID string) error
 	loadOnce      sync.Once
 
 	// publishActivation writes events to s-activations-<workerID> so
@@ -90,7 +90,7 @@ type HelixBridge struct {
 // always the target. The interface keeps the chat package free of a
 // hard import on tools/.
 type ProjectEnsurer interface {
-	Ensure(ctx context.Context, workerID domain.WorkerID) (projectID, agentAppID, repoID string, err error)
+	Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error)
 }
 
 // HelixConfig wires a HelixBridge. The bridge holds no global
@@ -102,11 +102,11 @@ type ProjectEnsurer interface {
 type HelixConfig struct {
 	Client      helixclient.Client
 	Ensure      ProjectEnsurer
-	OwnerID     domain.WorkerID // typically "w-owner"
-	SessionRole string          // chat.session_role, e.g. "owner-chat"
-	Provider    string          // chat.provider (ignored in app-only mode)
-	Model       string          // chat.model (ignored in app-only mode)
-	CWD         string          // server cwd, only used as a stable label
+	OwnerID     worker.ID // typically "w-owner"
+	SessionRole string    // chat.session_role, e.g. "owner-chat"
+	Provider    string    // chat.provider (ignored in app-only mode)
+	Model       string    // chat.model (ignored in app-only mode)
+	CWD         string    // server cwd, only used as a stable label
 	Logger      *slog.Logger
 
 	// AppID enables "app-only" mode: instead of helix-org provisioning
@@ -133,8 +133,8 @@ type HelixConfig struct {
 	// looks up the persisted ID on first send and writes it on each
 	// attach. Both fields opt-in — leaving them nil keeps the legacy
 	// in-memory-only behaviour for tests and standalone deploys.
-	LoadSessionID func(ctx context.Context, workerID domain.WorkerID) (string, error)
-	SaveSessionID func(ctx context.Context, workerID domain.WorkerID, sessionID string) error
+	LoadSessionID func(ctx context.Context, workerID worker.ID) (string, error)
+	SaveSessionID func(ctx context.Context, workerID worker.ID, sessionID string) error
 
 	// PublishActivation writes events to s-activations-<workerID> so
 	// every owner-chat turn is recorded the same way every AI Worker's
@@ -178,22 +178,22 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 		logger = slog.Default()
 	}
 	return &HelixBridge{
-		client:         cfg.Client,
-		ensure:         cfg.Ensure,
-		appID:          cfg.AppID,
-		appIDFunc:      cfg.AppIDFunc,
-		ownerID:        cfg.OwnerID,
-		sessionRole:    cfg.SessionRole,
-		provider:       cfg.Provider,
-		model:          cfg.Model,
-		cwd:            cfg.CWD,
-		logger:         logger,
+		client:            cfg.Client,
+		ensure:            cfg.Ensure,
+		appID:             cfg.AppID,
+		appIDFunc:         cfg.AppIDFunc,
+		ownerID:           cfg.OwnerID,
+		sessionRole:       cfg.SessionRole,
+		provider:          cfg.Provider,
+		model:             cfg.Model,
+		cwd:               cfg.CWD,
+		logger:            logger,
 		loadSessionID:     cfg.LoadSessionID,
 		saveSessionID:     cfg.SaveSessionID,
 		publishActivation: cfg.PublishActivation,
-		listeners:      make(map[chan string]struct{}),
-		seen:           make(map[string]struct{}),
-		orgIDByProject: make(map[string]string),
+		listeners:         make(map[chan string]struct{}),
+		seen:              make(map[string]struct{}),
+		orgIDByProject:    make(map[string]string),
 	}, nil
 }
 

@@ -3,6 +3,8 @@ package domain
 import (
 	"errors"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // Environment is a Worker's workspace — a directory on disk where the
@@ -11,13 +13,13 @@ import (
 // manager populates the directory before calling hire_worker, and the
 // agent manages their own files from then on.
 type Environment struct {
-	WorkerID  WorkerID
+	WorkerID  worker.ID
 	Path      string
 	CreatedAt time.Time
 }
 
 // NewEnvironment validates and constructs an Environment.
-func NewEnvironment(workerID WorkerID, path string, createdAt time.Time) (Environment, error) {
+func NewEnvironment(workerID worker.ID, path string, createdAt time.Time) (Environment, error) {
 	if workerID == "" {
 		return Environment{}, errors.New("environment workerId is empty")
 	}

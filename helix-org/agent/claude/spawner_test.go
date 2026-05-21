@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/broadcast"
@@ -162,17 +165,17 @@ func TestPublishActivationEventAppendsAndNotifies(t *testing.T) {
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 
 	streamID := agent.ActivationStreamID("w-x")
-	stream, err := domain.NewStream(streamID, "Activations: w-x", "test", "w-owner", now, transport.Transport{})
+	str, err := domain.NewStream(streamID, "Activations: w-x", "test", "w-owner", now, transport.Transport{})
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
-	if err := s.Streams.Create(ctx, stream); err != nil {
+	if err := s.Streams.Create(ctx, str); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
 
 	bc := broadcast.New()
-	wake := bc.Subscribe([]domain.StreamID{streamID})
-	t.Cleanup(func() { bc.Unsubscribe([]domain.StreamID{streamID}, wake) })
+	wake := bc.Subscribe([]stream.ID{streamID})
+	t.Cleanup(func() { bc.Unsubscribe([]stream.ID{streamID}, wake) })
 
 	cfg := SpawnerConfig{
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -228,15 +231,15 @@ func TestProjectEnvWritesCanonicalState(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 
-	role, _ := domain.NewRole("r-eng", "# Role: Engineer\nBuild stuff.", now)
-	if err := s.Roles.Create(ctx, role); err != nil {
+	r, _ := role.New("r-eng", "# Role: Engineer\nBuild stuff.", nil, nil, now)
+	if err := s.Roles.Create(ctx, r); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
 	pos, _ := domain.NewPosition("p-eng", "r-eng", nil)
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	worker, _ := domain.NewAIWorker("w-eng", []domain.PositionID{"p-eng"}, "# Persona\nAlice.")
+	worker, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona\nAlice.")
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
@@ -261,7 +264,7 @@ func TestProjectEnvWritesCanonicalState(t *testing.T) {
 		}
 	}
 
-	updated := domain.Role{ID: role.ID, Content: "# Role: Engineer v2", CreatedAt: role.CreatedAt, UpdatedAt: now}
+	updated := role.Role{ID: r.ID, Content: "# Role: Engineer v2", CreatedAt: r.CreatedAt, UpdatedAt: now}
 	if err := s.Roles.Update(ctx, updated); err != nil {
 		t.Fatalf("update role: %v", err)
 	}

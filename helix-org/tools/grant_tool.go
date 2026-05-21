@@ -7,6 +7,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/grant"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -17,11 +20,11 @@ type GrantTool struct {
 	deps Deps
 }
 
-const GrantToolName domain.ToolName = "grant_tool"
+const GrantToolName tool.Name = "grant_tool"
 
 var grantToolSchema = mustSchema[grantToolArgs]()
 
-func (t *GrantTool) Name() domain.ToolName           { return GrantToolName }
+func (t *GrantTool) Name() tool.Name                 { return GrantToolName }
 func (t *GrantTool) InputSchema() *jsonschema.Schema { return grantToolSchema }
 func (t *GrantTool) Description() string {
 	return "Grant a tool to a Worker. The grant is a boolean permission — holding it lets the " +
@@ -39,14 +42,14 @@ func (t *GrantTool) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if _, err := t.deps.Store.Workers.Get(ctx, domain.WorkerID(args.WorkerID)); err != nil {
+	if _, err := t.deps.Store.Workers.Get(ctx, worker.ID(args.WorkerID)); err != nil {
 		return nil, fmt.Errorf("worker %q: %w", args.WorkerID, err)
 	}
-	id := domain.GrantID(args.ID)
+	id := grant.ID(args.ID)
 	if id == "" {
-		id = domain.GrantID("g-" + t.deps.NewID())
+		id = grant.ID("g-" + t.deps.NewID())
 	}
-	grant, err := domain.NewToolGrant(id, domain.WorkerID(args.WorkerID), domain.ToolName(args.ToolName))
+	grant, err := domain.NewToolGrant(id, worker.ID(args.WorkerID), tool.Name(args.ToolName))
 	if err != nil {
 		return nil, err
 	}

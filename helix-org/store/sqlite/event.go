@@ -7,6 +7,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -32,7 +35,7 @@ func (r *eventsRepo) Append(ctx context.Context, e domain.Event) error {
 	return nil
 }
 
-func (r *eventsRepo) ListForStream(ctx context.Context, streamID domain.StreamID, limit int) ([]domain.Event, error) {
+func (r *eventsRepo) ListForStream(ctx context.Context, streamID stream.ID, limit int) ([]domain.Event, error) {
 	query := r.db.WithContext(ctx).Where("stream_id = ?", string(streamID)).Order("created_at DESC, id DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -44,7 +47,7 @@ func (r *eventsRepo) ListForStream(ctx context.Context, streamID domain.StreamID
 	return rowsToEvents(rows)
 }
 
-func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []domain.StreamID, since domain.EventID, limit int) ([]domain.Event, error) {
+func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []stream.ID, since event.ID, limit int) ([]domain.Event, error) {
 	if len(streamIDs) == 0 {
 		return nil, nil
 	}
@@ -101,7 +104,7 @@ func (r *eventsRepo) ListAll(ctx context.Context, limit int) ([]domain.Event, er
 	return rowsToEvents(rows)
 }
 
-func (r *eventsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID, limit int) ([]domain.Event, error) {
+func (r *eventsRepo) ListForWorker(ctx context.Context, workerID worker.ID, limit int) ([]domain.Event, error) {
 	// Join events with subscriptions to return only events on streams the
 	// worker subscribes to, newest first.
 	query := r.db.WithContext(ctx).
@@ -132,9 +135,9 @@ func eventToRow(e domain.Event) eventRow {
 
 func rowToEvent(row eventRow) (domain.Event, error) {
 	return domain.NewEvent(
-		domain.EventID(row.ID),
-		domain.StreamID(row.StreamID),
-		domain.WorkerID(row.Source),
+		event.ID(row.ID),
+		stream.ID(row.StreamID),
+		worker.ID(row.Source),
 		row.Body,
 		row.CreatedAt,
 	)

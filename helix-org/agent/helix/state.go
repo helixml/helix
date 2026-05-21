@@ -13,7 +13,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/store"
 )
 
@@ -79,7 +79,7 @@ const (
 
 // LoadState returns the Helix-backend state for a Worker. Empty
 // fields mean "not yet set"; never an error path.
-func LoadState(ctx context.Context, st *store.Store, workerID domain.WorkerID) (WorkerState, error) {
+func LoadState(ctx context.Context, st *store.Store, workerID worker.ID) (WorkerState, error) {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return WorkerState{}, errors.New("helix state: store is nil")
 	}
@@ -100,7 +100,7 @@ func LoadState(ctx context.Context, st *store.Store, workerID domain.WorkerID) (
 // hire_worker for this Worker. Empty userID is a no-op so re-hire /
 // re-activation in unauthenticated contexts doesn't wipe a user
 // captured by an earlier authenticated hire.
-func SaveHiringUser(ctx context.Context, st *store.Store, workerID domain.WorkerID, userID string) error {
+func SaveHiringUser(ctx context.Context, st *store.Store, workerID worker.ID, userID string) error {
 	if userID == "" {
 		return nil
 	}
@@ -112,7 +112,7 @@ func SaveHiringUser(ctx context.Context, st *store.Store, workerID domain.Worker
 
 // SaveProject persists the per-Worker project triple — created once
 // at first activation by ProjectApplier.Ensure.
-func SaveProject(ctx context.Context, st *store.Store, workerID domain.WorkerID, projectID, agentAppID, repoID string) error {
+func SaveProject(ctx context.Context, st *store.Store, workerID worker.ID, projectID, agentAppID, repoID string) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
@@ -125,7 +125,7 @@ func SaveProject(ctx context.Context, st *store.Store, workerID domain.WorkerID,
 
 // SaveSession persists the live Helix chat session ID. Reused across
 // activations so the per-Worker desktop container stays warm.
-func SaveSession(ctx context.Context, st *store.Store, workerID domain.WorkerID, sessionID string) error {
+func SaveSession(ctx context.Context, st *store.Store, workerID worker.ID, sessionID string) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
@@ -136,7 +136,7 @@ func SaveSession(ctx context.Context, st *store.Store, workerID domain.WorkerID,
 // the persisted project no longer exists on the Helix side (operator
 // deleted it directly). Wiping the session too prevents follow-up
 // sends from attaching to a dead container.
-func ClearProject(ctx context.Context, st *store.Store, workerID domain.WorkerID) error {
+func ClearProject(ctx context.Context, st *store.Store, workerID worker.ID) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}

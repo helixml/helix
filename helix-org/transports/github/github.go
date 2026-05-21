@@ -39,6 +39,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
@@ -222,7 +223,7 @@ func (t *Transport) HandleInbound() http.Handler {
 		now := nowUTC()
 		for _, s := range streams {
 			event, err := domain.NewMessageEvent(
-				domain.EventID("e-"+uuid.NewString()),
+				event.ID("e-"+uuid.NewString()),
 				s.ID,
 				"", // system-emitted: external sender, no helix Worker source
 				msg,

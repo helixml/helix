@@ -7,6 +7,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 )
@@ -26,11 +29,11 @@ type Publish struct {
 	deps Deps
 }
 
-const PublishName domain.ToolName = "publish"
+const PublishName tool.Name = "publish"
 
 var publishSchema = mustSchema[publishArgs]()
 
-func (t *Publish) Name() domain.ToolName { return PublishName }
+func (t *Publish) Name() tool.Name { return PublishName }
 func (t *Publish) Description() string {
 	return "Append an Event with the given body to a Stream. Wakes long-poll observers and " +
 		"activates every subscribed AI Worker. Optional fields (to, subject, threadId, " +
@@ -59,7 +62,7 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	if args.StreamID == "" || args.Body == "" {
 		return nil, fmt.Errorf("streamId and body are required")
 	}
-	streamID := domain.StreamID(args.StreamID)
+	streamID := stream.ID(args.StreamID)
 	stream, err := t.deps.Store.Streams.Get(ctx, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
@@ -84,7 +87,7 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 		Attachments:     args.Attachments,
 	}
 	event, err := domain.NewMessageEvent(
-		domain.EventID("e-"+t.deps.NewID()),
+		event.ID("e-"+t.deps.NewID()),
 		streamID,
 		inv.Caller.ID(),
 		msg,

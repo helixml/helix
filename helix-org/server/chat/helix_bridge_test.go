@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
@@ -20,7 +20,7 @@ type fakeEnsurer struct {
 	projectID, agentAppID, repoID string
 }
 
-func (f *fakeEnsurer) Ensure(_ context.Context, _ domain.WorkerID) (string, string, string, error) {
+func (f *fakeEnsurer) Ensure(_ context.Context, _ worker.ID) (string, string, string, error) {
 	return f.projectID, f.agentAppID, f.repoID, nil
 }
 

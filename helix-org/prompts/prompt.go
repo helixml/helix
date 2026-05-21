@@ -10,7 +10,7 @@ package prompts
 import (
 	"context"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/tool"
 )
 
 // Name is the identifier MCP clients use to fetch a prompt. Must be
@@ -50,7 +50,7 @@ type Prompt interface {
 	// to every Worker. Gating exists because prompts that end in a
 	// tool call are useless to a Worker who can't make that call —
 	// surfacing the slash command would just produce a 403 at the end.
-	RequiresTool() domain.ToolName
+	RequiresTool() tool.Name
 
 	// Render produces the seed messages for this invocation. The args
 	// map is the validated set passed by the MCP client.

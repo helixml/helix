@@ -9,7 +9,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -27,11 +31,11 @@ type DM struct {
 	deps Deps
 }
 
-const DMName domain.ToolName = "dm"
+const DMName tool.Name = "dm"
 
 var dmSchema = mustSchema[dmArgs]()
 
-func (t *DM) Name() domain.ToolName { return DMName }
+func (t *DM) Name() tool.Name { return DMName }
 func (t *DM) Description() string {
 	return "Send a direct message (DM/PM/private message) to a single other Worker. " +
 		"Reach for this whenever the user says to DM/message/ping a named colleague. " +
@@ -57,7 +61,7 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 		return nil, fmt.Errorf("toWorkerId and body are required")
 	}
 	sender := inv.Caller.ID()
-	recipient := domain.WorkerID(args.ToWorkerID)
+	recipient := worker.ID(args.ToWorkerID)
 	if sender == recipient {
 		return nil, fmt.Errorf("cannot DM yourself")
 	}
@@ -86,7 +90,7 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 	// Make sure both parties are subscribed (idempotent). The recipient
 	// might have unsubscribed since the last DM; re-subscribe them so
 	// the message actually reaches them.
-	for _, wid := range []domain.WorkerID{sender, recipient} {
+	for _, wid := range []worker.ID{sender, recipient} {
 		if _, err := t.deps.Store.Subscriptions.Find(ctx, wid, streamID); err == nil {
 			continue
 		} else if !errors.Is(err, store.ErrNotFound) {
@@ -107,7 +111,7 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 		Body: args.Body,
 	}
 	event, err := domain.NewMessageEvent(
-		domain.EventID("e-"+t.deps.NewID()),
+		event.ID("e-"+t.deps.NewID()),
 		streamID,
 		sender,
 		msg,
@@ -135,8 +139,8 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 
 // dmStreamID returns the deterministic Stream ID for a DM between two
 // Workers, ordered by string compare so A→B and B→A share one Stream.
-func dmStreamID(a, b domain.WorkerID) domain.StreamID {
+func dmStreamID(a, b worker.ID) stream.ID {
 	pair := []string{string(a), string(b)}
 	sort.Strings(pair)
-	return domain.StreamID("s-dm-" + pair[0] + "-" + pair[1])
+	return stream.ID("s-dm-" + pair[0] + "-" + pair[1])
 }

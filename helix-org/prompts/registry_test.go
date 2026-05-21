@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/prompts"
 )
 
@@ -14,16 +14,16 @@ import (
 // without coupling these tests to the new_role implementation.
 type stubPrompt struct {
 	name Name
-	tool domain.ToolName
+	tool tool.Name
 }
 
 type Name = prompts.Name
 
-func (s stubPrompt) Name() Name                    { return s.name }
-func (stubPrompt) Title() string                   { return "stub" }
-func (stubPrompt) Description() string             { return "stub" }
-func (stubPrompt) Arguments() []prompts.Argument   { return nil }
-func (s stubPrompt) RequiresTool() domain.ToolName { return s.tool }
+func (s stubPrompt) Name() Name                  { return s.name }
+func (stubPrompt) Title() string                 { return "stub" }
+func (stubPrompt) Description() string           { return "stub" }
+func (stubPrompt) Arguments() []prompts.Argument { return nil }
+func (s stubPrompt) RequiresTool() tool.Name     { return s.tool }
 func (stubPrompt) Render(_ context.Context, _ map[string]string) ([]prompts.Message, error) {
 	return []prompts.Message{{Role: "user", Text: "stub"}}, nil
 }

@@ -1,23 +1,28 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/worker"
+)
 
 func TestNewHumanWorker(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name      string
-		id        WorkerID
-		positions []PositionID
+		id        worker.ID
+		positions []position.ID
 		identity  string
 		wantErr   bool
 	}{
-		{"valid", "w-1", []PositionID{"p-ceo"}, "i am the ceo", false},
-		{"valid empty identity", "w-1", []PositionID{"p-ceo"}, "", false},
-		{"empty id", "", []PositionID{"p-ceo"}, "", true},
+		{"valid", "w-1", []position.ID{"p-ceo"}, "i am the ceo", false},
+		{"valid empty identity", "w-1", []position.ID{"p-ceo"}, "", false},
+		{"empty id", "", []position.ID{"p-ceo"}, "", true},
 		{"no positions (vacated)", "w-1", nil, "", false},
-		{"empty position id", "w-1", []PositionID{""}, "", true},
-		{"duplicate positions", "w-1", []PositionID{"p-ceo", "p-ceo"}, "", true},
+		{"empty position id", "w-1", []position.ID{""}, "", true},
+		{"duplicate positions", "w-1", []position.ID{"p-ceo", "p-ceo"}, "", true},
 	}
 
 	for _, tc := range cases {
@@ -46,7 +51,7 @@ func TestNewHumanWorker(t *testing.T) {
 func TestNewAIWorker(t *testing.T) {
 	t.Parallel()
 
-	w, err := NewAIWorker("w-ai", []PositionID{"p-docs"}, "you are the docs editor")
+	w, err := NewAIWorker("w-ai", []position.ID{"p-docs"}, "you are the docs editor")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
@@ -64,7 +69,7 @@ func TestNewAIWorker(t *testing.T) {
 func TestWorkerWithIdentityContent(t *testing.T) {
 	t.Parallel()
 
-	w, err := NewAIWorker("w-1", []PositionID{"p-1"}, "old")
+	w, err := NewAIWorker("w-1", []position.ID{"p-1"}, "old")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
@@ -86,7 +91,7 @@ func TestWorkerWithIdentityContent(t *testing.T) {
 func TestWorkerPositionsIsolation(t *testing.T) {
 	t.Parallel()
 
-	positions := []PositionID{"p-ceo"}
+	positions := []position.ID{"p-ceo"}
 	w, err := NewHumanWorker("w-1", positions, "")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)

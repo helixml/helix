@@ -7,6 +7,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -15,11 +18,11 @@ type CreatePosition struct {
 	deps Deps
 }
 
-const CreatePositionName domain.ToolName = "create_position"
+const CreatePositionName tool.Name = "create_position"
 
 var createPositionSchema = mustSchema[createPositionArgs]()
 
-func (t *CreatePosition) Name() domain.ToolName           { return CreatePositionName }
+func (t *CreatePosition) Name() tool.Name                 { return CreatePositionName }
 func (t *CreatePosition) InputSchema() *jsonschema.Schema { return createPositionSchema }
 func (t *CreatePosition) Description() string {
 	return "Instantiate a Role as a concrete slot in the org chart, optionally under a parent Position."
@@ -37,25 +40,25 @@ func (t *CreatePosition) Invoke(ctx context.Context, inv domain.Invocation) (jso
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
 
-	if _, err := t.deps.Store.Roles.Get(ctx, domain.RoleID(args.RoleID)); err != nil {
+	if _, err := t.deps.Store.Roles.Get(ctx, role.ID(args.RoleID)); err != nil {
 		return nil, fmt.Errorf("role %q: %w", args.RoleID, err)
 	}
 
-	var parent *domain.PositionID
+	var parent *position.ID
 	if args.ParentID != "" {
-		p := domain.PositionID(args.ParentID)
+		p := position.ID(args.ParentID)
 		if _, err := t.deps.Store.Positions.Get(ctx, p); err != nil {
 			return nil, fmt.Errorf("parent %q: %w", args.ParentID, err)
 		}
 		parent = &p
 	}
 
-	id := domain.PositionID(args.ID)
+	id := position.ID(args.ID)
 	if id == "" {
-		id = domain.PositionID("p-" + t.deps.NewID())
+		id = position.ID("p-" + t.deps.NewID())
 	}
 
-	pos, err := domain.NewPosition(id, domain.RoleID(args.RoleID), parent)
+	pos, err := domain.NewPosition(id, role.ID(args.RoleID), parent)
 	if err != nil {
 		return nil, err
 	}

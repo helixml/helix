@@ -15,11 +15,11 @@ import (
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
-	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/server/chat"
 	orgstore "github.com/helixml/helix/helix-org/store"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -111,14 +111,14 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 		// restart (or a parallel UI like Helix's own project page)
 		// can pick up the warm Zed sandbox instead of booting a
 		// fresh one.
-		LoadSessionID: func(ctx context.Context, workerID domain.WorkerID) (string, error) {
+		LoadSessionID: func(ctx context.Context, workerID worker.ID) (string, error) {
 			state, err := agenthelix.LoadState(ctx, applier.Store, workerID)
 			if err != nil {
 				return "", err
 			}
 			return state.SessionID, nil
 		},
-		SaveSessionID: func(ctx context.Context, workerID domain.WorkerID, sessionID string) error {
+		SaveSessionID: func(ctx context.Context, workerID worker.ID, sessionID string) error {
 			return agenthelix.SaveSession(ctx, applier.Store, workerID, sessionID)
 		},
 		// Publish owner-chat turns to s-activations-w-owner using the
@@ -128,7 +128,7 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 		// perspective; the only difference is *who triggers* the
 		// activation (human typing into the chat surface vs.
 		// dispatcher reacting to a stream event).
-		PublishActivation: func(ctx context.Context, workerID domain.WorkerID, body string) {
+		PublishActivation: func(ctx context.Context, workerID worker.ID, body string) {
 			_, _ = agent.PublishActivationEvent(ctx, orgSt, bc, newID, now, logger, workerID, body)
 		},
 	})
@@ -138,7 +138,6 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 	log.Info().Msg("helix-org chat backend wired (project-applier mode — owner is a Worker)")
 	return bridge, nil
 }
-
 
 // ensureHelixOrgServiceAPIKey returns a valid Helix api_key for the
 // embedded helix-org client, minting one on first run. The result is
@@ -206,7 +205,7 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 	if err != nil {
 		return "", fmt.Errorf("encode api key: %w", err)
 	}
-	if err := reg.Set(ctx, "helix.api_key", string(payload), domain.WorkerID("w-owner")); err != nil {
+	if err := reg.Set(ctx, "helix.api_key", string(payload), worker.ID("w-owner")); err != nil {
 		return "", fmt.Errorf("save api key to config: %w", err)
 	}
 	log.Info().

@@ -8,6 +8,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/grant"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -34,7 +37,7 @@ func (r *grantsRepo) Create(ctx context.Context, g domain.ToolGrant) error {
 	return nil
 }
 
-func (r *grantsRepo) Get(ctx context.Context, id domain.GrantID) (domain.ToolGrant, error) {
+func (r *grantsRepo) Get(ctx context.Context, id grant.ID) (domain.ToolGrant, error) {
 	var row grantRow
 	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
 	if err != nil {
@@ -46,7 +49,7 @@ func (r *grantsRepo) Get(ctx context.Context, id domain.GrantID) (domain.ToolGra
 	return rowToGrant(row)
 }
 
-func (r *grantsRepo) ListByWorker(ctx context.Context, workerID domain.WorkerID) ([]domain.ToolGrant, error) {
+func (r *grantsRepo) ListByWorker(ctx context.Context, workerID worker.ID) ([]domain.ToolGrant, error) {
 	var rows []grantRow
 	if err := r.db.WithContext(ctx).Where("worker_id = ?", string(workerID)).Order("id").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list grants for worker %q: %w", workerID, err)
@@ -62,7 +65,7 @@ func (r *grantsRepo) ListByWorker(ctx context.Context, workerID domain.WorkerID)
 	return out, nil
 }
 
-func (r *grantsRepo) FindForWorkerAndTool(ctx context.Context, workerID domain.WorkerID, toolName domain.ToolName) (domain.ToolGrant, error) {
+func (r *grantsRepo) FindForWorkerAndTool(ctx context.Context, workerID worker.ID, toolName tool.Name) (domain.ToolGrant, error) {
 	var row grantRow
 	err := r.db.WithContext(ctx).Where("worker_id = ? AND tool_name = ?", string(workerID), string(toolName)).First(&row).Error
 	if err != nil {
@@ -74,7 +77,7 @@ func (r *grantsRepo) FindForWorkerAndTool(ctx context.Context, workerID domain.W
 	return rowToGrant(row)
 }
 
-func (r *grantsRepo) Delete(ctx context.Context, id domain.GrantID) error {
+func (r *grantsRepo) Delete(ctx context.Context, id grant.ID) error {
 	res := r.db.WithContext(ctx).Delete(&grantRow{}, "id = ?", string(id))
 	if res.Error != nil {
 		return fmt.Errorf("delete grant %q: %w", id, res.Error)
@@ -95,8 +98,8 @@ func grantToRow(g domain.ToolGrant) grantRow {
 
 func rowToGrant(row grantRow) (domain.ToolGrant, error) {
 	return domain.NewToolGrant(
-		domain.GrantID(row.ID),
-		domain.WorkerID(row.WorkerID),
-		domain.ToolName(row.ToolName),
+		grant.ID(row.ID),
+		worker.ID(row.WorkerID),
+		tool.Name(row.ToolName),
 	)
 }

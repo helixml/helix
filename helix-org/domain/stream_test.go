@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 func TestNewStream(t *testing.T) {
@@ -13,9 +15,9 @@ func TestNewStream(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name      string
-		id        StreamID
+		id        stream.ID
 		stName    string
-		createdBy WorkerID
+		createdBy worker.ID
 		createdAt time.Time
 		wantErr   bool
 	}{

@@ -8,13 +8,16 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
 type workerView struct {
-	ID        domain.WorkerID     `json:"id"`
-	Kind      domain.WorkerKind   `json:"kind"`
-	Positions []domain.PositionID `json:"positions"`
+	ID        worker.ID         `json:"id"`
+	Kind      domain.WorkerKind `json:"kind"`
+	Positions []position.ID     `json:"positions"`
 }
 
 func workerViewOf(w domain.Worker) workerView {
@@ -26,13 +29,13 @@ type ListWorkers struct {
 	deps Deps
 }
 
-const ListWorkersName domain.ToolName = "list_workers"
+const ListWorkersName tool.Name = "list_workers"
 
 var listWorkersSchema = mustSchema[listWorkersArgs]()
 
 type listWorkersArgs struct{}
 
-func (t *ListWorkers) Name() domain.ToolName           { return ListWorkersName }
+func (t *ListWorkers) Name() tool.Name                 { return ListWorkersName }
 func (t *ListWorkers) InputSchema() *jsonschema.Schema { return listWorkersSchema }
 func (t *ListWorkers) Description() string {
 	return "List every Worker: id, kind (human|ai), and Positions held."
@@ -55,7 +58,7 @@ type GetWorker struct {
 	deps Deps
 }
 
-const GetWorkerName domain.ToolName = "get_worker"
+const GetWorkerName tool.Name = "get_worker"
 
 var getWorkerSchema = mustSchema[getWorkerArgs]()
 
@@ -63,7 +66,7 @@ type getWorkerArgs struct {
 	ID string `json:"id"`
 }
 
-func (t *GetWorker) Name() domain.ToolName           { return GetWorkerName }
+func (t *GetWorker) Name() tool.Name                 { return GetWorkerName }
 func (t *GetWorker) InputSchema() *jsonschema.Schema { return getWorkerSchema }
 func (t *GetWorker) Description() string {
 	return "Fetch one Worker by id."
@@ -77,7 +80,7 @@ func (t *GetWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	w, err := t.deps.Store.Workers.Get(ctx, domain.WorkerID(args.ID))
+	w, err := t.deps.Store.Workers.Get(ctx, worker.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", args.ID, err)
 	}
@@ -89,7 +92,7 @@ type ListWorkerGrants struct {
 	deps Deps
 }
 
-const ListWorkerGrantsName domain.ToolName = "list_worker_grants"
+const ListWorkerGrantsName tool.Name = "list_worker_grants"
 
 var listWorkerGrantsSchema = mustSchema[listWorkerGrantsArgs]()
 
@@ -97,7 +100,7 @@ type listWorkerGrantsArgs struct {
 	WorkerID string `json:"workerId"`
 }
 
-func (t *ListWorkerGrants) Name() domain.ToolName           { return ListWorkerGrantsName }
+func (t *ListWorkerGrants) Name() tool.Name                 { return ListWorkerGrantsName }
 func (t *ListWorkerGrants) InputSchema() *jsonschema.Schema { return listWorkerGrantsSchema }
 func (t *ListWorkerGrants) Description() string {
 	return "List the ToolGrants held by a Worker — i.e. the tools they may invoke over MCP."
@@ -111,7 +114,7 @@ func (t *ListWorkerGrants) Invoke(ctx context.Context, inv domain.Invocation) (j
 	if args.WorkerID == "" {
 		return nil, fmt.Errorf("workerId is required")
 	}
-	grants, err := t.deps.Store.Grants.ListByWorker(ctx, domain.WorkerID(args.WorkerID))
+	grants, err := t.deps.Store.Grants.ListByWorker(ctx, worker.ID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("list grants for %q: %w", args.WorkerID, err)
 	}
@@ -127,7 +130,7 @@ type GetWorkerEnvironment struct {
 	deps Deps
 }
 
-const GetWorkerEnvironmentName domain.ToolName = "get_worker_environment"
+const GetWorkerEnvironmentName tool.Name = "get_worker_environment"
 
 var getWorkerEnvironmentSchema = mustSchema[getWorkerEnvironmentArgs]()
 
@@ -136,12 +139,12 @@ type getWorkerEnvironmentArgs struct {
 }
 
 type environmentView struct {
-	WorkerID  domain.WorkerID `json:"workerId"`
-	Path      string          `json:"path"`
-	CreatedAt time.Time       `json:"createdAt"`
+	WorkerID  worker.ID `json:"workerId"`
+	Path      string    `json:"path"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
-func (t *GetWorkerEnvironment) Name() domain.ToolName { return GetWorkerEnvironmentName }
+func (t *GetWorkerEnvironment) Name() tool.Name { return GetWorkerEnvironmentName }
 func (t *GetWorkerEnvironment) InputSchema() *jsonschema.Schema {
 	return getWorkerEnvironmentSchema
 }
@@ -158,7 +161,7 @@ func (t *GetWorkerEnvironment) Invoke(ctx context.Context, inv domain.Invocation
 	if args.WorkerID == "" {
 		return nil, fmt.Errorf("workerId is required")
 	}
-	env, err := t.deps.Store.Environments.Get(ctx, domain.WorkerID(args.WorkerID))
+	env, err := t.deps.Store.Environments.Get(ctx, worker.ID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("get environment for %q: %w", args.WorkerID, err)
 	}

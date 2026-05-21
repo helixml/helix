@@ -3,6 +3,10 @@ package domain
 import (
 	"testing"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 func TestNewEvent(t *testing.T) {
@@ -11,9 +15,9 @@ func TestNewEvent(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name    string
-		id      EventID
-		stream  StreamID
-		source  WorkerID
+		id      event.ID
+		stream  stream.ID
+		source  worker.ID
 		body    string
 		ts      time.Time
 		wantErr bool

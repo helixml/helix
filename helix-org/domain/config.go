@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // Config is one operational-config row: a key, an opaque JSON value,
@@ -18,13 +20,13 @@ type Config struct {
 	Key       string
 	Value     string // JSON-encoded
 	UpdatedAt time.Time
-	UpdatedBy WorkerID // empty until auth lands
+	UpdatedBy worker.ID // empty until auth lands
 }
 
 // NewConfig validates and constructs a Config. Key must be non-empty,
 // dot-namespaced (no spaces, no leading/trailing dots), and the value
 // must be non-empty. Value JSON shape is the registry's responsibility.
-func NewConfig(key, value string, updatedAt time.Time, updatedBy WorkerID) (Config, error) {
+func NewConfig(key, value string, updatedAt time.Time, updatedBy worker.ID) (Config, error) {
 	if key == "" {
 		return Config{}, errors.New("config key is empty")
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/domain"
@@ -26,7 +27,7 @@ type IDGen func() string
 // dispatcher itself imports tools).
 type EventDispatcher interface {
 	Dispatch(ctx context.Context, event domain.Event)
-	DispatchHire(ctx context.Context, workerID domain.WorkerID, envPath string)
+	DispatchHire(ctx context.Context, workerID worker.ID, envPath string)
 }
 
 // Deps bundles the stores, clocks, and configuration tools need.

@@ -1,15 +1,21 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/helixml/helix/api/pkg/org/grant"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
+)
 
 func TestNewToolGrant(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name     string
-		id       GrantID
-		workerID WorkerID
-		toolName ToolName
+		id       grant.ID
+		workerID worker.ID
+		toolName tool.Name
 		wantErr  bool
 	}{
 		{"valid", "g-1", "w-1", "hire_worker", false},

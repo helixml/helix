@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -19,11 +21,11 @@ type Subscribe struct {
 	deps Deps
 }
 
-const SubscribeName domain.ToolName = "subscribe"
+const SubscribeName tool.Name = "subscribe"
 
 var subscribeSchema = mustSchema[subscribeArgs]()
 
-func (t *Subscribe) Name() domain.ToolName { return SubscribeName }
+func (t *Subscribe) Name() tool.Name { return SubscribeName }
 func (t *Subscribe) Description() string {
 	return "Subscribe the calling Worker to a Stream. Idempotent: a no-op if already subscribed."
 }
@@ -41,7 +43,7 @@ func (t *Subscribe) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
-	streamID := domain.StreamID(args.StreamID)
+	streamID := stream.ID(args.StreamID)
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}

@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // Message is the canonical Stream payload. It is always carried as
@@ -13,7 +17,7 @@ import (
 // Worker reading any Stream sees the same envelope.
 //
 // Identity convention:
-//   - From / To carry transport-native identifiers verbatim. WorkerID
+//   - From / To carry transport-native identifiers verbatim. worker.ID
 //     ("w-alice") when the originator is a known internal Worker;
 //     transport-native otherwise ("alice@example.com", "U0123ABCD",
 //     "+15551234567", "thermo-3"). No prefixes — Stream context plus
@@ -90,7 +94,7 @@ func (e Event) Message() (Message, error) {
 // NewMessageEvent is the standard way to construct an Event whose
 // Body holds a Message. It encodes the Message and delegates field
 // validation to NewEvent.
-func NewMessageEvent(id EventID, streamID StreamID, source WorkerID, msg Message, createdAt time.Time) (Event, error) {
+func NewMessageEvent(id event.ID, streamID stream.ID, source worker.ID, msg Message, createdAt time.Time) (Event, error) {
 	body, err := msg.Encode()
 	if err != nil {
 		return Event{}, err

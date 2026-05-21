@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -99,7 +101,7 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 		t.Fatalf("got %d events, want 2 (only s-a visible)", len(got))
 	}
 	if got[0].ID != "e-3" || got[1].ID != "e-1" {
-		t.Fatalf("order wrong: %v", []domain.EventID{got[0].ID, got[1].ID})
+		t.Fatalf("order wrong: %v", []event.ID{got[0].ID, got[1].ID})
 	}
 
 	limited, err := s.Events.ListForWorker(ctx, "w-1", 1)
@@ -129,22 +131,22 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 		{"e-4", "s-a", "second on a", 4 * time.Second},
 		{"e-5", "s-b", "second on b", 5 * time.Second},
 	} {
-		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.StreamID(e.st), "w-owner", e.body, base.Add(e.offset))
+		ev, _ := domain.NewEvent(event.ID(e.id), stream.ID(e.st), "w-owner", e.body, base.Add(e.offset))
 		if err := s.Events.Append(ctx, ev); err != nil {
 			t.Fatalf("Append %s: %v", e.id, err)
 		}
 	}
 
 	// since="" returns all matching events oldest-first.
-	all, err := s.Events.ListSince(ctx, []domain.StreamID{"s-a", "s-b"}, "", 0)
+	all, err := s.Events.ListSince(ctx, []stream.ID{"s-a", "s-b"}, "", 0)
 	if err != nil {
 		t.Fatalf("ListSince: %v", err)
 	}
-	gotIDs := make([]domain.EventID, len(all))
+	gotIDs := make([]event.ID, len(all))
 	for i, e := range all {
 		gotIDs[i] = e.ID
 	}
-	wantIDs := []domain.EventID{"e-1", "e-2", "e-4", "e-5"}
+	wantIDs := []event.ID{"e-1", "e-2", "e-4", "e-5"}
 	if len(gotIDs) != len(wantIDs) {
 		t.Fatalf("ids = %v, want %v", gotIDs, wantIDs)
 	}
@@ -156,7 +158,7 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 
 	// since=e-2 returns only events strictly newer than e-2 on the
 	// matching streams.
-	tail, err := s.Events.ListSince(ctx, []domain.StreamID{"s-a", "s-b"}, "e-2", 0)
+	tail, err := s.Events.ListSince(ctx, []stream.ID{"s-a", "s-b"}, "e-2", 0)
 	if err != nil {
 		t.Fatalf("ListSince since: %v", err)
 	}
@@ -174,7 +176,7 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 	}
 
 	// Unknown since falls through to "no lower bound".
-	full, err := s.Events.ListSince(ctx, []domain.StreamID{"s-a"}, "e-stale", 0)
+	full, err := s.Events.ListSince(ctx, []stream.ID{"s-a"}, "e-stale", 0)
 	if err != nil {
 		t.Fatalf("ListSince stale: %v", err)
 	}

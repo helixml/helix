@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -14,7 +15,7 @@ import (
 // It echoes the args back. Not part of the structural tool set.
 type Ping struct{}
 
-const PingName domain.ToolName = "ping"
+const PingName tool.Name = "ping"
 
 type pingArgs struct {
 	Message string `json:"message,omitempty"`
@@ -22,7 +23,7 @@ type pingArgs struct {
 
 var pingSchema = mustSchema[pingArgs]()
 
-func (Ping) Name() domain.ToolName           { return PingName }
+func (Ping) Name() tool.Name                 { return PingName }
 func (Ping) Description() string             { return "Echo a message back. Used to exercise the tool pipeline." }
 func (Ping) InputSchema() *jsonschema.Schema { return pingSchema }
 

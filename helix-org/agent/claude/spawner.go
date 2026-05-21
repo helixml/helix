@@ -24,6 +24,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/domain"
@@ -91,7 +94,7 @@ const mcpServerName = "helix"
 // Worker's activation Stream. Observers (typically the hiring Worker,
 // auto-subscribed at hire) watch via read_events on that Stream.
 func Spawner(cfg SpawnerConfig) agent.Spawner {
-	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []agent.Trigger) error {
+	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []agent.Trigger) error {
 		if len(triggers) == 0 {
 			return fmt.Errorf("spawner invoked with no triggers")
 		}
@@ -194,7 +197,7 @@ func Spawner(cfg SpawnerConfig) agent.Spawner {
 // once per activation, just before claude is exec'd. Reads from the
 // domain (DB); writes to disk (env). The DB is the source of truth;
 // disk is a per-activation projection.
-func projectEnv(ctx context.Context, s *store.Store, workerID domain.WorkerID, envPath string) error {
+func projectEnv(ctx context.Context, s *store.Store, workerID worker.ID, envPath string) error {
 	if s == nil {
 		return fmt.Errorf("spawner has no store")
 	}
@@ -246,12 +249,12 @@ func writeEnvFile(envPath, name, content string) error {
 //
 // All errors are logged and swallowed; a transient SQLite hiccup must
 // not abort the activation.
-func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID domain.WorkerID, streamID domain.StreamID, body string) {
+func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID worker.ID, streamID stream.ID, body string) {
 	if cfg.Store == nil || cfg.NewID == nil || cfg.Now == nil || body == "" {
 		return
 	}
 	event, err := domain.NewMessageEvent(
-		domain.EventID("e-"+cfg.NewID()),
+		event.ID("e-"+cfg.NewID()),
 		streamID,
 		workerID,
 		domain.Message{From: string(workerID), Body: body},
@@ -273,7 +276,7 @@ func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID dom
 // writeMCPConfig writes a per-worker mcp.json into envPath wiring claude
 // to the worker's MCP endpoint. Returning the path keeps the caller
 // honest about pointing --mcp-config at a real file.
-func writeMCPConfig(envPath, publicURL string, workerID domain.WorkerID) (string, error) {
+func writeMCPConfig(envPath, publicURL string, workerID worker.ID) (string, error) {
 	cfg := struct {
 		MCPServers map[string]mcpServerEntry `json:"mcpServers"`
 	}{

@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"strings"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/tools"
 )
 
@@ -45,7 +45,7 @@ func (Role) Arguments() []Argument {
 // RequiresTool gates the prompt on the create_role grant: a Worker
 // without it can't save the result, so surfacing the slash command
 // would only produce a dead-end at the very last step.
-func (Role) RequiresTool() domain.ToolName { return tools.CreateRoleName }
+func (Role) RequiresTool() tool.Name { return tools.CreateRoleName }
 
 func (Role) Render(_ context.Context, args map[string]string) ([]Message, error) {
 	body := roleTemplate

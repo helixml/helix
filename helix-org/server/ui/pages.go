@@ -137,7 +137,6 @@ func (*OrgChartFragment) TemplateText() string {
 	return `{{ template "org_chart" . }}` + orgChartHTML
 }
 
-
 // OrgDetail is the htmx fragment rendered in #org-detail. Exactly one
 // of IsPosition / IsWorker / IsHint is true. Position fragments carry
 // the editable role markdown and a list of workers at that position;
@@ -340,11 +339,11 @@ type EventCard struct {
 }
 
 var (
-	chatTpl      = tmpl.MustCompile(&ChatPage{})
-	orgTpl      = tmpl.MustCompile(&OrgPage{})
-	orgChartTpl = tmpl.MustCompile(&OrgChartFragment{})
-	orgDetailTpl = tmpl.MustCompile(&OrgDetail{})
-	settingsTpl  = tmpl.MustCompile(&SettingsPage{})
-	streamsTpl   = tmpl.MustCompile(&StreamsPage{})
+	chatTpl          = tmpl.MustCompile(&ChatPage{})
+	orgTpl           = tmpl.MustCompile(&OrgPage{})
+	orgChartTpl      = tmpl.MustCompile(&OrgChartFragment{})
+	orgDetailTpl     = tmpl.MustCompile(&OrgDetail{})
+	settingsTpl      = tmpl.MustCompile(&SettingsPage{})
+	streamsTpl       = tmpl.MustCompile(&StreamsPage{})
 	streamsEventsTpl = tmpl.MustCompile(&StreamsEventsFragment{})
 )

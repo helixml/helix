@@ -13,7 +13,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/grant"
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -38,9 +43,9 @@ type Params struct {
 
 // Result summarises the newly-created owner.
 type Result struct {
-	WorkerID        domain.WorkerID
-	RoleID          domain.RoleID
-	PositionID      domain.PositionID
+	WorkerID        worker.ID
+	RoleID          role.ID
+	PositionID      position.ID
 	EnvironmentPath string
 }
 
@@ -70,7 +75,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	}
 
 	now := time.Now().UTC()
-	role, err := domain.NewRole("r-owner", ownerRoleContent, now)
+	role, err := role.New("r-owner", ownerRoleContent, nil, nil, now)
 	if err != nil {
 		return Result{}, err
 	}
@@ -88,7 +93,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /ui/org to " +
 		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
-	owner, err := domain.NewHumanWorker(domain.WorkerID("w-owner"), []domain.PositionID{rootPos.ID}, ownerIdentity)
+	owner, err := domain.NewHumanWorker(worker.ID("w-owner"), []position.ID{rootPos.ID}, ownerIdentity)
 	if err != nil {
 		return Result{}, err
 	}
@@ -107,7 +112,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	// Every built-in tool — the owner is the root of trust and can do
 	// anything. They issue subordinate Workers a narrower set via the
 	// hire_worker / grant_tool tools.
-	defaults := []domain.ToolName{
+	defaults := []tool.Name{
 		// Mutations.
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
@@ -173,7 +178,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	for _, name := range defaults {
 		g, err := domain.NewToolGrant(
-			domain.GrantID("g-owner-"+uuid.NewString()),
+			grant.ID("g-owner-"+uuid.NewString()),
 			owner.ID(),
 			name,
 		)

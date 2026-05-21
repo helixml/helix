@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/dispatch"
@@ -66,7 +68,7 @@ func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Ser
 // seedStream creates a Stream with the given transport kind. The
 // caller's createdBy is a fixed test sentinel; we don't seed a
 // matching Worker because the webhook path doesn't read it.
-func seedStream(t *testing.T, s *store.Store, id domain.StreamID, kind transport.Kind) {
+func seedStream(t *testing.T, s *store.Store, id stream.ID, kind transport.Kind) {
 	t.Helper()
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
 		transport.Transport{Kind: kind})
@@ -88,8 +90,8 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	srv, s, bc := newWebhookServer(t, rd)
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
-	wake := bc.Subscribe([]domain.StreamID{"s-inbox"})
-	t.Cleanup(func() { bc.Unsubscribe([]domain.StreamID{"s-inbox"}, wake) })
+	wake := bc.Subscribe([]stream.ID{"s-inbox"})
+	t.Cleanup(func() { bc.Unsubscribe([]stream.ID{"s-inbox"}, wake) })
 
 	body := "incoming text — anything goes here"
 	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader(body))
@@ -337,7 +339,7 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 		t.Fatalf("dispatched = %d, want %d", got, N)
 	}
 
-	seen := make(map[domain.EventID]bool, N)
+	seen := make(map[event.ID]bool, N)
 	for _, e := range events {
 		if seen[e.ID] {
 			t.Fatalf("duplicate event ID %q", e.ID)

@@ -11,7 +11,12 @@ import (
 
 	"github.com/tylermmorton/tmpl"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/dispatch"
@@ -196,12 +201,12 @@ func (u *uiHandler) handleOrg(w http.ResponseWriter, r *http.Request) {
 		frag := &OrgDetail{}
 		switch {
 		case posID != "":
-			if err := u.fillPositionDetail(ctx, frag, domain.PositionID(posID)); err != nil {
+			if err := u.fillPositionDetail(ctx, frag, position.ID(posID)); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		case workerID != "":
-			if err := u.fillWorkerDetail(ctx, frag, domain.WorkerID(workerID)); err != nil {
+			if err := u.fillWorkerDetail(ctx, frag, worker.ID(workerID)); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -265,12 +270,12 @@ func (u *uiHandler) handleOrgDetail(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case posID != "":
-		if err := u.fillPositionDetail(ctx, frag, domain.PositionID(posID)); err != nil {
+		if err := u.fillPositionDetail(ctx, frag, position.ID(posID)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	case workerID != "":
-		if err := u.fillWorkerDetail(ctx, frag, domain.WorkerID(workerID)); err != nil {
+		if err := u.fillWorkerDetail(ctx, frag, worker.ID(workerID)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -283,7 +288,7 @@ func (u *uiHandler) handleOrgDetail(w http.ResponseWriter, r *http.Request) {
 
 // fillPositionDetail populates frag with the role markdown for the
 // position's Role and the workers currently assigned to it.
-func (u *uiHandler) fillPositionDetail(ctx context.Context, frag *OrgDetail, posID domain.PositionID) error {
+func (u *uiHandler) fillPositionDetail(ctx context.Context, frag *OrgDetail, posID position.ID) error {
 	pos, err := u.deps.Store.Positions.Get(ctx, posID)
 	if err != nil {
 		return fmt.Errorf("get position %s: %w", posID, err)
@@ -323,7 +328,7 @@ func (u *uiHandler) fillPositionDetail(ctx context.Context, frag *OrgDetail, pos
 // positions held. The spawner projects this content into the
 // Environment as identity.md at activation time — disk is not the
 // source of truth, so the editor talks straight to the DB.
-func (u *uiHandler) fillWorkerDetail(ctx context.Context, frag *OrgDetail, workerID domain.WorkerID) error {
+func (u *uiHandler) fillWorkerDetail(ctx context.Context, frag *OrgDetail, workerID worker.ID) error {
 	wk, err := u.deps.Store.Workers.Get(ctx, workerID)
 	if err != nil {
 		return fmt.Errorf("get worker %s: %w", workerID, err)
@@ -365,7 +370,7 @@ func (u *uiHandler) handleOrgIdentitySet(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
-	existing, err := u.deps.Store.Workers.Get(r.Context(), domain.WorkerID(id))
+	existing, err := u.deps.Store.Workers.Get(r.Context(), worker.ID(id))
 	if err != nil {
 		http.Redirect(w, r, "/ui/org?worker="+id+"&err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
@@ -413,7 +418,7 @@ func (u *uiHandler) handleStreams(w http.ResponseWriter, r *http.Request) {
 	page.HasStreams = len(page.Streams) > 0
 
 	if selectedID != "" {
-		if err := u.fillStreamDetail(ctx, page, domain.StreamID(selectedID)); err != nil {
+		if err := u.fillStreamDetail(ctx, page, stream.ID(selectedID)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -444,8 +449,8 @@ func (u *uiHandler) handleStreamsEventsSSE(w http.ResponseWriter, r *http.Reques
 	selectedID := strings.TrimSpace(r.URL.Query().Get("id"))
 	var wake chan struct{}
 	if selectedID != "" {
-		wake = u.deps.Broadcaster.Subscribe([]domain.StreamID{domain.StreamID(selectedID)})
-		defer u.deps.Broadcaster.Unsubscribe([]domain.StreamID{domain.StreamID(selectedID)}, wake)
+		wake = u.deps.Broadcaster.Subscribe([]stream.ID{stream.ID(selectedID)})
+		defer u.deps.Broadcaster.Unsubscribe([]stream.ID{stream.ID(selectedID)}, wake)
 	} else {
 		wake = u.deps.Broadcaster.SubscribeAll()
 		defer u.deps.Broadcaster.UnsubscribeAll(wake)
@@ -494,7 +499,7 @@ func (u *uiHandler) writeStreamsEventsSSE(ctx context.Context, w http.ResponseWr
 	if selectedID == "" {
 		events, err = u.deps.Store.Events.ListAll(ctx, 50)
 	} else {
-		events, err = u.deps.Store.Events.ListForStream(ctx, domain.StreamID(selectedID), 50)
+		events, err = u.deps.Store.Events.ListForStream(ctx, stream.ID(selectedID), 50)
 	}
 	if err != nil {
 		return err
@@ -578,7 +583,7 @@ func (u *uiHandler) fillAllStreamsFeed(ctx context.Context, page *StreamsPage) e
 // fillStreamDetail loads the selected stream's metadata, subscribers,
 // and recent events. The send-form's enabled state is decided here
 // so the template stays trivial (a simple bool branch).
-func (u *uiHandler) fillStreamDetail(ctx context.Context, page *StreamsPage, streamID domain.StreamID) error {
+func (u *uiHandler) fillStreamDetail(ctx context.Context, page *StreamsPage, streamID stream.ID) error {
 	s, err := u.deps.Store.Streams.Get(ctx, streamID)
 	if err != nil {
 		// Treat a missing stream as "fall back to hint" — happens when
@@ -670,17 +675,17 @@ func (u *uiHandler) handleStreamsPublish(w http.ResponseWriter, r *http.Request)
 	}
 
 	ctx := r.Context()
-	stream, err := u.deps.Store.Streams.Get(ctx, domain.StreamID(streamID))
+	st, err := u.deps.Store.Streams.Get(ctx, stream.ID(streamID))
 	if err != nil {
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	if stream.Transport.Kind == transport.KindGitHub {
+	if st.Transport.Kind == transport.KindGitHub {
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape("github transport is inbound only"), http.StatusSeeOther)
 		return
 	}
 
-	owner := domain.WorkerID(u.deps.Settings.Owner)
+	owner := worker.ID(u.deps.Settings.Owner)
 	var to []string
 	if toRaw != "" {
 		for _, part := range strings.Split(toRaw, ",") {
@@ -695,9 +700,9 @@ func (u *uiHandler) handleStreamsPublish(w http.ResponseWriter, r *http.Request)
 		Subject: subject,
 		Body:    body,
 	}
-	event, err := domain.NewMessageEvent(
-		domain.EventID("e-"+u.deps.NewID()),
-		domain.StreamID(streamID),
+	ev, err := domain.NewMessageEvent(
+		event.ID("e-"+u.deps.NewID()),
+		stream.ID(streamID),
 		owner,
 		msg,
 		u.deps.Now(),
@@ -706,17 +711,17 @@ func (u *uiHandler) handleStreamsPublish(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	if err := u.deps.Store.Events.Append(ctx, event); err != nil {
+	if err := u.deps.Store.Events.Append(ctx, ev); err != nil {
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 	if u.deps.Broadcaster != nil {
-		u.deps.Broadcaster.Notify(domain.StreamID(streamID))
+		u.deps.Broadcaster.Notify(stream.ID(streamID))
 	}
 	if u.deps.Dispatcher != nil {
-		u.deps.Dispatcher.Dispatch(ctx, event)
+		u.deps.Dispatcher.Dispatch(ctx, ev)
 	}
-	http.Redirect(w, r, "/ui/streams?id="+streamID+"&flash="+queryEscape("Sent event "+string(event.ID)), http.StatusSeeOther)
+	http.Redirect(w, r, "/ui/streams?id="+streamID+"&flash="+queryEscape("Sent event "+string(ev.ID)), http.StatusSeeOther)
 }
 
 // handleOrgRoleSet updates an existing role's content. The new
@@ -748,7 +753,7 @@ func (u *uiHandler) handleOrgRoleSet(w http.ResponseWriter, r *http.Request) {
 	if pos == "" {
 		sep = "?"
 	}
-	existing, err := u.deps.Store.Roles.Get(r.Context(), domain.RoleID(id))
+	existing, err := u.deps.Store.Roles.Get(r.Context(), role.ID(id))
 	if err != nil {
 		http.Redirect(w, r, back+sep+"err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
@@ -806,7 +811,7 @@ func (u *uiHandler) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key is required", http.StatusBadRequest)
 		return
 	}
-	if err := u.deps.Configs.Set(r.Context(), key, value, domain.WorkerID(u.deps.Settings.Owner)); err != nil {
+	if err := u.deps.Configs.Set(r.Context(), key, value, worker.ID(u.deps.Settings.Owner)); err != nil {
 		http.Redirect(w, r, "/ui/settings?err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}

@@ -8,6 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -34,7 +36,7 @@ func (r *positionsRepo) Create(ctx context.Context, pos domain.Position) error {
 	return nil
 }
 
-func (r *positionsRepo) Get(ctx context.Context, id domain.PositionID) (domain.Position, error) {
+func (r *positionsRepo) Get(ctx context.Context, id position.ID) (domain.Position, error) {
 	var row positionRow
 	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
 	if err != nil {
@@ -54,7 +56,7 @@ func (r *positionsRepo) List(ctx context.Context) ([]domain.Position, error) {
 	return rowsToPositions(rows)
 }
 
-func (r *positionsRepo) ListChildren(ctx context.Context, parent domain.PositionID) ([]domain.Position, error) {
+func (r *positionsRepo) ListChildren(ctx context.Context, parent position.ID) ([]domain.Position, error) {
 	var rows []positionRow
 	if err := r.db.WithContext(ctx).Where("parent_id = ?", string(parent)).Order("id").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list children of %q: %w", parent, err)
@@ -76,12 +78,12 @@ func positionToRow(pos domain.Position) positionRow {
 }
 
 func rowToPosition(row positionRow) (domain.Position, error) {
-	var parent *domain.PositionID
+	var parent *position.ID
 	if row.ParentID != nil {
-		p := domain.PositionID(*row.ParentID)
+		p := position.ID(*row.ParentID)
 		parent = &p
 	}
-	return domain.NewPosition(domain.PositionID(row.ID), domain.RoleID(row.RoleID), parent)
+	return domain.NewPosition(position.ID(row.ID), role.ID(row.RoleID), parent)
 }
 
 func rowsToPositions(rows []positionRow) ([]domain.Position, error) {

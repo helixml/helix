@@ -7,6 +7,10 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -23,11 +27,11 @@ type UpdateRole struct {
 	deps Deps
 }
 
-const UpdateRoleName domain.ToolName = "update_role"
+const UpdateRoleName tool.Name = "update_role"
 
 var updateRoleSchema = mustSchema[updateRoleArgs]()
 
-func (t *UpdateRole) Name() domain.ToolName           { return UpdateRoleName }
+func (t *UpdateRole) Name() tool.Name                 { return UpdateRoleName }
 func (t *UpdateRole) InputSchema() *jsonschema.Schema { return updateRoleSchema }
 func (t *UpdateRole) Description() string {
 	return "Replace a Role's markdown content. The change takes effect on each Worker's " +
@@ -51,14 +55,14 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if args.Content == "" {
 		return nil, fmt.Errorf("content is required")
 	}
-	roleID := domain.RoleID(args.RoleID)
+	roleID := role.ID(args.RoleID)
 
 	existing, err := t.deps.Store.Roles.Get(ctx, roleID)
 	if err != nil {
 		return nil, fmt.Errorf("role %q: %w", roleID, err)
 	}
 
-	updated := domain.Role{
+	updated := role.Role{
 		ID:        existing.ID,
 		Content:   args.Content,
 		CreatedAt: existing.CreatedAt,
@@ -73,7 +77,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	// envsDir; the Helix runtime pushes to the per-Worker repo.
 	positions, _ := t.deps.Store.Positions.List(ctx)
 	workers, _ := t.deps.Store.Workers.List(ctx)
-	positionWorkers := map[domain.PositionID][]domain.WorkerID{}
+	positionWorkers := map[position.ID][]worker.ID{}
 	for _, w := range workers {
 		for _, p := range w.Positions() {
 			positionWorkers[p] = append(positionWorkers[p], w.ID())

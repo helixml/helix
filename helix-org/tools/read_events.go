@@ -9,6 +9,10 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -26,9 +30,9 @@ const (
 // parses cleanly, letting Roles inspect From/To/threading without
 // re-parsing.
 type eventView struct {
-	ID        domain.EventID  `json:"id"`
-	StreamID  domain.StreamID `json:"streamId"`
-	Source    domain.WorkerID `json:"source"`
+	ID        event.ID        `json:"id"`
+	StreamID  stream.ID       `json:"streamId"`
+	Source    worker.ID       `json:"source"`
 	Body      string          `json:"body"`
 	Message   *domain.Message `json:"message,omitempty"`
 	CreatedAt time.Time       `json:"createdAt"`
@@ -56,7 +60,7 @@ type ReadEvents struct {
 	deps Deps
 }
 
-const ReadEventsName domain.ToolName = "read_events"
+const ReadEventsName tool.Name = "read_events"
 
 var readEventsSchema = mustSchema[readEventsArgs]()
 
@@ -116,7 +120,7 @@ func decodeFlexInt(raw json.RawMessage) (int, error) {
 	return strconv.Atoi(s)
 }
 
-func (t *ReadEvents) Name() domain.ToolName           { return ReadEventsName }
+func (t *ReadEvents) Name() tool.Name                 { return ReadEventsName }
 func (t *ReadEvents) InputSchema() *jsonschema.Schema { return readEventsSchema }
 func (t *ReadEvents) Description() string {
 	return "Read events on the Streams you subscribe to, newest first. Pass since=<eventId> " +
@@ -144,7 +148,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if wait > readEventsMaxWaitSecs {
 		wait = readEventsMaxWaitSecs
 	}
-	since := domain.EventID(args.Since)
+	since := event.ID(args.Since)
 	workerID := inv.Caller.ID()
 
 	fresh, err := t.fresh(ctx, workerID, limit, since)
@@ -159,7 +163,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions for %q: %w", workerID, err)
 	}
-	streamIDs := make([]domain.StreamID, 0, len(subs))
+	streamIDs := make([]stream.ID, 0, len(subs))
 	for _, sub := range subs {
 		streamIDs = append(streamIDs, sub.StreamID)
 	}
@@ -185,7 +189,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 
 // fresh returns events newer than `since` (exclusive), newest-first, up
 // to `limit`. An empty `since` means "return everything".
-func (t *ReadEvents) fresh(ctx context.Context, workerID domain.WorkerID, limit int, since domain.EventID) ([]domain.Event, error) {
+func (t *ReadEvents) fresh(ctx context.Context, workerID worker.ID, limit int, since event.ID) ([]domain.Event, error) {
 	events, err := t.deps.Store.Events.ListForWorker(ctx, workerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events for %q: %w", workerID, err)

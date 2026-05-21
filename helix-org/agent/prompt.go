@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // BuildPrompt assembles the per-activation prompt: identity hint +
@@ -21,7 +22,7 @@ import (
 // claude runtime it's the embedded agent.Policy, for the Helix runtime
 // it's a short pointer at the helix-specs branch (which carries the
 // real policy text).
-func BuildPrompt(workerID domain.WorkerID, mandate string, triggers []Trigger) string {
+func BuildPrompt(workerID worker.ID, mandate string, triggers []Trigger) string {
 	var ctx strings.Builder
 
 	if len(triggers) > 1 {
@@ -173,6 +174,6 @@ func OneLine(s string, max int) string {
 // Worker's activation transcript is published. One Stream per Worker;
 // created at hire time by hire_worker, written to by the Spawner,
 // read by anyone with a subscription (typically the hiring Worker).
-func ActivationStreamID(workerID domain.WorkerID) domain.StreamID {
-	return domain.StreamID("s-activations-" + string(workerID))
+func ActivationStreamID(workerID worker.ID) stream.ID {
+	return stream.ID("s-activations-" + string(workerID))
 }

@@ -3,6 +3,8 @@ package domain
 import (
 	"testing"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 func TestNewEnvironment(t *testing.T) {
@@ -11,7 +13,7 @@ func TestNewEnvironment(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name    string
-		worker  WorkerID
+		worker  worker.ID
 		path    string
 		ts      time.Time
 		wantErr bool

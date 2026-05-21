@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
@@ -130,14 +133,14 @@ func (f *fakeHelixClient) UpdateApp(_ context.Context, _ string, _ helixclient.A
 	return helixclient.App{}, nil
 }
 
-func newHelixTestStore(t *testing.T) (*store.Store, domain.WorkerID) {
+func newHelixTestStore(t *testing.T) (*store.Store, worker.ID) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	ctx := context.Background()
-	role, _ := domain.NewRole("r-eng", "# Role: Engineer", time.Now().UTC())
+	role, _ := role.New("r-eng", "# Role: Engineer", nil, nil, time.Now().UTC())
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("role: %v", err)
 	}
@@ -145,7 +148,7 @@ func newHelixTestStore(t *testing.T) (*store.Store, domain.WorkerID) {
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("pos: %v", err)
 	}
-	worker, _ := domain.NewAIWorker("w-eng", []domain.PositionID{"p-eng"}, "# Persona")
+	worker, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona")
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("worker: %v", err)
 	}

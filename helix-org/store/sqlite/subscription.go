@@ -8,6 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -32,7 +34,7 @@ func (r *subscriptionsRepo) Create(ctx context.Context, sub domain.Subscription)
 	return nil
 }
 
-func (r *subscriptionsRepo) Delete(ctx context.Context, workerID domain.WorkerID, streamID domain.StreamID) error {
+func (r *subscriptionsRepo) Delete(ctx context.Context, workerID worker.ID, streamID stream.ID) error {
 	res := r.db.WithContext(ctx).Delete(&subscriptionRow{}, "worker_id = ? AND stream_id = ?", string(workerID), string(streamID))
 	if res.Error != nil {
 		return fmt.Errorf("delete subscription (%q,%q): %w", workerID, streamID, res.Error)
@@ -43,7 +45,7 @@ func (r *subscriptionsRepo) Delete(ctx context.Context, workerID domain.WorkerID
 	return nil
 }
 
-func (r *subscriptionsRepo) Find(ctx context.Context, workerID domain.WorkerID, streamID domain.StreamID) (domain.Subscription, error) {
+func (r *subscriptionsRepo) Find(ctx context.Context, workerID worker.ID, streamID stream.ID) (domain.Subscription, error) {
 	var row subscriptionRow
 	err := r.db.WithContext(ctx).Where("worker_id = ? AND stream_id = ?", string(workerID), string(streamID)).First(&row).Error
 	if err != nil {
@@ -55,7 +57,7 @@ func (r *subscriptionsRepo) Find(ctx context.Context, workerID domain.WorkerID, 
 	return rowToSubscription(row)
 }
 
-func (r *subscriptionsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID) ([]domain.Subscription, error) {
+func (r *subscriptionsRepo) ListForWorker(ctx context.Context, workerID worker.ID) ([]domain.Subscription, error) {
 	var rows []subscriptionRow
 	if err := r.db.WithContext(ctx).Where("worker_id = ?", string(workerID)).Order("stream_id").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list subscriptions for worker %q: %w", workerID, err)
@@ -63,7 +65,7 @@ func (r *subscriptionsRepo) ListForWorker(ctx context.Context, workerID domain.W
 	return rowsToSubscriptions(rows)
 }
 
-func (r *subscriptionsRepo) ListForStream(ctx context.Context, streamID domain.StreamID) ([]domain.Subscription, error) {
+func (r *subscriptionsRepo) ListForStream(ctx context.Context, streamID stream.ID) ([]domain.Subscription, error) {
 	var rows []subscriptionRow
 	if err := r.db.WithContext(ctx).Where("stream_id = ?", string(streamID)).Order("worker_id").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list subscriptions for stream %q: %w", streamID, err)
@@ -81,8 +83,8 @@ func subscriptionToRow(sub domain.Subscription) subscriptionRow {
 
 func rowToSubscription(row subscriptionRow) (domain.Subscription, error) {
 	return domain.NewSubscription(
-		domain.WorkerID(row.WorkerID),
-		domain.StreamID(row.StreamID),
+		worker.ID(row.WorkerID),
+		stream.ID(row.StreamID),
 		row.CreatedAt,
 	)
 }

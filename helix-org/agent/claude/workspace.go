@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
-	"github.com/helixml/helix/helix-org/domain"
 )
 
 // Workspace is the agent.WorkspaceSync implementation for the local
@@ -37,7 +37,7 @@ func NewWorkspace(envsDir string) *Workspace {
 // log on the local filesystem).
 //
 // Renamed from PublishFile per ADR-0001 §7.
-func (w *Workspace) MirrorFile(_ context.Context, workerID domain.WorkerID, name, content, _ string) error {
+func (w *Workspace) MirrorFile(_ context.Context, workerID worker.ID, name, content, _ string) error {
 	if w.EnvsDir == "" {
 		return errors.New("claude workspace: EnvsDir is empty")
 	}

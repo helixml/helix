@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/tool"
 )
 
 // HelpName is the slash-command identifier for the help-listing prompt.
@@ -44,7 +44,7 @@ func (Help) Arguments() []Argument { return nil }
 // RequiresTool returns the empty string so every Worker sees `/help`
 // regardless of grants. There is no tool to gate against — `/help`
 // reads the registry, never mutates anything.
-func (Help) RequiresTool() domain.ToolName { return "" }
+func (Help) RequiresTool() tool.Name { return "" }
 
 func (h Help) Render(_ context.Context, _ map[string]string) ([]Message, error) {
 	all := h.reg.All()

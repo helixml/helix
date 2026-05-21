@@ -8,6 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"
@@ -65,7 +67,7 @@ func (s *Server) mcpHandler() http.Handler {
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
-	workerID := domain.WorkerID(r.PathValue("id"))
+	workerID := worker.ID(r.PathValue("id"))
 	if workerID == "" {
 		return nil
 	}
@@ -88,7 +90,7 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
-	heldTools := make(map[domain.ToolName]bool, len(grants))
+	heldTools := make(map[tool.Name]bool, len(grants))
 	for _, g := range grants {
 		heldTools[g.ToolName] = true
 		tool, err := s.registry.Get(g.ToolName)

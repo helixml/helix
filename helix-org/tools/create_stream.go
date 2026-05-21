@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 )
@@ -20,7 +22,7 @@ type CreateStream struct {
 	deps Deps
 }
 
-const CreateStreamName domain.ToolName = "create_stream"
+const CreateStreamName tool.Name = "create_stream"
 
 var createStreamSchema = func() *jsonschema.Schema {
 	s := mustSchema[createStreamArgs]()
@@ -42,7 +44,7 @@ var createStreamSchema = func() *jsonschema.Schema {
 	return s
 }()
 
-func (t *CreateStream) Name() domain.ToolName { return CreateStreamName }
+func (t *CreateStream) Name() tool.Name { return CreateStreamName }
 func (t *CreateStream) Description() string {
 	return "Create a new named Stream. The caller becomes the creator. Stream names are unique. " +
 		"Optional `transport` describes how events on the Stream move to/from the outside world; " +
@@ -99,9 +101,9 @@ func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	id := domain.StreamID(args.ID)
+	id := stream.ID(args.ID)
 	if id == "" {
-		id = domain.StreamID("s-" + t.deps.NewID())
+		id = stream.ID("s-" + t.deps.NewID())
 	}
 	tr := transport.Transport{}
 	if args.Transport != nil {

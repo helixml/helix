@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // workerRuntimeStateRow stores one (workerID, backend, key) → value
@@ -30,7 +30,7 @@ type workerRuntimeStateRepo struct {
 	db *gorm.DB
 }
 
-func (r *workerRuntimeStateRepo) Get(ctx context.Context, workerID domain.WorkerID, backend string) (map[string]string, error) {
+func (r *workerRuntimeStateRepo) Get(ctx context.Context, workerID worker.ID, backend string) (map[string]string, error) {
 	if workerID == "" || backend == "" {
 		return nil, errors.New("worker_runtime_state: workerID and backend are required")
 	}
@@ -48,11 +48,11 @@ func (r *workerRuntimeStateRepo) Get(ctx context.Context, workerID domain.Worker
 	return out, nil
 }
 
-func (r *workerRuntimeStateRepo) Set(ctx context.Context, workerID domain.WorkerID, backend, key, value string) error {
+func (r *workerRuntimeStateRepo) Set(ctx context.Context, workerID worker.ID, backend, key, value string) error {
 	return r.SetMany(ctx, workerID, backend, map[string]string{key: value})
 }
 
-func (r *workerRuntimeStateRepo) SetMany(ctx context.Context, workerID domain.WorkerID, backend string, kv map[string]string) error {
+func (r *workerRuntimeStateRepo) SetMany(ctx context.Context, workerID worker.ID, backend string, kv map[string]string) error {
 	if workerID == "" || backend == "" {
 		return errors.New("worker_runtime_state: workerID and backend are required")
 	}
@@ -84,7 +84,7 @@ func (r *workerRuntimeStateRepo) SetMany(ctx context.Context, workerID domain.Wo
 	return nil
 }
 
-func (r *workerRuntimeStateRepo) Clear(ctx context.Context, workerID domain.WorkerID, backend string) error {
+func (r *workerRuntimeStateRepo) Clear(ctx context.Context, workerID worker.ID, backend string) error {
 	if workerID == "" || backend == "" {
 		return errors.New("worker_runtime_state: workerID and backend are required")
 	}

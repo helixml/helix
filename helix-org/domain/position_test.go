@@ -1,9 +1,14 @@
 package domain
 
-import "testing"
+import (
+	"testing"
 
-func positionID(s string) *PositionID {
-	p := PositionID(s)
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+)
+
+func positionID(s string) *position.ID {
+	p := position.ID(s)
 	return &p
 }
 
@@ -12,9 +17,9 @@ func TestNewPosition(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		id       PositionID
-		roleID   RoleID
-		parentID *PositionID
+		id       position.ID
+		roleID   role.ID
+		parentID *position.ID
 		wantErr  bool
 	}{
 		{"root", "p-root", "r-owner", nil, false},
@@ -46,7 +51,7 @@ func TestNewPosition(t *testing.T) {
 func TestNewPositionParentIsCopied(t *testing.T) {
 	t.Parallel()
 
-	parent := PositionID("p-root")
+	parent := position.ID("p-root")
 	pos, err := NewPosition("p-ceo", "r-ceo", &parent)
 	if err != nil {
 		t.Fatalf("NewPosition: %v", err)

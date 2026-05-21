@@ -8,6 +8,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -20,11 +23,11 @@ type InviteWorkers struct {
 	deps Deps
 }
 
-const InviteWorkersName domain.ToolName = "invite_workers"
+const InviteWorkersName tool.Name = "invite_workers"
 
 var inviteWorkersSchema = mustSchema[inviteWorkersArgs]()
 
-func (t *InviteWorkers) Name() domain.ToolName { return InviteWorkersName }
+func (t *InviteWorkers) Name() tool.Name { return InviteWorkersName }
 func (t *InviteWorkers) Description() string {
 	return "Subscribe one or more Workers to a Stream. Use this to add others " +
 		"to a stream you control — e.g. opening a DM by creating a stream and " +
@@ -49,19 +52,19 @@ func (t *InviteWorkers) Invoke(ctx context.Context, inv domain.Invocation) (json
 	if len(args.WorkerIDs) == 0 {
 		return nil, fmt.Errorf("workerIds must contain at least one worker")
 	}
-	streamID := domain.StreamID(args.StreamID)
+	streamID := stream.ID(args.StreamID)
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
 
 	// Validate all targets up-front so a typo in one ID doesn't leave
 	// the others half-subscribed.
-	workerIDs := make([]domain.WorkerID, 0, len(args.WorkerIDs))
+	workerIDs := make([]worker.ID, 0, len(args.WorkerIDs))
 	for _, raw := range args.WorkerIDs {
 		if raw == "" {
 			return nil, fmt.Errorf("workerIds contains an empty entry")
 		}
-		wid := domain.WorkerID(raw)
+		wid := worker.ID(raw)
 		if _, err := t.deps.Store.Workers.Get(ctx, wid); err != nil {
 			return nil, fmt.Errorf("worker %q: %w", wid, err)
 		}

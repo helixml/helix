@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -21,11 +23,11 @@ type UpdateIdentity struct {
 	deps Deps
 }
 
-const UpdateIdentityName domain.ToolName = "update_identity"
+const UpdateIdentityName tool.Name = "update_identity"
 
 var updateIdentitySchema = mustSchema[updateIdentityArgs]()
 
-func (t *UpdateIdentity) Name() domain.ToolName           { return UpdateIdentityName }
+func (t *UpdateIdentity) Name() tool.Name                 { return UpdateIdentityName }
 func (t *UpdateIdentity) InputSchema() *jsonschema.Schema { return updateIdentitySchema }
 func (t *UpdateIdentity) Description() string {
 	return "Replace a Worker's IdentityContent (persona / profile). The change takes effect " +
@@ -50,13 +52,13 @@ func (t *UpdateIdentity) Invoke(ctx context.Context, inv domain.Invocation) (jso
 		return nil, fmt.Errorf("content is required")
 	}
 
-	existing, err := t.deps.Store.Workers.Get(ctx, domain.WorkerID(args.WorkerID))
+	existing, err := t.deps.Store.Workers.Get(ctx, worker.ID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", args.WorkerID, err)
 	}
 	if err := t.deps.Store.Workers.Update(ctx, existing.WithIdentityContent(args.Content)); err != nil {
 		return nil, fmt.Errorf("update worker: %w", err)
 	}
-	_ = t.deps.Workspace.MirrorFile(ctx, domain.WorkerID(args.WorkerID), "identity.md", args.Content, fmt.Sprintf("update_identity: %s", args.WorkerID))
+	_ = t.deps.Workspace.MirrorFile(ctx, worker.ID(args.WorkerID), "identity.md", args.Content, fmt.Sprintf("update_identity: %s", args.WorkerID))
 	return json.Marshal(map[string]string{"id": args.WorkerID})
 }

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // Stream is a named source of events. Workers publish to a Stream via
@@ -18,17 +20,17 @@ import (
 // land in SQLite for history and replay; the transport additionally
 // ships them to or from the outside world.
 type Stream struct {
-	ID          StreamID
+	ID          stream.ID
 	Name        string
 	Description string
-	CreatedBy   WorkerID
+	CreatedBy   worker.ID
 	CreatedAt   time.Time
 	Transport   transport.Transport
 }
 
 // NewStream validates and constructs a Stream. If t.Kind is empty, the
 // returned Stream uses transport.LocalTransport().
-func NewStream(id StreamID, name, description string, createdBy WorkerID, createdAt time.Time, t transport.Transport) (Stream, error) {
+func NewStream(id stream.ID, name, description string, createdBy worker.ID, createdAt time.Time, t transport.Transport) (Stream, error) {
 	if id == "" {
 		return Stream{}, errors.New("stream id is empty")
 	}

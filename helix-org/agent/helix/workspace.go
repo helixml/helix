@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
-	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -61,7 +61,7 @@ func NewWorkspace(client helixclient.Client, st *store.Store, branch, author, em
 // project — callers don't have to gate on activation status.
 //
 // Renamed from PublishFile per ADR-0001 §7.
-func (w *Workspace) MirrorFile(ctx context.Context, workerID domain.WorkerID, name, content, message string) error {
+func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, content, message string) error {
 	if workerID == "" {
 		return errors.New("helix workspace: workerID is empty")
 	}

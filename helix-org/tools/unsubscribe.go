@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -15,11 +17,11 @@ type Unsubscribe struct {
 	deps Deps
 }
 
-const UnsubscribeName domain.ToolName = "unsubscribe"
+const UnsubscribeName tool.Name = "unsubscribe"
 
 var unsubscribeSchema = mustSchema[unsubscribeArgs]()
 
-func (t *Unsubscribe) Name() domain.ToolName           { return UnsubscribeName }
+func (t *Unsubscribe) Name() tool.Name                 { return UnsubscribeName }
 func (t *Unsubscribe) Description() string             { return "Unsubscribe the calling Worker from a Stream." }
 func (t *Unsubscribe) InputSchema() *jsonschema.Schema { return unsubscribeSchema }
 
@@ -35,7 +37,7 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv domain.Invocation) (json.R
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
-	streamID := domain.StreamID(args.StreamID)
+	streamID := stream.ID(args.StreamID)
 	workerID := inv.Caller.ID()
 	if err := t.deps.Store.Subscriptions.Delete(ctx, workerID, streamID); err != nil {
 		return nil, err

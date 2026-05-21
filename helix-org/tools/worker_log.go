@@ -9,6 +9,10 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -28,11 +32,11 @@ type WorkerLog struct {
 	deps Deps
 }
 
-const WorkerLogName domain.ToolName = "worker_log"
+const WorkerLogName tool.Name = "worker_log"
 
 var workerLogSchema = mustSchema[workerLogArgs]()
 
-func (t *WorkerLog) Name() domain.ToolName           { return WorkerLogName }
+func (t *WorkerLog) Name() tool.Name                 { return WorkerLogName }
 func (t *WorkerLog) InputSchema() *jsonschema.Schema { return workerLogSchema }
 func (t *WorkerLog) Description() string {
 	return "Read a Worker's activation log — assistant text, tool calls, tool results — " +
@@ -85,7 +89,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 		return nil, fmt.Errorf("workerId is required")
 	}
 
-	target := domain.WorkerID(args.WorkerID)
+	target := worker.ID(args.WorkerID)
 	worker, err := t.deps.Store.Workers.Get(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", target, err)
@@ -131,7 +135,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if wait > readEventsMaxWaitSecs {
 		wait = readEventsMaxWaitSecs
 	}
-	since := domain.EventID(args.Since)
+	since := event.ID(args.Since)
 
 	fresh, err := t.fresh(ctx, streamID, limit, since)
 	if err != nil {
@@ -141,8 +145,8 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 		return marshalEvents(fresh), nil
 	}
 
-	wake := t.deps.Broadcaster.Subscribe([]domain.StreamID{streamID})
-	defer t.deps.Broadcaster.Unsubscribe([]domain.StreamID{streamID}, wake)
+	wake := t.deps.Broadcaster.Subscribe([]stream.ID{streamID})
+	defer t.deps.Broadcaster.Unsubscribe([]stream.ID{streamID}, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()
@@ -164,7 +168,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 // fresh returns events on the activation stream newer than `since`
 // (exclusive), newest-first, up to `limit`. Empty `since` means
 // "return everything up to limit".
-func (t *WorkerLog) fresh(ctx context.Context, streamID domain.StreamID, limit int, since domain.EventID) ([]domain.Event, error) {
+func (t *WorkerLog) fresh(ctx context.Context, streamID stream.ID, limit int, since event.ID) ([]domain.Event, error) {
 	events, err := t.deps.Store.Events.ListForStream(ctx, streamID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events on %q: %w", streamID, err)

@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -91,6 +92,6 @@ func rowToConfig(row configRow) domain.Config {
 		Key:       row.Key,
 		Value:     row.Value,
 		UpdatedAt: row.UpdatedAt,
-		UpdatedBy: domain.WorkerID(row.UpdatedBy),
+		UpdatedBy: worker.ID(row.UpdatedBy),
 	}
 }

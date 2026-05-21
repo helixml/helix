@@ -5,6 +5,7 @@ import (
 	"html"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -23,7 +24,7 @@ func renderOrgChart(positions []domain.Position, workers []domain.Worker) string
 	}
 
 	// Group workers by the positions they fill.
-	byPos := make(map[domain.PositionID][]domain.Worker)
+	byPos := make(map[position.ID][]domain.Worker)
 	for _, w := range workers {
 		for _, pid := range w.Positions() {
 			byPos[pid] = append(byPos[pid], w)
@@ -32,7 +33,7 @@ func renderOrgChart(positions []domain.Position, workers []domain.Worker) string
 
 	// Build tree from positions. Roots are positions with empty
 	// ParentID (or whose parent isn't in the slice — defensive).
-	idx := make(map[domain.PositionID]domain.Position, len(positions))
+	idx := make(map[position.ID]domain.Position, len(positions))
 	for _, p := range positions {
 		idx[p.ID] = p
 	}
@@ -42,7 +43,7 @@ func renderOrgChart(positions []domain.Position, workers []domain.Worker) string
 		w        float64 // subtree width
 		x, y     float64 // top-left after layout
 	}
-	nodes := make(map[domain.PositionID]*node, len(positions))
+	nodes := make(map[position.ID]*node, len(positions))
 	for _, p := range positions {
 		nodes[p.ID] = &node{pos: p}
 	}

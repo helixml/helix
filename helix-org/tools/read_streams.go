@@ -8,16 +8,19 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
 type streamView struct {
-	ID            domain.StreamID `json:"id"`
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	CreatedBy     domain.WorkerID `json:"createdBy"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	TransportKind string          `json:"transportKind"`
+	ID            stream.ID `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	CreatedBy     worker.ID `json:"createdBy"`
+	CreatedAt     time.Time `json:"createdAt"`
+	TransportKind string    `json:"transportKind"`
 }
 
 func streamViewOf(s domain.Stream) streamView {
@@ -36,13 +39,13 @@ type ListStreams struct {
 	deps Deps
 }
 
-const ListStreamsName domain.ToolName = "list_streams"
+const ListStreamsName tool.Name = "list_streams"
 
 var listStreamsSchema = mustSchema[listStreamsArgs]()
 
 type listStreamsArgs struct{}
 
-func (t *ListStreams) Name() domain.ToolName           { return ListStreamsName }
+func (t *ListStreams) Name() tool.Name                 { return ListStreamsName }
 func (t *ListStreams) InputSchema() *jsonschema.Schema { return listStreamsSchema }
 func (t *ListStreams) Description() string {
 	return "List every Stream: id, name, description, creator, transport kind, and created-at."
@@ -65,7 +68,7 @@ type GetStream struct {
 	deps Deps
 }
 
-const GetStreamName domain.ToolName = "get_stream"
+const GetStreamName tool.Name = "get_stream"
 
 var getStreamSchema = mustSchema[getStreamArgs]()
 
@@ -73,7 +76,7 @@ type getStreamArgs struct {
 	ID string `json:"id"`
 }
 
-func (t *GetStream) Name() domain.ToolName           { return GetStreamName }
+func (t *GetStream) Name() tool.Name                 { return GetStreamName }
 func (t *GetStream) InputSchema() *jsonschema.Schema { return getStreamSchema }
 func (t *GetStream) Description() string {
 	return "Fetch one Stream by id."
@@ -87,7 +90,7 @@ func (t *GetStream) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	s, err := t.deps.Store.Streams.Get(ctx, domain.StreamID(args.ID))
+	s, err := t.deps.Store.Streams.Get(ctx, stream.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get stream %q: %w", args.ID, err)
 	}
@@ -100,7 +103,7 @@ type ListStreamEvents struct {
 	deps Deps
 }
 
-const ListStreamEventsName domain.ToolName = "list_stream_events"
+const ListStreamEventsName tool.Name = "list_stream_events"
 
 var listStreamEventsSchema = mustSchema[listStreamEventsArgs]()
 
@@ -134,7 +137,7 @@ func (a *listStreamEventsArgs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (t *ListStreamEvents) Name() domain.ToolName           { return ListStreamEventsName }
+func (t *ListStreamEvents) Name() tool.Name                 { return ListStreamEventsName }
 func (t *ListStreamEvents) InputSchema() *jsonschema.Schema { return listStreamEventsSchema }
 func (t *ListStreamEvents) Description() string {
 	return "List recent Events on a Stream, newest first. Returns immediately. limit defaults " +
@@ -156,7 +159,7 @@ func (t *ListStreamEvents) Invoke(ctx context.Context, inv domain.Invocation) (j
 	if limit > listStreamEventsMaxLimit {
 		limit = listStreamEventsMaxLimit
 	}
-	streamID := domain.StreamID(args.StreamID)
+	streamID := stream.ID(args.StreamID)
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}

@@ -77,16 +77,26 @@ in new code and new prose; recruiter role markdown calls its outputs
 `demos/newsroom/roles/recruiter.md`, and various Role markdowns —
 five names for one column.
 
-### 5. Role markdown contract
+### 5. Role typed manifests (`Tools` and `Streams`)
 
 Today the role markdown body has prose conventions
 (`## Tools (MCP)`, `## Streams`, `## Triggers`, `## Constraints`,
 `## Files`) that the code does not parse. We pin the intent that
-**`DefaultTools` and `DefaultStreams` will become typed fields on
-`domain.Role`** (migration B7). Until B7 lands, these sections stay
-prose, but the term `DefaultTools` / `DefaultStreams` is reserved
-for the typed form and is not used for any other concept in the
-meantime.
+**`Tools` and `Streams` become typed manifests on `role.Role`**
+(`[]tool.Name` and `[]stream.ID` respectively), shipping in migration
+B7. These are **reference data only** — `hire_worker` does not
+enforce them, does not auto-grant, and does not auto-subscribe. The
+hiring caller's prompt reads them programmatically (via `get_role`)
+to populate the `grants` arg and to call `subscribe` for each Stream
+after the hire. The fields lift the lists out of unparsed markdown
+sections so the chat brain can read them as JSON instead of parsing
+prose.
+
+The field names are deliberately bare — not `DefaultTools` /
+`DefaultStreams` (an earlier proposal). "Default" implied "applied
+unless overridden," but nothing overrides them: the hirer is fully
+responsible. Bare names + a doc comment explaining "reference data,
+no enforcement" reads more honestly.
 
 *Why:* lifting the lists onto `Role` closes the unenforced "Workers
 must subscribe to their declared streams" invariant (`TODO.md` item

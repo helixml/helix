@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -26,11 +28,11 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	created := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	role, err := domain.NewRole("r-ceo", "# CEO\nTop of the org.", created)
+	r, err := role.New("r-ceo", "# CEO\nTop of the org.", nil, nil, created)
 	if err != nil {
 		t.Fatalf("NewRole: %v", err)
 	}
-	if err := s.Roles.Create(ctx, role); err != nil {
+	if err := s.Roles.Create(ctx, r); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -45,7 +47,7 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 		t.Fatalf("timestamps not persisted: created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
 	}
 
-	updated := domain.Role{
+	updated := role.Role{
 		ID:        got.ID,
 		Content:   "# CEO\nNow with more verve.",
 		CreatedAt: got.CreatedAt,
@@ -120,7 +122,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	human, err := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "i am the owner")
+	human, err := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "i am the owner")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}
@@ -128,7 +130,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("Create human: %v", err)
 	}
 
-	ai, err := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-ceo"}, "you are the ceo")
+	ai, err := domain.NewAIWorker("w-ceo", []position.ID{"p-ceo"}, "you are the ceo")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

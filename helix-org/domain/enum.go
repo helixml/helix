@@ -11,7 +11,7 @@ import (
 // drop it inline without further formatting.
 //
 // The generic constraint accepts any string-derived type — WorkerKind,
-// TransportKind, ToolName — so a single helper covers every "what are
+// TransportKind, tool.Name — so a single helper covers every "what are
 // the valid values?" formatting site without each domain type needing
 // its own bespoke list-formatter.
 func QuotedList[T ~string](vals []T) string {

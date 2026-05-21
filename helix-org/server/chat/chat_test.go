@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/prompts"
 )
 
@@ -29,7 +29,7 @@ func (s stubPrompt) Arguments() []prompts.Argument {
 	}
 	return []prompts.Argument{{Name: s.arg}}
 }
-func (stubPrompt) RequiresTool() domain.ToolName { return "" }
+func (stubPrompt) RequiresTool() tool.Name { return "" }
 func (stubPrompt) Render(_ context.Context, args map[string]string) ([]prompts.Message, error) {
 	body := "rendered:" + args["hint"]
 	return []prompts.Message{{Role: "user", Text: body}}, nil

@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/broadcast"
-	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -96,7 +97,7 @@ func Spawner(cfg SpawnerConfig) agent.Spawner {
 		cfg.MaxInflight = 8
 	}
 	sem := make(chan struct{}, cfg.MaxInflight)
-	return func(ctx context.Context, workerID domain.WorkerID, _ string, triggers []agent.Trigger) error {
+	return func(ctx context.Context, workerID worker.ID, _ string, triggers []agent.Trigger) error {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -219,7 +220,7 @@ After meaningful work, persist state on helix-specs:
 // ensureProject is a thin wrapper around ProjectApplier so the
 // activation flow reads naturally. The actual apply logic is shared
 // with the chat bridge — see project.go.
-func (c SpawnerConfig) ensureProject(ctx context.Context, workerID domain.WorkerID) error {
+func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) error {
 	a := &ProjectApplier{
 		Client:        c.Client,
 		Store:         c.Store,
@@ -260,7 +261,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, workerID domain.Worker
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, workerID domain.WorkerID, prompt string, _ func(string)) (string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, prompt string, _ func(string)) (string, error) {
 	state, err := LoadState(ctx, c.Store, workerID)
 	if err != nil {
 		return "", err
@@ -416,6 +417,6 @@ func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
 // stay terse. The owner-chat bridge uses the same shared helper
 // directly — both paths produce identical event shapes on
 // s-activations-<workerID>.
-func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID domain.WorkerID, _ domain.StreamID, body string) {
+func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID worker.ID, _ stream.ID, body string) {
 	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Broadcaster, cfg.NewID, cfg.Now, cfg.Logger, workerID, body)
 }

@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/grant"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -15,11 +17,11 @@ type RevokeTool struct {
 	deps Deps
 }
 
-const RevokeToolName domain.ToolName = "revoke_tool"
+const RevokeToolName tool.Name = "revoke_tool"
 
 var revokeToolSchema = mustSchema[revokeToolArgs]()
 
-func (t *RevokeTool) Name() domain.ToolName           { return RevokeToolName }
+func (t *RevokeTool) Name() tool.Name                 { return RevokeToolName }
 func (t *RevokeTool) Description() string             { return "Revoke an existing tool grant by ID." }
 func (t *RevokeTool) InputSchema() *jsonschema.Schema { return revokeToolSchema }
 
@@ -32,7 +34,7 @@ func (t *RevokeTool) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if err := t.deps.Store.Grants.Delete(ctx, domain.GrantID(args.GrantID)); err != nil {
+	if err := t.deps.Store.Grants.Delete(ctx, grant.ID(args.GrantID)); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"id": args.GrantID})

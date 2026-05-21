@@ -7,6 +7,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tool"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -19,11 +22,11 @@ type StreamMembers struct {
 	deps Deps
 }
 
-const StreamMembersName domain.ToolName = "stream_members"
+const StreamMembersName tool.Name = "stream_members"
 
 var streamMembersSchema = mustSchema[streamMembersArgs]()
 
-func (t *StreamMembers) Name() domain.ToolName           { return StreamMembersName }
+func (t *StreamMembers) Name() tool.Name                 { return StreamMembersName }
 func (t *StreamMembers) InputSchema() *jsonschema.Schema { return streamMembersSchema }
 func (t *StreamMembers) Description() string {
 	return "List the Worker IDs currently subscribed to a Stream. Returns immediately. " +
@@ -43,7 +46,7 @@ func (t *StreamMembers) Invoke(ctx context.Context, inv domain.Invocation) (json
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
-	streamID := domain.StreamID(args.StreamID)
+	streamID := stream.ID(args.StreamID)
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
@@ -51,7 +54,7 @@ func (t *StreamMembers) Invoke(ctx context.Context, inv domain.Invocation) (json
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}
-	members := make([]domain.WorkerID, 0, len(subs))
+	members := make([]worker.ID, 0, len(subs))
 	for _, sub := range subs {
 		members = append(members, sub.WorkerID)
 	}

@@ -12,21 +12,21 @@ package broadcast
 import (
 	"sync"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/stream"
 )
 
 // Broadcaster is safe for concurrent use. The zero value is not usable;
 // use New.
 type Broadcaster struct {
 	mu     sync.Mutex
-	subs   map[domain.StreamID]map[chan struct{}]struct{}
+	subs   map[stream.ID]map[chan struct{}]struct{}
 	allSub map[chan struct{}]struct{} // SubscribeAll listeners — wake on any Notify
 }
 
 // New returns a ready-to-use Broadcaster.
 func New() *Broadcaster {
 	return &Broadcaster{
-		subs:   make(map[domain.StreamID]map[chan struct{}]struct{}),
+		subs:   make(map[stream.ID]map[chan struct{}]struct{}),
 		allSub: make(map[chan struct{}]struct{}),
 	}
 }
@@ -56,7 +56,7 @@ func (b *Broadcaster) UnsubscribeAll(ch chan struct{}) {
 //
 // Callers MUST call Unsubscribe with the same channel and ID set when
 // they are done, typically via defer.
-func (b *Broadcaster) Subscribe(streamIDs []domain.StreamID) chan struct{} {
+func (b *Broadcaster) Subscribe(streamIDs []stream.ID) chan struct{} {
 	ch := make(chan struct{}, 1)
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -73,7 +73,7 @@ func (b *Broadcaster) Subscribe(streamIDs []domain.StreamID) chan struct{} {
 
 // Unsubscribe removes the channel from all per-Stream subscriber sets.
 // Safe to call with an empty streamIDs list.
-func (b *Broadcaster) Unsubscribe(streamIDs []domain.StreamID, ch chan struct{}) {
+func (b *Broadcaster) Unsubscribe(streamIDs []stream.ID, ch chan struct{}) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, sid := range streamIDs {
@@ -90,7 +90,7 @@ func (b *Broadcaster) Unsubscribe(streamIDs []domain.StreamID, ch chan struct{})
 // Non-blocking: if a subscriber's wake-up channel is already full, the
 // signal is coalesced. Subscribers are expected to re-query the store
 // after waking.
-func (b *Broadcaster) Notify(streamID domain.StreamID) {
+func (b *Broadcaster) Notify(streamID stream.ID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for ch := range b.subs[streamID] {

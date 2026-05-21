@@ -9,7 +9,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -41,7 +43,7 @@ func (r *streamsRepo) Create(ctx context.Context, s domain.Stream) error {
 	return nil
 }
 
-func (r *streamsRepo) Get(ctx context.Context, id domain.StreamID) (domain.Stream, error) {
+func (r *streamsRepo) Get(ctx context.Context, id stream.ID) (domain.Stream, error) {
 	var row streamRow
 	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
 	if err != nil {
@@ -91,10 +93,10 @@ func rowToStream(row streamRow) (domain.Stream, error) {
 		transport.Config = json.RawMessage(row.TransportConfig)
 	}
 	return domain.NewStream(
-		domain.StreamID(row.ID),
+		stream.ID(row.ID),
 		row.Name,
 		row.Description,
-		domain.WorkerID(row.CreatedBy),
+		worker.ID(row.CreatedBy),
 		row.CreatedAt,
 		transport,
 	)

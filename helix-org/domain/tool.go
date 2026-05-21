@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/google/jsonschema-go/jsonschema"
+
+	"github.com/helixml/helix/api/pkg/org/tool"
 )
 
 // Invocation bundles the per-call data passed to Tool.Invoke. The
@@ -22,7 +24,7 @@ type Invocation struct {
 // this interface.
 type Tool interface {
 	// Name is the stable identifier used in grants and MCP tool calls.
-	Name() ToolName
+	Name() tool.Name
 
 	// Description is a human-readable summary the LLM sees when
 	// deciding whether to call this tool.

@@ -7,13 +7,16 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
 type positionView struct {
-	ID       domain.PositionID  `json:"id"`
-	RoleID   domain.RoleID      `json:"roleId"`
-	ParentID *domain.PositionID `json:"parentId"`
+	ID       position.ID  `json:"id"`
+	RoleID   role.ID      `json:"roleId"`
+	ParentID *position.ID `json:"parentId"`
 }
 
 func positionViewOf(p domain.Position) positionView {
@@ -25,13 +28,13 @@ type ListPositions struct {
 	deps Deps
 }
 
-const ListPositionsName domain.ToolName = "list_positions"
+const ListPositionsName tool.Name = "list_positions"
 
 var listPositionsSchema = mustSchema[listPositionsArgs]()
 
 type listPositionsArgs struct{}
 
-func (t *ListPositions) Name() domain.ToolName           { return ListPositionsName }
+func (t *ListPositions) Name() tool.Name                 { return ListPositionsName }
 func (t *ListPositions) InputSchema() *jsonschema.Schema { return listPositionsSchema }
 func (t *ListPositions) Description() string {
 	return "List every Position: id, the Role it instantiates, and its parent. Use this to " +
@@ -55,7 +58,7 @@ type GetPosition struct {
 	deps Deps
 }
 
-const GetPositionName domain.ToolName = "get_position"
+const GetPositionName tool.Name = "get_position"
 
 var getPositionSchema = mustSchema[getPositionArgs]()
 
@@ -63,7 +66,7 @@ type getPositionArgs struct {
 	ID string `json:"id"`
 }
 
-func (t *GetPosition) Name() domain.ToolName           { return GetPositionName }
+func (t *GetPosition) Name() tool.Name                 { return GetPositionName }
 func (t *GetPosition) InputSchema() *jsonschema.Schema { return getPositionSchema }
 func (t *GetPosition) Description() string {
 	return "Fetch one Position by id."
@@ -77,7 +80,7 @@ func (t *GetPosition) Invoke(ctx context.Context, inv domain.Invocation) (json.R
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	pos, err := t.deps.Store.Positions.Get(ctx, domain.PositionID(args.ID))
+	pos, err := t.deps.Store.Positions.Get(ctx, position.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get position %q: %w", args.ID, err)
 	}
@@ -89,7 +92,7 @@ type ListPositionChildren struct {
 	deps Deps
 }
 
-const ListPositionChildrenName domain.ToolName = "list_position_children"
+const ListPositionChildrenName tool.Name = "list_position_children"
 
 var listPositionChildrenSchema = mustSchema[listPositionChildrenArgs]()
 
@@ -97,7 +100,7 @@ type listPositionChildrenArgs struct {
 	ParentID string `json:"parentId"`
 }
 
-func (t *ListPositionChildren) Name() domain.ToolName           { return ListPositionChildrenName }
+func (t *ListPositionChildren) Name() tool.Name                 { return ListPositionChildrenName }
 func (t *ListPositionChildren) InputSchema() *jsonschema.Schema { return listPositionChildrenSchema }
 func (t *ListPositionChildren) Description() string {
 	return "List the direct children of a Position — the slots that report into it."
@@ -111,7 +114,7 @@ func (t *ListPositionChildren) Invoke(ctx context.Context, inv domain.Invocation
 	if args.ParentID == "" {
 		return nil, fmt.Errorf("parentId is required")
 	}
-	positions, err := t.deps.Store.Positions.ListChildren(ctx, domain.PositionID(args.ParentID))
+	positions, err := t.deps.Store.Positions.ListChildren(ctx, position.ID(args.ParentID))
 	if err != nil {
 		return nil, fmt.Errorf("list children of %q: %w", args.ParentID, err)
 	}

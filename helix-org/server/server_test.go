@@ -10,6 +10,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/prompts"
 	"github.com/helixml/helix/helix-org/server"
@@ -21,7 +24,7 @@ import (
 // grant (the latter pointing at a tool deliberately not registered, so
 // we can assert it's filtered out of the MCP list). Returns the running
 // httptest.Server and the workerID to act as.
-func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
+func newTestServer(t *testing.T) (*httptest.Server, worker.ID) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
 	if err != nil {
@@ -37,7 +40,7 @@ func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := domain.NewRole("r-ceo", "# CEO\nTop of org.", time.Now().UTC())
+	role, _ := role.New("r-ceo", "# CEO\nTop of org.", nil, nil, time.Now().UTC())
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
@@ -45,7 +48,7 @@ func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 	if err := s.Positions.Create(ctx, root); err != nil {
 		t.Fatalf("seed root: %v", err)
 	}
-	ai, _ := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-root"}, "")
+	ai, _ := domain.NewAIWorker("w-ceo", []position.ID{"p-root"}, "")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}
@@ -62,7 +65,7 @@ func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 
 // connectMCP returns an MCP client session bound to the given worker's
 // /mcp endpoint. The session is closed when the test ends.
-func connectMCP(t *testing.T, baseURL string, workerID domain.WorkerID) *mcp.ClientSession {
+func connectMCP(t *testing.T, baseURL string, workerID worker.ID) *mcp.ClientSession {
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
@@ -164,7 +167,7 @@ func TestMCPUngrantedToolHidden(t *testing.T) {
 // prompts registry containing new_role. Whether the worker actually
 // sees the prompt depends on whether they hold the gating grant
 // (create_role); callers exercise both branches.
-func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Server, domain.WorkerID) {
+func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Server, worker.ID) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
 	if err != nil {
@@ -188,11 +191,11 @@ func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Ser
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := domain.NewRole("r-ceo", "# CEO", time.Now().UTC())
+	role, _ := role.New("r-ceo", "# CEO", nil, nil, time.Now().UTC())
 	_ = s.Roles.Create(ctx, role)
 	root, _ := domain.NewPosition("p-root", "r-ceo", nil)
 	_ = s.Positions.Create(ctx, root)
-	ai, _ := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-root"}, "")
+	ai, _ := domain.NewAIWorker("w-ceo", []position.ID{"p-root"}, "")
 	_ = s.Workers.Create(ctx, ai)
 	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName)
 	_ = s.Grants.Create(ctx, pingGrant)

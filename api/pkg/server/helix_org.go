@@ -16,20 +16,20 @@ import (
 
 	"github.com/helixml/helix/helix-org/agent"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
-	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/prompts"
-	"github.com/helixml/helix/helix-org/server/chat"
 	"github.com/helixml/helix/helix-org/bootstrap"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/dispatch"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/prompts"
 	helixorgserver "github.com/helixml/helix/helix-org/server"
-	helixorgstore "github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/server/chat"
 	helixorgui "github.com/helixml/helix/helix-org/server/ui"
+	helixorgstore "github.com/helixml/helix/helix-org/store"
 	"github.com/helixml/helix/helix-org/store/sqlite"
 	"github.com/helixml/helix/helix-org/tools"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -304,7 +304,7 @@ type dynamicProjectApplier struct {
 // agenthelix.ProjectApplier from the current registry state and
 // delegates. ProjectApplier.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
-func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (projectID, agentAppID, repoID string, err error) {
+func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
 	applier, err := buildHelixOrgProjectApplier(ctx, d.cfg, d.client, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
@@ -441,12 +441,12 @@ func buildHelixOrgSpawnerConfig(
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return agenthelix.SpawnerConfig{
-		Client:      client,
-		HelixOrgURL: helixOrgURL,
-		Runtime:     runtime,
-		Credentials: credentials,
-		Provider:    provider,
-		Model:       model,
+		Client:        client,
+		HelixOrgURL:   helixOrgURL,
+		Runtime:       runtime,
+		Credentials:   credentials,
+		Provider:      provider,
+		Model:         model,
 		MCPAuthBearer: apiKey,
 		Store:         orgStore,
 		Broadcaster:   bc,
@@ -495,7 +495,7 @@ func lazyHelixOrgSpawner(
 		mu      sync.Mutex
 		spawner agent.Spawner
 	)
-	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []agent.Trigger) error {
+	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []agent.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating. Without this, the cached
 		// spawner's first activation bakes whatever worker.* values
@@ -530,4 +530,3 @@ func lazyHelixOrgSpawner(
 		return current(ctx, workerID, envPath, triggers)
 	}
 }
-

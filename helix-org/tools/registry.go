@@ -6,6 +6,7 @@ package tools
 import (
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -13,12 +14,12 @@ import (
 // Built-ins are registered at server startup; MCP or owner-defined tools
 // can be added later without changing the registry type.
 type Registry struct {
-	tools map[domain.ToolName]domain.Tool
+	tools map[tool.Name]domain.Tool
 }
 
 // NewRegistry returns an empty Registry.
 func NewRegistry() *Registry {
-	return &Registry{tools: make(map[domain.ToolName]domain.Tool)}
+	return &Registry{tools: make(map[tool.Name]domain.Tool)}
 }
 
 // Register adds a tool. It fails if another tool is already registered under
@@ -36,7 +37,7 @@ func (r *Registry) Register(tool domain.Tool) error {
 }
 
 // Get returns the tool by name, or an error if unknown.
-func (r *Registry) Get(name domain.ToolName) (domain.Tool, error) {
+func (r *Registry) Get(name tool.Name) (domain.Tool, error) {
 	tool, ok := r.tools[name]
 	if !ok {
 		return nil, fmt.Errorf("tool %q not registered", name)

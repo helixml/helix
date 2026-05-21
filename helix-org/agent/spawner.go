@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -28,9 +31,9 @@ type Trigger struct {
 	Kind TriggerKind
 
 	// Event fields, set when Kind == TriggerEvent.
-	EventID  domain.EventID
-	StreamID domain.StreamID
-	Source   domain.WorkerID
+	EventID  event.ID
+	StreamID stream.ID
+	Source   worker.ID
 	// SourceKind is the WorkerKind ("human" / "ai") of Source — looked
 	// up by the dispatcher at fan-out time and rendered into the
 	// activation prompt so the recipient can apply the org-wide policy
@@ -61,7 +64,7 @@ type Trigger struct {
 //
 // The zero value — nil — means "no process will be spawned", which is
 // correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []Trigger) error
+type Spawner func(ctx context.Context, workerID worker.ID, envPath string, triggers []Trigger) error
 
 // WorkspaceSync mirrors the canonical Role and Identity content of a
 // Worker into wherever that Worker's runtime reads them at activation
@@ -92,7 +95,7 @@ type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string,
 // Helix Worker before its first activation creates the project) are
 // safe no-ops — implementations skip the publish and return nil.
 type WorkspaceSync interface {
-	MirrorFile(ctx context.Context, workerID domain.WorkerID, name, content, message string) error
+	MirrorFile(ctx context.Context, workerID worker.ID, name, content, message string) error
 }
 
 // NoopWorkspaceSync is a WorkspaceSync that does nothing. Useful for
@@ -100,7 +103,7 @@ type WorkspaceSync interface {
 type NoopWorkspaceSync struct{}
 
 // MirrorFile is the no-op WorkspaceSync: ignore the call and return nil.
-func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ domain.WorkerID, _, _, _ string) error {
+func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ worker.ID, _, _, _ string) error {
 	return nil
 }
 

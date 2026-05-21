@@ -9,7 +9,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/grant"
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/domain"
@@ -50,11 +54,11 @@ type HireWorker struct {
 	deps Deps
 }
 
-const HireWorkerName domain.ToolName = "hire_worker"
+const HireWorkerName tool.Name = "hire_worker"
 
 var hireWorkerSchema = mustSchema[hireWorkerArgs]()
 
-func (t *HireWorker) Name() domain.ToolName           { return HireWorkerName }
+func (t *HireWorker) Name() tool.Name                 { return HireWorkerName }
 func (t *HireWorker) InputSchema() *jsonschema.Schema { return hireWorkerSchema }
 func (t *HireWorker) Description() string {
 	return "Hire a Worker into a Position. The Worker's identityContent (per-hire persona / " +
@@ -131,27 +135,27 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return nil, fmt.Errorf("server is not configured with an envs directory")
 	}
 
-	pos, err := t.deps.Store.Positions.Get(ctx, domain.PositionID(args.PositionID))
+	pos, err := t.deps.Store.Positions.Get(ctx, position.ID(args.PositionID))
 	if err != nil {
 		return nil, fmt.Errorf("position %q: %w", args.PositionID, err)
 	}
 
-	id := domain.WorkerID(args.ID)
+	id := worker.ID(args.ID)
 	if id == "" {
-		id = domain.WorkerID("w-" + t.deps.NewID())
+		id = worker.ID("w-" + t.deps.NewID())
 	}
 	envPath := filepath.Join(t.deps.EnvsDir, string(id))
 
 	var worker domain.Worker
 	switch args.Kind {
 	case domain.WorkerKindHuman:
-		w, err := domain.NewHumanWorker(id, []domain.PositionID{pos.ID}, args.IdentityContent)
+		w, err := domain.NewHumanWorker(id, []position.ID{pos.ID}, args.IdentityContent)
 		if err != nil {
 			return nil, err
 		}
 		worker = w
 	case domain.WorkerKindAI:
-		w, err := domain.NewAIWorker(id, []domain.PositionID{pos.ID}, args.IdentityContent)
+		w, err := domain.NewAIWorker(id, []position.ID{pos.ID}, args.IdentityContent)
 		if err != nil {
 			return nil, err
 		}
@@ -188,8 +192,8 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		if g.ToolName == "" {
 			return nil, fmt.Errorf("grants[%d]: toolName is required", i)
 		}
-		grantID := domain.GrantID("g-" + t.deps.NewID())
-		grant, err := domain.NewToolGrant(grantID, id, domain.ToolName(g.ToolName))
+		grantID := grant.ID("g-" + t.deps.NewID())
+		grant, err := domain.NewToolGrant(grantID, id, tool.Name(g.ToolName))
 		if err != nil {
 			return nil, fmt.Errorf("grants[%d]: %w", i, err)
 		}
@@ -230,7 +234,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 // subscribes the hiring Worker to it. The Stream ID is deterministic
 // (s-activations-<workerID>) so the Spawner can find it without an
 // extra lookup.
-func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWorkerID domain.WorkerID) error {
+func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWorkerID worker.ID) error {
 	streamID := agent.ActivationStreamID(workerID)
 	stream, err := domain.NewStream(
 		streamID,

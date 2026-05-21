@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/stream"
 )
 
 func TestBroadcasterWakesMatchingSubscriber(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.StreamID{"s-a", "s-b"})
+	ch := b.Subscribe([]stream.ID{"s-a", "s-b"})
 	b.Notify("s-a")
 	select {
 	case <-ch:
@@ -25,7 +25,7 @@ func TestBroadcasterIgnoresOtherStreams(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.StreamID{"s-a"})
+	ch := b.Subscribe([]stream.ID{"s-a"})
 	b.Notify("s-b")
 	select {
 	case <-ch:
@@ -38,7 +38,7 @@ func TestBroadcasterCoalescesBurstyNotifications(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.StreamID{"s-a"})
+	ch := b.Subscribe([]stream.ID{"s-a"})
 	for i := 0; i < 100; i++ {
 		b.Notify("s-a")
 	}
@@ -55,8 +55,8 @@ func TestBroadcasterUnsubscribeStopsDelivery(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.StreamID{"s-a"})
-	b.Unsubscribe([]domain.StreamID{"s-a"}, ch)
+	ch := b.Subscribe([]stream.ID{"s-a"})
+	b.Unsubscribe([]stream.ID{"s-a"}, ch)
 	b.Notify("s-a")
 	select {
 	case <-ch:
@@ -73,7 +73,7 @@ func TestBroadcasterMultipleSubscribers(t *testing.T) {
 	var wg sync.WaitGroup
 	channels := make([]chan struct{}, n)
 	for i := range channels {
-		channels[i] = b.Subscribe([]domain.StreamID{"s-a"})
+		channels[i] = b.Subscribe([]stream.ID{"s-a"})
 		wg.Add(1)
 		go func(ch chan struct{}) {
 			defer wg.Done()

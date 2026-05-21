@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -37,7 +38,7 @@ func (r *environmentsRepo) Create(ctx context.Context, env domain.Environment) e
 	return nil
 }
 
-func (r *environmentsRepo) Get(ctx context.Context, workerID domain.WorkerID) (domain.Environment, error) {
+func (r *environmentsRepo) Get(ctx context.Context, workerID worker.ID) (domain.Environment, error) {
 	var row environmentRow
 	err := r.db.WithContext(ctx).First(&row, "worker_id = ?", string(workerID)).Error
 	if err != nil {
@@ -46,5 +47,5 @@ func (r *environmentsRepo) Get(ctx context.Context, workerID domain.WorkerID) (d
 		}
 		return domain.Environment{}, fmt.Errorf("get environment for worker %q: %w", workerID, err)
 	}
-	return domain.NewEnvironment(domain.WorkerID(row.WorkerID), row.Path, row.CreatedAt)
+	return domain.NewEnvironment(worker.ID(row.WorkerID), row.Path, row.CreatedAt)
 }

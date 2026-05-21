@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -61,7 +62,7 @@ type Dispatcher struct {
 
 	// per-worker queues coalesce activations. Each is created on first
 	// use via sync.Map.LoadOrStore.
-	queues sync.Map // map[domain.WorkerID]*workerQueue
+	queues sync.Map // map[worker.ID]*workerQueue
 }
 
 // workerQueue holds the pending triggers for one Worker plus the
@@ -109,7 +110,7 @@ func (d *Dispatcher) SetEmailEmitter(e EmailEmitter) { d.emailEmitter = e }
 // triggered it, so the spawned process is not killed when the request
 // completes.
 // No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchHire(_ context.Context, workerID domain.WorkerID, envPath string) {
+func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string) {
 	if d.spawner == nil {
 		return
 	}
@@ -189,7 +190,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 // runner goroutine if one isn't already draining the queue. Returns
 // immediately. The activation goroutine outlives the HTTP request
 // that triggered enqueue, so it uses context.Background internally.
-func (d *Dispatcher) enqueue(workerID domain.WorkerID, envPath string, trigger agent.Trigger) {
+func (d *Dispatcher) enqueue(workerID worker.ID, envPath string, trigger agent.Trigger) {
 	q := d.queueFor(workerID)
 	q.mu.Lock()
 	q.pending = append(q.pending, trigger)
@@ -209,7 +210,7 @@ func (d *Dispatcher) enqueue(workerID domain.WorkerID, envPath string, trigger a
 // with however many triggers accumulated. Exits when an iteration
 // finds the queue empty under the lock — at which point any later
 // enqueue will see running == false and start a fresh runner.
-func (d *Dispatcher) run(workerID domain.WorkerID, q *workerQueue) {
+func (d *Dispatcher) run(workerID worker.ID, q *workerQueue) {
 	for {
 		q.mu.Lock()
 		if len(q.pending) == 0 {
@@ -229,7 +230,7 @@ func (d *Dispatcher) run(workerID domain.WorkerID, q *workerQueue) {
 // activate is one synchronous Spawner call. The runner serialises
 // these per-Worker so the Spawner is never invoked concurrently for
 // the same Worker.
-func (d *Dispatcher) activate(ctx context.Context, workerID domain.WorkerID, envPath string, batch []agent.Trigger) {
+func (d *Dispatcher) activate(ctx context.Context, workerID worker.ID, envPath string, batch []agent.Trigger) {
 	d.logger.Info("dispatch.activate.start",
 		"worker", workerID,
 		"trigger", batch[0].Kind,
@@ -253,7 +254,7 @@ func (d *Dispatcher) activate(ctx context.Context, workerID domain.WorkerID, env
 	)
 }
 
-func (d *Dispatcher) queueFor(workerID domain.WorkerID) *workerQueue {
+func (d *Dispatcher) queueFor(workerID worker.ID) *workerQueue {
 	got, _ := d.queues.LoadOrStore(workerID, &workerQueue{})
 	return got.(*workerQueue)
 }

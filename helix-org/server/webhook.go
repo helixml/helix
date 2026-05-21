@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -33,7 +35,7 @@ const maxWebhookBody = 1 << 20
 // notified so any long-poll observer wakes.
 func (s *Server) webhookHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		streamID := domain.StreamID(r.PathValue("streamID"))
+		streamID := stream.ID(r.PathValue("streamID"))
 		if streamID == "" {
 			http.Error(w, "missing streamID", http.StatusNotFound)
 			return
@@ -69,7 +71,7 @@ func (s *Server) webhookHandler() http.Handler {
 		// with no helix Worker identity; routing decisions about "who
 		// sent this" belong in the receiving Role's prompt.
 		event, err := domain.NewMessageEvent(
-			domain.EventID("e-"+uuid.NewString()),
+			event.ID("e-"+uuid.NewString()),
 			streamID,
 			"", // system-emitted; webhooks have no Worker source
 			domain.Message{Body: string(body)},

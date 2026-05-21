@@ -14,7 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/dispatch"
 	"github.com/helixml/helix/helix-org/domain"
@@ -98,7 +103,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
-	WorkerID domain.WorkerID
+	WorkerID worker.ID
 	Triggers []agent.Trigger
 }
 
@@ -112,7 +117,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 		t.Fatalf("open store: %v", err)
 	}
 	rec := make(chan recordedActivation, 16)
-	spawner := agent.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []agent.Trigger) error {
+	spawner := agent.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []agent.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -146,13 +151,13 @@ func drainActivations(t *testing.T, rec <-chan recordedActivation, window time.D
 // it. Position is fabricated with a per-test role so the worker can be
 // constructed; tests that don't care about role/position structure use
 // a single shared role row to avoid per-call boilerplate.
-func seedAIWorker(t *testing.T, s *store.Store, workerID domain.WorkerID) {
+func seedAIWorker(t *testing.T, s *store.Store, workerID worker.ID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
-	roleID := domain.RoleID("r-test")
+	roleID := role.ID("r-test")
 	if _, err := s.Roles.Get(ctx, roleID); err != nil {
-		role, err := domain.NewRole(roleID, "# Role: Test\nTest role.", now)
+		role, err := role.New(roleID, "# Role: Test\nTest role.", nil, nil, now)
 		if err != nil {
 			t.Fatalf("new role: %v", err)
 		}
@@ -160,7 +165,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID domain.WorkerID) {
 			t.Fatalf("create role: %v", err)
 		}
 	}
-	posID := domain.PositionID("p-" + string(workerID))
+	posID := position.ID("p-" + string(workerID))
 	pos, err := domain.NewPosition(posID, roleID, nil)
 	if err != nil {
 		t.Fatalf("new position: %v", err)
@@ -168,7 +173,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID domain.WorkerID) {
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	w, err := domain.NewAIWorker(workerID, []domain.PositionID{posID}, "# "+string(workerID)+"\nTest persona.")
+	w, err := domain.NewAIWorker(workerID, []position.ID{posID}, "# "+string(workerID)+"\nTest persona.")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
@@ -185,7 +190,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID domain.WorkerID) {
 }
 
 // seedSubscription persists a Worker→Stream subscription.
-func seedSubscription(t *testing.T, s *store.Store, workerID domain.WorkerID, streamID domain.StreamID) {
+func seedSubscription(t *testing.T, s *store.Store, workerID worker.ID, streamID stream.ID) {
 	t.Helper()
 	sub, err := domain.NewSubscription(workerID, streamID, time.Now().UTC())
 	if err != nil {
@@ -198,7 +203,7 @@ func seedSubscription(t *testing.T, s *store.Store, workerID domain.WorkerID, st
 
 // seedWebhookStream creates a Stream of the given Transport and returns
 // its ID.
-func seedWebhookStream(t *testing.T, s *store.Store, id domain.StreamID, transport transport.Transport) {
+func seedWebhookStream(t *testing.T, s *store.Store, id stream.ID, transport transport.Transport) {
 	t.Helper()
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport)
 	if err != nil {
@@ -218,9 +223,9 @@ var eventCounter atomic.Uint64
 // header-safe ID. Source is set to a non-empty sentinel so emit
 // runs (events with empty Source are treated as inbound and skipped
 // by the dispatcher to avoid echo loops).
-func makeEvent(t *testing.T, streamID domain.StreamID, body string) domain.Event {
+func makeEvent(t *testing.T, streamID stream.ID, body string) domain.Event {
 	t.Helper()
-	id := domain.EventID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
+	id := event.ID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
 	e, err := domain.NewEvent(id, streamID, "w-test", body, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("new event: %v", err)
@@ -607,7 +612,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := agent.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []agent.Trigger) error {
+	spawner := agent.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []agent.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -628,7 +633,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 
 	publish := func(id, body string) {
 		ev, err := domain.NewMessageEvent(
-			domain.EventID(id), "s-team", "w-other",
+			event.ID(id), "s-team", "w-other",
 			domain.Message{From: "w-other", Body: body},
 			time.Now().UTC(),
 		)
@@ -670,7 +675,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	if len(a2.Triggers) != 3 {
 		t.Fatalf("activation #2 = %d triggers %+v, want 3", len(a2.Triggers), eventIDs(a2.Triggers))
 	}
-	wantIDs := []domain.EventID{"e-2", "e-3", "e-4"}
+	wantIDs := []event.ID{"e-2", "e-3", "e-4"}
 	for i, want := range wantIDs {
 		if a2.Triggers[i].EventID != want {
 			t.Fatalf("activation #2 trigger order = %+v, want %+v", eventIDs(a2.Triggers), wantIDs)
@@ -703,8 +708,8 @@ func waitForActivation(t *testing.T, rec <-chan recordedActivation, timeout time
 	}
 }
 
-func eventIDs(ts []agent.Trigger) []domain.EventID {
-	out := make([]domain.EventID, len(ts))
+func eventIDs(ts []agent.Trigger) []event.ID {
+	out := make([]event.ID, len(ts))
 	for i, t := range ts {
 		out[i] = t.EventID
 	}

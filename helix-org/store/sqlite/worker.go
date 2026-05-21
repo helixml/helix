@@ -9,6 +9,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/position"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -39,7 +41,7 @@ func (r *workersRepo) Create(ctx context.Context, worker domain.Worker) error {
 	return nil
 }
 
-func (r *workersRepo) Get(ctx context.Context, id domain.WorkerID) (domain.Worker, error) {
+func (r *workersRepo) Get(ctx context.Context, id worker.ID) (domain.Worker, error) {
 	var row workerRow
 	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
 	if err != nil {
@@ -108,7 +110,7 @@ func workerToRow(worker domain.Worker) (workerRow, error) {
 }
 
 func rowToWorker(row workerRow) (domain.Worker, error) {
-	var positions []domain.PositionID
+	var positions []position.ID
 	if row.Positions != "" {
 		if err := json.Unmarshal([]byte(row.Positions), &positions); err != nil {
 			return nil, fmt.Errorf("unmarshal positions: %w", err)
@@ -116,9 +118,9 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 	}
 	switch domain.WorkerKind(row.Kind) {
 	case domain.WorkerKindHuman:
-		return domain.NewHumanWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
+		return domain.NewHumanWorker(worker.ID(row.ID), positions, row.IdentityContent)
 	case domain.WorkerKindAI:
-		return domain.NewAIWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
+		return domain.NewAIWorker(worker.ID(row.ID), positions, row.IdentityContent)
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
 	}

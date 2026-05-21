@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -35,15 +37,15 @@ func PublishActivationEvent(
 	newID func() string,
 	now func() time.Time,
 	logger *slog.Logger,
-	workerID domain.WorkerID,
+	workerID worker.ID,
 	body string,
-) (domain.EventID, error) {
+) (event.ID, error) {
 	if st == nil || newID == nil || now == nil || strings.TrimSpace(body) == "" {
 		return "", nil
 	}
 	streamID := ActivationStreamID(workerID)
 	event, err := domain.NewMessageEvent(
-		domain.EventID("e-"+newID()),
+		event.ID("e-"+newID()),
 		streamID,
 		workerID,
 		domain.Message{From: string(workerID), Body: body},

@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -64,7 +64,7 @@ type ProjectApplier struct {
 // doesn't exist yet. Returns the resolved project / agent-app /
 // repo IDs (read from the runtime state after persistence so callers
 // see the same view of state).
-func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (projectID, agentAppID, repoID string, err error) {
+func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
 	worker, err := a.Store.Workers.Get(ctx, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get worker: %w", err)
@@ -256,7 +256,7 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (
 // before reading these files, otherwise it'll see the worktree's
 // pre-existing copy. The spawner's activation prompt
 // (helixSpecsMandate) carries that pull instruction.
-func (a *ProjectApplier) republishWorkerFiles(ctx context.Context, workerID domain.WorkerID, repoID, roleContent, identityContent string) {
+func (a *ProjectApplier) republishWorkerFiles(ctx context.Context, workerID worker.ID, repoID, roleContent, identityContent string) {
 	if repoID == "" {
 		return
 	}
