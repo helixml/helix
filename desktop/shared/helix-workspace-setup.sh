@@ -627,6 +627,45 @@ fi
 echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
+# Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and
+# ~/.config/chromium to persistent storage so tabs, history, bookmarks and
+# extensions survive container restarts. Same pattern as ~/.claude above.
+# Only $WORK_DIR is bind-mounted persistent — see api/pkg/sandbox/controller_provision.go.
+#
+# Note: arm64 uses Chromium (apt) and amd64 uses Google Chrome (deb). Both write
+# to a profile directory under ~/.config/, but the directory name differs. We
+# symlink both unconditionally — the one for the other arch is just an unused
+# pointer into the same state dir, which is harmless and keeps the script
+# arch-agnostic.
+CHROME_STATE_DIR=$WORK_DIR/.chrome-state
+mkdir -p $CHROME_STATE_DIR
+
+# Seed first-run sentinels so Chrome's welcome dialog stays suppressed on first
+# launch with a fresh persistent profile (mirrors /etc/skel setup in the
+# Dockerfile, which the symlink bypasses).
+if [ ! -f $CHROME_STATE_DIR/"First Run" ]; then
+    touch $CHROME_STATE_DIR/"First Run"
+    mkdir -p $CHROME_STATE_DIR/Default
+    if [ ! -f $CHROME_STATE_DIR/Default/Preferences ]; then
+        echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' > $CHROME_STATE_DIR/Default/Preferences
+    fi
+fi
+
+# Preserve any ephemeral profile data written before this script ran
+# (rare, but matches the careful pattern from the Claude block above).
+for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
+    if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ]; then
+        cp -a "$ephemeral_dir/." $CHROME_STATE_DIR/ 2>/dev/null || true
+    fi
+done
+
+mkdir -p ~/.config
+rm -rf ~/.config/google-chrome ~/.config/chromium
+ln -sfn $CHROME_STATE_DIR ~/.config/google-chrome
+ln -sfn $CHROME_STATE_DIR ~/.config/chromium
+echo "  Chrome: ~/.config/google-chrome -> $CHROME_STATE_DIR"
+echo "  Chromium: ~/.config/chromium -> $CHROME_STATE_DIR"
+
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
     cat > "$WORK_DIR/README.md" << 'HEREDOC'
