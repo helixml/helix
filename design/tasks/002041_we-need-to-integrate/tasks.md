@@ -3,7 +3,7 @@
 ## Phase 1 — Base runtime (US-1, US-2, US-3)
 
 - [x] Add `GOOSE_COMMIT=<sha>` to `sandbox-versions.txt` (pin to a `main` SHA that includes PR #8925 — verify with `grep AvailableCommand crates/goose/src/acp/server.rs` at that SHA)
-- [ ] Add a goose build stage to `Dockerfile.ubuntu-helix`: clone goose at `$GOOSE_COMMIT`, `cargo build --release -p goose-cli`, copy the binary into the runtime image's `/usr/local/bin/goose`. Mirror the existing Zed build-stage pattern in the same Dockerfile
+- [~] Add a goose build stage to `Dockerfile.ubuntu-helix`: clone goose at `$GOOSE_COMMIT`, `cargo build --release -p goose-cli`, copy the binary into the runtime image's `/usr/local/bin/goose`. Mirror the existing Zed build-stage pattern in the same Dockerfile
 - [ ] Disable Goose telemetry/auto-update in the image (mirror the `~/.qwen/settings.json` and `~/.gemini/settings.json` pattern)
 - [ ] Verify `goose --version` and `goose acp` start cleanly in a freshly built `helix-ubuntu` container
 - [ ] Add `CodeAgentRuntimeGooseCode CodeAgentRuntime = "goose_code"` to `api/pkg/types/task_management.go`
