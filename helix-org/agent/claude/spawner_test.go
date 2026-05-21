@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/domain"
@@ -161,7 +162,7 @@ func TestPublishActivationEventAppendsAndNotifies(t *testing.T) {
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 
 	streamID := agent.ActivationStreamID("w-x")
-	stream, err := domain.NewStream(streamID, "Activations: w-x", "test", "w-owner", now, domain.Transport{})
+	stream, err := domain.NewStream(streamID, "Activations: w-x", "test", "w-owner", now, transport.Transport{})
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}

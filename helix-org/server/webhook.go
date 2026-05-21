@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -48,7 +49,7 @@ func (s *Server) webhookHandler() http.Handler {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if stream.Transport.Kind != domain.TransportWebhook {
+		if stream.Transport.Kind != transport.KindWebhook {
 			http.Error(w, fmt.Sprintf("stream %q is not a webhook stream", streamID), http.StatusNotFound)
 			return
 		}

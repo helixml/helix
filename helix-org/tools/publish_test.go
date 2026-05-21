@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store/sqlite"
 )
@@ -31,7 +32,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	})
 	stream, err := domain.NewStream("s-github", "s-github", "", "w-owner",
 		time.Now().UTC(),
-		domain.Transport{Kind: domain.TransportGitHub, Config: cfg})
+		transport.Transport{Kind: transport.KindGitHub, Config: cfg})
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	ctx := context.Background()
 
 	stream, err := domain.NewStream("s-general", "s-general", "", "w-owner",
-		time.Now().UTC(), domain.LocalTransport())
+		time.Now().UTC(), transport.LocalTransport())
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}

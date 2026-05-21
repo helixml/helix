@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -73,7 +74,7 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 			return nil, fmt.Errorf("lookup stream %q: %w", streamID, err)
 		}
 		name := fmt.Sprintf("dm: %s ↔ %s", sender, recipient)
-		s, err := domain.NewStream(streamID, name, "", sender, t.deps.Now(), domain.Transport{})
+		s, err := domain.NewStream(streamID, name, "", sender, t.deps.Now(), transport.Transport{})
 		if err != nil {
 			return nil, err
 		}

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/transport"
 )
 
 // createStreamTransport accepts both the canonical object form and a
@@ -21,25 +21,25 @@ func TestCreateStreamTransportUnmarshal(t *testing.T) {
 		{
 			name:  "object form with kind only",
 			input: `{"kind":"webhook"}`,
-			want:  createStreamTransport{Kind: domain.TransportWebhook},
+			want:  createStreamTransport{Kind: transport.KindWebhook},
 		},
 		{
 			name:  "object form with kind and config",
 			input: `{"kind":"webhook","config":{"outbound_url":"http://x/in"}}`,
 			want: createStreamTransport{
-				Kind:   domain.TransportWebhook,
+				Kind:   transport.KindWebhook,
 				Config: json.RawMessage(`{"outbound_url":"http://x/in"}`),
 			},
 		},
 		{
 			name:  "string shorthand webhook",
 			input: `"webhook"`,
-			want:  createStreamTransport{Kind: domain.TransportWebhook},
+			want:  createStreamTransport{Kind: transport.KindWebhook},
 		},
 		{
 			name:  "string shorthand local",
 			input: `"local"`,
-			want:  createStreamTransport{Kind: domain.TransportLocal},
+			want:  createStreamTransport{Kind: transport.KindLocal},
 		},
 		{
 			name:   "malformed JSON",

@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/server"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -724,7 +725,7 @@ func TestWorkerLog(t *testing.T) {
 	// production hire_worker creates the stream and the spawner
 	// publishes events; here we shortcut.
 	streamID := domain.StreamID("s-activations-w-bot")
-	stream, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, domain.Transport{})
+	stream, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, transport.Transport{})
 	mustCreate(t, s.Streams.Create(ctx, stream))
 	for i, body := range []string{"--- session start ---", "assistant: hello", "=== exit: ok ==="} {
 		ev, _ := domain.NewEvent(

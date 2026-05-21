@@ -3,13 +3,15 @@ package domain
 import (
 	"errors"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/transport"
 )
 
 // Stream is a named source of events. Workers publish to a Stream via
 // tools and receive from a Stream via Subscriptions.
 //
-// Every Stream has a Transport. The default — TransportLocal — keeps
-// events inside the system: SQLite for storage, the in-process
+// Every Stream has a Transport. The default — transport.KindLocal —
+// keeps events inside the system: SQLite for storage, the in-process
 // broadcaster for delivery, the dispatcher for waking subscribed AI
 // Workers. Other transports (Slack, email, webhook, RSS, tick…)
 // compose external I/O over the same local mechanism: events still
@@ -21,12 +23,12 @@ type Stream struct {
 	Description string
 	CreatedBy   WorkerID
 	CreatedAt   time.Time
-	Transport   Transport
+	Transport   transport.Transport
 }
 
-// NewStream validates and constructs a Stream. If transport.Kind is
-// empty, the returned Stream uses LocalTransport.
-func NewStream(id StreamID, name, description string, createdBy WorkerID, createdAt time.Time, transport Transport) (Stream, error) {
+// NewStream validates and constructs a Stream. If t.Kind is empty, the
+// returned Stream uses transport.LocalTransport().
+func NewStream(id StreamID, name, description string, createdBy WorkerID, createdAt time.Time, t transport.Transport) (Stream, error) {
 	if id == "" {
 		return Stream{}, errors.New("stream id is empty")
 	}
@@ -39,10 +41,10 @@ func NewStream(id StreamID, name, description string, createdBy WorkerID, create
 	if createdAt.IsZero() {
 		return Stream{}, errors.New("stream createdAt is zero")
 	}
-	if transport.Kind == "" {
-		transport = LocalTransport()
+	if t.Kind == "" {
+		t = transport.LocalTransport()
 	}
-	if err := transport.Validate(); err != nil {
+	if err := t.Validate(); err != nil {
 		return Stream{}, err
 	}
 	return Stream{
@@ -51,6 +53,6 @@ func NewStream(id StreamID, name, description string, createdBy WorkerID, create
 		Description: description,
 		CreatedBy:   createdBy,
 		CreatedAt:   createdAt.UTC(),
-		Transport:   transport,
+		Transport:   t,
 	}, nil
 }

@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -283,7 +284,7 @@ func (d *Dispatcher) emitOutbound(ctx context.Context, e domain.Event) {
 		return
 	}
 	switch stream.Transport.Kind {
-	case domain.TransportWebhook:
+	case transport.KindWebhook:
 		cfg, err := stream.Transport.WebhookConfig()
 		if err != nil {
 			d.logger.Warn("dispatch.emit.config", "stream", e.StreamID, "err", err)
@@ -293,7 +294,7 @@ func (d *Dispatcher) emitOutbound(ctx context.Context, e domain.Event) {
 			return
 		}
 		go d.postOutbound(cfg.OutboundURL, e) //nolint:gosec // intentional: the POST outlives the request that triggered Dispatch
-	case domain.TransportEmail:
+	case transport.KindEmail:
 		if d.emailEmitter == nil {
 			return
 		}

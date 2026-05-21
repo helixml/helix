@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/agent"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/domain"
@@ -239,7 +240,7 @@ func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWork
 			"Read with read_events to audit a hire.",
 		hiringWorkerID,
 		deps.Now(),
-		domain.Transport{},
+		transport.Transport{},
 	)
 	if err != nil {
 		return fmt.Errorf("activation stream: %w", err)

@@ -39,6 +39,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/domain"
@@ -262,7 +263,7 @@ func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string)
 	}
 	var matched []domain.Stream
 	for _, s := range all {
-		if s.Transport.Kind != domain.TransportGitHub {
+		if s.Transport.Kind != transport.KindGitHub {
 			continue
 		}
 		cfg, err := s.Transport.GitHubConfig()

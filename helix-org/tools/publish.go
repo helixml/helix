@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -68,7 +69,7 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	// Environment — wrapping each github action behind publish would
 	// reinvent the gh CLI's flag set with worse ergonomics. Surface
 	// the mistake loudly rather than silently no-op'ing.
-	if stream.Transport.Kind == domain.TransportGitHub {
+	if stream.Transport.Kind == transport.KindGitHub {
 		return nil, fmt.Errorf("stream %q: publish is not supported on github transport streams; use `gh` from your Environment to act on the repo", streamID)
 	}
 	msg := domain.Message{

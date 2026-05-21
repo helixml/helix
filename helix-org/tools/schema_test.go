@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -74,7 +75,7 @@ func TestQuotedListRendersDomainEnums(t *testing.T) {
 	if got := domain.QuotedList(domain.WorkerKindValues()); got != `"human", "ai"` {
 		t.Errorf("WorkerKind QuotedList = %q", got)
 	}
-	if got := domain.QuotedList(domain.TransportKindValues()); !strings.Contains(got, `"local"`) || !strings.Contains(got, `"github"`) {
+	if got := domain.QuotedList(transport.KindValues()); !strings.Contains(got, `"local"`) || !strings.Contains(got, `"github"`) {
 		t.Errorf("TransportKind QuotedList = %q (missing local or github)", got)
 	}
 }

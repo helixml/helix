@@ -36,6 +36,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/domain"
@@ -100,7 +101,7 @@ func seedGitHubStream(t *testing.T, st *store.Store, id domain.StreamID, repo st
 	t.Helper()
 	cfg, _ := json.Marshal(map[string]any{"repo": repo, "events": events})
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
-		domain.Transport{Kind: domain.TransportGitHub, Config: cfg})
+		transport.Transport{Kind: transport.KindGitHub, Config: cfg})
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
@@ -607,7 +608,7 @@ func TestTransportValidateGitHub(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tr := domain.Transport{Kind: domain.TransportGitHub, Config: json.RawMessage(tc.cfg)}
+			tr := transport.Transport{Kind: transport.KindGitHub, Config: json.RawMessage(tc.cfg)}
 			err := tr.Validate()
 			if tc.wantErr == "" {
 				if err != nil {
@@ -631,7 +632,7 @@ func TestGitHubConfigRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	raw := json.RawMessage(`{"repo":"helixml/helix-org","events":["issues","pull_request"]}`)
-	c, err := domain.Transport{Kind: domain.TransportGitHub, Config: raw}.GitHubConfig()
+	c, err := transport.Transport{Kind: transport.KindGitHub, Config: raw}.GitHubConfig()
 	if err != nil {
 		t.Fatalf("GitHubConfig() = %v", err)
 	}

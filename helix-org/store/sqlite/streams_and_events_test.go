@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -16,7 +17,7 @@ func TestStreamsRoundTripAndByName(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	st, err := domain.NewStream("s-general", "general", "all-hands", "w-owner", now, domain.Transport{})
+	st, err := domain.NewStream("s-general", "general", "all-hands", "w-owner", now, transport.Transport{})
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
 	}
@@ -31,8 +32,8 @@ func TestStreamsRoundTripAndByName(t *testing.T) {
 	if gotByID.Name != "general" {
 		t.Fatalf("name = %q", gotByID.Name)
 	}
-	if gotByID.Transport.Kind != domain.TransportLocal {
-		t.Fatalf("Transport.Kind = %q, want %q", gotByID.Transport.Kind, domain.TransportLocal)
+	if gotByID.Transport.Kind != transport.KindLocal {
+		t.Fatalf("Transport.Kind = %q, want %q", gotByID.Transport.Kind, transport.KindLocal)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/domain"
@@ -68,9 +69,9 @@ func setPostmarkConfig(t *testing.T, reg *config.Registry, token, inbound, from 
 
 func seedEmailStream(t *testing.T, st *store.Store, id domain.StreamID, alias string) domain.Stream {
 	t.Helper()
-	cfg, _ := json.Marshal(domain.EmailConfig{Alias: alias})
+	cfg, _ := json.Marshal(transport.EmailConfig{Alias: alias})
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
-		domain.Transport{Kind: domain.TransportEmail, Config: cfg})
+		transport.Transport{Kind: transport.KindEmail, Config: cfg})
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}

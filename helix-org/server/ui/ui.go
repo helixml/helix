@@ -11,6 +11,7 @@ import (
 
 	"github.com/tylermmorton/tmpl"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/dispatch"
@@ -611,7 +612,7 @@ func (u *uiHandler) fillStreamDetail(ctx context.Context, page *StreamsPage, str
 
 	// GitHub streams reject publish at the tool layer; mirror the same
 	// rule here so the UI matches the backend exactly.
-	page.CanPublish = s.Transport.Kind != domain.TransportGitHub
+	page.CanPublish = s.Transport.Kind != transport.KindGitHub
 	if !page.CanPublish {
 		page.PublishDisabledReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
 	}
@@ -674,7 +675,7 @@ func (u *uiHandler) handleStreamsPublish(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	if stream.Transport.Kind == domain.TransportGitHub {
+	if stream.Transport.Kind == transport.KindGitHub {
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape("github transport is inbound only"), http.StatusSeeOther)
 		return
 	}
@@ -875,4 +876,3 @@ func render[T tmpl.TemplateProvider](w http.ResponseWriter, t tmpl.Template[T], 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
-

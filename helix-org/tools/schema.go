@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -30,8 +31,8 @@ var schemaOpts = &jsonschema.ForOptions{
 			domain.WorkerKindValues(),
 			"Worker kind: human (a person) or ai (a software agent).",
 		),
-		reflect.TypeFor[domain.TransportKind](): enumSchema(
-			domain.TransportKindValues(),
+		reflect.TypeFor[transport.Kind](): enumSchema(
+			transport.KindValues(),
 			"Stream transport: local (in-process), webhook (HTTP), email (Postmark), github (inbound).",
 		),
 	},

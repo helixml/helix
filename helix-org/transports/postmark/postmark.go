@@ -34,6 +34,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/domain"
@@ -157,7 +158,7 @@ func (t *Transport) findStreamByAlias(ctx context.Context, alias string) (domain
 		return domain.Stream{}, fmt.Errorf("list streams: %w", err)
 	}
 	for _, s := range streams {
-		if s.Transport.Kind != domain.TransportEmail {
+		if s.Transport.Kind != transport.KindEmail {
 			continue
 		}
 		cfg, err := s.Transport.EmailConfig()

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -154,7 +155,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 			" — the owner's chat turns appear here, same as every AI Worker's.",
 		owner.ID(),
 		now,
-		domain.Transport{},
+		transport.Transport{},
 	)
 	if err != nil {
 		return Result{}, fmt.Errorf("owner activation stream: %w", err)

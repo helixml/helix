@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/dispatch"
 	"github.com/helixml/helix/helix-org/domain"
@@ -197,7 +198,7 @@ func seedSubscription(t *testing.T, s *store.Store, workerID domain.WorkerID, st
 
 // seedWebhookStream creates a Stream of the given Transport and returns
 // its ID.
-func seedWebhookStream(t *testing.T, s *store.Store, id domain.StreamID, transport domain.Transport) {
+func seedWebhookStream(t *testing.T, s *store.Store, id domain.StreamID, transport transport.Transport) {
 	t.Helper()
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport)
 	if err != nil {
@@ -234,8 +235,8 @@ func TestDispatchEmitsOutbound(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-out", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-out", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	e := makeEvent(t, "s-out", "hello world")
 	d.Dispatch(context.Background(), e)
@@ -261,7 +262,7 @@ func TestDispatchSkipsLocalStream(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	seedWebhookStream(t, s, "s-local", domain.LocalTransport())
+	seedWebhookStream(t, s, "s-local", transport.LocalTransport())
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-local", "should not leave"))
 	c.expectNone(t, 200*time.Millisecond)
@@ -274,7 +275,7 @@ func TestDispatchSkipsWebhookWithoutURL(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	seedWebhookStream(t, s, "s-inbox", domain.Transport{Kind: domain.TransportWebhook})
+	seedWebhookStream(t, s, "s-inbox", transport.Transport{Kind: transport.KindWebhook})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-inbox", "inbound only"))
 	c.expectNone(t, 200*time.Millisecond)
@@ -300,8 +301,8 @@ func TestDispatchTolerates5xx(t *testing.T) {
 	c := newCatcher(t)
 	c.status.Store(http.StatusInternalServerError)
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-flaky", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-flaky", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-flaky", "boom"))
 
@@ -328,8 +329,8 @@ func TestDispatchTolerates4xx(t *testing.T) {
 	c := newCatcher(t)
 	c.status.Store(http.StatusBadRequest)
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-rejecty", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-rejecty", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-rejecty", "nope"))
 	got := c.waitFor(t, 2*time.Second)
@@ -346,8 +347,8 @@ func TestDispatchTolerates_UnreachableHost(t *testing.T) {
 	t.Parallel()
 	d, s := newDispatcher(t)
 	// 127.0.0.1:1 is reserved and reliably refuses connections.
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: "http://127.0.0.1:1/dead"})
-	seedWebhookStream(t, s, "s-dead", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: "http://127.0.0.1:1/dead"})
+	seedWebhookStream(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	// Use a tiny client timeout so the test runs fast.
 	d.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
@@ -371,8 +372,8 @@ func TestDispatchHonoursClientTimeout(t *testing.T) {
 	c := newCatcher(t)
 	c.delay.Store(int64(2 * time.Second)) // longer than the client timeout
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-slow", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 	d.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
 
 	start := time.Now()
@@ -391,8 +392,8 @@ func TestDispatchConcurrent(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-stress", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-stress", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	const n = 25
 	var wg sync.WaitGroup
@@ -424,8 +425,8 @@ func TestDispatchBinaryPayload(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-bin", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-bin", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	body := "líne 1 — α β γ\n\x00\nemoji: 🚀"
 	d.Dispatch(context.Background(), makeEvent(t, "s-bin", body))
@@ -449,7 +450,7 @@ func TestDispatchInvalidStoredConfigDoesNotCrash(t *testing.T) {
 		Name:      "bogus",
 		CreatedBy: "w-owner",
 		CreatedAt: time.Now().UTC(),
-		Transport: domain.Transport{Kind: domain.TransportWebhook, Config: []byte(`{not valid`)},
+		Transport: transport.Transport{Kind: transport.KindWebhook, Config: []byte(`{not valid`)},
 	}
 	if err := s.Streams.Create(context.Background(), bogus); err != nil {
 		t.Fatalf("create stream: %v", err)
@@ -467,8 +468,8 @@ func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-ok", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-ok", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	// Dispatch on a missing stream first — should noop without affecting
 	// the next dispatch.
@@ -491,8 +492,8 @@ func TestDispatchContentTypeAndPath(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	// URL with a path so we can verify it's preserved.
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL() + "/some/where"})
-	seedWebhookStream(t, s, "s-path", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL() + "/some/where"})
+	seedWebhookStream(t, s, "s-path", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-path", "x"))
 	got := c.waitFor(t, 2*time.Second)
@@ -513,7 +514,7 @@ func TestDispatchContentTypeAndPath(t *testing.T) {
 func TestDispatchSkipsPublisher(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-team", domain.Transport{Kind: domain.TransportLocal})
+	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-publisher")
 	seedAIWorker(t, s, "w-other")
 	seedSubscription(t, s, "w-publisher", "s-team")
@@ -549,7 +550,7 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 func TestDispatchAttachesSourceKind(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-team", domain.Transport{Kind: domain.TransportLocal})
+	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-publisher")
 	seedAIWorker(t, s, "w-other")
 	seedSubscription(t, s, "w-other", "s-team")
@@ -621,7 +622,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	seedWebhookStream(t, s, "s-team", domain.Transport{Kind: domain.TransportLocal})
+	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-eng")
 	seedSubscription(t, s, "w-eng", "s-team")
 

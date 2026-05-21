@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -33,7 +34,7 @@ var createStreamSchema = func() *jsonschema.Schema {
 		s.Properties["transport"] = &jsonschema.Schema{
 			Description: "Transport for the new Stream. Either a bare string naming the kind (\"local\" / \"webhook\" / \"email\" / \"github\") or an object with kind and optional config.",
 			OneOf: []*jsonschema.Schema{
-				enumSchema(domain.TransportKindValues(), "Transport kind shorthand."),
+				enumSchema(transport.KindValues(), "Transport kind shorthand."),
 				&object,
 			},
 		}
@@ -63,8 +64,8 @@ type createStreamArgs struct {
 }
 
 type createStreamTransport struct {
-	Kind   domain.TransportKind `json:"kind"`
-	Config json.RawMessage      `json:"config,omitempty"`
+	Kind   transport.Kind  `json:"kind"`
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // UnmarshalJSON accepts either the canonical object form
@@ -76,7 +77,7 @@ type createStreamTransport struct {
 // mean the same thing.
 func (t *createStreamTransport) UnmarshalJSON(data []byte) error {
 	if len(data) > 0 && data[0] == '"' {
-		var kind domain.TransportKind
+		var kind transport.Kind
 		if err := json.Unmarshal(data, &kind); err != nil {
 			return err
 		}
@@ -102,14 +103,14 @@ func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.
 	if id == "" {
 		id = domain.StreamID("s-" + t.deps.NewID())
 	}
-	transport := domain.Transport{}
+	tr := transport.Transport{}
 	if args.Transport != nil {
-		transport = domain.Transport{
+		tr = transport.Transport{
 			Kind:   args.Transport.Kind,
 			Config: args.Transport.Config,
 		}
 	}
-	s, err := domain.NewStream(id, args.Name, args.Description, inv.Caller.ID(), t.deps.Now(), transport)
+	s, err := domain.NewStream(id, args.Name, args.Description, inv.Caller.ID(), t.deps.Now(), tr)
 	if err != nil {
 		return nil, err
 	}

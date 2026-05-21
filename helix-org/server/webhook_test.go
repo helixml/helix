@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/broadcast"
 	"github.com/helixml/helix/helix-org/dispatch"
 	"github.com/helixml/helix/helix-org/domain"
@@ -65,10 +66,10 @@ func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Ser
 // seedStream creates a Stream with the given transport kind. The
 // caller's createdBy is a fixed test sentinel; we don't seed a
 // matching Worker because the webhook path doesn't read it.
-func seedStream(t *testing.T, s *store.Store, id domain.StreamID, kind domain.TransportKind) {
+func seedStream(t *testing.T, s *store.Store, id domain.StreamID, kind transport.Kind) {
 	t.Helper()
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
-		domain.Transport{Kind: kind})
+		transport.Transport{Kind: kind})
 	if err != nil {
 		t.Fatalf("new stream %q: %v", id, err)
 	}
@@ -85,7 +86,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	t.Parallel()
 	rd := &recordingDispatcher{}
 	srv, s, bc := newWebhookServer(t, rd)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	wake := bc.Subscribe([]domain.StreamID{"s-inbox"})
 	t.Cleanup(func() { bc.Unsubscribe([]domain.StreamID{"s-inbox"}, wake) })
@@ -143,8 +144,8 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 func TestWebhookPostErrors(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
-	seedStream(t, s, "s-local", domain.TransportLocal)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedStream(t, s, "s-local", transport.KindLocal)
 
 	cases := []struct {
 		name     string
@@ -186,7 +187,7 @@ func TestWebhookPostErrors(t *testing.T) {
 func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	// Empty body → 400. No event should land.
 	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader(""))
@@ -213,7 +214,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 func TestWebhookBodySizeBoundary(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	atLimit := bytes.Repeat([]byte("a"), 1<<20)
 	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", bytes.NewReader(atLimit))
@@ -246,7 +247,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
 	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
@@ -271,7 +272,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 func TestWebhookPreservesBodyExactly(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	body := "line one\nline two\n\ttabbed → emoji 🚀 — UTF-8 preserved"
 	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "application/json", strings.NewReader(body))
@@ -303,7 +304,7 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 	t.Parallel()
 	rd := &recordingDispatcher{}
 	srv, s, _ := newWebhookServer(t, rd)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	const N = 25
 	var wg sync.WaitGroup
@@ -351,8 +352,8 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", domain.TransportWebhook)
-	seedStream(t, s, "s-other", domain.TransportWebhook)
+	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedStream(t, s, "s-other", transport.KindWebhook)
 
 	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader("for inbox"))
 	if err != nil {
@@ -399,9 +400,9 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), broadcast.New(), d, nil).Handler())
 	t.Cleanup(srv.Close)
 
-	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: catcher.URL})
+	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: catcher.URL})
 	stream, err := domain.NewStream("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
-		domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+		transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}

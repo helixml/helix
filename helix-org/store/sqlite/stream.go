@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -85,7 +86,7 @@ func streamToRow(s domain.Stream) (streamRow, error) {
 }
 
 func rowToStream(row streamRow) (domain.Stream, error) {
-	transport := domain.Transport{Kind: domain.TransportKind(row.TransportKind)}
+	transport := transport.Transport{Kind: transport.Kind(row.TransportKind)}
 	if row.TransportConfig != "" {
 		transport.Config = json.RawMessage(row.TransportConfig)
 	}

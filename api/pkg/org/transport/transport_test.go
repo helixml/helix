@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/transport"
 )
 
 // --- Validate -----------------------------------------------------------
@@ -44,7 +44,7 @@ func TestTransportValidate_LocalAcceptsAnyConfig(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tr := domain.Transport{Kind: domain.TransportLocal, Config: tc.cfg}
+			tr := transport.Transport{Kind: transport.KindLocal, Config: tc.cfg}
 			if err := tr.Validate(); err != nil {
 				t.Fatalf("Validate() = %v, want nil", err)
 			}
@@ -75,7 +75,7 @@ func TestTransportValidate_Webhook(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tr := domain.Transport{Kind: domain.TransportWebhook}
+			tr := transport.Transport{Kind: transport.KindWebhook}
 			if tc.cfg != "" {
 				tr.Config = json.RawMessage(tc.cfg)
 			}
@@ -109,7 +109,7 @@ func TestTransportValidate_Email(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tr := domain.Transport{Kind: domain.TransportEmail}
+			tr := transport.Transport{Kind: transport.KindEmail}
 			if tc.cfg != "" {
 				tr.Config = json.RawMessage(tc.cfg)
 			}
@@ -149,7 +149,7 @@ func TestTransportValidate_GitHub(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tr := domain.Transport{Kind: domain.TransportGitHub}
+			tr := transport.Transport{Kind: transport.KindGitHub}
 			if tc.cfg != "" {
 				tr.Config = json.RawMessage(tc.cfg)
 			}
@@ -161,13 +161,13 @@ func TestTransportValidate_GitHub(t *testing.T) {
 
 func TestTransportValidate_EmptyKindFails(t *testing.T) {
 	t.Parallel()
-	err := (domain.Transport{}).Validate()
+	err := (transport.Transport{}).Validate()
 	assertError(t, err, "transport kind is empty")
 }
 
 func TestTransportValidate_UnknownKindFails(t *testing.T) {
 	t.Parallel()
-	err := domain.Transport{Kind: "smtp"}.Validate()
+	err := transport.Transport{Kind: "smtp"}.Validate()
 	assertError(t, err, "unknown transport kind")
 	// The error message lists every valid kind — Roles read it, so
 	// stability of this format is part of the public surface.
@@ -183,7 +183,7 @@ func TestTransportValidate_UnknownKindFails(t *testing.T) {
 
 func TestWebhookConfigParse_RejectsWrongKind(t *testing.T) {
 	t.Parallel()
-	_, err := domain.Transport{Kind: domain.TransportLocal}.WebhookConfig()
+	_, err := transport.Transport{Kind: transport.KindLocal}.WebhookConfig()
 	if err == nil {
 		t.Fatalf("expected error parsing local transport as webhook")
 	}
@@ -191,7 +191,7 @@ func TestWebhookConfigParse_RejectsWrongKind(t *testing.T) {
 
 func TestWebhookConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 	t.Parallel()
-	c, err := domain.Transport{Kind: domain.TransportWebhook}.WebhookConfig()
+	c, err := transport.Transport{Kind: transport.KindWebhook}.WebhookConfig()
 	if err != nil {
 		t.Fatalf("WebhookConfig() = %v, want nil", err)
 	}
@@ -203,7 +203,7 @@ func TestWebhookConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 func TestWebhookConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"outbound_url":"https://example.com/x"}`)
-	c, err := domain.Transport{Kind: domain.TransportWebhook, Config: raw}.WebhookConfig()
+	c, err := transport.Transport{Kind: transport.KindWebhook, Config: raw}.WebhookConfig()
 	if err != nil {
 		t.Fatalf("WebhookConfig() = %v", err)
 	}
@@ -215,7 +215,7 @@ func TestWebhookConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 func TestWebhookConfigParse_UnknownFieldsIgnored(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"outbound_url":"https://example.com/x","future":"ignored"}`)
-	c, err := domain.Transport{Kind: domain.TransportWebhook, Config: raw}.WebhookConfig()
+	c, err := transport.Transport{Kind: transport.KindWebhook, Config: raw}.WebhookConfig()
 	if err != nil {
 		t.Fatalf("WebhookConfig() = %v", err)
 	}
@@ -228,7 +228,7 @@ func TestWebhookConfigParse_UnknownFieldsIgnored(t *testing.T) {
 
 func TestEmailConfigParse_RejectsWrongKind(t *testing.T) {
 	t.Parallel()
-	_, err := domain.Transport{Kind: domain.TransportLocal}.EmailConfig()
+	_, err := transport.Transport{Kind: transport.KindLocal}.EmailConfig()
 	if err == nil {
 		t.Fatalf("expected error parsing local transport as email")
 	}
@@ -236,7 +236,7 @@ func TestEmailConfigParse_RejectsWrongKind(t *testing.T) {
 
 func TestEmailConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 	t.Parallel()
-	c, err := domain.Transport{Kind: domain.TransportEmail}.EmailConfig()
+	c, err := transport.Transport{Kind: transport.KindEmail}.EmailConfig()
 	if err != nil {
 		t.Fatalf("EmailConfig() = %v, want nil", err)
 	}
@@ -248,7 +248,7 @@ func TestEmailConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 func TestEmailConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"alias":"customer-service"}`)
-	c, err := domain.Transport{Kind: domain.TransportEmail, Config: raw}.EmailConfig()
+	c, err := transport.Transport{Kind: transport.KindEmail, Config: raw}.EmailConfig()
 	if err != nil {
 		t.Fatalf("EmailConfig() = %v", err)
 	}
@@ -260,7 +260,7 @@ func TestEmailConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 func TestEmailConfigParse_UnknownFieldsIgnored(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"alias":"sam","future":"ignored"}`)
-	c, err := domain.Transport{Kind: domain.TransportEmail, Config: raw}.EmailConfig()
+	c, err := transport.Transport{Kind: transport.KindEmail, Config: raw}.EmailConfig()
 	if err != nil {
 		t.Fatalf("EmailConfig() = %v", err)
 	}
@@ -272,7 +272,7 @@ func TestEmailConfigParse_UnknownFieldsIgnored(t *testing.T) {
 func TestEmailConfigParse_MalformedJSONFails(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{not json`)
-	_, err := domain.Transport{Kind: domain.TransportEmail, Config: raw}.EmailConfig()
+	_, err := transport.Transport{Kind: transport.KindEmail, Config: raw}.EmailConfig()
 	assertError(t, err, "parse email config")
 }
 
@@ -280,7 +280,7 @@ func TestEmailConfigParse_MalformedJSONFails(t *testing.T) {
 
 func TestGitHubConfigParse_RejectsWrongKind(t *testing.T) {
 	t.Parallel()
-	_, err := domain.Transport{Kind: domain.TransportLocal}.GitHubConfig()
+	_, err := transport.Transport{Kind: transport.KindLocal}.GitHubConfig()
 	if err == nil {
 		t.Fatalf("expected error parsing local transport as github")
 	}
@@ -288,7 +288,7 @@ func TestGitHubConfigParse_RejectsWrongKind(t *testing.T) {
 
 func TestGitHubConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 	t.Parallel()
-	c, err := domain.Transport{Kind: domain.TransportGitHub}.GitHubConfig()
+	c, err := transport.Transport{Kind: transport.KindGitHub}.GitHubConfig()
 	if err != nil {
 		t.Fatalf("GitHubConfig() = %v, want nil", err)
 	}
@@ -300,7 +300,7 @@ func TestGitHubConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 func TestGitHubConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"repo":"helixml/helix","events":["issues","pull_request"]}`)
-	c, err := domain.Transport{Kind: domain.TransportGitHub, Config: raw}.GitHubConfig()
+	c, err := transport.Transport{Kind: transport.KindGitHub, Config: raw}.GitHubConfig()
 	if err != nil {
 		t.Fatalf("GitHubConfig() = %v", err)
 	}
@@ -315,7 +315,7 @@ func TestGitHubConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 func TestGitHubConfigParse_UnknownFieldsIgnored(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"repo":"a/b","events":["issues"],"future":"ignored"}`)
-	c, err := domain.Transport{Kind: domain.TransportGitHub, Config: raw}.GitHubConfig()
+	c, err := transport.Transport{Kind: transport.KindGitHub, Config: raw}.GitHubConfig()
 	if err != nil {
 		t.Fatalf("GitHubConfig() = %v", err)
 	}
@@ -327,7 +327,7 @@ func TestGitHubConfigParse_UnknownFieldsIgnored(t *testing.T) {
 func TestGitHubConfigParse_MalformedJSONFails(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{not json`)
-	_, err := domain.Transport{Kind: domain.TransportGitHub, Config: raw}.GitHubConfig()
+	_, err := transport.Transport{Kind: transport.KindGitHub, Config: raw}.GitHubConfig()
 	assertError(t, err, "parse github config")
 }
 
@@ -335,9 +335,9 @@ func TestGitHubConfigParse_MalformedJSONFails(t *testing.T) {
 
 func TestLocalTransport_IsZeroConfig(t *testing.T) {
 	t.Parallel()
-	lt := domain.LocalTransport()
-	if lt.Kind != domain.TransportLocal {
-		t.Fatalf("Kind = %q, want %q", lt.Kind, domain.TransportLocal)
+	lt := transport.LocalTransport()
+	if lt.Kind != transport.KindLocal {
+		t.Fatalf("Kind = %q, want %q", lt.Kind, transport.KindLocal)
 	}
 	if lt.Config != nil {
 		t.Fatalf("Config = %q, want nil", lt.Config)
@@ -350,12 +350,12 @@ func TestLocalTransport_IsZeroConfig(t *testing.T) {
 
 func TestTransportKindValues_ListsEveryKnownKind(t *testing.T) {
 	t.Parallel()
-	got := domain.TransportKindValues()
-	want := []domain.TransportKind{
-		domain.TransportLocal,
-		domain.TransportWebhook,
-		domain.TransportEmail,
-		domain.TransportGitHub,
+	got := transport.KindValues()
+	want := []transport.Kind{
+		transport.KindLocal,
+		transport.KindWebhook,
+		transport.KindEmail,
+		transport.KindGitHub,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("TransportKindValues() length = %d, want %d (%v)", len(got), len(want), got)
