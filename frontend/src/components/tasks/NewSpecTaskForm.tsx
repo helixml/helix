@@ -68,6 +68,8 @@ function humanAttachmentSize(n: number): string {
 
 const LAST_LABELS_KEY = "helix_last_task_labels";
 const DRAFT_KEY_PREFIX = "helix_new_spectask_draft_";
+const LAST_JUST_DO_IT_KEY = "helix_new_spectask_just_do_it";
+const LAST_AUTO_START_KEY = "helix_new_spectask_auto_start";
 
 
 
@@ -133,8 +135,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     string[]
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
-  const [justDoItMode, setJustDoItMode] = useState(false);
-  const [autoStart, setAutoStart] = useState(false);
+  const [justDoItMode, setJustDoItMode] = useState<boolean>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_JUST_DO_IT_KEY) || "false");
+    } catch {
+      return false;
+    }
+  });
+  const [autoStart, setAutoStart] = useState<boolean>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_AUTO_START_KEY) || "false");
+    } catch {
+      return false;
+    }
+  });
   const [isCreating, setIsCreating] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
   const attachmentInput = useRef<HTMLInputElement | null>(null);
@@ -333,6 +347,25 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     };
   }, []);
 
+  // Persist the two workflow toggles to localStorage on every change so they
+  // remember their state from one use of the form to the next.
+  const handleJustDoItChange = useCallback((checked: boolean) => {
+    setJustDoItMode(checked);
+    try {
+      localStorage.setItem(LAST_JUST_DO_IT_KEY, JSON.stringify(checked));
+    } catch {
+      /* localStorage may be unavailable (quota, private mode) — ignore */
+    }
+  }, []);
+  const handleAutoStartChange = useCallback((checked: boolean) => {
+    setAutoStart(checked);
+    try {
+      localStorage.setItem(LAST_AUTO_START_KEY, JSON.stringify(checked));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   // Handle inline agent creation
   // Reset form
   const resetForm = useCallback(() => {
@@ -343,8 +376,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
-    setJustDoItMode(false);
-    setAutoStart(false);
+    // justDoItMode and autoStart intentionally kept — they persist to the next
+    // task via localStorage (see handleJustDoItChange / handleAutoStartChange)
     setBranchMode(TypesBranchMode.BranchModeNew);
     setBaseBranch(defaultBranchName);
     setBranchPrefix("");
@@ -485,13 +518,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "j") {
         e.preventDefault();
-        setJustDoItMode((prev) => !prev);
+        handleJustDoItChange(!justDoItMode);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [justDoItMode, handleJustDoItChange]);
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -1110,7 +1143,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 control={
                   <Checkbox
                     checked={justDoItMode}
-                    onChange={(e) => setJustDoItMode(e.target.checked)}
+                    onChange={(e) => handleJustDoItChange(e.target.checked)}
                     color="warning"
                   />
                 }
@@ -1154,7 +1187,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 control={
                   <Checkbox
                     checked={autoStart}
-                    onChange={(e) => setAutoStart(e.target.checked)}
+                    onChange={(e) => handleAutoStartChange(e.target.checked)}
                     color="primary"
                   />
                 }
