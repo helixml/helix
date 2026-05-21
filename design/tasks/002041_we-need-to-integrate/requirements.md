@@ -59,37 +59,66 @@ So that I don't have to configure Goose separately.
 So that my team's recipes (prompts, MCPs, model settings) appear as
 first-class threads in Zed inside Helix.
 
-**Acceptance Criteria**
+**Model**: a Goose recipe repo is just another repository attached to
+Helix via the existing "Attach external repository" flow. Helix
+mirrors it into its internal git store the same way it mirrors any
+other project repo — auth, proxies, TLS, and the
+`/filestore/git-repositories/{repoID}` mirror path all flow through
+the existing `GitRepository` plumbing. Goose itself only ever sees a
+local directory; no goose-specific auth surface is introduced.
+
+**Acceptance Criteria — UI path**
+- A new Project Settings section "Goose recipes" lets the user:
+  1. Pick an already-attached repository from a dropdown (org-scoped
+     list of `GitRepository` rows) as the recipe source.
+  2. If the desired repo isn't attached yet, an "Attach a recipe repo"
+     button opens the existing `LinkExternalRepositoryDialog` (the
+     same dialog used for code repos) — on save, the repo is attached
+     to the project and auto-selected as the recipe source.
+  3. List recipes inside the selected repo with `name` + `path`
+     (path within the repo). Add/edit/remove entries inline.
+- Saving the form persists the same fields the YAML path writes (see
+  below) — UI and YAML are two front-ends to one backing model.
+
+**Acceptance Criteria — YAML path**
 - Project YAML supports a new field under `agent:`:
   ```yaml
+  repositories:
+    - url: https://github.com/my-org/my-codebase
+      primary: true
+    - url: https://github.com/my-org/goose-recipes   # must be attached
+
   agent:
     runtime: goose_code
     goose:
-      # Optional separate git repo for recipes — works with any git host
-      # (GitHub, GitLab, Bitbucket, Gitea, self-hosted, etc.).
+      # Optional. Reference an attached repository by its upstream URL.
       # Omit to load recipes from the project's primary repo.
-      recipe_repo: https://github.com/my-org/goose-recipes
-      recipe_repo_branch: main   # optional, defaults to repo's default branch
+      recipe_repo_url: https://github.com/my-org/goose-recipes
       recipes:
         - name: "Security Reviewer"
-          path: security-reviewer.yaml      # relative to recipe_repo root
+          path: security-reviewer.yaml      # relative to recipe-repo root
         - name: "Migration Bot"
           path: workflows/migration-bot.yaml
   ```
+- `recipe_repo_url` MUST match the `url` of a repository already
+  attached to the project (or org). If it doesn't, `applyProject`
+  returns a clear error: "repository <url> not attached — attach it
+  via the Git Repositories page or add it to `repositories:` first".
 - Each entry in `recipes` becomes its own `agent_servers.<slug>` entry
   in Zed settings.json. The Zed agent panel then shows "New Security
   Reviewer", "New Migration Bot", etc. as separate thread options.
-- When `recipe_repo` is omitted, recipe `path` values resolve against
-  the project's primary git repo (already cloned at session start).
-- When `recipe_repo` is set, Helix clones that URL into the container
-  at session start (reusing the same git-clone infrastructure that
-  handles primary project repos) and resolves recipe `path` values
-  against that checkout.
-- `recipe_repo` accepts any URL `git clone` accepts — `https://…`,
-  `git@…:…`, self-hosted hosts. There is no GitHub-specific code path.
+- When `recipe_repo_url` is omitted, recipe `path` values resolve
+  against the project's primary git repo.
 - A project with `recipes:` defined and `runtime: goose_code` still
   shows the plain "Goose" thread alongside the named recipes — losing
   the default would be a regression.
+
+**Acceptance Criteria — shared by both paths**
+- The recipe repo is mirrored once per org. Multiple projects in the
+  same org that reference the same upstream URL share one mirror clone.
+- Private upstream repos work as long as the user attached them with
+  valid credentials (via the existing `LinkExternalRepositoryDialog`
+  / `GitProviderConnection` flow). No new auth code in this task.
 
 ### US-5: As a custom-agent author, I want to iterate on recipes inside Helix
 So that I can edit a recipe in Zed, try it, fix it, and ship it without

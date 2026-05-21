@@ -16,12 +16,16 @@ Add Goose as a fourth code-agent runtime alongside `zed_agent`,
 ## Architecture
 
 ```
-Helix project YAML (agent.goose.recipes: [...])
+User attaches recipe repo  ──►  Helix GitRepository row + mirror clone
+  (UI: LinkExternalRepositoryDialog,        at /filestore/git-repositories/{repoID}
+   or YAML: repositories: [...])
+
+Helix project YAML / ProjectSettings UI (agent.goose.recipe_repo_url + recipes)
         │
         │  on session start
         ▼
 helix-api ──► ProjectAgentSpec.Goose ──► CodeAgentConfig (extended)
-        │
+        │       └─► resolves recipe_repo_url → GitRepository → mirror path
         │  WebSocket
         ▼
 settings-sync-daemon (in helix-ubuntu container)
@@ -31,15 +35,15 @@ settings-sync-daemon (in helix-ubuntu container)
 ~/.config/zed/settings.json:
   agent_servers:
     goose:                 { command: "goose", args: ["acp"], env: {...} }
-    security-reviewer:     { command: "goose", args: ["acp"], env: {GOOSE_RECIPE=...}}
-    migration-bot:         { command: "goose", args: ["acp"], env: {GOOSE_RECIPE=...}}
+    security-reviewer:     { command: "goose", args: ["run","--recipe",<abs>,"--interactive"], env: {...}}
+    migration-bot:         { command: "goose", args: ["run","--recipe",<abs>,"--interactive"], env: {...}}
         │
         ▼
-Zed agent panel ──spawns──► goose acp ──ACP/stdio──► Goose
-                                                       │
-                                                       └──► LLM via GOOSE_PROVIDER/MODEL
-                                                       └──► recipe extensions (MCPs)
-                                                       └──► Zed context_servers (inherited MCPs)
+Zed agent panel ──spawns──► goose ──ACP/stdio──► Goose
+                                                  │
+                                                  └──► LLM via GOOSE_PROVIDER/MODEL
+                                                  └──► recipe extensions (MCPs)
+                                                  └──► Zed context_servers (inherited MCPs)
 ```
 
 ## Key Decisions
@@ -92,54 +96,95 @@ extra plumbing needed.
 
 ---
 
-### D7: Custom Goose agents are recipes from a git repo (any host)
+### D7: Recipe repos are Helix-attached `GitRepository` rows, not raw URLs
 
-The user asked: "How can advanced users import customised agents into
-Helix? Slot it into the project YAML? Read from a git repo?"
+The user clarified: "In Helix the way that repo auth works is that we
+clone and mirror the repo from upstream into Helix. I'd rather point
+the recipe repo at the internal Helix repo and tell users to attach
+their goose repos to Helix and then select them somehow."
 
-**Decision**: Recipes are YAML files committed to a git repo. The
-project YAML lists them by path. By default that's the project's
-primary repo (already cloned at session start). For teams that want a
-shared recipe library separate from any one codebase, an optional
-`recipe_repo:` field accepts **any git URL** — GitHub, GitLab,
-Bitbucket, self-hosted Gitea, etc. — and Helix clones it the same way
-it already clones primary project repos.
+**Decision**: A goose-recipe repo is just another repository attached
+via the existing `GitRepository` flow. Helix mirrors it into
+`/filestore/git-repositories/{repoID}` once per org. Projects
+reference it by its upstream URL (the same key Helix already uses to
+de-dupe attached repos in `applyProject`). The project YAML grows two
+hooks: a `recipe_repo_url:` selector on the `agent.goose` block, and
+a constraint that the URL must already be attached.
+
+**Why this is better than a raw `recipe_repo: <url>` field**:
+- One repo model, one auth surface, one mirror. The previous draft's
+  `recipe_repo:` would have introduced a parallel clone path that
+  bypassed `GitRepository` — duplicating auth (private repos), proxy,
+  TLS, and lifecycle logic.
+- Private recipe repos "just work" — they reuse whatever
+  `GitProviderConnection` / OAuth / PAT the user already set up to
+  attach the repo. No new credential prompts.
+- Recipe repos can be shared across projects in the same org: attach
+  once, reference from many projects.
+- Goose itself never sees the upstream URL — it just sees a local
+  directory pointed to by `GOOSE_RECIPE_PATH`. Goose's
+  `GOOSE_RECIPE_GITHUB_REPO` env var (and its `gh`-CLI dependency) is
+  not used. Host-agnostic by construction.
 
 **Project YAML extension** — new optional `goose:` block under `agent:`:
 
 ```yaml
+repositories:
+  - url: https://github.com/my-org/my-codebase
+    primary: true
+  - url: https://github.com/my-org/goose-recipes     # standard attach
+
 agent:
   runtime: goose_code
   provider: anthropic
   model: claude-opus-4-7
   goose:
-    # Optional: pull recipes from a separate git repo. Any URL `git clone`
-    # accepts works. Omit to load from the project's primary repo.
-    recipe_repo: https://github.com/my-org/goose-recipes
-    recipe_repo_branch: main    # optional
+    # Optional. Must match the `url` of a repo in `repositories:` (or
+    # an org-scoped attached repo). Omit to load recipes from the
+    # primary repo.
+    recipe_repo_url: https://github.com/my-org/goose-recipes
     recipes:
       - name: "Security Reviewer"
-        path: security-reviewer.yaml      # relative to recipe_repo root
+        path: security-reviewer.yaml      # relative to recipe-repo root
       - name: "Migration Bot"
         path: workflows/migration-bot.yaml
 ```
 
-**Why this shape**:
-- Mirrors how `repositories:` already works in `ProjectSpec` (path-based
-  references inside a known repo).
-- Recipes versioned with the code they operate on (when in the project
-  repo), or shared across projects (when in a `recipe_repo`).
-- Zero new infrastructure: no recipe store, no upload UI, no separate
-  sync mechanism. Git is the source of truth.
-- **Host-agnostic.** Earlier draft used Goose's
-  `GOOSE_RECIPE_GITHUB_REPO` (which depends on the `gh` CLI and only
-  speaks GitHub). Replacing that with a generic `recipe_repo:` URL
-  means GitLab/Bitbucket/self-hosted users get the same DX. The clone
-  goes through Helix's git-repo plumbing — same auth, same proxy
-  handling, same TLS config — instead of through `gh`.
-- Goose itself just sees a local directory; we point it at the
-  checkout via `GOOSE_RECIPE_PATH` (one of Goose's standard recipe-load
-  locations). No GitHub-specific code path remains.
+**Validation rule** in `applyProject`: if `recipe_repo_url` is set,
+look it up via `GetGitRepositoryByExternalURL(orgID, url)`. If it's
+not found, or it's not attached to the project / accessible to the
+project's org, return a 400 with the exact attach instructions.
+
+### D7b: UI for selecting / attaching a recipe repo
+
+YAML is the source of truth, but most users will configure this from
+the UI. Add a "Goose recipes" section to `frontend/src/pages/ProjectSettings.tsx`:
+
+1. **Recipe-repo picker** — a dropdown of `GitRepository` rows
+   currently attached to the project (and a separator listing
+   org-scoped attached repos not yet attached to this project, with
+   an "attach to this project" action). Backed by the existing
+   `GET /api/v1/projects/{id}/repositories` and
+   `GET /api/v1/git-repositories?organization_id=` endpoints — no
+   new list endpoints needed.
+
+2. **"Attach a recipe repo" button** — opens the existing
+   `LinkExternalRepositoryDialog` (`frontend/src/components/project/LinkExternalRepositoryDialog.tsx`),
+   the same dialog used for code repos. On save, the new repo is
+   attached and pre-selected in the picker. No code duplication.
+
+3. **Recipe list** — for each recipe entry, two fields (`name`,
+   `path`) with add / remove buttons. Path autocomplete (querying the
+   mirror's `git ls-tree` for `*.yaml`/`*.yml`) is nice-to-have, not
+   required for v1.
+
+4. **Save** — writes back to the same `agent.goose` config the YAML
+   path writes to. Form ↔ YAML round-trip is lossless.
+
+Visual placement: a new `<Card>` under the existing "Code Agent
+Runtime" card, only shown when runtime is `goose_code`. Mirrors how
+Claude-Code-specific settings (subscription mode, etc.) are already
+conditionally rendered today.
 
 **Why per-recipe `agent_servers` entries (vs one Goose with a recipe picker)**:
 - Zed surfaces each `agent_servers.<name>` as a separate "New <name>"
@@ -169,13 +214,16 @@ For each recipe entry in `agent.goose.recipes`, emit:
 }
 ```
 
-`<absolute-path-in-container>` is the resolved recipe path. When
-`recipe_repo` is unset, paths resolve against
-`/home/retro/work/<primary-repo>/`. When `recipe_repo` is set, paths
-resolve against the recipe-repo checkout (e.g.
-`/home/retro/work/.goose-recipes/<repo-name>/`). Both directories are
-populated by Helix's existing git-clone flow before the daemon writes
-Zed settings.
+`<absolute-path-in-container>` is the resolved recipe path inside the
+recipe-repo checkout. The Helix API resolves it server-side from
+`{recipe_repo_url → GitRepository → LocalPath} / recipes[i].path` and
+sends both the per-recipe absolute path and the root dir to the
+daemon. The daemon stays repo-agnostic.
+
+When `recipe_repo_url` is unset, the resolver falls back to the
+project's primary repo's checkout. Either way, by the time the daemon
+writes Zed settings the directory exists locally — Helix's existing
+project-repo sync has already placed it on disk.
 
 `GOOSE_RECIPE_PATH` is set on every Goose agent_server entry so that
 recipes can also reference sibling files (subrecipes, prompt
@@ -220,29 +268,37 @@ type ProjectAgentSpec struct {
 }
 
 type ProjectAgentGoose struct {
-    RecipeRepo       string                    `json:"recipe_repo,omitempty" yaml:"recipe_repo,omitempty"`
-    RecipeRepoBranch string                    `json:"recipe_repo_branch,omitempty" yaml:"recipe_repo_branch,omitempty"`
-    Recipes          []ProjectAgentGooseRecipe `json:"recipes,omitempty" yaml:"recipes,omitempty"`
+    // Upstream URL of an attached GitRepository. Must match an entry
+    // in ProjectSpec.Repositories (or an org-scoped attached repo).
+    // Omit to load recipes from the primary repo.
+    RecipeRepoURL string                    `json:"recipe_repo_url,omitempty" yaml:"recipe_repo_url,omitempty"`
+    Recipes       []ProjectAgentGooseRecipe `json:"recipes,omitempty" yaml:"recipes,omitempty"`
 }
 
 type ProjectAgentGooseRecipe struct {
     Name string `json:"name" yaml:"name"`
-    Path string `json:"path" yaml:"path"`  // relative to recipe_repo root, or primary repo root if recipe_repo is unset
+    Path string `json:"path" yaml:"path"`  // relative to recipe-repo root (or primary repo root when RecipeRepoURL is empty)
 }
 ```
+
+`applyProject` resolves `RecipeRepoURL` via
+`GetGitRepositoryByExternalURL(orgID, url)`. If the lookup fails, the
+request is rejected with a 400 telling the user to attach the repo
+first (via the Git Repositories page or `repositories:` block).
 
 `CodeAgentConfig` (sent to settings-sync-daemon) gains:
 
 ```go
-GooseRecipes        []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
-GooseRecipeRootDir  string                 `json:"goose_recipe_root_dir,omitempty"` // absolute path in container
+GooseRecipes       []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
+GooseRecipeRootDir string                 `json:"goose_recipe_root_dir,omitempty"` // absolute path in container
 ```
 
-with `CodeAgentGooseRecipe { Name, AbsolutePath string }` — the API
-server clones `recipe_repo` (if set) via the existing
-`GitRepository` infrastructure, resolves each `Path` to an absolute
-path under the checkout, and sends both the per-recipe paths and the
-root dir to the daemon. The daemon stays repo-agnostic.
+with `CodeAgentGooseRecipe { Name, AbsolutePath string }`. The API
+server reads `LocalPath` from the resolved `GitRepository`, joins it
+with each recipe `Path`, and ships both the per-recipe absolute paths
+and the checkout root to the daemon. The daemon stays repo-agnostic
+and Goose-side env vars (`GOOSE_RECIPE_PATH`) just point at a local
+directory.
 
 ## Files Touched
 
@@ -251,13 +307,14 @@ root dir to the daemon. The daemon stays repo-agnostic.
 | `Dockerfile.ubuntu-helix`                                   | Install pinned Goose CLI; telemetry-off config                          |
 | `api/pkg/types/task_management.go`                          | Add `CodeAgentRuntimeGooseCode = "goose_code"`                          |
 | `api/pkg/types/project.go`                                  | Add `Goose *ProjectAgentGoose` + nested types                           |
-| `api/pkg/types/types.go`                                    | Extend `CodeAgentConfig` with `GooseRecipes`, `GooseGithubRecipeRepo`   |
-| `api/pkg/server/project_handlers.go` (`applyProject`)       | Persist new YAML fields; auto-register `recipe_repo` as a GitRepository |
-| `api/pkg/external-agent/zed_config.go` (`buildCodeAgentConfig`) | Ensure recipe-repo clone is current; resolve recipe paths to absolute |
+| `api/pkg/types/types.go`                                    | Extend `CodeAgentConfig` with `GooseRecipes`, `GooseRecipeRootDir`      |
+| `api/pkg/server/project_handlers.go` (`applyProject`)       | Validate `recipe_repo_url` resolves to an attached `GitRepository`      |
+| `api/pkg/external-agent/zed_config.go` (`buildCodeAgentConfig`) | Resolve `recipe_repo_url` → `GitRepository.LocalPath` → absolute paths |
 | `api/cmd/settings-sync-daemon/main.go`                      | New `case "goose_code":` emitting `agent_servers.goose` + per-recipe    |
 | `frontend/src/types.ts`, `api/api.ts`, `contexts/apps.tsx`  | Add `'goose_code'` to runtime union + display name                      |
 | `frontend/src/pages/Onboarding.tsx`, `ProjectSettings.tsx`  | Surface "Goose" as a selectable runtime                                 |
-| `examples/project.yaml`                                     | Add commented example of `agent.goose.recipes:` block                   |
+| `frontend/src/pages/ProjectSettings.tsx` (new section)      | "Goose recipes" card: repo picker + recipe list + reuses `LinkExternalRepositoryDialog` |
+| `examples/project.yaml`                                     | Add commented example of `agent.goose.recipe_repo_url` + `recipes`      |
 
 ## Risks & Mitigations
 
@@ -272,12 +329,19 @@ root dir to the daemon. The daemon stays repo-agnostic.
 - **Recipe paths could escape the repo** (e.g.
   `path: ../../etc/passwd`). The server-side path resolver must
   reject any `path` that doesn't `filepath.Clean` to a subdirectory of
-  the recipe-repo checkout root (or primary repo, when `recipe_repo`
-  is unset).
-- **Recipe-repo auth.** Private `recipe_repo` URLs need credentials.
-  v1 supports public URLs only; private-repo auth follows whatever
-  mechanism the existing GitRepository flow uses for primary repos —
-  no new auth surface in this task.
+  the resolved checkout root.
+- **Unattached `recipe_repo_url`.** YAML referencing a URL that isn't
+  attached must fail fast with an instructive error, not silently
+  ignore the recipes block. Validation lives in `applyProject`.
+- **Recipe-repo auth.** Authentication for private recipe repos is
+  handled at attach time via the existing `GitProviderConnection` flow
+  (the same one that handles private code repos). This task does not
+  introduce a new credential surface.
+- **Mirror freshness.** Helix's existing project-repo sync determines
+  how often the recipe-repo mirror is updated. If users edit recipes
+  via the upstream host (e.g. GitHub web UI) and expect Helix to pick
+  them up, they're subject to the same sync cadence as any other
+  repo — call this out in user docs.
 - **Recipe slug collisions** (two recipes named "Reviewer" produce the
   same slug). Reject duplicate names at YAML parse time with a clear
   error.

@@ -11,15 +11,29 @@
 - [ ] Add "Goose" as a selectable runtime in `Onboarding.tsx` and `ProjectSettings.tsx` (follow the existing `qwen_code` pattern)
 - [ ] Manual end-to-end test in the inner Helix: create a project with Goose runtime, open Zed, start a "Goose" thread, send a prompt, confirm a tool call executes
 
-## Phase 2 — Custom Goose agents from project repo (US-4)
+## Phase 2 — Custom Goose agents from attached recipe repos (US-4)
+
+### Backend (YAML path)
 
 - [ ] Probe upstream: does `goose acp` accept `--recipe` or `GOOSE_RECIPE`? If not, test `goose run --recipe <file> --interactive` over stdio with an ACP client to confirm what works
-- [ ] Add `ProjectAgentGoose` + `ProjectAgentGooseRecipe` types to `api/pkg/types/project.go` (fields: `RecipeRepo`, `RecipeRepoBranch`, `Recipes`) and wire into `ProjectAgentSpec.Goose`
-- [ ] Extend `applyProject` in `api/pkg/server/project_handlers.go` to validate and persist the new `agent.goose` block: recipe-name uniqueness, `filepath.Clean` containment check on recipe paths, and auto-register `recipe_repo` as a `GitRepository` (same flow as primary project repos)
-- [ ] Extend `CodeAgentConfig` in `api/pkg/types/types.go` with `GooseRecipes []CodeAgentGooseRecipe` and `GooseRecipeRootDir string` (absolute path inside the container)
-- [ ] In `api/pkg/external-agent/zed_config.go` (`buildCodeAgentConfig`), ensure the recipe-repo clone is current, then resolve each recipe `Path` to an absolute path under that checkout (or the primary repo when `recipe_repo` is unset) and populate `CodeAgentConfig.GooseRecipes`
-- [ ] In `settings-sync-daemon`, for each `CodeAgentConfig.GooseRecipes` entry, emit an additional `agent_servers.<slug>` entry using the flag confirmed in the upstream probe; export `GOOSE_RECIPE_PATH=<GooseRecipeRootDir>` on every Goose entry so sibling subrecipes/fragments resolve
-- [ ] Add an annotated example block (commented out) to `examples/project.yaml` showing `agent.goose` with `recipe_repo` + `recipes`
+- [ ] Add `ProjectAgentGoose` + `ProjectAgentGooseRecipe` types to `api/pkg/types/project.go` (fields: `RecipeRepoURL`, `Recipes`) and wire into `ProjectAgentSpec.Goose`
+- [ ] Extend `applyProject` in `api/pkg/server/project_handlers.go` to validate the new `agent.goose` block:
+  - resolve `RecipeRepoURL` via `GetGitRepositoryByExternalURL(orgID, url)`; reject with 400 + attach instructions if not found
+  - check it's attached to the project (or org-shared) — reject if not
+  - reject duplicate recipe names
+  - `filepath.Clean` containment check on every recipe `path`
+- [ ] Extend `CodeAgentConfig` in `api/pkg/types/types.go` with `GooseRecipes []CodeAgentGooseRecipe` and `GooseRecipeRootDir string` (absolute container path)
+- [ ] In `api/pkg/external-agent/zed_config.go` (`buildCodeAgentConfig`), look up `GitRepository.LocalPath` for the resolved recipe repo (or fall back to the primary repo's LocalPath when `RecipeRepoURL` is empty), join with each recipe `Path`, and populate `CodeAgentConfig.GooseRecipes`
+- [ ] In `settings-sync-daemon`, for each `CodeAgentConfig.GooseRecipes` entry, emit an additional `agent_servers.<slug>` entry using the flag confirmed in the upstream probe; set `GOOSE_RECIPE_PATH=<GooseRecipeRootDir>` on every Goose entry so sibling subrecipes/fragments resolve
+- [ ] Add an annotated example block (commented out) to `examples/project.yaml` showing `repositories:` + `agent.goose.recipe_repo_url` + `recipes`
+
+### Frontend (UI path — equal-priority to YAML)
+
+- [ ] In `ProjectSettings.tsx`, add a "Goose recipes" `<Card>` shown only when `runtime === 'goose_code'` (mirror the conditional rendering pattern already used for `claude_code` subscription mode)
+- [ ] Build a recipe-repo picker component: dropdown of repos returned by `GET /api/v1/projects/{id}/repositories` plus a secondary list of org-scoped attached repos not yet on this project (with "attach to this project" action)
+- [ ] Wire an "Attach a recipe repo" button that opens the existing `LinkExternalRepositoryDialog` (no new dialog) and pre-selects the new repo in the picker on success
+- [ ] Recipe list editor: rows of (`name`, `path`) with add/remove. On save, PATCH the project's `agent.goose` config — same persistence path the YAML uses
+- [ ] Round-trip test: configure recipes through the UI, export the project YAML, re-import, confirm identical state
 
 ## Phase 3 — Iteration DX & polish (US-5)
 
