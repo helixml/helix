@@ -65,21 +65,28 @@ first-class threads in Zed inside Helix.
   agent:
     runtime: goose_code
     goose:
+      # Optional separate git repo for recipes — works with any git host
+      # (GitHub, GitLab, Bitbucket, Gitea, self-hosted, etc.).
+      # Omit to load recipes from the project's primary repo.
+      recipe_repo: https://github.com/my-org/goose-recipes
+      recipe_repo_branch: main   # optional, defaults to repo's default branch
       recipes:
         - name: "Security Reviewer"
-          path: goose-recipes/security-reviewer.yaml
+          path: security-reviewer.yaml      # relative to recipe_repo root
         - name: "Migration Bot"
-          path: goose-recipes/migration-bot.yaml
-      github_recipe_repo: my-org/goose-recipes  # optional
+          path: workflows/migration-bot.yaml
   ```
 - Each entry in `recipes` becomes its own `agent_servers.<slug>` entry
   in Zed settings.json. The Zed agent panel then shows "New Security
   Reviewer", "New Migration Bot", etc. as separate thread options.
-- Recipe files are resolved relative to the project's primary git repo
-  (already cloned into `/home/retro/work/<repo>/` at session start).
-- If `github_recipe_repo` is set, `GOOSE_RECIPE_GITHUB_REPO` is exported
-  to every Goose agent_server entry so recipes can also be referenced by
-  short name (Goose's existing convention).
+- When `recipe_repo` is omitted, recipe `path` values resolve against
+  the project's primary git repo (already cloned at session start).
+- When `recipe_repo` is set, Helix clones that URL into the container
+  at session start (reusing the same git-clone infrastructure that
+  handles primary project repos) and resolves recipe `path` values
+  against that checkout.
+- `recipe_repo` accepts any URL `git clone` accepts — `https://…`,
+  `git@…:…`, self-hosted hosts. There is no GitHub-specific code path.
 - A project with `recipes:` defined and `runtime: goose_code` still
   shows the plain "Goose" thread alongside the named recipes — losing
   the default would be a regression.

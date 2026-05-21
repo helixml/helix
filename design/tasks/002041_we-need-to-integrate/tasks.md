@@ -14,12 +14,12 @@
 ## Phase 2 — Custom Goose agents from project repo (US-4)
 
 - [ ] Probe upstream: does `goose acp` accept `--recipe` or `GOOSE_RECIPE`? If not, test `goose run --recipe <file> --interactive` over stdio with an ACP client to confirm what works
-- [ ] Add `ProjectAgentGoose` + `ProjectAgentGooseRecipe` types to `api/pkg/types/project.go` and wire into `ProjectAgentSpec.Goose`
-- [ ] Extend `applyProject` in `api/pkg/server/project_handlers.go` to validate and persist the new `agent.goose` block (recipe-name uniqueness, `filepath.Clean` containment check on recipe paths)
-- [ ] Extend `CodeAgentConfig` in `api/pkg/types/types.go` with `GooseRecipes []CodeAgentGooseRecipe` and `GooseGithubRecipeRepo string`
-- [ ] In `api/pkg/external-agent/zed_config.go` (`buildCodeAgentConfig`), resolve each recipe `Path` against the primary repo's checkout root and populate `CodeAgentConfig.GooseRecipes` with absolute paths
-- [ ] In `settings-sync-daemon`, for each `CodeAgentConfig.GooseRecipes` entry, emit an additional `agent_servers.<slug>` entry using the flag confirmed in the upstream probe; export `GOOSE_RECIPE_GITHUB_REPO` to all Goose entries if `GooseGithubRecipeRepo` is set
-- [ ] Add an annotated example block (commented out) to `examples/project.yaml` showing `agent.goose.recipes` + `github_recipe_repo`
+- [ ] Add `ProjectAgentGoose` + `ProjectAgentGooseRecipe` types to `api/pkg/types/project.go` (fields: `RecipeRepo`, `RecipeRepoBranch`, `Recipes`) and wire into `ProjectAgentSpec.Goose`
+- [ ] Extend `applyProject` in `api/pkg/server/project_handlers.go` to validate and persist the new `agent.goose` block: recipe-name uniqueness, `filepath.Clean` containment check on recipe paths, and auto-register `recipe_repo` as a `GitRepository` (same flow as primary project repos)
+- [ ] Extend `CodeAgentConfig` in `api/pkg/types/types.go` with `GooseRecipes []CodeAgentGooseRecipe` and `GooseRecipeRootDir string` (absolute path inside the container)
+- [ ] In `api/pkg/external-agent/zed_config.go` (`buildCodeAgentConfig`), ensure the recipe-repo clone is current, then resolve each recipe `Path` to an absolute path under that checkout (or the primary repo when `recipe_repo` is unset) and populate `CodeAgentConfig.GooseRecipes`
+- [ ] In `settings-sync-daemon`, for each `CodeAgentConfig.GooseRecipes` entry, emit an additional `agent_servers.<slug>` entry using the flag confirmed in the upstream probe; export `GOOSE_RECIPE_PATH=<GooseRecipeRootDir>` on every Goose entry so sibling subrecipes/fragments resolve
+- [ ] Add an annotated example block (commented out) to `examples/project.yaml` showing `agent.goose` with `recipe_repo` + `recipes`
 
 ## Phase 3 — Iteration DX & polish (US-5)
 
