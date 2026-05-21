@@ -20,4 +20,4 @@
 - [ ] Spot-check WCAG AA contrast on a few text elements in light mode using Chrome DevTools accessibility panel (target 4.5:1 for body text, 3:1 for large/headings) — deferred until screenshots captured
 - [x] Commit with conventional message format (e.g. `fix(frontend): make onboarding page light-mode friendly`) — done, commit b4d845a66 on feature/002039-make-onboarding-page
 - [x] Write per-repo PR descriptions in `pull_request_helix.md`
-- [~] Push feature branch to origin
+- [x] Push feature branch to origin
