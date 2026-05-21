@@ -24,7 +24,7 @@
 
 ## Merge Execution
 
-- [ ] `git merge upstream/main`
+- [~] `git merge upstream/main`
 - [ ] Triage conflicts; for each, append to `portingguide.md` §"Merge 002029" with `(upstream change / resolution / why / risk)` BEFORE moving to the next one
 - [ ] `Cargo.lock` (if conflicting): `git checkout --theirs Cargo.lock`
 - [ ] Any `.github/workflows/` conflicts: accept upstream
