@@ -1,6 +1,6 @@
 # Implementation Tasks: Fix Unresponsive Desktop Viewer After Safari Back/Forward Navigation
 
-- [ ] Reproduce the bug on Safari (macOS) with the current build before changing code — confirm the symptom matches (stuck cursor, no clicks, frozen video after swipe-back-then-forward)
+- [~] Reproduce the bug on Safari (macOS) with the current build before changing code — confirm the symptom matches (stuck cursor, no clicks, frozen video after swipe-back-then-forward)
 - [ ] In `frontend/src/lib/helix-stream/stream/websocket-stream.ts`, add `pageshowHandler` and `pagehideHandler` fields alongside the existing `visibilityHandler`
 - [ ] In `websocket-stream.ts`, register `window.addEventListener("pageshow", ...)` and `("pagehide", ...)` in the connection-setup path; remove them in `stopHeartbeat()` / `close()`
 - [ ] Add `forceReconnect(reason: string)` method on `WebSocketStream` that closes the socket with a non-1000 code, resets reconnect attempt count, and triggers the existing reconnect path
