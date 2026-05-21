@@ -5,4 +5,4 @@
 - [x] Wire BFCache `pageshow` listener in `WebSocketStream` — register inside `startHeartbeat()` alongside the existing `visibilityHandler`, unregister in `stopHeartbeat()`. On `event.persisted === true`, log and call `this.reconnect()`.
 - [x] Run TypeScript check — `npx tsc --noEmit` clean (exit 0). `yarn build` also transformed all 21,115 modules; only fails at the write step due to root-owned `dist/external-libs` bind mount (env quirk, not code).
 - [x] Write PR description in `pull_request_helix.md`
-- [~] Push feature branch — user will verify on Safari (macOS + iPadOS) and Chrome/Firefox; push triggers PR creation via Helix UI
+- [x] Push feature branch — pushed `feature/002042-fix-unresponsive-desktop`. User must verify on Safari (macOS + iPadOS) and confirm no regression in Chrome/Firefox; PR creation via Helix UI.
