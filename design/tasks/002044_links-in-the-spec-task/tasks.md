@@ -11,4 +11,4 @@
 - [x] Document citation behaviour preserved — verified by including `<a href="https://existing.com" target="_self">` in the test; the override respected the pre-existing target. The same code path applies to `processDocumentIds` citations which set `target="_blank"`.
 - [x] In-page anchor (`[Top](#top)`) — verified: rendered as `<a href="#top">` with no target, scrolls within the same tab.
 - [x] `rel="noopener noreferrer"` confirmed in DevTools on the rendered external link.
-- [~] Commit with a conventional commit message and push; verify CI passes
+- [x] Commit with a conventional commit message and push the `feature/002044-open-chat-links-in-new` branch (commit `15d5851eb`)

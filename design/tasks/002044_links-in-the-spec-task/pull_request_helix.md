@@ -36,7 +36,18 @@ component, so a single override fixes both.
 ## Testing
 
 - `cd frontend && yarn build` — passes (no type or build errors).
-- Manual verification in the inner Helix browser: posting a markdown
-  link in a session message renders an anchor with `target="_blank"`
-  and `rel="noopener noreferrer"`; clicking opens a new tab. Existing
-  citation, filter-mention, and in-page-anchor behaviour unchanged.
+- **Live component verification in inner Helix**: imported the actual
+  `InteractionMarkdown` component into the running browser via Vite
+  ESM, rendered all four anchor classes through it, and inspected the
+  resulting DOM:
+
+  | Input | Rendered `target` | Rendered `rel` | Result |
+  |---|---|---|---|
+  | `[example](https://example.com)` | `_blank` | `noopener noreferrer` | ✅ external opens new tab |
+  | `[Top](#top)` | (none) | (none) | ✅ in-page anchor untouched |
+  | `<a target="_self" …>` | `_self` (preserved) | (none) | ✅ pre-existing target respected — protects doc-citation links |
+  | `<a href="#" class="filter-mention">` | (none) | (none) | ✅ internal action link untouched, class preserved |
+
+## Screenshots
+
+![Rendered anchors with new-tab override applied](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002044_links-in-the-spec-task/screenshots/01-rendered-anchors.png)
