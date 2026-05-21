@@ -62,44 +62,44 @@
 
 ## Verify Critical Fixes (the 11 in `portingguide.md` §"Critical Fixes")
 
-- [ ] Fix #1: `load_session` keeps `Entity<NativeAgent>` alive (entity-clone or `pending_sessions` shared-task pattern)
-- [ ] Fix #2: `thread_view.rs` has no `MessageAdded`/`MessageCompleted`/streaming `EntryUpdated` sends
-- [ ] Fix #3: `content_only` present in `acp_thread.rs`
-- [ ] Fix #4: `notify_thread_display` called in `thread_service.rs`
-- [ ] Fix #5: `flush_stale_pending_for_thread` present in `thread_service.rs`
-- [ ] Fix #6: `stopped_emitted_for_task` invariant — exactly one Stopped per `send()`, all paths
-- [ ] Fix #7: `unregister_thread` called from `conversation_view.rs`
-- [ ] Fix #8: `drop(turn.send_task)` not `cx.background_spawn(turn.send_task)`
-- [ ] Fix #9: `stopped_emitted_for_task` guards normal-completion Stopped emission
-- [ ] Fix #10: `DEFAULT_REQUEST_TIMEOUT = Duration::from_secs(180)` in `context_server/src/client.rs`
-- [ ] Fix #11: entity-identity guard `external_websocket_sync::get_thread(session_id)` at top of `load_agent_thread` in `agent_panel.rs`
+- [x] Fix #1: `load_session` keeps `Entity<NativeAgent>` alive (entity-clone or `pending_sessions` shared-task pattern)
+- [x] Fix #2: `thread_view.rs` has no `MessageAdded`/`MessageCompleted`/streaming `EntryUpdated` sends
+- [x] Fix #3: `content_only` present in `acp_thread.rs`
+- [x] Fix #4: `notify_thread_display` called in `thread_service.rs`
+- [x] Fix #5: `flush_stale_pending_for_thread` present in `thread_service.rs`
+- [x] Fix #6: `stopped_emitted_for_task` invariant — exactly one Stopped per `send()`, all paths
+- [x] Fix #7: `unregister_thread` called from `conversation_view.rs`
+- [x] Fix #8: `drop(turn.send_task)` not `cx.background_spawn(turn.send_task)`
+- [x] Fix #9: `stopped_emitted_for_task` guards normal-completion Stopped emission
+- [x] Fix #10: `DEFAULT_REQUEST_TIMEOUT = Duration::from_secs(180)` in `context_server/src/client.rs`
+- [x] Fix #11: entity-identity guard `external_websocket_sync::get_thread(session_id)` at top of `load_agent_thread` in `agent_panel.rs`
 
 ## Verify Helix Surface (per `requirements.md` acceptance criteria)
 
-- [ ] `crates/external_websocket_sync/` crate intact (all source files)
-- [ ] `acp_history_store()` accessor on `AgentPanel`
-- [ ] `from_existing_thread()` constructor on `ConversationView`, matching current `ConnectedServerState` field set
-- [ ] `AcpBetaFeatureFlag::enabled_for_all() -> true` in `feature_flags/src/flags.rs`
-- [ ] Feature propagation chain intact: `zed/Cargo.toml` declares `external_websocket_sync = ["agent_ui/external_websocket_sync", ...]`; `title_bar` dep `optional = true`
+- [x] `crates/external_websocket_sync/` crate intact (all source files)
+- [x] `acp_history_store()` accessor on `AgentPanel`
+- [x] `from_existing_thread()` constructor on `ConversationView`, matching current `ConnectedServerState` field set
+- [x] `AcpBetaFeatureFlag::enabled_for_all() -> true` in `feature_flags/src/flags.rs`
+- [x] Feature propagation chain intact: `zed/Cargo.toml` declares `external_websocket_sync = ["agent_ui/external_websocket_sync", ...]`; `title_bar` dep `optional = true`
 
 ## Verify PRs #50, #55, #56, #57 + `fd26c1a113` (Helix behaviour added since 001996)
 
-- [ ] **PR #50** `session_creation_chain: Rc<RefCell<Option<Shared<Task<()>>>>>` field on `AcpConnection` present; `new_session` / `open_or_create_session` acquire the next slot with drop guard; **any new arguments demanded by upstream `c3951af24f` are correctly threaded through the chain wrapper**
-- [ ] **PR #50** `test_concurrent_session_creation_is_serialized` still compiles and (locally) passes
-- [ ] **PR #55** `EntryUpdated` emit after streaming-reveal drain present in `acp_thread.rs`
-- [ ] **PR #56 Fix 1a** `defer_user_created_thread_until_first_user_message` (or equivalently named) plumbing in `external_websocket_sync`
-- [ ] **PR #56 Fix 1b** the `#[cfg(feature = "external_websocket_sync")] { return; }` early-return guard is the FIRST statement of `ensure_thread_initialized`'s body — before `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches introduced by upstream `589dc95c87`
-- [ ] **PR #56** the unit test asserting deferred `UserCreatedThread` emit still compiles and passes
-- [ ] **PR #57** Phase 16 counter excludes Phase 10's synthetic `UserCreatedThread` ID in `helix-ws-test-server/main.go`
-- [ ] **`fd26c1a113`** `Dockerfile.ci` still pulls `helix-org` (the 2-line CI fix)
+- [x] **PR #50** `session_creation_chain: Rc<RefCell<Option<Shared<Task<()>>>>>` field on `AcpConnection` present; `new_session` / `open_or_create_session` acquire the next slot with drop guard; **any new arguments demanded by upstream `c3951af24f` are correctly threaded through the chain wrapper**
+- [x] **PR #50** `test_concurrent_session_creation_is_serialized` still compiles and (locally) passes
+- [x] **PR #55** `EntryUpdated` emit after streaming-reveal drain present in `acp_thread.rs`
+- [x] **PR #56 Fix 1a** `defer_user_created_thread_until_first_user_message` (or equivalently named) plumbing in `external_websocket_sync`
+- [x] **PR #56 Fix 1b** the `#[cfg(feature = "external_websocket_sync")] { return; }` early-return guard is the FIRST statement of `ensure_thread_initialized`'s body — before `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches introduced by upstream `589dc95c87`
+- [x] **PR #56** the unit test asserting deferred `UserCreatedThread` emit still compiles and passes
+- [x] **PR #57** Phase 16 counter excludes Phase 10's synthetic `UserCreatedThread` ID in `helix-ws-test-server/main.go`
+- [x] **`fd26c1a113`** `Dockerfile.ci` still pulls `helix-org` (the 2-line CI fix)
 
 ## Walk Rebase Checklist
 
-- [ ] All 44 items in `portingguide.md` §"Rebase Checklist" walked (the silent-drift sweep + critical-fix verification + Helix-surface checks above cover most; treat any unchecked item as a real gap)
-- [ ] Pay special attention to items 9 (cfg-gated `agent_panel.rs` blocks), 11 (`ConnectedServerState`), 12 (`AgentConnection` trait impls), 12a (`Stopped` patterns), 31/31a/37 (`acp_thread.rs` cancel/Stopped), 39 (`--allow-multiple-instances`), 39a (`--headless`), 40 (`debug-embed`), 41 (`smol::Timer`), 41a (`Stopped(_)` test pattern)
-- [ ] **New checklist item (002029)**: "Check `agent_panel.rs::ensure_thread_initialized` for `#[cfg(feature = "external_websocket_sync")] { return; }` early-return guard — Helix PR #56 Fix 1b. After upstream `589dc95c87` the function body has multiple branches before `activate_draft`; the Helix guard MUST be the FIRST statement of the body. Phase 17 of E2E is the regression gate."
-- [ ] **New checklist item (002029)**: "All `AgentSessionList::supports_delete` impls take `(&self, &App)`; all call sites pass `cx`."
-- [ ] **New checklist item (002029, conditional)**: If `c84c22dab5` made the Helix `// HELIX: External agent ...` bypass in `extensions_ui.rs` redundant, record this as a deliberate drop so future merges don't re-add the now-obsolete patch.
+- [x] All 44 items in `portingguide.md` §"Rebase Checklist" walked (the silent-drift sweep + critical-fix verification + Helix-surface checks above cover most; treat any unchecked item as a real gap)
+- [x] Pay special attention to items 9 (cfg-gated `agent_panel.rs` blocks), 11 (`ConnectedServerState`), 12 (`AgentConnection` trait impls), 12a (`Stopped` patterns), 31/31a/37 (`acp_thread.rs` cancel/Stopped), 39 (`--allow-multiple-instances`), 39a (`--headless`), 40 (`debug-embed`), 41 (`smol::Timer`), 41a (`Stopped(_)` test pattern)
+- [x] **New checklist item (002029)**: "Check `agent_panel.rs::ensure_thread_initialized` for `#[cfg(feature = "external_websocket_sync")] { return; }` early-return guard — Helix PR #56 Fix 1b. After upstream `589dc95c87` the function body has multiple branches before `activate_draft`; the Helix guard MUST be the FIRST statement of the body. Phase 17 of E2E is the regression gate."
+- [x] **New checklist item (002029)**: "All `AgentSessionList::supports_delete` impls take `(&self, &App)`; all call sites pass `cx`."
+- [x] **New checklist item (002029, conditional)**: If `c84c22dab5` made the Helix `// HELIX: External agent ...` bypass in `extensions_ui.rs` redundant, record this as a deliberate drop so future merges don't re-add the now-obsolete patch.
 
 ## Build & Test (hard gate)
 
