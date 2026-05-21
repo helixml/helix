@@ -2,6 +2,7 @@ package trigger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -61,10 +62,64 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier not
 func (t *Manager) SetSpecTaskCreator(specTaskCreator cron.SpecTaskCreator) {
 	t.specTaskCreator = specTaskCreator
 	// Re-wire the Notion handler now that the spec-task creator is available.
-	// Cancel + lookup hooks are wired separately by the spec-task service
-	// once it implements them; for the MVP they remain nil and the trigger
-	// degrades gracefully.
-	t.notion = notion.New(t.cfg, t.store, specTaskCreator, nil, nil, &defaultEmbedURLBuilder{cfg: t.cfg})
+	// We also wire idempotency lookup + cancellation via small store adapters
+	// so the Notion package stays free of a direct store dependency on those
+	// shapes (consistent with the design's external-source generalisation).
+	lookup := &notionStoreLookupAdapter{store: t.store}
+	canceller := &notionStoreCancellerAdapter{store: t.store}
+	t.notion = notion.New(t.cfg, t.store, specTaskCreator, canceller, lookup, &defaultEmbedURLBuilder{cfg: t.cfg})
+}
+
+// notionStoreLookupAdapter implements notion.SpecTaskByExternalRefLookup by
+// querying the spec-tasks store's JSONB external_trigger_ref column.
+type notionStoreLookupAdapter struct{ store store.Store }
+
+func (a *notionStoreLookupAdapter) GetSpecTaskByExternalRef(ctx context.Context, ref *types.ExternalTriggerRef) (*types.SpecTask, error) {
+	if ref == nil || ref.Type != types.ExternalTriggerSourceNotion {
+		return nil, nil
+	}
+	var p types.NotionTriggerPayload
+	if err := json.Unmarshal(ref.Payload, &p); err != nil || p.PageID == "" {
+		return nil, nil
+	}
+	return a.store.GetSpecTaskByExternalNotionPageID(ctx, p.PageID)
+}
+
+// notionStoreCancellerAdapter implements notion.SpecTaskCanceller by
+// transitioning the spec task to the cancelled status. Doesn't tear down any
+// running agent process — for the MVP "cancel before work starts" is the
+// supported case; ripping out an in-flight agent run is a v2 concern.
+type notionStoreCancellerAdapter struct{ store store.Store }
+
+func (a *notionStoreCancellerAdapter) CancelTaskByExternalRef(ctx context.Context, ref *types.ExternalTriggerRef) (*types.SpecTask, error) {
+	if ref == nil || ref.Type != types.ExternalTriggerSourceNotion {
+		return nil, nil
+	}
+	var p types.NotionTriggerPayload
+	if err := json.Unmarshal(ref.Payload, &p); err != nil || p.PageID == "" {
+		return nil, nil
+	}
+	task, err := a.store.GetSpecTaskByExternalNotionPageID(ctx, p.PageID)
+	if err != nil || task == nil {
+		return nil, err
+	}
+	// Transition from any non-terminal status to cancelled. If the task is
+	// already terminal the transition returns false and we no-op.
+	_, _ = a.store.TransitionSpecTaskStatus(ctx, task.ID,
+		[]types.SpecTaskStatus{
+			types.TaskStatusBacklog,
+			types.TaskStatusSpecGeneration,
+			types.TaskStatusSpecReview,
+			types.TaskStatusImplementation,
+			types.TaskStatusImplementationQueued,
+			types.TaskStatusQueuedImplementation,
+			types.TaskStatusImplementationReview,
+			types.TaskStatusPullRequest,
+		},
+		types.SpecTaskStatusCancelled,
+		nil,
+	)
+	return task, nil
 }
 
 // defaultEmbedURLBuilder produces the embed URL pasted into Notion pages by
@@ -139,7 +194,56 @@ func (t *Manager) Start(ctx context.Context) {
 		}()
 	}
 
+	// Subscribe to spec-task updates so externally-triggered tasks (Notion,
+	// Sentry-future, GitHub-future) can write progress back into their
+	// originating system as the task moves through phases.
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		t.runExternalProgressUpdates(ctx)
+	}()
+
 	t.wg.Wait()
+}
+
+// runExternalProgressUpdates subscribes to spec-task updates and dispatches
+// progress writebacks to each task's external source (Notion etc.).
+func (t *Manager) runExternalProgressUpdates(ctx context.Context) {
+	// Track last-seen status per spec task so we only write back when status
+	// actually changes (not on every save — the pub/sub fires on every
+	// UpdateSpecTask).
+	lastStatus := map[string]types.SpecTaskStatus{}
+
+	sub, err := t.store.SubscribeForTasks(ctx, nil, func(task *types.SpecTask) error {
+		if task == nil || task.ExternalTriggerRef == nil {
+			return nil
+		}
+		if task.ExternalTriggerRef.Type != types.ExternalTriggerSourceNotion {
+			// Future: dispatch to Sentry / GitHub.
+			return nil
+		}
+		prev, ok := lastStatus[task.ID]
+		if ok && prev == task.Status {
+			return nil
+		}
+		lastStatus[task.ID] = task.Status
+
+		cfg, err := t.store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{ID: task.ExternalTriggerRef.TriggerConfigID})
+		if err != nil {
+			log.Warn().Err(err).Str("trigger_config_id", task.ExternalTriggerRef.TriggerConfigID).Msg("trigger: load config for external progress writeback")
+			return nil
+		}
+		if err := t.notion.OnSpecTaskStatusChanged(ctx, cfg, task); err != nil {
+			log.Warn().Err(err).Str("spec_task_id", task.ID).Msg("notion: status writeback failed")
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("trigger: subscribe for external progress updates failed")
+		return
+	}
+	defer sub.Unsubscribe()
+	<-ctx.Done()
 }
 
 func (t *Manager) ProcessWebhook(ctx context.Context, triggerConfig *types.TriggerConfiguration, headers http.Header, payload []byte) error {

@@ -512,6 +512,11 @@ type Store interface {
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
 	DeleteSpecTask(ctx context.Context, id string) error
+	// GetSpecTaskByExternalNotionPageID finds the most recent non-terminal
+	// spec task linked to a given Notion page (via external_trigger_ref's
+	// payload.page_id). Returns (nil, nil) when none exists. Used by the
+	// Notion trigger for idempotency on webhook replay + cancellation lookup.
+	GetSpecTaskByExternalNotionPageID(ctx context.Context, pageID string) (*types.SpecTask, error)
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
 	AddSpecTaskLabel(ctx context.Context, taskID string, label string) error

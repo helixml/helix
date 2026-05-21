@@ -274,6 +274,51 @@ func (n *Notion) OnExternalCancel(ctx context.Context, triggerConfig *types.Trig
 	return nil
 }
 
+// statusEmoji returns a single-character indicator for a SpecTaskStatus so
+// the Result column reads like a progress spinner from the user's table.
+func statusEmoji(s string) string {
+	switch s {
+	case "backlog", "":
+		return "⚪"
+	case "planning", "spec_generation":
+		return "🟡"
+	case "spec_review":
+		return "🟠"
+	case "implementation", "implementation_queued", "queued_implementation", "implementation_review":
+		return "🔵"
+	case "pull_request":
+		return "🟣"
+	case "done":
+		return "✅"
+	case "cancelled", "failed":
+		return "❌"
+	default:
+		return "🔄"
+	}
+}
+
+// OnSpecTaskStatusChanged is invoked when a Notion-originated spec task's
+// status transitions. Writes a progress indicator into the Result column so
+// the Notion table behaves like a status board. Cheaper, more frequent
+// version of OnSpecTaskCompleted — fires for every transition.
+func (n *Notion) OnSpecTaskStatusChanged(ctx context.Context, triggerConfig *types.TriggerConfiguration, spectask *types.SpecTask) error {
+	cfg := triggerConfig.Trigger.Notion
+	if cfg == nil || cfg.ColumnMapping.ResultColumn == "" {
+		return nil
+	}
+	pageID := pageIDFromRef(spectask.ExternalTriggerRef)
+	if pageID == "" {
+		return nil
+	}
+	token, err := n.resolveAccessToken(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("notion: %w", err)
+	}
+	emoji := statusEmoji(string(spectask.Status))
+	msg := fmt.Sprintf("%s %s — see the task page or the embed below.", emoji, spectask.Status)
+	return n.newClient(token).PatchRichTextProperty(ctx, pageID, cfg.ColumnMapping.ResultColumn, msg)
+}
+
 // OnSpecTaskCompleted is invoked by the spec-task service when a Notion-
 // triggered task finishes (success or failure). Writes the result into the
 // configured Result column if any. Never touches the action column.

@@ -24,6 +24,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -3268,6 +3269,21 @@ func (m *MockStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask
 func (mr *MockStoreMockRecorder) GetSpecTask(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTask", reflect.TypeOf((*MockStore)(nil).GetSpecTask), ctx, id)
+}
+
+// GetSpecTaskByExternalNotionPageID mocks base method.
+func (m *MockStore) GetSpecTaskByExternalNotionPageID(ctx context.Context, pageID string) (*types.SpecTask, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskByExternalNotionPageID", ctx, pageID)
+	ret0, _ := ret[0].(*types.SpecTask)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskByExternalNotionPageID indicates an expected call of GetSpecTaskByExternalNotionPageID.
+func (mr *MockStoreMockRecorder) GetSpecTaskByExternalNotionPageID(ctx, pageID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskByExternalNotionPageID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskByExternalNotionPageID), ctx, pageID)
 }
 
 // GetSpecTaskDesignReview mocks base method.

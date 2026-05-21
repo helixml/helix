@@ -366,6 +366,12 @@ const (
 	// Error states
 	TaskStatusSpecFailed           SpecTaskStatus = "spec_failed"           // Spec generation failed
 	TaskStatusImplementationFailed SpecTaskStatus = "implementation_failed" // Implementation failed
+
+	// Cancelled — terminal state reached when an external trigger source (Notion
+	// row flipped back to NoGo, etc.) asks Helix to abandon the work before it
+	// reaches done. Named SpecTaskStatusCancelled to avoid colliding with the
+	// older TaskStatusCancelled in task_management.go.
+	SpecTaskStatusCancelled SpecTaskStatus = "cancelled"
 )
 
 // Agent specialization types
