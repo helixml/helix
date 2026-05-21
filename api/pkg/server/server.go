@@ -524,6 +524,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
+	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
 
 	// Initialize Attention Service for human-needed event notifications
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
@@ -741,6 +743,47 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// admin auth requires a user with admin flag
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
+
+	// helix-org alpha: embed the standalone helix-org HTTP surface as
+	// an in-process handler, gated per-user by the `helix-org` alpha
+	// feature. See design/2026-05-17-helix-org-saas-alpha.md.
+	//
+	// The MCP / webhook JSON-RPC API lives at /api/v1/org/. The htmx
+	// UI is mounted at top-level /ui/ (outside /api/v1) because its
+	// templates use absolute /ui/... hrefs — rewriting them at the
+	// proxy layer is more fragile than just serving from the path
+	// they expect. /ui/ is auth-gated via extractMiddleware +
+	// requireUser + requireFeature manually wired (we sit outside the
+	// /api/v1 subrouter so we don't pick up its csrfMiddleware — the
+	// org UI uses standard form POSTs without Helix CSRF tokens; the
+	// feature flag is the gate).
+	if apiServer.Cfg.HelixOrgEnabled {
+		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+			FileStoreType: apiServer.Cfg.FileStore.Type,
+			LocalFSPath:   apiServer.Cfg.FileStore.LocalFSPath,
+		}, apiServer.Store); err != nil {
+			return nil, fmt.Errorf("initialise helix-org: %w", err)
+		} else if orgHandlers != nil {
+			authRouter.PathPrefix("/org/").Handler(
+				requireFeature(alphaFeatureHelixOrg)(
+					http.StripPrefix(APIPrefix+"/org", orgHandlers.api),
+				),
+			)
+			uiRouter := router.PathPrefix("/ui/").Subrouter()
+			uiRouter.Use(apiServer.authMiddleware.extractMiddleware)
+			uiRouter.Use(requireUser)
+			uiRouter.Use(requireFeature(alphaFeatureHelixOrg))
+			uiRouter.PathPrefix("/").Handler(orgHandlers.ui)
+
+			// Expose helix-org's owner MCP through the standard Helix MCP
+			// gateway so picked agents can call it without us having to bake
+			// the agent owner's api_key into the agent's app config. The
+			// gateway already auth-checks the api_key via authRouter; the
+			// backend re-checks the alpha-feature flag for defence in depth.
+			// Route: /api/v1/mcp/helix-org/...
+			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(orgHandlers.api))
+		}
+	}
 
 	// Setup OAuth routes with the auth router (except for callback)
 	apiServer.setupOAuthRoutes(authRouter)
@@ -1384,6 +1427,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/labels", apiServer.addSpecTaskLabel).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/labels/{label}", apiServer.removeSpecTaskLabel).Methods(http.MethodDelete)
+
+	// Spec task attachments (screenshots / documents)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments", apiServer.uploadSpecTaskAttachments).Methods(http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments", apiServer.listSpecTaskAttachments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments/{attId}", apiServer.deleteSpecTaskAttachment).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/spec-tasks/{id}/usage", system.Wrapper(apiServer.getSpecTaskUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)
@@ -1487,6 +1535,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Public design docs viewer (no auth required if task.PublicDesignDocs is true)
 	subRouter.HandleFunc("/spec-tasks/{id}/view", apiServer.viewDesignDocsPublic).Methods(http.MethodGet)
+
+	// Attachment content endpoint — public if task.PublicDesignDocs is true,
+	// otherwise auth-gated by the handler itself. Mounted on the unauthenticated
+	// subrouter so anonymous reads work for public design docs.
+	subRouter.HandleFunc("/spec-tasks/{taskId}/attachments/{attId}/content", apiServer.getSpecTaskAttachmentContent).Methods(http.MethodGet)
 
 	// Sample repository routes
 	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)

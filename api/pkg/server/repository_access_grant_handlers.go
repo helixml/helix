@@ -163,6 +163,34 @@ func (apiServer *HelixAPIServer) createRepositoryAccessGrant(rw http.ResponseWri
 	}
 
 	userID = targetUser.ID
+	memberships, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+		OrganizationID: repository.OrganizationID,
+		UserID:         userID,
+	})
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error checking org membership: %w", err), http.StatusInternalServerError)
+		return
+	}
+	if len(memberships) == 0 {
+		if _, err := apiServer.authorizeOrgOwner(r.Context(), user, repository.OrganizationID); err != nil {
+			writeErrResponse(rw, fmt.Errorf("user '%s' is not an organisation member; only org owners can auto-add users to the organisation", req.UserReference), http.StatusForbidden)
+			return
+		}
+		if _, err := apiServer.Store.CreateOrganizationMembership(r.Context(), &types.OrganizationMembership{
+			OrganizationID: repository.OrganizationID,
+			UserID:         userID,
+			Role:           types.OrganizationRoleMember,
+		}); err != nil {
+			existing, checkErr := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+				OrganizationID: repository.OrganizationID,
+				UserID:         userID,
+			})
+			if checkErr != nil || len(existing) == 0 {
+				writeErrResponse(rw, fmt.Errorf("error adding user to organisation: %w", err), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
 
 	grant, err := apiServer.Store.CreateAccessGrant(r.Context(), &types.AccessGrant{
 		OrganizationID: repository.OrganizationID,

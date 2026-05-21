@@ -1641,13 +1641,15 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 		case <-ticker.C:
 			attemptCount++
 
-			// Check if any external Zed agent WebSocket connections exist
-			connections := s.externalAgentWSManager.listConnections()
-			log.Info().
-				Int("connection_count", len(connections)).
-				Interface("connections", connections).
-				Msg("🔍 [HELIX] Checking external agent connections")
-			if len(connections) > 0 {
+			// Check if THIS session's agent WebSocket has actually
+			// connected. The previous check looked at the global
+			// connection list (>0), which falsely returned ready as
+			// soon as any other session's agent was connected — so a
+			// brand-new session that hadn't yet dialed home got a
+			// premature "ready", and the immediately-following
+			// dispatch failed with "no external agent WebSocket
+			// connection". Per-session check fixes the race.
+			if _, ok := s.externalAgentWSManager.getConnection(sessionID); ok {
 				elapsed := time.Since(startTime)
 				log.Info().
 					Str("session_id", sessionID).

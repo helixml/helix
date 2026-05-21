@@ -122,14 +122,64 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// setupFailedSentinelPath is where helix-workspace-setup.sh writes a JSON
+// failure report on non-zero exit. Reading it from outside the container
+// lets us replace the generic "agent never connected" banner with the real
+// reason setup failed (e.g. a git clone 403, a missing dependency).
+const setupFailedSentinelPath = "/home/retro/.helix-setup-failed"
+
+// setupFailedSentinel matches the JSON shape written by
+// helix-workspace-setup.sh's cleanup_and_prompt trap.
+type setupFailedSentinel struct {
+	ExitCode int    `json:"exit_code"`
+	LogTail  string `json:"log_tail"`
+}
+
+// readSetupFailureSentinel pulls ~/.helix-setup-failed from the session's
+// dev container via hydra and returns its parsed contents. Returns nil if
+// the file isn't present, the container or sandbox aren't reachable, or the
+// JSON is malformed — every code path the caller hits when the sentinel
+// can't be read should fall back to the generic banner.
+func (apiServer *HelixAPIServer) readSetupFailureSentinel(ctx context.Context, sessionID, sandboxID string) *setupFailedSentinel {
+	if sandboxID == "" {
+		return nil
+	}
+	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
+	hydraClient := hydra.NewRevDialClient(apiServer.connman, hydraRunnerID)
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	data, err := hydraClient.ReadSandboxFile(ctxTimeout, sessionID, setupFailedSentinelPath)
+	if err != nil {
+		log.Debug().Err(err).
+			Str("session_id", sessionID).
+			Str("sandbox_id", sandboxID).
+			Msg("[AUTO_WAKE] No setup-failed sentinel found (or unreadable) — falling back to generic banner")
+		return nil
+	}
+	var parsed setupFailedSentinel
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Int("bytes", len(data)).
+			Msg("[AUTO_WAKE] Setup-failed sentinel present but unparseable; falling back to generic banner")
+		return nil
+	}
+	return &parsed
+}
 
 const (
 	// autoWakeScanInterval is how often the worker checks for stuck
@@ -487,30 +537,61 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // Re-kicking during the boot window only races against the existing
 // per-session lock and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
-	// Skip if a StartDesktop is genuinely in progress and we're still
-	// inside the grace period. Failing to load the session is non-fatal
-	// — fall through to the existing path so a transient store error
-	// doesn't permanently disable the cold-start kick.
-	if session, err := apiServer.Store.GetSession(ctx, stuck.SessionID); err == nil && session != nil {
-		if session.Metadata.ExternalAgentStatus == "starting" &&
-			time.Since(stuck.Created) < coldStartGracePeriod() {
-			log.Debug().
-				Str("interaction_id", stuck.ID).
-				Str("session_id", stuck.SessionID).
-				Dur("interaction_age", time.Since(stuck.Created)).
-				Dur("grace_period", coldStartGracePeriod()).
-				Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
-			return
-		}
-	} else if err != nil {
+	// Load the session once for the two checks below: the
+	// StartDesktop-in-progress gate, and (on cap-exhaustion) the
+	// SandboxID lookup used to read the workspace-setup failure
+	// sentinel. Failing to load is non-fatal — fall through so a
+	// transient store error doesn't permanently disable cold-start.
+	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
+	if err != nil {
 		log.Warn().Err(err).
 			Str("interaction_id", stuck.ID).
 			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; proceeding with kick")
+		session = nil
+	}
+
+	// Skip if a StartDesktop is genuinely in progress and we're still
+	// inside the grace period.
+	if session != nil &&
+		session.Metadata.ExternalAgentStatus == "starting" &&
+		time.Since(stuck.Created) < coldStartGracePeriod() {
+		log.Debug().
+			Str("interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Dur("interaction_age", time.Since(stuck.Created)).
+			Dur("grace_period", coldStartGracePeriod()).
+			Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
+		return
 	}
 
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
 		stuck.State = types.InteractionStateError
 		stuck.Error = "Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"
+		// Before giving up with the generic banner, see if the dev
+		// container's workspace-setup script wrote a failure sentinel.
+		// If it did, the real cause is in there (e.g. a clone 403) and
+		// the user deserves to see that instead of an infrastructure
+		// timeout. Reuses the session loaded at the top of this
+		// function — no extra store roundtrip (and no extra mock
+		// expectation in the cap-exhausted unit tests).
+		if session != nil {
+			if sentinel := apiServer.readSetupFailureSentinel(ctx, stuck.SessionID, session.SandboxID); sentinel != nil {
+				// Truncate aggressively: the Interaction.Error column
+				// renders inline in the UI. Full log lives in the
+				// container's ~/.helix-setup.log for follow-up.
+				const maxTail = 1200
+				tail := sentinel.LogTail
+				if len(tail) > maxTail {
+					tail = "…" + tail[len(tail)-maxTail:]
+				}
+				stuck.Error = fmt.Sprintf("Workspace setup failed (exit code %d): %s", sentinel.ExitCode, tail)
+				log.Info().
+					Str("interaction_id", stuck.ID).
+					Str("session_id", stuck.SessionID).
+					Int("exit_code", sentinel.ExitCode).
+					Msg("[AUTO_WAKE] Surfaced workspace setup failure from sentinel")
+			}
+		}
 		stuck.Updated = time.Now()
 		stuck.Completed = time.Now()
 		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {

@@ -24,6 +24,8 @@ func TestListOrgAPIKeys_OwnerSeesAllKeys(t *testing.T) {
 	orgID := "org_123"
 	userID := "user_owner"
 
+	expectResolveOrganizationByID(mockStore, orgID)
+
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         userID,
@@ -74,6 +76,8 @@ func TestListOrgAPIKeys_MemberSeesOnlyOwnKeys(t *testing.T) {
 
 	orgID := "org_123"
 	userID := "user_member"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
@@ -127,6 +131,8 @@ func TestListOrgAPIKeys_NonMemberForbidden(t *testing.T) {
 	orgID := "org_123"
 	userID := "user_outsider"
 
+	expectResolveOrganizationByID(mockStore, orgID)
+
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         userID,
@@ -151,6 +157,8 @@ func TestListOrgAPIKeys_FiltersOutSpecTaskKeys(t *testing.T) {
 
 	orgID := "org_123"
 	userID := "user_owner"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
@@ -201,6 +209,8 @@ func TestCreateOrgAPIKey_MemberCanCreate(t *testing.T) {
 	orgID := "org_123"
 	userID := "user_member"
 
+	expectResolveOrganizationByID(mockStore, orgID)
+
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         userID,
@@ -250,6 +260,8 @@ func TestCreateOrgAPIKey_EmptyNameRejected(t *testing.T) {
 	orgID := "org_123"
 	userID := "user_member"
 
+	expectResolveOrganizationByID(mockStore, orgID)
+
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
 		UserID:         userID,
@@ -279,7 +291,9 @@ func TestDeleteOrgAPIKey_OwnerCanDeleteAnyKey(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	keyStr := "hl-key-abc123"
+	keyStr := "example"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
@@ -317,7 +331,9 @@ func TestDeleteOrgAPIKey_MemberCanOnlyDeleteOwnKey(t *testing.T) {
 
 	orgID := "org_123"
 	memberID := "user_member"
-	keyStr := "hl-key-abc123"
+	keyStr := "example"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
@@ -353,7 +369,9 @@ func TestDeleteOrgAPIKey_KeyFromDifferentOrgRejected(t *testing.T) {
 
 	orgID := "org_123"
 	ownerID := "user_owner"
-	keyStr := "hl-key-abc123"
+	keyStr := "example"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
@@ -389,6 +407,8 @@ func TestListOrgAPIKeys_AdminSeesAllKeys(t *testing.T) {
 
 	orgID := "org_123"
 	adminID := "user_admin"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	// Admin user - authorizeOrgMember tries to get membership, falls back to synthetic owner
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{

@@ -59,6 +59,7 @@ import ExternalAgentDesktopViewer, {
 import DiffViewer from "./DiffViewer";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
@@ -1144,6 +1145,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Box>
         )}
       </Box>
+
+      {task?.id && (
+        <TaskAttachmentsPanel
+          taskId={task.id}
+          status={task.status as TypesSpecTaskStatus}
+        />
+      )}
 
       <Divider sx={{ my: 2 }} />
 

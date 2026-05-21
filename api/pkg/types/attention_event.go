@@ -27,8 +27,9 @@ type AttentionEvent struct {
 	Metadata       datatypes.JSON     `json:"metadata,omitempty" gorm:"type:jsonb"`
 
 	// Denormalized for display without joins
-	ProjectName  string `json:"project_name,omitempty" gorm:"size:255"`
-	SpecTaskName string `json:"spec_task_name,omitempty" gorm:"size:500"`
+	ProjectName         string `json:"project_name,omitempty" gorm:"size:255"`
+	SpecTaskName        string `json:"spec_task_name,omitempty" gorm:"size:500"`
+	SpecTaskDescription string `json:"spec_task_description,omitempty" gorm:"type:text"`
 }
 
 type AttentionEventType string
