@@ -24,22 +24,22 @@
 
 ## Merge Execution
 
-- [~] `git merge upstream/main`
-- [ ] Triage conflicts; for each, append to `portingguide.md` §"Merge 002029" with `(upstream change / resolution / why / risk)` BEFORE moving to the next one
-- [ ] `Cargo.lock` (if conflicting): `git checkout --theirs Cargo.lock`
-- [ ] Any `.github/workflows/` conflicts: accept upstream
-- [ ] Resolve `crates/agent_ui/src/agent_panel.rs` conflicts — Critical Fix #11 (entity-identity guard at top of `load_agent_thread`) must survive verbatim; **Helix PR #56 Fix 1b draft suppression must be the FIRST statement of the new `ensure_thread_initialized` body** (after `589dc95c87`'s rewrite adds `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches); thread display callback, UI state query, `acp_history_store()`, onboarding bypass, ACP auto-approve preserved
-- [ ] Resolve `crates/agent_ui/src/conversation_view.rs` conflicts — `from_existing_thread()`, `THREAD_REGISTRY` registration, `is_resume`, history refresh, unregister-on-reset preserved
-- [ ] Resolve `crates/acp_thread/src/acp_thread.rs` conflicts — Critical Fixes #6, #8, #9 (cancel/Stopped invariants) preserved; PR #55 streaming-reveal `EntryUpdated` emit preserved
-- [ ] Resolve `crates/acp_thread/src/connection.rs` if conflict — accept upstream trait additions (`supports_logout`, `logout` defaults; `supports_delete(&self, &App)` signature change)
-- [ ] Resolve `crates/agent_servers/src/acp.rs` conflicts — **three-way fold** of PR #50 `session_creation_chain` with upstream `23231879cd` session-deletion plumbing AND `c3951af24f`'s 489-line expansion of `new_session`/`load_session`/`open_or_create_session` (PR #50's chain wrapper may need new parameters passed through)
-- [ ] Resolve `crates/agent/src/agent.rs` conflicts — Critical Fix #1 (entity-lifetime clone in `load_session`) preserved; `wait_for_tools_ready` uses `cx.background_executor().timer()`; update `supports_delete(&self)` → `supports_delete(&self, &App)` signature on line 1838
-- [ ] Decide on `crates/extensions_ui/src/extensions_ui.rs`: upstream `c84c22dab5` deletes 80 lines around Helix's `// HELIX: External agent ...` bypass markers. If upstream's deletion subsumes the bypass intent (no agent keywords / no agent upsells), drop the Helix patch deliberately and document. If not, re-apply.
-- [ ] Decide on `crates/agent_servers/src/custom.rs`: upstream `c84c22dab5` guts it (116 → ~40 lines). Confirm Helix's `ExternalAgent::server()` path with `CustomAgentServer::new(AgentId(...))` still compiles.
-- [ ] Resolve any other Helix-touched file conflicts (workspace.rs, main.rs, title_bar, Cargo.toml workspace deps)
-- [ ] Compile-driven trait-signature migration: walk every `supports_delete()` call site — confirmed 10 references in `crates/agent_ui/src/acp/thread_history.rs` (lines 362, 365, 563, 574, 700, 797, 868, 879, 884–885) plus impl in `crates/agent/src/agent.rs:1838` — and add `cx` / `&App` everywhere upstream's signature change demands
-- [ ] No conflict markers remain: `grep -rn "<<<<<<<\|>>>>>>>" .` (excluding test-string markers in `git_store.rs`)
-- [ ] Commit merge: `git commit` (let git auto-generate the merge commit; do not amend)
+- [x] `git merge upstream/main`
+- [x] Triage conflicts; for each, append to `portingguide.md` §"Merge 002029" with `(upstream change / resolution / why / risk)` BEFORE moving to the next one
+- [x] `Cargo.lock` (if conflicting): `git checkout --theirs Cargo.lock`
+- [x] Any `.github/workflows/` conflicts: accept upstream
+- [x] Resolve `crates/agent_ui/src/agent_panel.rs` conflicts — Critical Fix #11 (entity-identity guard at top of `load_agent_thread`) must survive verbatim; **Helix PR #56 Fix 1b draft suppression must be the FIRST statement of the new `ensure_thread_initialized` body** (after `589dc95c87`'s rewrite adds `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches); thread display callback, UI state query, `acp_history_store()`, onboarding bypass, ACP auto-approve preserved
+- [x] Resolve `crates/agent_ui/src/conversation_view.rs` conflicts — `from_existing_thread()`, `THREAD_REGISTRY` registration, `is_resume`, history refresh, unregister-on-reset preserved
+- [x] Resolve `crates/acp_thread/src/acp_thread.rs` conflicts — Critical Fixes #6, #8, #9 (cancel/Stopped invariants) preserved; PR #55 streaming-reveal `EntryUpdated` emit preserved
+- [x] Resolve `crates/acp_thread/src/connection.rs` if conflict — accept upstream trait additions (`supports_logout`, `logout` defaults; `supports_delete(&self, &App)` signature change)
+- [x] Resolve `crates/agent_servers/src/acp.rs` conflicts — **three-way fold** of PR #50 `session_creation_chain` with upstream `23231879cd` session-deletion plumbing AND `c3951af24f`'s 489-line expansion of `new_session`/`load_session`/`open_or_create_session` (PR #50's chain wrapper may need new parameters passed through)
+- [x] Resolve `crates/agent/src/agent.rs` conflicts — Critical Fix #1 (entity-lifetime clone in `load_session`) preserved; `wait_for_tools_ready` uses `cx.background_executor().timer()`; update `supports_delete(&self)` → `supports_delete(&self, &App)` signature on line 1838
+- [x] Decide on `crates/extensions_ui/src/extensions_ui.rs`: upstream `c84c22dab5` deletes 80 lines around Helix's `// HELIX: External agent ...` bypass markers. If upstream's deletion subsumes the bypass intent (no agent keywords / no agent upsells), drop the Helix patch deliberately and document. If not, re-apply.
+- [x] Decide on `crates/agent_servers/src/custom.rs`: upstream `c84c22dab5` guts it (116 → ~40 lines). Confirm Helix's `ExternalAgent::server()` path with `CustomAgentServer::new(AgentId(...))` still compiles.
+- [x] Resolve any other Helix-touched file conflicts (workspace.rs, main.rs, title_bar, Cargo.toml workspace deps)
+- [x] Compile-driven trait-signature migration: walk every `supports_delete()` call site — confirmed 10 references in `crates/agent_ui/src/acp/thread_history.rs` (lines 362, 365, 563, 574, 700, 797, 868, 879, 884–885) plus impl in `crates/agent/src/agent.rs:1838` — and add `cx` / `&App` everywhere upstream's signature change demands
+- [x] No conflict markers remain: `grep -rn "<<<<<<<\|>>>>>>>" .` (excluding test-string markers in `git_store.rs`)
+- [x] Commit merge: `git commit` (let git auto-generate the merge commit; do not amend)
 
 ## Sweep for Silent Drift (auto-merged files)
 
