@@ -7,13 +7,13 @@
 - [x] In `Onboarding()` render path, replace every reference to the deleted module constants with `palette.*` equivalents (`inputSx` → `palette.inputSx`, `CARD_BG` → `palette.CARD_BG`, etc.)
 - [x] Replace all 5 hardcoded `bgcolor: "#1a1a2e"` menu popovers (lines 1205, 1493, 2062, 2157, 2209) with `bgcolor: palette.MENU_BG` and the matching `color: "#fff"` with `palette.MENU_TEXT`
 - [x] Replace the inactive-step indicator color `rgba(255,255,255,0.15)` at line 1054 with `palette.STEP_INACTIVE`
-- [~] Mechanical search-and-replace of remaining hardcoded text colors throughout `renderStepContent` and step-specific render functions: `#fff` → `palette.TEXT_PRIMARY`, `rgba(255,255,255,0.6)` → `palette.TEXT_SECONDARY`, `rgba(255,255,255,0.4)` → `palette.TEXT_FADED`, `rgba(255,255,255,0.25)`/`0.3` → `palette.TEXT_DIM`
-- [ ] Replace remaining `borderColor` / `bgcolor` rgba-white literals: `0.1` → `palette.CARD_BORDER`, `0.06` → `palette.BORDER_SUBTLE`, `0.15` (hover) → `palette.BORDER_HOVER`, `0.02` → `palette.OVERLAY_FAINT`, `0.03` → `palette.OVERLAY_DIM`
-- [ ] Replace radio-button unchecked color `rgba(255,255,255,0.3)` (passed via `claudeRadioSx`) with `palette.RADIO_UNCHECKED`
-- [ ] Update the `<Bot size={16} color="rgba(255,255,255,0.4)" />` lucide icon at line 2078 (and any other lucide icons in the file) to use `color={palette.TEXT_FADED}`
-- [ ] Verify all sx props passed to `CodingAgentForm` (`labelSx`, `captionSx`, `selectSx`, `menuPaperSx`, `textFieldInputSx`, `textFieldLabelSx`, `textFieldHelperSx`, `claudeCredentialsBoxSx`) are derived from `palette` and propagate light mode correctly
-- [ ] Run `grep -cE "rgba\(255,255,255\|#fff\|#1a1a2e\|['\"]white['\"]" frontend/src/pages/Onboarding.tsx` and confirm result is 0 (or only inside `getOnboardingPalette` ternary branches)
-- [ ] Run `cd frontend && yarn build` and fix any TypeScript errors
+- [x] Mechanical search-and-replace of remaining hardcoded text colors throughout `renderStepContent` and step-specific render functions: `#fff` → `palette.TEXT_PRIMARY`, `rgba(255,255,255,0.6)` → `palette.TEXT_SECONDARY`, `rgba(255,255,255,0.4)` → `palette.TEXT_FADED`, `rgba(255,255,255,0.25)`/`0.3` → `palette.TEXT_DIM`
+- [x] Replace remaining `borderColor` / `bgcolor` rgba-white literals: `0.1` → `palette.INPUT_BORDER`, `0.06` → `palette.BORDER_SUBTLE`, `0.15` (hover) → `palette.BORDER_HOVER`, `0.2` (input hover) → `palette.INPUT_BORDER_HOVER`, `0.02` → `palette.OVERLAY_FAINT`
+- [x] Replace radio-button unchecked color `rgba(255,255,255,0.3)` (passed via `claudeRadioSx`) — collapsed to `palette.TEXT_DIM` via mass replace (functionally identical)
+- [x] Update the `<Bot size={16} color="rgba(255,255,255,0.4)" />` lucide icon at line 2078 (and any other lucide icons in the file) to use `color={palette.TEXT_FADED}`
+- [x] Verify all sx props passed to `CodingAgentForm` (`labelSx`, `captionSx`, `selectSx`, `menuPaperSx`, `textFieldInputSx`, `textFieldLabelSx`, `textFieldHelperSx`, `claudeCredentialsBoxSx`) are derived from `palette` and propagate light mode correctly
+- [x] Run `grep -cE "rgba\(255,255,255\|#fff\|#1a1a2e\|['\"]white['\"]" frontend/src/pages/Onboarding.tsx` and confirm result is 0 (or only inside `getOnboardingPalette` ternary branches) — confirmed: only palette definition contains literals
+- [x] Run `cd frontend && yarn build` and fix any TypeScript errors — clean build, 0 TS errors
 - [ ] Capture after screenshots of all 6 steps in both light and dark mode to `screenshots/after-{light,dark}-*.png`
 - [ ] Compare `before-dark-*.png` vs `after-dark-*.png` — should be visually identical (no dark-mode regression)
 - [ ] Compare `before-light-*.png` vs `after-light-*.png` — light mode should now be properly readable with light cards, dark text, visible borders, light menus
