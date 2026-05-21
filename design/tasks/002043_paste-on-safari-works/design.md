@@ -32,23 +32,64 @@ if (isCopyKeystroke && sessionIdRef.current) {
 
 ## Why Safari fails and Chrome doesn't
 
-Both browsers implement the Async Clipboard API, but Safari/WebKit
-enforces a stricter rule: a successful `navigator.clipboard.writeText()`
-(or `.write()`) requires the call to be made **inside the same
-user-gesture task** as the originating UI event. A `setTimeout` callback
-runs on a fresh task with no gesture, so Safari treats the write as
-untrusted and refuses it.
+Both browsers implement the Async Clipboard API but interpret the
+"user gesture" requirement differently.
 
-Chrome is more permissive — it allows clipboard writes for a short
-window after a gesture and across awaited promises — so today's code
-happens to work there.
+### The spec (and Chrome's behaviour)
+
+The [W3C Clipboard API spec](https://w3c.github.io/clipboard-apis/)
+routes `writeText()` through a "check clipboard write permission"
+algorithm that depends on
+[transient activation](https://html.spec.whatwg.org/multipage/interaction.html#transient-activation)
+— a time-limited HTML flag (default ~5 s in Chromium) set when a user
+gesture fires. Critically, the algorithm reads activation **at the
+time it runs**, not at the time the calling JS task was queued:
+
+> "Let hasGesture be true if the relevant global object of this has
+> transient activation, false otherwise."
+
+So a `setTimeout(callback, 300)` followed by `await
+apiClient.v1ExternalAgentsClipboardDetail(...)` followed by
+`navigator.clipboard.writeText(...)` will succeed in Chrome: the
+300 ms delay + ~tens-of-ms API round-trip is well inside the 5 s
+transient-activation window. This is exactly what happens in the
+current code, which is why Chrome users never reported the bug.
+
+### WebKit's stricter policy
+
+Safari/WebKit goes beyond the spec. The
+[2020 WebKit Async Clipboard API blog post](https://webkit.org/blog/10855/async-clipboard-api/)
+states:
+
+> "The request to write to the clipboard must be triggered during a
+> user gesture."
+
+And specifies that calls outside `"click"` / `"touch"` handlers
+
+> "will result in the immediate rejection of the promise returned by
+> the API call."
+
+The same post introduces the `ClipboardItem`-with-Promise pattern
+explicitly *because* developers "couldn't realistically `await` the
+data first and then call `write()` without losing the gesture." That
+is our exact situation — we need 300 ms + an HTTP round-trip to
+produce the data.
+
+### Practical consequence
+
+The existing `setTimeout(300) → fetch → writeText` flow is silently
+rejected by Safari every time. The current catch-all `// Still show
+success` toast hides this from the user.
 
 ## Fix: ClipboardItem with a Promise
 
 WebKit added support for `ClipboardItem` constructed with a `Promise<Blob>`
 as the value (the "deferred async clipboard" pattern, announced in the
 [2020 WebKit blog post on the Async Clipboard
-API](https://webkit.org/blog/10855/async-clipboard-api/)). When you call
+API](https://webkit.org/blog/10855/async-clipboard-api/), which describes
+the constructor as taking *"a mapping of MIME type to `Promise` which
+may resolve either to a string or a `Blob` of the same MIME type"*).
+When you call
 `navigator.clipboard.write([new ClipboardItem({ "text/plain": promise })])`
 **synchronously inside the user gesture**, Safari accepts the write and
 waits for the promise to resolve before populating the system pasteboard.
