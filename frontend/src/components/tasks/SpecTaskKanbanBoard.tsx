@@ -1757,9 +1757,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         sx={{
           display: { xs: "flex", md: "none" },
           flexShrink: 0,
-          pt: 2,
-          px: 2,
-          pb: 1,
+          p: 1,
           gap: 1,
           alignItems: "center",
         }}
