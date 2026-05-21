@@ -89,6 +89,13 @@ intent is documented and accidental future overrides are obvious.
 4. Show both modes to the user; if approved, done. If not, swap the theme
    pair to one of the alternates and re-test.
 
+## Implementation Notes (added during build)
+
+- **Two layers to update:** the source-of-truth is `desktop/ubuntu-config/ghostty-config` in the helix repo, which gets `COPY`ed into the helix-ubuntu image at `Dockerfile.ubuntu-helix:1102`. Editing only the live `~/.config/ghostty/config` is not enough — a fresh spec-task sandbox spawned by the inner Helix uses the baked-in image copy. After editing the repo source, run `./stack build-ubuntu` so the new image (and the heartbeat-versioned tag) carries the change. Existing containers keep their old config.
+- **The end-to-end toggle path that ACTUALLY matters** is: user clicks sun/moon in the Helix UI (`frontend/src/contexts/theme.tsx:236` `toggleMode`) → `PUT /api/v1/users/me/color-scheme` → inner Helix publishes a WS `config_changed` event → `settings-sync-daemon` (`api/cmd/settings-sync-daemon/main.go:917 applyGNOMEColorScheme`) runs `gsettings set org.gnome.desktop.interface color-scheme prefer-{light,dark}` inside the sandbox container → Ghostty's portal listener picks up the change and swaps theme. This was tested live: registered as test@helix.ml, started a spec-task session against the rebuilt image, toggled the sunshine button, watched Ghostty inside the embedded desktop stream flip. User confirmed.
+- **Don't be fooled by GTK chrome flipping in tests.** `window-theme = auto` flips the GTK window decoration on color-scheme change regardless of whether `theme = light:X,dark:Y` is honoured for the terminal palette. If you only see the titlebar/border change, that proves nothing about the terminal body. The trustworthy test is the inner-Helix flow above; the outer-container `gsettings` flip I did first was misleading because (a) the outer container was running the OLD image (pre-rebuild) so my live ~/.config edit was the only signal, and (b) screenshot resolution made it hard to distinguish chrome vs body.
+- **Outer ≠ inner.** The spec-task agent runs in a desktop container spawned by the inner Helix instance (the one the user can reach at `localhost:8080`). The user's own laptop/host runs an outer Helix; its sun/moon toggle has no path into inner sandboxes — that's by design.
+
 ## Discovery Notes (for future agents)
 
 - Ghostty config lives at `~/.config/ghostty/config` and uses a simple
