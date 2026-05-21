@@ -124,3 +124,50 @@ Toggle theme via the user menu (top-right after sign-in) or via
 Low. One file, mostly mechanical changes. The biggest risk is missing some
 colors and shipping a partially light-mode page; the final grep check catches
 that.
+
+## Implementation Notes
+
+Captured during implementation:
+
+- **Palette grew beyond the design plan.** The design listed ~10 new fields;
+  actually needed 14 (added `TEXT_MUTED` for `rgba(255,255,255,0.5)`,
+  `INPUT_BORDER` and `INPUT_BORDER_HOVER` for select fieldset borders, and a
+  ready-to-spread `selectSx` object). The "MENU_TEXT" pair was also necessary
+  because the menu popovers had `color: "#fff"` paired with the hardcoded
+  `#1a1a2e` background — both needed to flip together.
+
+- **Two `background: "#fff"` cases were left alone** (lines 1573 and 1659 in
+  the post-change file): they're inline `style={{ background: "#fff" }}` on
+  the `<img>` element wrapping provider logos. The logos are designed to sit
+  on white squares regardless of page theme, so this is decorative, not
+  theme-related.
+
+- **`btnSx` stayed module-scoped** — it uses `bgcolor: ACCENT` (green) +
+  `color: "#000"` (black) which is fine in both themes. The disabled state
+  uses `rgba(0,0,0,0.5)` over a faded green — also theme-neutral.
+
+- **The step-header text at line 2438 had a special hand-rolled ternary**
+  (`completed || active ? "#fff" : palette.TEXT_FADED`) with a comment
+  explaining the dark-cards assumption. After the change, both branches use
+  `palette.*` fields (`TEXT_PRIMARY` for in-card text, `TEXT_FADED` for the
+  un-carded inactive state) and the misleading comment is gone.
+
+- **`CARD_BORDER_ACTIVE` (green accent border) is still a module constant.**
+  It's never theme-dependent — it's the brand-green that highlights the
+  currently-active card in both themes.
+
+- **The radio-button `rgba(255,255,255,0.3)` collapsed to `palette.TEXT_DIM`
+  via the bulk replace.** Design called for `palette.RADIO_UNCHECKED` but the
+  two are functionally identical for this radio (0.35 vs 0.4 alpha in light
+  mode — both pass contrast for the unchecked control). Leaving as TEXT_DIM
+  keeps the substitution mechanical; can rename later if needed.
+
+- **Verification:** `npx tsc --noEmit` and `yarn build` both clean. No
+  runtime testing in the inner stack — postgres/API were still building
+  during this session. The fix is purely visual/CSS via `sx` props, no
+  behavior changed, so the build pass is high signal.
+
+- **Future contributors:** any new text/border/bg color in this file should
+  go through `getOnboardingPalette()`. The post-change `grep` for
+  `rgba(255,255,255|#fff|#1a1a2e` returns matches only inside the palette
+  ternaries — make that the standing rule.
