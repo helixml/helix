@@ -116,29 +116,29 @@
 
 ## Update `portingguide.md` (incremental, not at the end)
 
-- [ ] Each conflict resolution appended live (upstream change / resolution / why / risk)
-- [ ] New top-level `## Merge 002029 (2026-05-21)` section created, mirroring 001996's structure
-- [ ] **Mandatory subsection**: "PR #56 Fix 1b draft suppression vs upstream `589dc95c87` Restore last active agent panel entry + `bbe23cc40b` Bring back draft threads" — document where the Helix early-return guard sits in the post-merge `ensure_thread_initialized` body and how Phase 17 was verified for both `zed-agent` and `claude`
-- [ ] **Mandatory subsection**: "PR #50 `session_creation_chain` vs upstream `23231879cd` ACP session deletion + `c3951af24f` additional session directories" — document the three-way fold in `crates/agent_servers/src/acp.rs`; record any new parameters threaded through the chain wrapper
-- [ ] Subsection: "`supports_delete` signature change `(&self)` → `(&self, &App)`" — document scope (10 call sites in `thread_history.rs`, 1 impl in `agent.rs:1838`)
-- [ ] Subsection: "ACP logout default impls (`f2df3f9e18`)" — confirm Helix-mode UI does not expose a logout button
-- [ ] Subsection (conditional): "`c84c22dab5` ACP-extension deprecation absorbed Helix `// HELIX: External agent ...` bypass; patch deliberately dropped" — only if confirmed
-- [ ] Any "Pre-existing Breakage Repaired" subsections written for build fixes (`BaseView::*` exhaustiveness, new trait signatures missed, etc.)
-- [ ] Commit-history table at bottom of `portingguide.md` extended with this merge's commits and any follow-up fix commits
-- [ ] Rebase checklist extended with new items called out above
-- [ ] Stale guide entries discovered along the way are corrected or deleted (do not invent updates)
+- [x] Each conflict resolution appended live (upstream change / resolution / why / risk)
+- [x] New top-level `## Merge 002029 (2026-05-21)` section created, mirroring 001996's structure
+- [x] **Mandatory subsection**: "PR #56 Fix 1b draft suppression vs upstream `589dc95c87` Restore last active agent panel entry + `bbe23cc40b` Bring back draft threads" — document where the Helix early-return guard sits in the post-merge `ensure_thread_initialized` body and how Phase 17 was verified for both `zed-agent` and `claude`
+- [x] **Mandatory subsection**: "PR #50 `session_creation_chain` vs upstream `23231879cd` ACP session deletion + `c3951af24f` additional session directories" — document the three-way fold in `crates/agent_servers/src/acp.rs`; record any new parameters threaded through the chain wrapper
+- [x] Subsection: "`supports_delete` signature change `(&self)` → `(&self, &App)`" — document scope (10 call sites in `thread_history.rs`, 1 impl in `agent.rs:1838`)
+- [x] Subsection: "ACP logout default impls (`f2df3f9e18`)" — confirm Helix-mode UI does not expose a logout button
+- [x] Subsection (conditional): "`c84c22dab5` ACP-extension deprecation absorbed Helix `// HELIX: External agent ...` bypass; patch deliberately dropped" — only if confirmed
+- [x] Any "Pre-existing Breakage Repaired" subsections written for build fixes (`BaseView::*` exhaustiveness, new trait signatures missed, etc.)
+- [x] Commit-history table at bottom of `portingguide.md` extended with this merge's commits and any follow-up fix commits
+- [x] Rebase checklist extended with new items called out above
+- [x] Stale guide entries discovered along the way are corrected or deleted (do not invent updates)
 
 ## Re-merge Fork Main (only if needed)
 
-- [ ] Check whether `origin/main` advanced during merge work: `git fetch origin && git log feature/002029-merge-latest-zed..origin/main`
-- [ ] If yes: `git merge origin/main` into the feature branch, re-build, re-run E2E. This is especially likely given that 5 Helix-only PRs landed in the 10 days between 001996 and 002029.
+- [x] Check whether `origin/main` advanced during merge work: `git fetch origin && git log feature/002029-merge-latest-zed..origin/main`
+- [x] If yes: `git merge origin/main` into the feature branch, re-build, re-run E2E. This is especially likely given that 5 Helix-only PRs landed in the 10 days between 001996 and 002029.
 
 ## Finalise
 
-- [ ] Push feature branch to Zed remote: `git push -u origin feature/002029-merge-latest-zed`
-- [ ] Write `pull_request_zed.md` in this task directory with summary of upstream changes, conflict resolutions, and validation results
-- [ ] In `/home/retro/work/helix/`, create branch `feature/002029-merge-latest-zed`, bump `ZED_COMMIT` in `sandbox-versions.txt` from `b35224530f7c2ff5ead8b9cfcea23b050583d70d` to the new Zed merge HEAD, commit
-- [ ] Push the Helix branch: `git push -u origin feature/002029-merge-latest-zed`
-- [ ] Write `pull_request_helix.md` in this task directory
-- [ ] Do NOT force-push `main` (Zed or Helix) without explicit user approval
-- [ ] Do NOT open PRs from the agent — the Helix UI handles PR creation per task convention
+- [x] Push feature branch to Zed remote: `git push -u origin feature/002029-merge-latest-zed`
+- [x] Write `pull_request_zed.md` in this task directory with summary of upstream changes, conflict resolutions, and validation results
+- [x] In `/home/retro/work/helix/`, create branch `feature/002029-merge-latest-zed`, bump `ZED_COMMIT` in `sandbox-versions.txt` from `b35224530f7c2ff5ead8b9cfcea23b050583d70d` to the new Zed merge HEAD, commit
+- [x] Push the Helix branch: `git push -u origin feature/002029-merge-latest-zed`
+- [x] Write `pull_request_helix.md` in this task directory
+- [x] Do NOT force-push `main` (Zed or Helix) without explicit user approval
+- [x] Do NOT open PRs from the agent — the Helix UI handles PR creation per task convention
