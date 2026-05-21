@@ -92,7 +92,6 @@ if (isCopyKeystroke && sessionIdRef.current) {
     navigator.clipboard
       .write([new ClipboardItem({ "text/plain": textBlobPromise })])
       .then(() => {
-        // also update lastRemoteClipboardHash from the blob we just wrote
         showClipboardToast("Copied", "success");
       })
       .catch((err) => {
@@ -154,14 +153,46 @@ into the same ClipboardItem before knowing the type would force us to
 fetch the clipboard twice. Out of scope for this fix — we focus on
 text, which is the reported and dominant case.
 
-### 5. Auto-sync loop is unaffected
+### 5. Remove the 2.7-second auto-sync polling loop
 
-The 2-second poll at line ~2664 already uses `clipboardWriteText`
-inside an async function that did not originate from a user gesture.
-Safari blocks this *today* too (silently), so the auto-sync is
-de-facto a Chrome-only feature. We don't try to fix that here — Cmd+C
-is what users actually care about, and the new gesture-anchored write
-covers it.
+The `useEffect` near line 2664 polls
+`v1ExternalAgentsClipboardDetail` every 2.7 s and writes the result
+into the local clipboard via `clipboardWriteText`. The call originates
+from `setInterval`, not from any user gesture, so:
+
+- **Safari**: silently fails on every tick. Dead code.
+- **Chrome**: succeeds, and that's where the perceived feature comes
+  from — "I copied inside the remote desktop and it appeared in my
+  local clipboard without pressing Cmd+C."
+- **Both**: introduces a race with the explicit Cmd+C path on slow
+  networks. If a poll request issued before the user pressed Cmd+C
+  returns *after* the new gesture-anchored write completes, it will
+  overwrite the just-copied value with stale data. The
+  `lastRemoteClipboardHash` guard does not prevent this — the hash is
+  only read inside the poll callback to decide whether to *write*; it
+  cannot reason about ordering vs the explicit copy path.
+
+Remove the entire `useEffect`. Also remove the two refs that exist
+only because of it:
+
+- `lastRemoteClipboardHash` — only consumer was the poll callback
+  itself (line ~2692) plus a now-pointless write in the explicit copy
+  path (line ~4034).
+- `lastAutoSyncedText` — only consumer is the paste branch at
+  line ~4091 which short-circuits the upload-then-paste when "local
+  clipboard already matches what auto-sync last wrote." With the
+  auto-sync gone, this branch is unreachable and can be deleted too;
+  paste always uploads the current local clipboard then sends Ctrl+V.
+
+The accepted UX regression (user copying inside the remote via
+right-click instead of Cmd+C no longer auto-populates local clipboard)
+is documented in `requirements.md`.
+
+This is in scope for this fix, not a separate task: the auto-sync loop
+is one of the things that made the original Cmd+C bug confusing to
+diagnose (it sometimes papered over the gesture problem on Chrome by
+re-writing the right value 2.7 s later), and the simplification it
+buys makes the new code substantially easier to reason about.
 
 ## Risks and mitigations
 
@@ -170,7 +201,8 @@ covers it.
 | `ClipboardItem` constructor missing on very old browsers | Feature-detect and fall back to the existing `clipboardWriteText` path |
 | Promise rejects (API 404, network) → Safari pastes an empty string | Resolve the inner async with empty string on error, return empty Blob; toast shows error so user knows |
 | The 300 ms wait is too short for the remote desktop to actually update the X11 selection | Unchanged from today's behaviour; if it's a problem it's a separate bug |
-| Race with the 2-second auto-sync overwriting what we just wrote | Update `lastRemoteClipboardHash` / `lastAutoSyncedText` from the new path the same way the existing code does |
+| Race with the 2.7-second auto-sync overwriting what we just wrote | Removed entirely — see design decision 5 |
+| Removing auto-sync regresses users who copy on the remote via right-click (not Cmd+C) | Documented in `requirements.md` — user presses Cmd+C explicitly to recover; was a Chrome-only feature anyway |
 | Safari user has denied clipboard permission | Caught in `.catch`, toast tells them why; matches acceptance criterion 2 |
 
 ## Files to touch
@@ -179,6 +211,13 @@ covers it.
   - Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` (around lines
     3905–4049) to use the ClipboardItem-with-Promise pattern.
   - Update the toast logic so failed local writes don't claim success.
+  - Remove the `useEffect` that polls `v1ExternalAgentsClipboardDetail`
+    every 2.7 s (around lines 2664–2740).
+  - Remove the `lastRemoteClipboardHash` and `lastAutoSyncedText` refs
+    (lines 403–404) and all references to them.
+  - Remove the paste-flow short-circuit branch at ~line 4091 that
+    skips the upload when `text === lastAutoSyncedText.current` — with
+    auto-sync gone, the upload always happens.
 
 No backend or generated-API-client changes.
 
@@ -215,5 +254,8 @@ quirk):
 - Preserve all the existing `console.log("[Clipboard] ...")` /
   `[Paste DEBUG]` diagnostic logging — it's been useful for the
   WKWebView paste bugs and we'll want it again next time.
-- Update `lastRemoteClipboardHash.current` in the success path so the
-  2-second auto-sync poller doesn't immediately re-write the same value.
+- After removing the auto-sync `useEffect`, also delete the now-unused
+  refs (`lastRemoteClipboardHash`, `lastAutoSyncedText`) and the paste-
+  flow short-circuit at ~line 4091 (`text === lastAutoSyncedText.current`).
+  Don't leave the refs in place "just in case" — they exist only to
+  coordinate with the removed loop.

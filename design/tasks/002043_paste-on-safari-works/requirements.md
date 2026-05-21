@@ -58,10 +58,26 @@ failed`), so the user is told the copy succeeded when locally it did not.
    as it does today.
 5. No regression in the existing paste flows (Safari paste button, Chrome
    keyboard paste, native `paste` DOM event, iframe paste).
-6. The 2-second auto-sync loop (`v1ExternalAgentsClipboardDetail` polling)
-   that copies the remote clipboard back to local in the background is
-   not weakened — it must still update the local clipboard when the
-   browser permits.
+6. The 2.7-second background clipboard polling loop (`syncClipboard`
+   inside the `useEffect` near line 2664) is **removed** as part of this
+   change. Rationale: it cannot work on Safari at all (no user gesture
+   → silent fail), it races with explicit Cmd+C on slow networks (stale
+   poll response overwriting fresh user copy), and it adds a periodic
+   HTTP round-trip per active session for a Chrome-only convenience
+   feature. Removing it also lets us delete the `lastRemoteClipboardHash`
+   and `lastAutoSyncedText` refs and the related paste-flow branch that
+   exists only to compensate for the auto-sync side-effects. See the
+   design doc for the trade-off in full.
+
+## Accepted UX regression from removing auto-sync
+
+If a user copies text **inside** the remote desktop through a path that
+does not flow through our Cmd+C interceptor (e.g. right-click → Copy in
+the remote app, or the agent itself copying programmatically), local
+clipboard will no longer auto-populate. The user can recover by giving
+focus to the desktop stream and pressing Cmd+C explicitly, which routes
+through the new gesture-anchored copy path. This was a Chrome-only
+side-effect of the polling loop and never worked on Safari.
 
 ## Out of scope
 
@@ -73,3 +89,8 @@ failed`), so the user is told the copy succeeded when locally it did not.
 - Any backend / Go-side changes to the
   `v1ExternalAgentsClipboardDetail` endpoint. The bug is purely
   frontend.
+- Replacing the polling with a push-based remote-clipboard-changed
+  notification over the existing WebSocket. That would re-introduce the
+  same Safari-gesture problem and the same race; if we ever want
+  remote→local notification, it should be a deliberate separate piece
+  of work, not bundled with this fix.
