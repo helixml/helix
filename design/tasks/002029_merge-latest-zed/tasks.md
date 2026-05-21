@@ -104,15 +104,15 @@
 ## Build & Test (hard gate)
 
 - [x] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors
-- [ ] If any new `BaseView` variant or trait-signature change surfaces a build failure, fix it and append a "Pre-existing Breakage Repaired" subsection to `portingguide.md` §"Merge 002029"
-- [ ] Pre-flight: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server && go mod tidy`
-- [ ] Copy fresh binary into `e2e-test/zed-binary`: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
-- [ ] Run E2E `zed-agent`: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
-- [ ] All 17 phases pass for `zed-agent`, with **Phase 17 as the explicit gate that PR #56 Fix 1b draft suppression survived**
-- [ ] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` (one retry permitted for Claude Code npm-install bootstrap flake — see 001996 lesson)
-- [ ] All 17 phases pass for `claude` as well
-- [ ] **If Phase 17 fails**: stop, re-read `agent_panel.rs`, restore the cfg-gated early return at the correct entry point, rebuild, re-run E2E. Do not mark the task complete with Phase 17 failing.
-- [ ] If any other phase fails: diagnose root cause, fix, document in `portingguide.md`, re-run
+- [x] If any new `BaseView` variant or trait-signature change surfaces a build failure, fix it and append a "Pre-existing Breakage Repaired" subsection to `portingguide.md` §"Merge 002029"
+- [x] Pre-flight: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server && go mod tidy`
+- [x] Copy fresh binary into `e2e-test/zed-binary`: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
+- [x] Run E2E `zed-agent`: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
+- [x] All 17 phases pass for `zed-agent`, with **Phase 17 as the explicit gate that PR #56 Fix 1b draft suppression survived**
+- [x] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` (one retry permitted for Claude Code npm-install bootstrap flake — see 001996 lesson)
+- [x] All 17 phases pass for `claude` as well
+- [x] **If Phase 17 fails**: stop, re-read `agent_panel.rs`, restore the cfg-gated early return at the correct entry point, rebuild, re-run E2E. Do not mark the task complete with Phase 17 failing.
+- [x] If any other phase fails: diagnose root cause, fix, document in `portingguide.md`, re-run
 
 ## Update `portingguide.md` (incremental, not at the end)
 
