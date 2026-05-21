@@ -1264,6 +1264,80 @@ func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecT
 	return parsePullRequestMarkdown(string(output))
 }
 
+// pullRequestFileChangedForTask returns true if the given changed-file list
+// includes a pull_request*.md inside the task's design doc directory.
+// Used to decide whether a helix-specs push should trigger a PR description
+// re-sync for this task.
+func pullRequestFileChangedForTask(files []string, designDocPath string) bool {
+	if designDocPath == "" {
+		return false
+	}
+	prefix := "design/tasks/" + designDocPath + "/"
+	for _, f := range files {
+		if !strings.HasPrefix(f, prefix) {
+			continue
+		}
+		rest := f[len(prefix):]
+		if strings.Contains(rest, "/") {
+			// Only files directly in the task dir, not in subdirectories
+			// (e.g. screenshots/). pull_request_*.md always lives at the top.
+			continue
+		}
+		if strings.HasPrefix(rest, "pull_request") && strings.HasSuffix(rest, ".md") {
+			return true
+		}
+	}
+	return false
+}
+
+// syncOpenPRDescriptions re-reads pull_request_<repo-name>.md (or generic
+// pull_request.md) from this repo's helix-specs branch and PATCHes the GitHub
+// PR title/body for any currently-open PR belonging to this same repo.
+//
+// Only updates PRs that live in the repo that received the helix-specs push —
+// multi-repo projects need pushes to each repo's helix-specs to update PRs in
+// that repo (the agent normally keeps them in sync).
+func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.SpecTask, repo *types.GitRepository, repoPath string) {
+	if repo.ExternalURL == "" {
+		// Internal repos have no upstream PR to update.
+		return
+	}
+	pr := task.GetPRForRepo(repo.ID)
+	if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
+		return
+	}
+
+	title, description, found := s.getPullRequestContent(repoPath, task, repo.Name)
+	if !found {
+		// File missing or unparseable. Leave the PR alone rather than
+		// overwriting with the task-name fallback — the user may have
+		// authored the current body manually.
+		return
+	}
+
+	orgName := ""
+	if task.OrganizationID != "" {
+		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
+			orgName = org.Name
+		}
+	}
+	description = description + "\n\n" + buildPRFooter(repo, task, orgName, s.serverBaseURL)
+
+	if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
+		log.Error().Err(err).
+			Str("task_id", task.ID).
+			Str("repo_id", repo.ID).
+			Int("pr_number", pr.PRNumber).
+			Msg("Failed to update PR description from helix-specs")
+		return
+	}
+	log.Info().
+		Str("task_id", task.ID).
+		Str("repo_id", repo.ID).
+		Int("pr_number", pr.PRNumber).
+		Msg("Updated PR title/body from helix-specs pull_request_*.md")
+}
+
 // getSpecDocsBaseURL builds a URL to view spec docs in the external repo's web UI.
 // Returns empty string if URL cannot be constructed (unknown provider or internal repo).
 func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
@@ -1501,6 +1575,14 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 		return
 	}
 
+	// Fetch the commit's changed files once so we can decide per-task whether
+	// to re-sync the corresponding GitHub PR body from pull_request_*.md.
+	// Cheap (single git diff-tree); only used for the PR sync path below.
+	var changedFiles []string
+	if pushedBranch == SpecsBranchName {
+		changedFiles, _ = gitRepo.GetChangedFilesInCommit(commitHash)
+	}
+
 	// Look up tasks by DesignDocPath for new-format directories
 	for _, dirName := range dirNamesNeedingLookup {
 		tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
@@ -1581,6 +1663,19 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 			go func(t *types.SpecTask) {
 				defer s.wg.Done()
 				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
+			}(task)
+		}
+
+		// If this push was to helix-specs and touched the task's
+		// pull_request_*.md, re-sync the open GitHub PR's title and body so
+		// edits to the description after the PR was first opened propagate
+		// (previously the PR was templated once at creation time and never
+		// updated, so any pull_request_*.md added later was ignored).
+		if pushedBranch == SpecsBranchName && pullRequestFileChangedForTask(changedFiles, task.DesignDocPath) {
+			s.wg.Add(1)
+			go func(t *types.SpecTask) {
+				defer s.wg.Done()
+				s.syncOpenPRDescriptions(context.Background(), t, repo, repoPath)
 			}(task)
 		}
 
