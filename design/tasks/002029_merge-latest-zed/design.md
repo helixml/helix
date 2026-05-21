@@ -5,24 +5,24 @@
 - **Helix fork of Zed**: `/home/retro/work/zed/` — fork remote `origin`. There is no separate fork/origin distinction; the in-cluster gitea URL **is** the fork.
 - **Upstream**: `zed-industries/zed`. The `upstream` remote is **not** configured by default in fresh clones — add it: `git remote add upstream https://github.com/zed-industries/zed.git`. (Already added in the planning environment via `git fetch upstream` — implementation agent should re-verify in its own clone.)
 - **Porting guide** (canonical, living document): `/home/retro/work/zed/portingguide.md` — already exists, **762 lines** as of the start of this task. Do **not** create a separate file; update the in-repo one.
-- **Helix platform repo**: `/home/retro/work/helix/` — contains `sandbox-versions.txt` with `ZED_COMMIT=b35224530f7c2ff5ead8b9cfcea23b050583d70d` (matches the `^2` of current fork HEAD `b2f2ebefb6`).
+- **Helix platform repo**: `/home/retro/work/helix/` — contains `sandbox-versions.txt` with `ZED_COMMIT=b35224530f7c2ff5ead8b9cfcea23b050583d70d`. **Note**: this is 1 commit behind fork HEAD `fd26c1a113` (only the trivial Dockerfile.ci fix is missing); the `ZED_COMMIT` bump must move to the new 002029 merge HEAD.
 
-## Current State (as of 2026-05-18)
+## Current State (as of 2026-05-21)
 
 | | Commit | Date |
 |---|---|---|
-| Fork HEAD | `b2f2ebefb6` (PR #57 — Phase 16 counter fix) | 2026-05-14 |
+| Fork HEAD | `fd26c1a113` ("fix: pull helix-org into ci container") | 2026-05-21 |
 | Last upstream merge | `8841edb2b1` (task 001996, integrated upstream `8bdd78e023`) | 2026-05-11 |
-| Upstream HEAD | `f2df3f9e18` ("acp: Add logout support for ACP agents (#56959)") | 2026-05-17 |
-| Helix-only commits since 001996 | **14** (PRs #50, #55, #56, #57) | 7 days |
-| Upstream commits to merge | **158** | 7 days |
+| Upstream HEAD | `1399540715` ("settings_ui: Display scope in the breadcrumb (#57437)") | 2026-05-21 |
+| Helix-only commits since 001996 | **15** (PRs #50, #55, #56, #57 + 1 direct CI fix `fd26c1a113`) | 10 days |
+| Upstream commits to merge | **261** | 10 days |
 
 Recent merge precedent (size → conflict count):
 - 001909: 86 commits, 3 days, **1** conflict, 3 carry-over fix commits
 - 001980: 172 commits, 10 days, **4** conflicts, 2 follow-up fix commits
 - 001996: 127 commits, 3 days, **1** conflict (acp_thread), **2** post-merge build-fix commits (BaseView::Terminal exhaustive match, Phase 13 race fix)
 
-This merge is **larger by commit count and by per-file diff than 001996** despite a similar time window. Conflict count is hard to predict (could be 2–8), but the structural risk from `bbe23cc40b` "Bring back draft threads" against Helix PR #56's draft-suppression is the dominant variable.
+This merge is **the largest by commit count of any recent merge (261 commits / 10 days, 12 501-line agent_panel.rs diff)**. Conflict count is hard to predict (likely 4–10), but the structural risk from `589dc95c87` "Restore last active agent panel entry" + `bbe23cc40b` "Bring back draft threads" against Helix PR #56's draft-suppression is the dominant variable. Both upstream PRs rewrite the exact `ensure_thread_initialized` function containing Helix Fix 1b.
 
 ## Merge Strategy
 
@@ -54,29 +54,41 @@ git push -u origin feature/002029-merge-latest-zed
 
 ## Likely Conflict Hot-spots
 
-For this merge, the upstream diff sizes against Helix-touched files are known up-front. Inspect each even if `git merge` reports "auto-merged":
+Upstream diff sizes against Helix-touched files (refreshed 2026-05-21 — `agent_panel.rs` has quadrupled since the 2026-05-18 snapshot; `agent_servers/src/acp.rs` has nearly tripled). Inspect each even if `git merge` reports "auto-merged":
 
 | File | Upstream diff | Risk | Helix concern |
 |------|---------------|------|---------------|
-| `crates/agent_ui/src/agent_panel.rs` | **3156** | **VERY HIGH** | "Bring back draft threads" (`bbe23cc40b`, 1256 lines on its own) + 9 other upstream PRs. **Helix PR #56 Fix 1b's `#[cfg(feature = "external_websocket_sync")] { return; }` block inside `ensure_thread_initialized()` is the single most fragile carry-over.** Also: thread display callback, UI state query, onboarding bypass, `acp_history_store()`, ACP auto-approve, Critical Fix #11. The `BaseView::Terminal` arm added by 001996 may need siblings if upstream added more variants. |
-| `crates/agent/src/agent.rs` | 1897 | **HIGH** | Critical Fix #1 (entity-lifetime in `load_session`), `wait_for_tools_ready` (must use `cx.background_executor().timer()`, not `smol::Timer`), `supports_delete` impl needs new `&App` parameter. |
-| `crates/agent_ui/src/conversation_view.rs` | 720 | **HIGH** | `from_existing_thread()`, `THREAD_REGISTRY`, `is_resume`, history refresh, unregister-on-reset. Upstream `f2df3f9e18` (ACP logout) adds 90 lines here; `bbe23cc40b` adds 49; `bf423dfc45` (ACP rename), `2301e61d2a` (mermaid), `4074eabb3d` (images), `1c884d13d3` (terminal notifications) all touch it. |
-| `crates/acp_thread/src/acp_thread.rs` | 313 | MEDIUM | Critical Fixes #6/#8/#9, `content_only()`. **PR #55 just added 12 lines for streaming-reveal drain** — overlaps `2301e61d2a` (mermaid) and `495f8ba717` (checkpoint emit on edit). |
-| `crates/agent_servers/src/acp.rs` | (large) | **MEDIUM-HIGH** | **PR #50 added `session_creation_chain` field + chain logic on `AcpConnection`. Upstream `23231879cd` adds 161 lines of ACP session-deletion to the same file.** Likely real conflict. |
-| `crates/acp_thread/src/connection.rs` | small | MEDIUM | **Trait signature change**: `AgentSessionList::supports_delete(&self)` → `supports_delete(&self, &App)`. Plus new `supports_logout`/`logout` default impls on `AgentConnection`. |
-| `crates/agent_ui/src/acp/thread_history.rs` | TBD | MEDIUM | Multiple `supports_delete()` call sites; compile-driven fix expected. |
+| `crates/agent_ui/src/agent_panel.rs` | **12 501** (was 3 156) | **VERY HIGH** | Four overlapping upstream PRs in the entry-point area: (1) `bbe23cc40b` "Bring back draft threads" (1 256 lines), (2) `589dc95c87` "Restore last active agent panel entry" (684 lines, **rewrites `ensure_thread_initialized` itself** — adds `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / ACP-restoration branches before the `BaseView::Uninitialized` body), (3) `c84c22dab5` "Deprecate ACP extensions" (55 lines), (4) `e2c38b5358` "Replace Rules UI with Skills creation UI". **Helix PR #56 Fix 1b's `#[cfg(feature = "external_websocket_sync")] { return; }` guard must move to the very top of the new `ensure_thread_initialized` body**, before all the new branches. Also: thread display callback, UI state query, onboarding bypass, `acp_history_store()`, ACP auto-approve, Critical Fix #11. The `BaseView::Terminal` arm added by 001996 may need siblings if upstream added more variants. |
+| `crates/agent_servers/src/acp.rs` | **1 086** (was ~400) | **HIGH** | Three concurrent upstream PRs plus Helix PR #50: (1) `23231879cd` "ACP session deletion" (+161 lines), (2) `f2df3f9e18` "ACP logout" (+108), (3) `c3951af24f` "Support additional session directories" (+489, **expanding `new_session`/`load_session`/`open_or_create_session` — exactly the methods PR #50's `session_creation_chain` wraps**). Three-way fold required. |
+| `crates/agent/src/agent.rs` | **2 339** (was 1 897) | **HIGH** | Critical Fix #1 (entity-lifetime in `load_session`), `wait_for_tools_ready` (must use `cx.background_executor().timer()`, not `smol::Timer`), `supports_delete` impl on line 1838 needs new `&App` parameter. `2e70059cd9` Skills feature-flag removal drops 63 lines here. |
+| `crates/agent_ui/src/conversation_view.rs` | **893** (was 720) | **HIGH** | `from_existing_thread()`, `THREAD_REGISTRY`, `is_resume`, history refresh, unregister-on-reset. Upstream `f2df3f9e18` (ACP logout) adds 90 lines here; `bbe23cc40b` adds 49; `bf423dfc45` (ACP rename), `2301e61d2a` (mermaid), `4074eabb3d` (images), `1c884d13d3` (terminal notifications) all touch it. |
+| `crates/acp_thread/src/acp_thread.rs` | **404** (was 313) | MEDIUM | Critical Fixes #6/#8/#9, `content_only()`. **PR #55's 12-line streaming-reveal `EntryUpdated` emit** overlaps `2301e61d2a` (mermaid) and `495f8ba717` (checkpoint emit on edit). |
+| `crates/acp_thread/src/connection.rs` | **82** | MEDIUM | **Confirmed at runtime**: upstream HEAD has `supports_delete(&self, &App)` plus new `supports_logout(&self, &App) -> bool` and `logout(&self, &mut App) -> Task<Result<()>>` default impls on `AgentConnection`. Compile-driven migration. |
+| `crates/agent_ui/src/acp/thread_history.rs` | TBD | MEDIUM | 10 `supports_delete` references at runtime (impl line 362; call sites 365, 563, 574, 700, 797; builder/field 868, 879, 884–885). Each call site needs `cx` threaded after upstream's signature change. |
+| `crates/extensions_ui/src/extensions_ui.rs` | **82** (almost all DELETIONS) | MEDIUM | `c84c22dab5` deletes 80 lines around the Helix `// HELIX: External agent keywords removed` (line 245) and `// HELIX: External agent upsells removed` (line 1586) bypass comments. The Helix patch may now be redundant. |
+| `crates/agent_servers/src/custom.rs` | heavy cull | LOW-MED | `c84c22dab5` guts the file (116 → ~40 lines). Helix `ExternalAgent::server()` uses `CustomAgentServer::new(AgentId(...))` — confirm still compiles. |
+| `crates/feature_flags/src/flags.rs` | small | LOW | `AcpBetaFeatureFlag` confirmed still present upstream (line 22). `2e70059cd9` removes `SkillsFeatureFlag`; `a7f037d94b` removes `AgentPanelTerminalFeatureFlag` + `ExperimentalSystemPromptFeatureFlag`; `800706d7a8` adds `UpdateTitleToolFeatureFlag`. Helix's `enabled_for_all()` override on `AcpBetaFeatureFlag` is unaffected. |
 | `crates/external_websocket_sync/src/thread_service.rs` | (Helix-only) | LOW | Should not conflict; verify PR #56's Fix 1a `defer_user_created_thread_until_first_user_message` plumbing intact. |
 | `crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go` | (Helix-only) | LOW | PR #57 Phase 16 counter fix already in fork; verify present. |
+| `crates/external_websocket_sync/e2e-test/Dockerfile.ci` | (Helix-only) | LOW | `fd26c1a113` `helix-org` pull already in fork; verify present. |
 | `crates/agent_settings/src/agent_settings.rs` | 0 | LOW | No upstream change in this window; Helix fields safe. |
-| `crates/workspace/src/workspace.rs` | 31 | LOW | Agent follow focus guard. |
-| `crates/zed/src/main.rs` | 67 | LOW | `--allow-multiple-instances`, `--headless` flags. |
-| `crates/title_bar/` | TBD | LOW | Helix connection status indicator + optional `external_websocket_sync` dep. |
-| `Cargo.toml` (workspace root) | 101 | LOW | `rust-embed` `debug-embed` feature. |
+| `crates/workspace/src/workspace.rs` | **128** (was 31) | LOW | Agent follow focus guard. |
+| `crates/zed/src/main.rs` | **196** (was 67) | LOW | `--allow-multiple-instances`, `--headless` flags (all 3 `--headless` call sites). |
+| `crates/title_bar/` | small | LOW | Helix connection status indicator + `optional = true` `external_websocket_sync` dep must survive (6 upstream PRs touch this crate). |
+| `Cargo.toml` (workspace root) | **135** (was 101) | LOW | `rust-embed` `debug-embed` feature. |
 | `Cargo.lock` | always | TRIVIAL | `--theirs`. |
 
-### Highest-risk single change: upstream `bbe23cc40b` (#54292) "Bring back draft threads"
+### Highest-risk single change: upstream `589dc95c87` (#57150) "Restore last active agent panel entry" — NEW since 2026-05-18
 
-This is the dominant risk of this merge. Upstream is restructuring `agent_panel.rs` around a fundamentally different draft-thread lifecycle (`draft_prompt_store.rs`, retained drafts with parking, multi-draft sidebar). **Helix PR #56 just deliberately disabled the draft-spawn path under `external_websocket_sync` to fix a duplicate-Claude bug.** The patch is:
+Confirmed at runtime: this PR adds 684 lines to `agent_panel.rs` and **rewrites `ensure_thread_initialized` itself**. The pre-PR upstream body was a single-line dispatch to `activate_draft`; post-PR the body grows several branches (`pending_terminal_spawn`, `should_create_terminal_for_new_entry`, ACP-thread restoration) any of which can spawn agent processes before falling through to `activate_draft`.
+
+**The Helix Fix 1b `#[cfg(feature = "external_websocket_sync")] { return; }` guard must land at the very TOP of the new function body — before all the new branches — not inside the old `if matches!(BaseView::Uninitialized)` block.** Otherwise the new terminal-spawn and ACP-restoration paths will fire in Helix mode and Phase 17 will fail.
+
+Validation after merge: read the full `ensure_thread_initialized` body and confirm the cfg-gated `return;` is the first statement. Then run E2E and confirm Phase 17 passes for both `zed-agent` and `claude`.
+
+### Second-highest-risk single change: upstream `bbe23cc40b` (#54292) "Bring back draft threads"
+
+Restructures `agent_panel.rs` around a fundamentally different draft-thread lifecycle (`draft_prompt_store.rs`, retained drafts with parking, multi-draft sidebar). **Helix PR #56 just deliberately disabled the draft-spawn path under `external_websocket_sync` to fix a duplicate-Claude bug.** The patch is:
 
 ```rust
 // in fn ensure_thread_initialized(...)
@@ -98,22 +110,30 @@ After the merge:
 2. **Functional check**: open the Helix-mode agent panel via the E2E flow and confirm no `claude` child is spawned **until** the user (or `chat_message` WS event) actually creates a thread. **Phase 17 of the E2E is the explicit hard gate** for this; if Phase 17 fails, draft suppression has been lost.
 3. **Document**: write a dedicated subsection in `portingguide.md`'s new `## Merge 002029` heading explaining the upstream/Helix interaction and the exact resolution.
 
+### High-risk single change: upstream `c3951af24f` (#57051) "Support additional session directories" — NEW since 2026-05-18
+
+Adds **489 lines** to `crates/agent_servers/src/acp.rs`, expanding `new_session`, `load_session`, and `open_or_create_session` — the exact methods PR #50's `session_creation_chain` wraps. Three-way fold required: keep PR #50's chain field + drop-guard, but pass through any new arguments (e.g. additional path lists) upstream now expects. After resolution, `test_concurrent_session_creation_is_serialized` should remain a hard local check.
+
 ### Medium-risk single change: upstream `23231879cd` (#57004) "ACP session deletion"
 
-Adds `connection.delete_session(...)` plumbing, including in `crates/agent_servers/src/acp.rs` where Helix PR #50 just added `session_creation_chain`. Resolution principle: fold both. Upstream's deletion plumbing is independent of the creation-chain field, so a clean side-by-side merge is expected, but the patch is large enough to warrant a careful three-way pick.
-
-Also touches `crates/acp_thread/src/connection.rs` with the `supports_delete(&self, &App)` signature change. **Every existing Helix impl of `supports_delete` must be updated** (currently `crates/agent/src/agent.rs:1838` and one or two `acp/thread_history.rs` call sites). Compile-driven.
+Adds `connection.delete_session(...)` plumbing, in `crates/agent_servers/src/acp.rs` where Helix PR #50 just added `session_creation_chain` AND where `c3951af24f` above also expands. A three-way fold across the file is needed. Cascades the `supports_delete(&self)` → `supports_delete(&self, &App)` signature change through `crates/agent_ui/src/acp/thread_history.rs` (10 references) and `crates/agent/src/agent.rs:1838`.
 
 ### Medium-risk single change: upstream `f2df3f9e18` (#56959) "ACP logout"
 
-Last commit in the merge window (2026-05-17). Adds:
-- 8 lines to `AgentConnection` trait (default `supports_logout` / `logout` impls) — no Helix override needed.
-- 108 lines to `crates/agent_servers/src/acp.rs` — coexists with PR #50; another file to three-way pick.
-- 19 lines to `crates/agent_ui/src/agent_panel.rs` and 90 lines to `crates/agent_ui/src/conversation_view.rs` — UI surface; mostly cfg-free, but the agent panel's added 19 lines may sit near Helix-modified regions.
+Adds:
+- 8 lines to `AgentConnection` trait (default `supports_logout` / `logout` impls) — no Helix override needed; defaults return `false` / `Err("Logout is not supported")`.
+- 108 lines to `crates/agent_servers/src/acp.rs` — coexists with PR #50 and `c3951af24f`.
+- 19 lines to `crates/agent_ui/src/agent_panel.rs` and 90 lines to `crates/agent_ui/src/conversation_view.rs` — UI surface; visually verify no logout button surfaces in Helix-mode builds.
+
+### Medium-risk single change: upstream `c84c22dab5` (#57133) "Deprecate ACP extensions" — NEW since 2026-05-18
+
+Removes **1 459 lines** across the agent-server extension surface (`crates/agent_servers/src/custom.rs`, `crates/project/src/agent_server_store.rs`, `crates/extensions_ui/src/extensions_ui.rs`, `crates/extension_host/`). Two Helix-relevant impacts:
+1. `extensions_ui.rs` loses 80 lines — exactly the region around Helix's `// HELIX: External agent ...` bypass markers (lines 245, 1586). If upstream's deletion already removes the extension surface those markers were bypassing, the Helix patch becomes redundant. Document and drop rather than re-apply.
+2. `crates/agent_servers/src/custom.rs` is gutted (116 → ~40 lines). Helix `ExternalAgent::server()` uses `CustomAgentServer::new(AgentId(...))` (porting-guide checklist 14) — confirm it still compiles.
 
 ### New upstream crates (no merge risk)
 
-- `crates/agent_skills/` (1762 lines) — entirely new, no conflict. Helix doesn't use Skills today; leave the crate as-is. Out-of-scope to wire into Helix.
+- `crates/agent_skills/` (~2 000 lines) and `crates/skill_creator/` (1 073 lines) — new upstream crates. Out-of-scope to wire into Helix; leave as-is.
 
 ## Resolution Patterns Worth Re-stating
 
@@ -151,17 +171,23 @@ grep -n "stopped_emitted_for_task"   crates/acp_thread/src/acp_thread.rs
 grep -rn "unregister_thread"         crates/agent_ui/src/conversation_view.rs
 grep -n "external_websocket_sync::get_thread" crates/agent_ui/src/agent_panel.rs   # Critical Fix #11
 
-# PR #50 (serialize ACP session creation)
+# PR #50 (serialize ACP session creation) — must coexist with upstream c3951af24f and 23231879cd
 grep -n "session_creation_chain"     crates/agent_servers/src/acp.rs
 grep -n "test_concurrent_session_creation_is_serialized" crates/agent_servers/src/acp.rs
+grep -n "fn delete_session\|fn logout"   crates/agent_servers/src/acp.rs   # confirm upstream additions present too
 
 # PR #55 (streaming-reveal EntryUpdated emit)
 grep -n "EntryUpdated"               crates/acp_thread/src/acp_thread.rs   # the new emit site
 
 # PR #56 (Fix 1a deferred UserCreatedThread + Fix 1b draft suppression)
 grep -n "ensure_thread_initialized"  crates/agent_ui/src/agent_panel.rs
-# Inside that fn there must be a cfg-gated early return; if upstream renamed the fn, find the new caller of activate_draft and re-apply.
+# Read the FULL function body — upstream 589dc95c87 adds multiple branches (pending_terminal_spawn,
+# should_create_terminal_for_new_entry, ACP restoration). The Helix cfg-gated `return;` must be
+# the VERY FIRST statement of the function body, before any of those branches.
 grep -rn "defer.*UserCreatedThread\|first_user_message"  crates/external_websocket_sync/
+
+# fd26c1a113 (direct Dockerfile.ci fix)
+grep -n "helix-org"                   crates/external_websocket_sync/e2e-test/Dockerfile.ci
 
 # PR #57 (Go test-server Phase 16 counter fix)
 grep -n "phase10\|Phase 10's own"    crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go
@@ -175,9 +201,18 @@ grep -rn "set_active_view"           crates/agent_ui/src/   # should be 0
 grep -rn "draft_threads\|background_threads" crates/agent_ui/src/   # should be 0 (now retained_threads + new draft_prompt_store)
 grep -rn "selected_agent_type"       crates/agent_ui/src/   # should be 0 (now selected_agent)
 
-# Trait signature migration
+# Trait signature migration (forced by upstream 23231879cd)
 grep -rn "fn supports_delete"        crates/   # every impl must take (&self, &App) after merge
 grep -rn "\.supports_delete()"       crates/   # every call site must pass cx
+# Helix-specific sites to update: crates/agent_ui/src/acp/thread_history.rs (10 references),
+# crates/agent/src/agent.rs:1838
+
+# Confirm AcpBetaFeatureFlag still in place; upstream 2e70059cd9 removed SkillsFeatureFlag,
+# a7f037d94b removed AgentPanelTerminalFeatureFlag + ExperimentalSystemPromptFeatureFlag
+grep -n "AcpBetaFeatureFlag\|enabled_for_all"  crates/feature_flags/src/flags.rs
+
+# Helix's HELIX: bypass markers in extensions_ui — upstream c84c22dab5 may have made them redundant
+grep -n "HELIX: External agent"      crates/extensions_ui/src/extensions_ui.rs   # if gone, document the deliberate drop
 
 # Carry-over fixes
 grep -n "allow_multiple_instances"   crates/zed/src/main.rs
@@ -200,7 +235,7 @@ Step through every numbered item in `portingguide.md` §"Rebase Checklist" (curr
 ```bash
 cargo test -p external_websocket_sync          # full pass, ≤2 ignored
 cargo test -p acp_thread test_second_send      # Stopped invariant (Critical Fix #6)
-cargo test -p agent_servers test_concurrent_session_creation_is_serialized   # PR #50
+cargo test -p agent_servers test_concurrent_session_creation_is_serialized   # PR #50 + survival vs c3951af24f
 ```
 
 ### 5. E2E test (the canonical regression check — **hard gate**)
@@ -232,13 +267,14 @@ After **each** non-trivial conflict resolution, append to `/home/retro/work/zed/
 3. **Resolution**: what was kept from each side and why
 4. **Risk**: any follow-up regression risk
 
-Always extend the commit-history table at the bottom with this merge's commits and any follow-up fix commits. Add a new top-level section `## Merge 002029 (2026-05-18)` mirroring the structure of `## Merge 001996`.
+Always extend the commit-history table at the bottom with this merge's commits and any follow-up fix commits. Add a new top-level section `## Merge 002029 (2026-05-21)` mirroring the structure of `## Merge 001996`.
 
 **Mandatory new subsection (regardless of how the merge auto-resolves)**: a dedicated entry under `## Merge 002029` documenting how the Helix PR #56 Fix 1b draft suppression survived against upstream `bbe23cc40b`. This is the highest-impact carry-over decision and the most likely source of subtle regression in the next merge. Future merge engineers must be able to find this without re-deriving it.
 
 **Likely new rebase-checklist additions**:
-- New item: "Check `agent_panel.rs::ensure_thread_initialized` (or its post-upstream equivalent) for the `#[cfg(feature = "external_websocket_sync")] { return; }` early-return guard. Phase 17 of the E2E is the only end-to-end check that this is preserved."
-- New item (if `supports_delete` signature change applies broadly): "All `AgentSessionList::supports_delete` impls take `(&self, &App)`; all call sites pass `cx`."
+- New item: "Check `agent_panel.rs::ensure_thread_initialized` for the `#[cfg(feature = "external_websocket_sync")] { return; }` early-return guard. After upstream `589dc95c87` 'Restore last active agent panel entry', the function body has multiple branches before `activate_draft` — the Helix guard must be the FIRST statement of the body. Phase 17 of the E2E is the only end-to-end check that this is preserved."
+- New item: "All `AgentSessionList::supports_delete` impls take `(&self, &App)`; all call sites pass `cx`."
+- New item (if confirmed): "Upstream `c84c22dab5` has absorbed the surface Helix `// HELIX: External agent ...` bypass markers in `extensions_ui.rs` targeted; Helix patch is now obsolete and was deliberately dropped in 002029."
 
 ## Helix Repo Bump
 
@@ -251,10 +287,12 @@ After the Zed branch is pushed:
 
 ## Open Questions (for the implementation agent to answer at runtime)
 
-- Does upstream `bbe23cc40b` "Bring back draft threads" rename or restructure `ensure_thread_initialized` such that Helix's Fix 1b guard needs re-placement? **This is the single most likely source of regression in this merge.** If yes, document the new location in `portingguide.md`.
-- Has upstream's `23231879cd` "ACP session deletion" introduced any code path that bypasses Helix PR #50's `session_creation_chain` (e.g. a new `delete_session` path that races with `new_session`)? Walk it.
-- Does upstream `f2df3f9e18` "ACP logout" introduce any Helix-mode UI element (logout button) that would surprise a Helix user? Default impl returns "Logout is not supported" — confirm the UI hides the option when `supports_logout()` returns false.
-- Are any silent-drift identifiers (`ActiveView`, `selected_agent_type`, `draft_threads`/`background_threads`, `Stopped` unit-pattern) re-appearing in the 3156-line `agent_panel.rs` diff? Re-grep after merge.
+- **Confirmed at planning time** that upstream `589dc95c87` rewrites `ensure_thread_initialized` with new branches; the Helix Fix 1b early-return must be the FIRST statement of the post-merge body. Re-confirm at merge time and document the exact post-merge location in `portingguide.md`.
+- Has upstream `c3951af24f` "Support additional session directories" changed the signatures of `new_session`/`load_session`/`open_or_create_session` such that PR #50's `session_creation_chain` wrapper needs new parameters? Walk and document.
+- Has upstream `23231879cd` "ACP session deletion" introduced any code path that bypasses Helix PR #50's `session_creation_chain` (e.g. a new `delete_session` path that races with `new_session`)? Walk it.
+- Does upstream `f2df3f9e18` "ACP logout" introduce any Helix-mode UI element (logout button) that would surprise a Helix user? Default impl returns "Logout is not supported" — confirm the UI hides the option.
+- Does upstream `c84c22dab5` "Deprecate ACP extensions" make the Helix `// HELIX: External agent ...` bypass markers in `extensions_ui.rs` redundant? If so, drop them deliberately and document.
+- Are any silent-drift identifiers (`ActiveView`, `selected_agent_type`, `draft_threads`/`background_threads`, `Stopped` unit-pattern) re-appearing in the 12 501-line `agent_panel.rs` diff? Re-grep after merge.
 - Did upstream grow `ConnectedServerState` past its 6 fields since 001996? Walk `from_existing_thread()` against the live struct.
 - Did upstream add new `BaseView` variants beyond `AgentThread`, `Uninitialized`, `Terminal`? If yes, add arms to the Helix UI state query in `agent_panel.rs::new()` (Pre-existing-Breakage lesson from 001996).
 - Has the `agent-client-protocol` schema crate added new builder patterns or `#[non_exhaustive]` markers requiring migration?
