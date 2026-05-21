@@ -519,3 +519,19 @@ the baked content to the daemon. The daemon stays repo-agnostic.
   error.
 - **Frontend type churn.** Multiple files hard-code the runtime union
   as a string literal — implementer must grep for all of them.
+
+## Implementation Notes (Phase 1)
+
+### Goose CLI build
+
+- Pinned `GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82` (current `main` HEAD as of 2026-05-21). Verified the SHA contains PR #8925 by grepping `crates/goose/src/acp/server.rs` — 11 matches for `AvailableCommand|available_commands_update|Running recipe`.
+- Goose's `rust-toolchain.toml` pins to **Rust 1.92**. Helix's existing `rust-build-env` stage uses 1.87, so the goose build needs its own stage. Bumping `rust-build-env` to 1.92 risks breaking the GStreamer plugin builds — not worth the blast radius.
+- Build deps from upstream's CI (`.github/workflows/build-cli.yml`, standard variant): `build-essential pkg-config libssl-dev libdbus-1-dev libxcb1-dev`. No vulkan/musl-specific deps needed.
+- Default features (`code-mode local-inference aws-providers telemetry otel rustls-tls system-keyring`) are kept — matches what users get from the upstream stable release. Telemetry is disabled at runtime, not via feature flag.
+- `cargo build` uses BuildKit cache mounts (`/root/.cargo/registry`, `/root/.cargo/git`, `/build/target`) so re-builds at the same commit are seconds, and cache survives across commit bumps.
+
+### Telemetry / auto-update
+
+- Goose has **no `GOOSE_TELEMETRY_ENABLED` env var** (verified by searching the env-vars docs page). The `telemetry`/`otel` cargo features wire up OpenTelemetry exporters at compile time. The standard kill switch is the OTel SDK env var `OTEL_SDK_DISABLED=true`, added to the global `ENV` block alongside the existing telemetry kill switches.
+- Goose has no auto-updater. `goose update` is a user-invoked command; the binary is pinned in the image, so even a user-triggered update would be overwritten on the next image build.
+- Did NOT write a `~/.config/goose/profiles.yaml` or similar — the global config file is `~/.config/goose/config.yaml`, and Phase 2 will write per-session content there. Adding a baked-in stub now would just get overwritten by the settings-sync-daemon at session start.
