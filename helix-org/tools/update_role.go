@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // UpdateRole rewrites the canonical content of a Role. It is a single

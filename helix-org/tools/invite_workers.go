@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // InviteWorkers subscribes one or more other Workers to a Stream. The

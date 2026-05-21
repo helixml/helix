@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 // TestPublishRejectsGitHubStream: publishing to a github transport

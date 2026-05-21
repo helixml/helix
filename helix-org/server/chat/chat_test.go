@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/prompts"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/prompts"
 )
 
 // stubPrompt is a single-arg prompt used to exercise the bridge's

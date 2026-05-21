@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/agent"
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 // readFile reads a single file inside dir. Tests use t.TempDir() so

@@ -36,12 +36,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/store/sqlite"
-	githubtransport "github.com/helixml/helix-org/transports/github"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/store/sqlite"
+	githubtransport "github.com/helixml/helix/helix-org/transports/github"
 )
 
 const testWebhookSecret = "abc123" // shared secret used in HMAC computations

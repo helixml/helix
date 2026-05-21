@@ -13,8 +13,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // Backend is the label used in WorkerRuntimeState to namespace this

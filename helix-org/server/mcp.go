@@ -8,9 +8,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/helix/helixclient"
-	"github.com/helixml/helix-org/prompts"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/prompts"
 )
 
 // mcpHandler returns an http.Handler that speaks MCP over the Streamable

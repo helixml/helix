@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // Subscribe adds a Subscription between the caller and the given

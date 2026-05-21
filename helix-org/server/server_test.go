@@ -10,11 +10,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/prompts"
-	"github.com/helixml/helix-org/server"
-	"github.com/helixml/helix-org/store/sqlite"
-	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/prompts"
+	"github.com/helixml/helix/helix-org/server"
+	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/tools"
 )
 
 // newTestServer seeds a CEO Worker with a ping grant and a hire_worker

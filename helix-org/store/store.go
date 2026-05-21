@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // ErrNotFound signals that the requested record does not exist.

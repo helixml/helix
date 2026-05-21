@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // BuildPrompt assembles the per-activation prompt: identity hint +

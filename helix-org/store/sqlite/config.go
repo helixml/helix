@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 type configRow struct {

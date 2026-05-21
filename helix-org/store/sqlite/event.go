@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 type eventRow struct {

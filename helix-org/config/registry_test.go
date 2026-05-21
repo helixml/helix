@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 func newRegistry(t *testing.T) *config.Registry {

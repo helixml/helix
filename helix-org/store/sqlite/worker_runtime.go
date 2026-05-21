@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // workerRuntimeStateRow stores one (workerID, backend, key) → value

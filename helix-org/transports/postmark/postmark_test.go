@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/store/sqlite"
-	"github.com/helixml/helix-org/transports/postmark"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/transports/postmark"
 )
 
 // recordingDispatcher captures Dispatch calls for assertion.

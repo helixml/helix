@@ -34,10 +34,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/helixml/helix-org/broadcast"
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix/helix-org/broadcast"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
 )
 
 // Config is the parsed shape of the operational-config row

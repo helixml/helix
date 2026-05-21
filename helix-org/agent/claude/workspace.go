@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/helixml/helix-org/agent"
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // Workspace is the agent.WorkspaceSync implementation for the local

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // TestHireWorkerSchemaSurfacesKindEnum pins the contract that the

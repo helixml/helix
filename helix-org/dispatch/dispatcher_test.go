@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/agent"
-	"github.com/helixml/helix-org/dispatch"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/helix-org/dispatch"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 // caught is one POST observed by the test catcher.

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
 // runBootstrap dispatches `helix-org bootstrap <target>`.

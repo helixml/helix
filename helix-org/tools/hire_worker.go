@@ -9,10 +9,10 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix-org/agent"
-	agenthelix "github.com/helixml/helix-org/agent/helix"
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/agent"
+	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
 // HireWorker brings a Worker into existence: a Worker row carrying the

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/helix/helixclient"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 type fakeClient struct {

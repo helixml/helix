@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/helix/helixclient"
+	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
 // fakeEnsurer is a fixed ProjectEnsurer that returns canned IDs so

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
 // TriggerKind discriminates why a Spawner is being invoked.

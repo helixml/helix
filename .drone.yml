@@ -1558,6 +1558,7 @@ steps:
         docker run --rm -v "/var/cache/drone/sandbox-build/zed-source:/zed-source" alpine \
           rm -rf \
             "/zed-source/crates/external_websocket_sync/e2e-test/helix-api" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-org" \
             "/zed-source/crates/external_websocket_sync/e2e-test/helix-go.mod" \
             "/zed-source/crates/external_websocket_sync/e2e-test/helix-go.sum" \
             "/zed-source/crates/external_websocket_sync/e2e-test/zed-binary"
@@ -1566,6 +1567,7 @@ steps:
         cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
         cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
         cp -r /drone/src/api "$${E2E_DIR}/helix-api"
+        cp -r /drone/src/helix-org "$${E2E_DIR}/helix-org"
 
         # Sync kodit version from helix into the E2E test server's go.mod.
         # The E2E test server has its own go.mod that may pin an older kodit;
@@ -1594,7 +1596,7 @@ steps:
         # Use || true because stale files from previous builds on the shared
         # Docker volume cache may fail to remove (root-owned from docker build)
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
-        rm -rf "$${E2E_DIR}/helix-api" || true
+        rm -rf "$${E2E_DIR}/helix-api" "$${E2E_DIR}/helix-org" || true
 
         # Run both agents in a single invocation (all 10 phases each).
         # Both zed-agent and claude rounds must pass to gate the build.

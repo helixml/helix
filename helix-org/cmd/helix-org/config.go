@@ -10,9 +10,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/store"
-	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 // runConfig dispatches `helix-org config <set|get|list|delete>`. The
