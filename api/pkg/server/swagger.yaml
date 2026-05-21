@@ -5582,6 +5582,10 @@ definitions:
         type: string
       action_option_create:
         type: string
+      helix_task_url_column:
+        description: optional URL column; Helix writes the spectask URL here on create
+          so the row links straight to the live task
+        type: string
       prompt_column:
         description: optional rich-text column; empty = use page body
         type: string
@@ -5607,6 +5611,13 @@ definitions:
         type: string
       enabled:
         type: boolean
+      integration_token:
+        description: |-
+          IntegrationToken is a direct Notion internal-integration token
+          (`ntn_…`). Used in place of OAuthConnectionID when the customer prefers
+          the simpler internal-integration setup path. If both are set, the
+          integration token wins.
+        type: string
       notion_database_id:
         description: |-
           NotionDatabaseID is the database this trigger is bound to. Informational
@@ -5616,7 +5627,16 @@ definitions:
       oauth_connection_id:
         description: |-
           OAuthConnectionID is the OAuthConnection used for write-back PATCHes
-          and embed-block insert/delete.
+          and embed-block insert/delete. Set this when the user went through the
+          OAuth flow.
+        type: string
+      public_url:
+        description: |-
+          PublicURL, if set, overrides the server's default `WebServer.URL` when
+          generating embed URLs and task-page links for THIS trigger. Required
+          when the deployment's default URL is unreachable from Notion's iframe
+          senders (e.g. localhost in dev, or an internal-only deployment) — set
+          it to a public ngrok / cloudflared tunnel or production host.
         type: string
       shared_secret:
         description: |-

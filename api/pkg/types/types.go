@@ -1725,8 +1725,15 @@ type NotionTrigger struct {
 	VerificationToken string `json:"verification_token,omitempty" yaml:"verification_token,omitempty"`
 
 	// OAuthConnectionID is the OAuthConnection used for write-back PATCHes
-	// and embed-block insert/delete.
+	// and embed-block insert/delete. Set this when the user went through the
+	// OAuth flow.
 	OAuthConnectionID string `json:"oauth_connection_id,omitempty" yaml:"oauth_connection_id,omitempty"`
+
+	// IntegrationToken is a direct Notion internal-integration token
+	// (`ntn_…`). Used in place of OAuthConnectionID when the customer prefers
+	// the simpler internal-integration setup path. If both are set, the
+	// integration token wins.
+	IntegrationToken string `json:"integration_token,omitempty" yaml:"integration_token,omitempty"`
 
 	// NotionDatabaseID is the database this trigger is bound to. Informational
 	// (the wizard uses it to validate the schema); dispatch keys off the page
@@ -1742,6 +1749,13 @@ type NotionTrigger struct {
 	// see Helix as the trigger creator.
 	EmbedAccessToken string `json:"embed_access_token,omitempty" yaml:"embed_access_token,omitempty"`
 
+	// PublicURL, if set, overrides the server's default `WebServer.URL` when
+	// generating embed URLs and task-page links for THIS trigger. Required
+	// when the deployment's default URL is unreachable from Notion's iframe
+	// senders (e.g. localhost in dev, or an internal-only deployment) — set
+	// it to a public ngrok / cloudflared tunnel or production host.
+	PublicURL string `json:"public_url,omitempty" yaml:"public_url,omitempty"`
+
 	// ColumnMapping is informational metadata for the wizard's setup
 	// instructions. Dispatch keys off the X-Helix-Action header, not the
 	// column values, so this is not consulted at runtime.
@@ -1755,8 +1769,9 @@ type NotionColumnMap struct {
 	ActionColumnType   string `json:"action_column_type,omitempty" yaml:"action_column_type,omitempty"` // "select" or "status"
 	ActionOptionCreate string `json:"action_option_create,omitempty" yaml:"action_option_create,omitempty"`
 	ActionOptionCancel string `json:"action_option_cancel,omitempty" yaml:"action_option_cancel,omitempty"`
-	PromptColumn       string `json:"prompt_column,omitempty" yaml:"prompt_column,omitempty"` // optional rich-text column; empty = use page body
-	ResultColumn       string `json:"result_column,omitempty" yaml:"result_column,omitempty"` // optional rich-text column; empty = no writeback
+	PromptColumn       string `json:"prompt_column,omitempty" yaml:"prompt_column,omitempty"`         // optional rich-text column; empty = use page body
+	ResultColumn       string `json:"result_column,omitempty" yaml:"result_column,omitempty"`         // optional rich-text column; empty = no writeback
+	HelixTaskURLColumn string `json:"helix_task_url_column,omitempty" yaml:"helix_task_url_column,omitempty"` // optional URL column; Helix writes the spectask URL here on create so the row links straight to the live task
 }
 
 // AgentWorkQueueTrigger represents a trigger for agent work queue items

@@ -22,6 +22,7 @@ type fakeNotionAPI struct {
 	appendedPageIDs   []string
 	deletedBlocks     []string
 	patchedProps      []patchCall
+	patchedURLs       []patchCall
 	appendBlockID     string
 	appendErr         error
 	deleteErr         error
@@ -37,6 +38,12 @@ func (f *fakeNotionAPI) PatchRichTextProperty(_ context.Context, pageID, name, t
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.patchedProps = append(f.patchedProps, patchCall{pageID, name, text})
+	return f.patchErr
+}
+func (f *fakeNotionAPI) PatchURLProperty(_ context.Context, pageID, name, url string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patchedURLs = append(f.patchedURLs, patchCall{pageID, name, url})
 	return f.patchErr
 }
 func (f *fakeNotionAPI) AppendEmbedBlock(_ context.Context, pageID, embedURL string) (string, error) {
@@ -228,7 +235,11 @@ func TestOnExternalCreate_CreatesSpecTaskAndAppendsEmbed(t *testing.T) {
 	// We expect two UpdateSpecTask calls: one to persist the ref, one to
 	// persist the embed block id after appending.
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).Times(2).Return(nil)
-	mockStore.EXPECT().GetOAuthConnection(gomock.Any(), "oauth-conn-1").Return(&types.OAuthConnection{AccessToken: "tok-xyz"}, nil)
+	// GetOAuthConnection now called from three write paths: URL writeback,
+	// initial Result PATCH, embed-block append.
+	// GetOAuthConnection now called from two write paths: initial Result PATCH + embed-block append.
+	// (URL writeback is a no-op because HelixTaskURLColumn isn't set in this test's config.)
+	mockStore.EXPECT().GetOAuthConnection(gomock.Any(), "oauth-conn-1").Return(&types.OAuthConnection{AccessToken: "tok-xyz"}, nil).Times(2)
 
 	headers := http.Header{}
 	headers.Set(HeaderSharedSecret, "secret")
@@ -409,6 +420,57 @@ func TestOnSpecTaskCompleted_NoOpWhenNoResultColumn(t *testing.T) {
 	}
 }
 
+// TestOnExternalCreate_WritesURLColumn_WithIntegrationToken exercises the
+// integration-token auth path (no OAuthConnection lookup) AND the URL-column
+// writeback that puts a clickable link to the spec task into the user's row.
+// Regression cover for the "Notion side shows nothing happened" complaint
+// that triggered the fix.
+func TestOnExternalCreate_WritesURLColumn_WithIntegrationToken(t *testing.T) {
+	creator := &fakeCreator{returned: &types.SpecTask{ID: "spt-XYZ", ProjectID: "prj-1"}}
+	lookup := &fakeLookup{task: nil}
+	n, api, mockStore, done := newTestNotion(t, func(n *Notion) {
+		n.specTaskCreator = creator
+		n.lookup = lookup
+	})
+	defer done()
+
+	cfg := makeTriggerConfig("secret")
+	cfg.Trigger.Notion.OAuthConnectionID = "" // use integration token instead
+	cfg.Trigger.Notion.IntegrationToken = "ntn_test_integration_token"
+	cfg.Trigger.Notion.ColumnMapping.HelixTaskURLColumn = "Helix Task"
+
+	// No GetOAuthConnection expectations — integration token short-circuits.
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).Times(2).Return(nil)
+
+	headers := http.Header{}
+	headers.Set(HeaderSharedSecret, "secret")
+	headers.Set(HeaderSource, SourceAutomation)
+	headers.Set(HeaderAction, ActionCreate)
+
+	body := makeAutomationBody(t, "page-XYZ", "do the thing", "db-1")
+	if err := n.ProcessWebhook(context.Background(), cfg, headers, body); err != nil {
+		t.Fatalf("ProcessWebhook: %v", err)
+	}
+
+	// URL writeback should have fired.
+	if len(api.patchedURLs) != 1 {
+		t.Fatalf("expected 1 PatchURLProperty call, got %d", len(api.patchedURLs))
+	}
+	got := api.patchedURLs[0]
+	wantURL := "https://test.helix.example/task/spt-XYZ"
+	if got.pageID != "page-XYZ" || got.name != "Helix Task" || got.text != wantURL {
+		t.Errorf("URL patch = %+v, want pageID=page-XYZ name='Helix Task' text=%q", got, wantURL)
+	}
+	// Initial Result writeback should have fired.
+	if len(api.patchedProps) != 1 {
+		t.Errorf("expected 1 PatchRichTextProperty (initial Result) call, got %d", len(api.patchedProps))
+	}
+	// Embed block should have been appended.
+	if len(api.appendedURLs) != 1 {
+		t.Errorf("expected 1 AppendEmbedBlock call, got %d", len(api.appendedURLs))
+	}
+}
+
 func TestOnExternalCreate_AppendEmbedFailureDoesNotBlockSpecTask(t *testing.T) {
 	creator := &fakeCreator{returned: &types.SpecTask{ID: "spt-200", ProjectID: "prj-1"}}
 	lookup := &fakeLookup{task: nil}
@@ -422,7 +484,7 @@ func TestOnExternalCreate_AppendEmbedFailureDoesNotBlockSpecTask(t *testing.T) {
 	// First UpdateSpecTask (persist ref) succeeds; the second-phase update
 	// for the embed-block id never happens because append failed.
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).Return(nil)
-	mockStore.EXPECT().GetOAuthConnection(gomock.Any(), "oauth-conn-1").Return(&types.OAuthConnection{AccessToken: "tok"}, nil)
+	mockStore.EXPECT().GetOAuthConnection(gomock.Any(), "oauth-conn-1").Return(&types.OAuthConnection{AccessToken: "tok"}, nil).Times(2)
 
 	headers := http.Header{}
 	headers.Set(HeaderSharedSecret, "secret")

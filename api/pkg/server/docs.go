@@ -26046,6 +26046,10 @@ const docTemplate = `{
                 "action_option_create": {
                     "type": "string"
                 },
+                "helix_task_url_column": {
+                    "description": "optional URL column; Helix writes the spectask URL here on create so the row links straight to the live task",
+                    "type": "string"
+                },
                 "prompt_column": {
                     "description": "optional rich-text column; empty = use page body",
                     "type": "string"
@@ -26074,12 +26078,20 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean"
                 },
+                "integration_token": {
+                    "description": "IntegrationToken is a direct Notion internal-integration token\n(` + "`" + `ntn_…` + "`" + `). Used in place of OAuthConnectionID when the customer prefers\nthe simpler internal-integration setup path. If both are set, the\nintegration token wins.",
+                    "type": "string"
+                },
                 "notion_database_id": {
                     "description": "NotionDatabaseID is the database this trigger is bound to. Informational\n(the wizard uses it to validate the schema); dispatch keys off the page\nID in the webhook payload, not this field.",
                     "type": "string"
                 },
                 "oauth_connection_id": {
-                    "description": "OAuthConnectionID is the OAuthConnection used for write-back PATCHes\nand embed-block insert/delete.",
+                    "description": "OAuthConnectionID is the OAuthConnection used for write-back PATCHes\nand embed-block insert/delete. Set this when the user went through the\nOAuth flow.",
+                    "type": "string"
+                },
+                "public_url": {
+                    "description": "PublicURL, if set, overrides the server's default ` + "`" + `WebServer.URL` + "`" + ` when\ngenerating embed URLs and task-page links for THIS trigger. Required\nwhen the deployment's default URL is unreachable from Notion's iframe\nsenders (e.g. localhost in dev, or an internal-only deployment) — set\nit to a public ngrok / cloudflared tunnel or production host.",
                     "type": "string"
                 },
                 "shared_secret": {

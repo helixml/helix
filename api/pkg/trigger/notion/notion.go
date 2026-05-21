@@ -65,6 +65,7 @@ type Notion struct {
 type NotionAPI interface {
 	GetPage(ctx context.Context, pageID string) (*Page, error)
 	PatchRichTextProperty(ctx context.Context, pageID, propertyName, text string) error
+	PatchURLProperty(ctx context.Context, pageID, propertyName, url string) error
 	AppendEmbedBlock(ctx context.Context, pageID, embedURL string) (string, error)
 	DeleteBlock(ctx context.Context, blockID string) error
 }
@@ -213,6 +214,27 @@ func (n *Notion) OnExternalCreate(ctx context.Context, triggerConfig *types.Trig
 		log.Warn().Err(err).Str("spec_task_id", spectask.ID).Msg("notion: persist external trigger ref")
 	}
 
+	// Best-effort: write the spec-task URL into the row's URL column so the
+	// table immediately shows a clickable link to the live Helix task.
+	if err := n.writeHelixTaskURL(ctx, triggerConfig, spectask, pageID); err != nil {
+		log.Warn().Err(err).
+			Str("spec_task_id", spectask.ID).
+			Str("page_id", pageID).
+			Msg("notion: write helix task URL column failed (spectask still created)")
+	}
+
+	// Best-effort: write an initial status into the Result column so the user
+	// sees Helix has acknowledged the row even before the agent finishes.
+	if cfg.ColumnMapping.ResultColumn != "" {
+		initial := "🟡 Helix picked this up — see the task page or the embed below."
+		token, terr := n.resolveAccessToken(ctx, cfg)
+		if terr == nil {
+			if err := n.newClient(token).PatchRichTextProperty(ctx, pageID, cfg.ColumnMapping.ResultColumn, initial); err != nil {
+				log.Warn().Err(err).Str("page_id", pageID).Msg("notion: write initial Result failed")
+			}
+		}
+	}
+
 	// Best-effort: append an embed block to the row's page body so the user
 	// sees the live Helix UI inline. Failure here doesn't block the spectask.
 	if err := n.appendEmbedBlock(ctx, triggerConfig, spectask, pageID); err != nil {
@@ -265,12 +287,11 @@ func (n *Notion) OnSpecTaskCompleted(ctx context.Context, triggerConfig *types.T
 		return errors.New("notion: spectask has no notion page id in external_trigger_ref")
 	}
 
-	connection, err := n.store.GetOAuthConnection(ctx, cfg.OAuthConnectionID)
+	token, err := n.resolveAccessToken(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("notion: get oauth connection: %w", err)
+		return fmt.Errorf("notion: %w", err)
 	}
-	client := n.newClient(connection.AccessToken)
-	if err := client.PatchRichTextProperty(ctx, pageID, cfg.ColumnMapping.ResultColumn, summary); err != nil {
+	if err := n.newClient(token).PatchRichTextProperty(ctx, pageID, cfg.ColumnMapping.ResultColumn, summary); err != nil {
 		return fmt.Errorf("notion: write result column: %w", err)
 	}
 	return nil
@@ -287,26 +308,101 @@ func (n *Notion) OnSpecTaskCancelled(ctx context.Context, triggerConfig *types.T
 
 // --- helpers ---
 
-func (n *Notion) appendEmbedBlock(ctx context.Context, triggerConfig *types.TriggerConfiguration, spectask *types.SpecTask, pageID string) error {
-	cfg := triggerConfig.Trigger.Notion
+// resolveAccessToken returns the bearer token to use for Notion API calls.
+// Prefers a direct integration token (the simpler internal-integration
+// setup); falls back to looking up an OAuthConnection by ID. Returns a clear
+// error if neither is configured.
+func (n *Notion) resolveAccessToken(ctx context.Context, cfg *types.NotionTrigger) (string, error) {
+	if cfg.IntegrationToken != "" {
+		return cfg.IntegrationToken, nil
+	}
 	if cfg.OAuthConnectionID == "" {
-		return errors.New("notion: oauth connection id missing — embed block not inserted")
+		return "", errors.New("notion: trigger config has neither integration_token nor oauth_connection_id")
 	}
 	connection, err := n.store.GetOAuthConnection(ctx, cfg.OAuthConnectionID)
 	if err != nil {
-		return fmt.Errorf("get oauth connection: %w", err)
+		return "", fmt.Errorf("get oauth connection %s: %w", cfg.OAuthConnectionID, err)
+	}
+	return connection.AccessToken, nil
+}
+
+// publicBaseURL returns the URL to use as the host part of any link Helix
+// writes back into Notion. Prefers the trigger's PublicURL (set when the
+// deployment URL isn't reachable from Notion — e.g. localhost in dev), falls
+// back to the server's default WebServer.URL via the embed builder.
+func (n *Notion) publicBaseURL(cfg *types.NotionTrigger, spectask *types.SpecTask) string {
+	if cfg.PublicURL != "" {
+		return strings.TrimRight(cfg.PublicURL, "/")
+	}
+	if n.embedURLs == nil {
+		return ""
+	}
+	// Defer to the embed URL builder and strip back to the base.
+	probe := n.embedURLs.BuildEmbedURL(spectask, "")
+	probe = strings.TrimSuffix(probe, "?access_token=")
+	if idx := strings.Index(probe, "/embed/task/"); idx > 0 {
+		return probe[:idx]
+	}
+	return ""
+}
+
+// embedURL constructs the URL we want Notion to render inside the inline
+// embed block (the live Helix task page).
+func (n *Notion) embedURL(cfg *types.NotionTrigger, spectask *types.SpecTask) string {
+	base := n.publicBaseURL(cfg, spectask)
+	if base == "" {
+		return ""
+	}
+	url := fmt.Sprintf("%s/embed/task/%s", base, spectask.ID)
+	if cfg.EmbedAccessToken != "" {
+		url += "?access_token=" + cfg.EmbedAccessToken
+	}
+	return url
+}
+
+// taskPageURL constructs the URL that opens the Helix task in a new browser
+// tab (the row's clickable "Helix Task" link, not embedded).
+func (n *Notion) taskPageURL(cfg *types.NotionTrigger, spectask *types.SpecTask) string {
+	base := n.publicBaseURL(cfg, spectask)
+	if base == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/task/%s", base, spectask.ID)
+}
+
+// writeHelixTaskURL writes the spec-task URL into the configured URL column
+// on the source Notion row so users can click straight from their table to
+// the live Helix task. No-op if no column is configured.
+func (n *Notion) writeHelixTaskURL(ctx context.Context, triggerConfig *types.TriggerConfiguration, spectask *types.SpecTask, pageID string) error {
+	cfg := triggerConfig.Trigger.Notion
+	if cfg.ColumnMapping.HelixTaskURLColumn == "" {
+		return nil
+	}
+	taskURL := n.taskPageURL(cfg, spectask)
+	if taskURL == "" {
+		return errors.New("notion: cannot construct helix task URL (no PublicURL or WebServer.URL set)")
+	}
+	token, err := n.resolveAccessToken(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	return n.newClient(token).PatchURLProperty(ctx, pageID, cfg.ColumnMapping.HelixTaskURLColumn, taskURL)
+}
+
+func (n *Notion) appendEmbedBlock(ctx context.Context, triggerConfig *types.TriggerConfiguration, spectask *types.SpecTask, pageID string) error {
+	cfg := triggerConfig.Trigger.Notion
+	token, err := n.resolveAccessToken(ctx, cfg)
+	if err != nil {
+		return err
 	}
 
-	embedURL := ""
-	if n.embedURLs != nil {
-		embedURL = n.embedURLs.BuildEmbedURL(spectask, cfg.EmbedAccessToken)
-	}
-	if embedURL == "" {
-		return errors.New("embed url builder returned empty URL")
+	url := n.embedURL(cfg, spectask)
+	if url == "" {
+		return errors.New("notion: cannot construct embed URL (no PublicURL or WebServer.URL set)")
 	}
 
-	client := n.newClient(connection.AccessToken)
-	blockID, err := client.AppendEmbedBlock(ctx, pageID, embedURL)
+	client := n.newClient(token)
+	blockID, err := client.AppendEmbedBlock(ctx, pageID, url)
 	if err != nil {
 		return err
 	}
@@ -333,16 +429,15 @@ func (n *Notion) deleteEmbedBlock(ctx context.Context, triggerConfig *types.Trig
 		return
 	}
 	cfg := triggerConfig.Trigger.Notion
-	if cfg == nil || cfg.OAuthConnectionID == "" {
+	if cfg == nil {
 		return
 	}
-	connection, err := n.store.GetOAuthConnection(ctx, cfg.OAuthConnectionID)
+	token, err := n.resolveAccessToken(ctx, cfg)
 	if err != nil {
-		log.Warn().Err(err).Msg("notion: get oauth connection for embed cleanup")
+		log.Warn().Err(err).Msg("notion: resolve access token for embed cleanup")
 		return
 	}
-	client := n.newClient(connection.AccessToken)
-	if err := client.DeleteBlock(ctx, p.EmbedBlockID); err != nil {
+	if err := n.newClient(token).DeleteBlock(ctx, p.EmbedBlockID); err != nil {
 		log.Warn().Err(err).
 			Str("block_id", p.EmbedBlockID).
 			Str("spec_task_id", spectask.ID).

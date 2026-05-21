@@ -3436,6 +3436,8 @@ export interface TypesNotionColumnMap {
   action_column_type?: string;
   action_option_cancel?: string;
   action_option_create?: string;
+  /** optional URL column; Helix writes the spectask URL here on create so the row links straight to the live task */
+  helix_task_url_column?: string;
   /** optional rich-text column; empty = use page body */
   prompt_column?: string;
   /** optional rich-text column; empty = no writeback */
@@ -3458,6 +3460,13 @@ export interface TypesNotionTrigger {
   embed_access_token?: string;
   enabled?: boolean;
   /**
+   * IntegrationToken is a direct Notion internal-integration token
+   * (`ntn_…`). Used in place of OAuthConnectionID when the customer prefers
+   * the simpler internal-integration setup path. If both are set, the
+   * integration token wins.
+   */
+  integration_token?: string;
+  /**
    * NotionDatabaseID is the database this trigger is bound to. Informational
    * (the wizard uses it to validate the schema); dispatch keys off the page
    * ID in the webhook payload, not this field.
@@ -3465,9 +3474,18 @@ export interface TypesNotionTrigger {
   notion_database_id?: string;
   /**
    * OAuthConnectionID is the OAuthConnection used for write-back PATCHes
-   * and embed-block insert/delete.
+   * and embed-block insert/delete. Set this when the user went through the
+   * OAuth flow.
    */
   oauth_connection_id?: string;
+  /**
+   * PublicURL, if set, overrides the server's default `WebServer.URL` when
+   * generating embed URLs and task-page links for THIS trigger. Required
+   * when the deployment's default URL is unreachable from Notion's iframe
+   * senders (e.g. localhost in dev, or an internal-only deployment) — set
+   * it to a public ngrok / cloudflared tunnel or production host.
+   */
+  public_url?: string;
   /**
    * SharedSecret authenticates inbound webhooks from Notion Database
    * Automations / Button properties. Constant-time-compared against the

@@ -110,6 +110,21 @@ func (c *Client) PatchRichTextProperty(ctx context.Context, pageID, propertyName
 	return c.do(ctx, http.MethodPatch, "/v1/pages/"+pageID, body, nil)
 }
 
+// PatchURLProperty sets a URL-typed property on a page. Used to write the
+// spec-task URL into the user's "Helix Task" column so their row gains a
+// clickable link the moment the agent picks it up.
+func (c *Client) PatchURLProperty(ctx context.Context, pageID, propertyName, url string) error {
+	if propertyName == "" {
+		return nil
+	}
+	body := map[string]any{
+		"properties": map[string]any{
+			propertyName: map[string]any{"url": url},
+		},
+	}
+	return c.do(ctx, http.MethodPatch, "/v1/pages/"+pageID, body, nil)
+}
+
 // AppendEmbedBlock appends an embed block (pointing at the supplied URL) to
 // the children of a page (i.e. the page body). Returns the created block's ID
 // so the caller can record it for later removal.
