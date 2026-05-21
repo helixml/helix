@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useCallback, useRef, useEffect } from "react";
 import { Paper, Box, TextField, Button, Typography, CircularProgress } from "@mui/material";
 
 interface InlineCommentFormProps {
@@ -30,10 +30,20 @@ export default function InlineCommentForm({
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
 
-  const setRefs = (el: HTMLDivElement | null) => {
+  // Stash the latest outerRef in a ref so setRefs can stay identity-stable
+  // ([] deps) regardless of how the parent declares its callback. If setRefs
+  // gets a new identity on every render, React invokes it with (null) then
+  // (node) each time; combined with outerRef bumping parent state (e.g. a
+  // measure tick), that produces an infinite update loop.
+  const outerRefRef = useRef(outerRef);
+  useEffect(() => {
+    outerRefRef.current = outerRef;
+  }, [outerRef]);
+
+  const setRefs = useCallback((el: HTMLDivElement | null) => {
     (paperRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-    if (outerRef) outerRef(el);
-  };
+    outerRefRef.current?.(el);
+  }, []);
 
   // Auto-scroll to ensure the comment form is visible after it appears
   useEffect(() => {
