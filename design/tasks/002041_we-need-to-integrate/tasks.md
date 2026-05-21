@@ -5,7 +5,7 @@
 - [x] Add `GOOSE_COMMIT=<sha>` to `sandbox-versions.txt` (pin to a `main` SHA that includes PR #8925 — verify with `grep AvailableCommand crates/goose/src/acp/server.rs` at that SHA)
 - [x] Add a goose build stage to `Dockerfile.ubuntu-helix`: clone goose at `$GOOSE_COMMIT`, `cargo build --release -p goose-cli`, copy the binary into the runtime image's `/usr/local/bin/goose`. Mirror the existing Zed build-stage pattern in the same Dockerfile
 - [x] Disable Goose telemetry/auto-update in the image (mirror the `~/.qwen/settings.json` and `~/.gemini/settings.json` pattern)
-- [~] Verify `goose --version` and `goose acp` start cleanly in a freshly built `helix-ubuntu` container *(batched with task 9 — one image build)*
+- [x] Verify `goose --version` and `goose acp` start cleanly in a freshly built `helix-ubuntu` container *(goose v1.35.0; `goose acp --help` prints expected usage; `goose acp` blocks on stdio as expected)*
 - [x] Add `CodeAgentRuntimeGooseCode CodeAgentRuntime = "goose_code"` to `api/pkg/types/task_management.go`
 - [x] Add a `case "goose_code":` branch in `generateAgentServerConfig` in `api/cmd/settings-sync-daemon/main.go` that emits the plain `agent_servers.goose` entry with `command: "goose"`, `args: ["acp"]`, and the right env vars (`GOOSE_PROVIDER`, `GOOSE_MODEL`, provider-specific `*_API_KEY`, `*_BASE_URL` with `rewriteLocalhostURL` applied)
 - [x] Extend the frontend runtime union (`frontend/src/types.ts`, `frontend/src/contexts/apps.tsx`, `AppSettings.tsx`, `CodingAgentForm.tsx`) to include `'goose_code'` with display name "Goose" *(api.ts regen reverted due to unrelated McpTool drift — see design.md)*
