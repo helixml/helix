@@ -52,8 +52,15 @@ So that I don't have to configure Goose separately.
 - `GOOSE_PROVIDER` and `GOOSE_MODEL` are derived from `CodeAgentConfig`
   and written into Zed `agent_servers.goose.env` by settings-sync-daemon.
 - Helix-proxy API key + base URL forwarded via the provider's expected
-  env vars (`OPENAI_API_KEY` + `OPENAI_BASE_URL`, etc.), with
-  `rewriteLocalhostURL` applied.
+  env vars, picked based on `CodeAgentConfig.APIType`:
+  - `openai` → `OPENAI_API_KEY` + `OPENAI_BASE_URL`
+  - `anthropic` → `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL`
+  - `google` → `GOOGLE_API_KEY` (base URL is provider-managed)
+- `rewriteLocalhostURL` applied to any base URL so the daemon can
+  reach the Helix API proxy from inside the container (same handling
+  Qwen and Claude Code already get).
+- See the per-provider table in `design.md` (D4) for the authoritative
+  mapping; this list must stay in sync with it.
 
 ### US-4: As an advanced user, I want to bring my own custom Goose agents
 So that my team's recipes (prompts, MCPs, model settings) appear as
