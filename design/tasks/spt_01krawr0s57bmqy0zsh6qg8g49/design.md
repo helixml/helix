@@ -164,15 +164,13 @@ to:
 sx={{
   display: { xs: "flex", md: "none" },
   flexShrink: 0,
-  pt: 2,
-  px: 2,
-  pb: 1,
+  p: 1,
   gap: 1,
   alignItems: "center",
 }}
 ```
 
-`pt: 2` (16px) gives breathing room from the top edge. `px: 2` (16px) matches typical mobile content padding and prevents the input from feeling cropped against the screen edges.
+Uniform `p: 1` (8px) on all four sides matches the existing bottom padding. The original bug was the missing top padding combined with `px: 1` looking cramped only because there was no `pt` — once a `pt` is added at the same 8px level, the same 8px sides read as deliberate. Initial revision tried `pt: 2, px: 2` (16px), but on visual inspection the resulting bar had noticeably more space on top/sides than the bottom and felt heavy; switched to uniform 8px to match the bottom.
 
 ## Alternatives considered
 
