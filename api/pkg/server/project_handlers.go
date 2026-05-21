@@ -2774,6 +2774,22 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			CodeAgentRuntime:        codeRuntime,
 			CodeAgentCredentialType: credType,
 		}
+		// zed_external runs as an agent (IsAgentMode), and the Apps UI
+		// renders the model picker against generation_model / _provider —
+		// not the top-level model / provider. Without mirroring the apply
+		// spec into these fields too, the UI either shows blank or
+		// whatever stale value was left behind by a previous app config.
+		// Worse, the in-sandbox Zed config (GenerateZedMCPConfig) reads
+		// generation_model when the runtime is api_key, so leaving it
+		// empty means the agent boots with no model selected. Mirror the
+		// spec's Provider/Model into the generation_model_* fields when
+		// running zed_external; the smaller/reasoning slots stay empty
+		// (helix-org doesn't expose them — operators can set them in the
+		// Apps UI directly if they need a different split-brain model).
+		if agentType == types.AgentTypeZedExternal {
+			assistant.GenerationModel = agentSpec.Model
+			assistant.GenerationModelProvider = agentSpec.Provider
+		}
 		if agentSpec.Tools != nil {
 			assistant.WebSearch = types.AssistantWebSearch{Enabled: agentSpec.Tools.WebSearch}
 			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
