@@ -155,7 +155,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err != nil {
 		return nil, err
 	}
-	if len(fresh) > 0 || wait == 0 || t.deps.Broadcaster == nil {
+	if len(fresh) > 0 || wait == 0 || t.deps.Hub == nil {
 		return marshalEvents(fresh), nil
 	}
 
@@ -167,8 +167,8 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	for _, sub := range subs {
 		streamIDs = append(streamIDs, sub.StreamID)
 	}
-	wake := t.deps.Broadcaster.Subscribe(streamIDs)
-	defer t.deps.Broadcaster.Unsubscribe(streamIDs, wake)
+	wake := t.deps.Hub.Subscribe(streamIDs)
+	defer t.deps.Hub.Unsubscribe(streamIDs, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()

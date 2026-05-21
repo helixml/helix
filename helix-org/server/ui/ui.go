@@ -40,7 +40,7 @@ type Deps struct {
 	Bridge      chat.Backend
 	ChatCWD     string
 	Settings    SettingsView
-	Broadcaster *broadcast.Broadcaster
+	Hub *broadcast.Hub
 	Dispatcher  *dispatch.Dispatcher
 	NewID       func() string
 	Now         func() time.Time
@@ -430,7 +430,7 @@ func (u *uiHandler) handleStreams(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleStreamsEventsSSE pushes the events-list fragment to the
-// browser on every Broadcaster.Notify, replacing the polling
+// browser on every Hub.Notify, replacing the polling
 // triggers that previously caused the 20s freeze on /ui/streams
 // (htmx 2's timer cleanup is racy on outerHTML swap; SSE has one
 // persistent connection and no timer to leak). ?id= selects a
@@ -441,7 +441,7 @@ func (u *uiHandler) handleStreamsEventsSSE(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	if u.deps.Broadcaster == nil {
+	if u.deps.Hub == nil {
 		http.Error(w, "broadcaster not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -449,11 +449,11 @@ func (u *uiHandler) handleStreamsEventsSSE(w http.ResponseWriter, r *http.Reques
 	selectedID := strings.TrimSpace(r.URL.Query().Get("id"))
 	var wake chan struct{}
 	if selectedID != "" {
-		wake = u.deps.Broadcaster.Subscribe([]stream.ID{stream.ID(selectedID)})
-		defer u.deps.Broadcaster.Unsubscribe([]stream.ID{stream.ID(selectedID)}, wake)
+		wake = u.deps.Hub.Subscribe([]stream.ID{stream.ID(selectedID)})
+		defer u.deps.Hub.Unsubscribe([]stream.ID{stream.ID(selectedID)}, wake)
 	} else {
-		wake = u.deps.Broadcaster.SubscribeAll()
-		defer u.deps.Broadcaster.UnsubscribeAll(wake)
+		wake = u.deps.Hub.SubscribeAll()
+		defer u.deps.Hub.UnsubscribeAll(wake)
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -715,8 +715,8 @@ func (u *uiHandler) handleStreamsPublish(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/ui/streams?id="+streamID+"&err="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	if u.deps.Broadcaster != nil {
-		u.deps.Broadcaster.Notify(stream.ID(streamID))
+	if u.deps.Hub != nil {
+		u.deps.Hub.Notify(stream.ID(streamID))
 	}
 	if u.deps.Dispatcher != nil {
 		u.deps.Dispatcher.Dispatch(ctx, ev)

@@ -50,12 +50,12 @@ type SpawnerConfig struct {
 	// Logger receives spawn bookkeeping. Must be non-nil.
 	Logger *slog.Logger
 
-	// Store, Broadcaster, Now and NewID are used to publish per-message
+	// Store, Hub, Now and NewID are used to publish per-message
 	// activation events to the Worker's activation Stream
 	// (s-activations-<workerID>). Store and NewID and Now are required;
-	// Broadcaster is optional (long-poll observers won't wake without it).
+	// Hub is optional (long-poll observers won't wake without it).
 	Store       *store.Store
-	Broadcaster *broadcast.Broadcaster
+	Hub *broadcast.Hub
 	Now         func() time.Time
 	NewID       func() string
 }
@@ -268,8 +268,8 @@ func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID wor
 		cfg.Logger.Warn("activation event: append", "worker", workerID, "err", err)
 		return
 	}
-	if cfg.Broadcaster != nil {
-		cfg.Broadcaster.Notify(streamID)
+	if cfg.Hub != nil {
+		cfg.Hub.Notify(streamID)
 	}
 }
 

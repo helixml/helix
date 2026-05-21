@@ -70,7 +70,7 @@ func (d *recordingDispatcher) snapshot() []domain.Event {
 	return out
 }
 
-func newTestTransport(t *testing.T) (*githubtransport.Transport, *store.Store, *recordingDispatcher, *broadcast.Broadcaster, *config.Registry) {
+func newTestTransport(t *testing.T) (*githubtransport.Transport, *store.Store, *recordingDispatcher, *broadcast.Hub, *config.Registry) {
 	t.Helper()
 	st, err := sqlite.Open(":memory:")
 	if err != nil {

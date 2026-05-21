@@ -193,7 +193,7 @@ Practices:
 
 Object-oriented design principles:
 
-- **Naming**: Classes by what they are, not what they do (avoid -er suffixes). Methods are builders (noun) or manipulators (verb), rarely both. Variables should be explainable as single/plural nouns; prefer simple names over compound ones.
+- **Naming**: Classes by what they are, not what they do (avoid -er suffixes). Methods are builders (noun) or manipulators (verb), rarely both. Variables should be explainable as single/plural nouns; prefer simple names over compound ones. **Scope**: this rule applies to new code in `api/pkg/org/` and to renames during refactors. Pre-existing `-er` names elsewhere in `helix-org/` and the parent helix repo (including legitimate Go-stdlib precedents like `io.Reader`/`io.Writer`/`time.Ticker`) stay until the surrounding code is touched for other reasons — don't open drive-by renames just to enforce the suffix rule.
 - **Constructors**: One primary constructor, secondaries delegate to it. Keep constructors light. Prefer `new` only in secondary constructors.
 - **Methods**: Prefer fewer than five public methods per class. Avoid static methods. Avoid null arguments and return values. Prefer richer encapsulation over getters/setters.
 - **Encapsulation**: Prefer four or fewer encapsulated objects per class. Favour composition over inheritance.

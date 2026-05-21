@@ -141,12 +141,12 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	if len(fresh) > 0 || wait == 0 || t.deps.Broadcaster == nil {
+	if len(fresh) > 0 || wait == 0 || t.deps.Hub == nil {
 		return marshalEvents(fresh), nil
 	}
 
-	wake := t.deps.Broadcaster.Subscribe([]stream.ID{streamID})
-	defer t.deps.Broadcaster.Unsubscribe([]stream.ID{streamID}, wake)
+	wake := t.deps.Hub.Subscribe([]stream.ID{streamID})
+	defer t.deps.Hub.Unsubscribe([]stream.ID{streamID}, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()

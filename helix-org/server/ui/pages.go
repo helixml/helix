@@ -257,7 +257,7 @@ func (*StreamsPage) TemplateText() string { return streamsHTML }
 // StreamsEventsFragment is the SSE swap target served by
 // /ui/streams/events. It renders just the event list (no header, no
 // shell, no send box) so htmx-ext-sse can drop it into the page's
-// stable wrapper on every Broadcaster.Notify, replacing the previous
+// stable wrapper on every Hub.Notify, replacing the previous
 // fragile hx-trigger="every Ns" + hx-swap="outerHTML" polling that
 // caused the 20s freeze. IsAllStreams toggles whether each card
 // carries a stream-id chip (unified feed) or just from/subject

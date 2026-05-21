@@ -53,7 +53,7 @@ func (d *recordingDispatcher) snapshot() []domain.Event {
 // the supplied dispatcher (may be nil) into a Server. Returns the
 // running httptest.Server plus the store + broadcaster so tests can
 // seed streams and observe wakeups.
-func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Server, *store.Store, *broadcast.Broadcaster) {
+func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Server, *store.Store, *broadcast.Hub) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
 	if err != nil {

@@ -31,7 +31,7 @@ type Server struct {
 	store       *store.Store
 	registry    *tools.Registry
 	prompts     *prompts.Registry
-	broadcaster *broadcast.Broadcaster
+	broadcaster *broadcast.Hub
 	dispatcher  Dispatcher
 	logger      *slog.Logger
 }
@@ -42,7 +42,7 @@ type Server struct {
 // The dispatcher is required only for routes that fan-out events to
 // subscribed Workers (e.g. /webhooks/{streamID}); leave it nil in
 // tests that don't exercise those paths.
-func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadcaster, dispatcher Dispatcher, logger *slog.Logger) *Server {
+func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Hub, dispatcher Dispatcher, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}

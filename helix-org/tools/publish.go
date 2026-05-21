@@ -100,8 +100,8 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 		return nil, err
 	}
 	// Wake long-poll observers (read_events with wait>0).
-	if t.deps.Broadcaster != nil {
-		t.deps.Broadcaster.Notify(streamID)
+	if t.deps.Hub != nil {
+		t.deps.Hub.Notify(streamID)
 	}
 	// Activate every subscribed AI Worker. Background; returns immediately.
 	if t.deps.Dispatcher != nil {

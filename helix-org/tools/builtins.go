@@ -36,7 +36,7 @@ type EventDispatcher interface {
 // HireWorker creates <EnvsDir>/<workerId>/ at hire time and writes the
 // role.md / identity.md / agent.md trio into it.
 //
-// Broadcaster is optional: if set, event-emitting tools (publish) will
+// Hub is optional: if set, event-emitting tools (publish) will
 // call its Notify method so any long-poll readers blocked on those
 // streams wake up immediately.
 //
@@ -54,14 +54,14 @@ type Deps struct {
 	Now         Clock
 	NewID       IDGen
 	EnvsDir     string
-	Broadcaster *broadcast.Broadcaster
+	Hub *broadcast.Hub
 	Dispatcher  EventDispatcher
 	Workspace   agent.WorkspaceSync
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
 // and a no-op WorkspaceSync that callers replace with the runtime-
-// specific implementation. EnvsDir, Broadcaster, and Dispatcher are
+// specific implementation. EnvsDir, Hub, and Dispatcher are
 // left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
 	return Deps{

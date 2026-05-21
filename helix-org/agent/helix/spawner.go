@@ -66,7 +66,7 @@ type SpawnerConfig struct {
 	PollMax           time.Duration // default 30s
 	Logger            *slog.Logger
 	Store             *store.Store
-	Broadcaster       *broadcast.Broadcaster
+	Hub       *broadcast.Hub
 	Now               func() time.Time
 	NewID             func() string
 }
@@ -418,5 +418,5 @@ func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
 // directly — both paths produce identical event shapes on
 // s-activations-<workerID>.
 func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID worker.ID, _ stream.ID, body string) {
-	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Broadcaster, cfg.NewID, cfg.Now, cfg.Logger, workerID, body)
+	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, workerID, body)
 }

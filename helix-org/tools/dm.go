@@ -123,8 +123,8 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 	if err := t.deps.Store.Events.Append(ctx, event); err != nil {
 		return nil, err
 	}
-	if t.deps.Broadcaster != nil {
-		t.deps.Broadcaster.Notify(streamID)
+	if t.deps.Hub != nil {
+		t.deps.Hub.Notify(streamID)
 	}
 	if t.deps.Dispatcher != nil {
 		t.deps.Dispatcher.Dispatch(ctx, event)

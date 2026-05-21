@@ -33,7 +33,7 @@ import (
 func PublishActivationEvent(
 	ctx context.Context,
 	st *store.Store,
-	bc *broadcast.Broadcaster,
+	bc *broadcast.Hub,
 	newID func() string,
 	now func() time.Time,
 	logger *slog.Logger,

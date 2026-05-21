@@ -15,17 +15,17 @@ import (
 	"github.com/helixml/helix/api/pkg/org/stream"
 )
 
-// Broadcaster is safe for concurrent use. The zero value is not usable;
+// Hub is safe for concurrent use. The zero value is not usable;
 // use New.
-type Broadcaster struct {
+type Hub struct {
 	mu     sync.Mutex
 	subs   map[stream.ID]map[chan struct{}]struct{}
 	allSub map[chan struct{}]struct{} // SubscribeAll listeners — wake on any Notify
 }
 
-// New returns a ready-to-use Broadcaster.
-func New() *Broadcaster {
-	return &Broadcaster{
+// New returns a ready-to-use Hub.
+func New() *Hub {
+	return &Hub{
 		subs:   make(map[stream.ID]map[chan struct{}]struct{}),
 		allSub: make(map[chan struct{}]struct{}),
 	}
@@ -35,7 +35,7 @@ func New() *Broadcaster {
 // regardless of stream ID. Used by the unified /ui/streams live view
 // (no specific stream selected) to refresh whenever any worker writes
 // anywhere. Caller MUST defer UnsubscribeAll.
-func (b *Broadcaster) SubscribeAll() chan struct{} {
+func (b *Hub) SubscribeAll() chan struct{} {
 	ch := make(chan struct{}, 1)
 	b.mu.Lock()
 	b.allSub[ch] = struct{}{}
@@ -44,7 +44,7 @@ func (b *Broadcaster) SubscribeAll() chan struct{} {
 }
 
 // UnsubscribeAll removes a SubscribeAll listener.
-func (b *Broadcaster) UnsubscribeAll(ch chan struct{}) {
+func (b *Hub) UnsubscribeAll(ch chan struct{}) {
 	b.mu.Lock()
 	delete(b.allSub, ch)
 	b.mu.Unlock()
@@ -56,7 +56,7 @@ func (b *Broadcaster) UnsubscribeAll(ch chan struct{}) {
 //
 // Callers MUST call Unsubscribe with the same channel and ID set when
 // they are done, typically via defer.
-func (b *Broadcaster) Subscribe(streamIDs []stream.ID) chan struct{} {
+func (b *Hub) Subscribe(streamIDs []stream.ID) chan struct{} {
 	ch := make(chan struct{}, 1)
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -73,7 +73,7 @@ func (b *Broadcaster) Subscribe(streamIDs []stream.ID) chan struct{} {
 
 // Unsubscribe removes the channel from all per-Stream subscriber sets.
 // Safe to call with an empty streamIDs list.
-func (b *Broadcaster) Unsubscribe(streamIDs []stream.ID, ch chan struct{}) {
+func (b *Hub) Unsubscribe(streamIDs []stream.ID, ch chan struct{}) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, sid := range streamIDs {
@@ -90,7 +90,7 @@ func (b *Broadcaster) Unsubscribe(streamIDs []stream.ID, ch chan struct{}) {
 // Non-blocking: if a subscriber's wake-up channel is already full, the
 // signal is coalesced. Subscribers are expected to re-query the store
 // after waking.
-func (b *Broadcaster) Notify(streamID stream.ID) {
+func (b *Hub) Notify(streamID stream.ID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for ch := range b.subs[streamID] {

@@ -180,7 +180,7 @@ func TestPublishActivationEventAppendsAndNotifies(t *testing.T) {
 	cfg := SpawnerConfig{
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Store:       s,
-		Broadcaster: bc,
+		Hub: bc,
 		Now:         func() time.Time { return now },
 		NewID:       func() string { return "id-1" },
 	}

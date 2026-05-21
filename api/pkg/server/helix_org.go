@@ -112,7 +112,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	bc := broadcast.New()
 	deps := tools.DefaultDeps(st)
-	deps.Broadcaster = bc
+	deps.Hub = bc
 	deps.EnvsDir = envsDir
 
 	// Operational config registry — chat backend creds, model
@@ -228,7 +228,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Configs:     configReg,
 		Bridge:      chatBridge,
 		ChatCWD:     orgRoot,
-		Broadcaster: bc,
+		Hub: bc,
 		Dispatcher:  dispatcher,
 		NewID:       deps.NewID,
 		Now:         deps.Now,
@@ -424,7 +424,7 @@ func buildHelixOrgSpawnerConfig(
 	helixStore helixstore.Store,
 	client helixclient.Client,
 	orgStore *helixorgstore.Store,
-	bc *broadcast.Broadcaster,
+	bc *broadcast.Hub,
 	logger *slog.Logger,
 	newID func() string,
 	now func() time.Time,
@@ -449,7 +449,7 @@ func buildHelixOrgSpawnerConfig(
 		Model:         model,
 		MCPAuthBearer: apiKey,
 		Store:         orgStore,
-		Broadcaster:   bc,
+		Hub:   bc,
 		Logger:        logger,
 		NewID:         newID,
 		Now:           now,
@@ -485,7 +485,7 @@ func lazyHelixOrgSpawner(
 	helixStore helixstore.Store,
 	client helixclient.Client,
 	orgStore *helixorgstore.Store,
-	bc *broadcast.Broadcaster,
+	bc *broadcast.Hub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
 	newID func() string,
