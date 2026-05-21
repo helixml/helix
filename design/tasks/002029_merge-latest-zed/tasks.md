@@ -14,13 +14,13 @@
 
 ## Pre-Merge Reconnaissance
 
-- [~] Read upstream commit `589dc95c87` "Restore last active agent panel entry" (#57150) in full — **highest-risk single commit; rewrites `ensure_thread_initialized` itself with new `pending_terminal_spawn`/`should_create_terminal_for_new_entry`/ACP-restoration branches**. Helix PR #56 Fix 1b's early-return guard must land at the very TOP of the new function body.
-- [~] Read upstream commit `bbe23cc40b` "Bring back draft threads" (#54292) in full — second-highest risk; restructures the draft-thread lifecycle around `draft_prompt_store.rs` and retained drafts.
-- [~] Read upstream commit `c3951af24f` "Support additional session directories" (#57051) in full — adds 489 lines to `agent_servers/src/acp.rs`, expanding `new_session`/`load_session`/`open_or_create_session` signatures. Identify what new parameters PR #50's `session_creation_chain` wrapper needs to pass through.
-- [~] Read upstream commit `23231879cd` "ACP session deletion" (#57004) in full — adds 161 lines to `agent_servers/src/acp.rs` AND cascades the `supports_delete(&self)` → `supports_delete(&self, &App)` signature change through Helix call sites.
-- [~] Read upstream commit `f2df3f9e18` "ACP logout" (#56959) — confirm the new `supports_logout`/`logout` defaults won't surface a logout UI in Helix mode.
-- [~] Read upstream commit `c84c22dab5` "Deprecate ACP extensions" (#57133) — removes 1 459 lines including 80 from `extensions_ui.rs` around Helix's `// HELIX: External agent ...` bypass markers. Decide whether the Helix patch is now redundant.
-- [~] Skim upstream commits touching `acp_thread.rs`: `git log 8bdd78e023..upstream/main -- crates/acp_thread/` — check whether anything overlaps PR #55's 12-line `EntryUpdated` emit site.
+- [x] Read upstream commit `589dc95c87` "Restore last active agent panel entry" (#57150) in full — **highest-risk single commit; rewrites `ensure_thread_initialized` itself with new `pending_terminal_spawn`/`should_create_terminal_for_new_entry`/ACP-restoration branches**. Helix PR #56 Fix 1b's early-return guard must land at the very TOP of the new function body.
+- [x] Read upstream commit `bbe23cc40b` "Bring back draft threads" (#54292) in full — second-highest risk; restructures the draft-thread lifecycle around `draft_prompt_store.rs` and retained drafts.
+- [x] Read upstream commit `c3951af24f` "Support additional session directories" (#57051) in full — adds 489 lines to `agent_servers/src/acp.rs`, expanding `new_session`/`load_session`/`open_or_create_session` signatures. Identify what new parameters PR #50's `session_creation_chain` wrapper needs to pass through.
+- [x] Read upstream commit `23231879cd` "ACP session deletion" (#57004) in full — adds 161 lines to `agent_servers/src/acp.rs` AND cascades the `supports_delete(&self)` → `supports_delete(&self, &App)` signature change through Helix call sites.
+- [x] Read upstream commit `f2df3f9e18` "ACP logout" (#56959) — confirm the new `supports_logout`/`logout` defaults won't surface a logout UI in Helix mode.
+- [x] Read upstream commit `c84c22dab5` "Deprecate ACP extensions" (#57133) — removes 1 459 lines including 80 from `extensions_ui.rs` around Helix's `// HELIX: External agent ...` bypass markers. Decide whether the Helix patch is now redundant.
+- [x] Skim upstream commits touching `acp_thread.rs`: `git log 8bdd78e023..upstream/main -- crates/acp_thread/` — check whether anything overlaps PR #55's 12-line `EntryUpdated` emit site.
 
 ## Merge Execution
 
