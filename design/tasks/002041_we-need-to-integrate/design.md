@@ -229,56 +229,80 @@ project-repo sync has already placed it on disk.
 recipes can also reference sibling files (subrecipes, prompt
 fragments) by short name relative to the checkout.
 
-**Upstream validation (2026-05-21)** — checked the goose CLI source at
-[crates/goose-cli/src/cli.rs](https://github.com/aaif-goose/goose/blob/main/crates/goose-cli/src/cli.rs)
-and the open issue
-[aaif-goose/goose#7596](https://github.com/aaif-goose/goose/issues/7596).
-Confirmed state:
+**Upstream validation (2026-05-21)** — checked goose CLI source,
+release tags, and merge metadata via GitHub API. Confirmed state:
 
-- `goose acp` accepts **only** `--with-builtin <name>` (built-in
-  extensions). No `--recipe` flag, no recipe env var.
-- `goose serve` (HTTP/WS ACP) has the same constraint at startup but
-  *does* support recipe-backed sessions via its REST API
-  (`update_session_user_recipe_values` → `apply_recipe_to_agent`).
-- `--recipe` lives in `InputOptions`, which is only used by the `Run`
-  and `Recipe` subcommands — both are one-shot/TUI, not ACP servers.
-- Upstream issue #7596 is **open, assigned, snoozed until 2026-05-28**.
-  A collaborator confirmed: PR #8925 has landed (recipe-backed slash
-  command discovery and execution); "full recipe-at-session-creation
-  support is coming next." So the official `goose acp` recipe support
-  is in active development and likely lands within weeks.
+| Capability | `goose acp` accepts? | Where it lives |
+|---|---|---|
+| `--with-builtin <name>` (built-in extensions) | ✅ Yes | Stable, all releases |
+| `--recipe <file>` | ❌ No flag exists on `Acp` subcommand | — |
+| Slash-command-driven recipe execution inside an ACP session | ✅ Yes — **but only on `main`** | PR [#8925](https://github.com/aaif-goose/goose/pull/8925), merged 2026-05-12 |
+| First-class recipe at session creation (`NewSessionRequest.recipe`) | ❌ Not yet | Issue [#7596](https://github.com/aaif-goose/goose/issues/7596), assigned, snoozed to 2026-05-28 |
 
-**What this means for our plan**:
+**Release state** (verified via GH API + raw file inspection):
+- Latest stable: **v1.34.1** (2026-05-15)
+- v1.34.0 (2026-05-13) was tagged ~22h after PR #8925 merged, but its
+  release branch was cut from a commit upstream of the merge — v1.34.0
+  and v1.34.1 are both **missing PR #8925**. Confirmed by inspecting
+  `crates/goose/src/acp/server.rs` at `v1.34.1`: no
+  `AvailableCommand`, no `available_commands_update`, no
+  "Running recipe" message string. On `main`, all of those are
+  present (lines ~1195, 2647, 3046, 3060 of the same file).
 
-| User Story | Status |
-|---|---|
-| US-1, US-2, US-3 (base runtime) | ✅ Works today via `goose acp` |
-| US-4 (custom Goose agents) | ⚠️ Blocked on upstream until ~late May 2026 |
-| US-5 (iteration DX) | Falls out of US-4 |
+**This changes the gate**: PR #8925 is sitting in `main` today, ready
+to use. We control the desktop image. The Helix codebase already
+pins-and-builds upstream Rust projects from specific commits (see
+`sandbox-versions.txt` with `ZED_COMMIT=<sha>`, `QWEN_COMMIT=<sha>`,
+per `helix/CLAUDE.md`). Adding `GOOSE_COMMIT=<sha>` follows that
+established pattern.
 
-**Decision**: Ship Phase 1 (US-1/2/3) now. Hold Phase 2 (US-4/5)
-until upstream issue #7596 lands, then revisit:
+**Decision**: pin a `GOOSE_COMMIT` to a recent `main` SHA and build
+goose into the image from source. Ship Phase 2 (slash-command UX)
+without waiting. When #7596 lands and adds per-thread recipe support,
+bump the pin and switch to per-recipe `agent_servers` entries.
 
-1. **Preferred (post-#7596)**: each `agent_servers.<slug>` invokes
-   `goose acp --recipe <abs-path>` (or whatever flag/protocol-extension
-   upstream ships). This matches the design above with a one-line args
-   change in the daemon.
-2. **Interim workaround (using shipped PR #8925)**: each
-   `agent_servers.<slug>` is a plain `goose acp` instance, and Zed's
-   first user message is the recipe's slash-command invocation
-   (`/my-recipe`). This *partially* works — the recipe's extensions
-   and prompt apply — but parameter prompts surface as plain text
-   inside the chat rather than Zed UI, and there's no clean way to
-   pre-fill parameter values. Documented as a temporary path; not
-   worth shipping if upstream is ~1–2 weeks out.
-3. **Fallback if upstream slips**: pre-cook a per-recipe goose config
-   file (extensions block + system prompt) and launch `goose acp` with
-   `GOOSE_CONFIG_PATH` pointing at it. Loses recipe parameters and
-   activities; preserves extensions + system prompt. Implement only if
-   #7596 stays open past Q3 2026.
+**Two-phase Phase 2 plan**:
 
-The plain `goose` entry (no recipe) is always emitted so users keep
-access to a vanilla Goose session regardless of Phase 2 status.
+1. **Phase 2a (today, ships with `GOOSE_COMMIT` pinned to a `main`
+   SHA that includes #8925)**:
+   - One `agent_servers.goose` entry per project (not per recipe).
+   - settings-sync-daemon writes a goose global config that registers
+     each project recipe as a slash command (the
+     `slash_commands` map in goose's config). Recipes still come from
+     the Helix-mirrored `GitRepository` checkout — only the
+     advertise-as-slash-command wiring is new.
+   - In Zed, the user opens the single "Goose" thread, types `/`, and
+     gets autocomplete of the project's recipes. Invoking
+     `/security-reviewer` runs that recipe in the current session.
+   - Limitations: not "first-class agent per recipe" in the agent
+     panel; parameter prompts surface inline in chat rather than via
+     a Zed dialog. Acceptable for v1 — the workflow is fully usable.
+
+2. **Phase 2b (once #7596 ships in `main`)**:
+   - Bump `GOOSE_COMMIT`.
+   - Switch the daemon to emitting one `agent_servers.<slug>` per
+     recipe with `args: ["acp", "--recipe", "<abs-path>"]` (or
+     whatever flag upstream ends up shipping).
+   - Project YAML schema and the UI picker built in Phase 2a do not
+     change — only the daemon's emit-side does.
+
+**Build path for `GOOSE_COMMIT`**: Goose's upstream CI produces
+prebuilt Linux binaries on release tags, but probably not on every
+`main` commit. Two install strategies — pick at implementation time:
+- **A.** Use the `download_cli.sh` script with a pinned version pointer
+  if Goose publishes nightly/canary artifacts (check
+  `https://github.com/aaif-goose/goose/releases/tag/canary` first).
+- **B.** Clone the goose repo at `$GOOSE_COMMIT` and `cargo build
+  --release -p goose-cli` in a build stage of
+  `Dockerfile.ubuntu-helix`. Same pattern as the Zed build stage
+  already in that file.
+
+Option B is more work but is the proven pattern; Option A only works
+if a usable rolling artifact exists.
+
+The plain `goose` entry (no recipe) is always emitted alongside the
+slash-command-enabled entry, so users keep access to a vanilla Goose
+session regardless of recipe state.
 
 ### D8: Iteration DX — edit, validate, reload, commit
 
@@ -342,7 +366,8 @@ directory.
 
 | File                                                        | Change                                                                  |
 |-------------------------------------------------------------|-------------------------------------------------------------------------|
-| `Dockerfile.ubuntu-helix`                                   | Install pinned Goose CLI; telemetry-off config                          |
+| `Dockerfile.ubuntu-helix`                                   | Build goose from `$GOOSE_COMMIT` in a dedicated build stage; copy binary into runtime image; telemetry-off config |
+| `sandbox-versions.txt`                                      | Add `GOOSE_COMMIT=<sha>` pin (same pattern as `ZED_COMMIT`, `QWEN_COMMIT`) |
 | `api/pkg/types/task_management.go`                          | Add `CodeAgentRuntimeGooseCode = "goose_code"`                          |
 | `api/pkg/types/project.go`                                  | Add `Goose *ProjectAgentGoose` + nested types                           |
 | `api/pkg/types/types.go`                                    | Extend `CodeAgentConfig` with `GooseRecipes`, `GooseRecipeRootDir`      |
@@ -358,17 +383,22 @@ directory.
 
 - **Goose release URLs are version-pinned.** Use `GOOSE_VERSION` —
   upstream's documented CI/CD-safe install path.
-- **`goose acp` does not yet accept recipes — validated against
-  upstream source.** Phase 1 (US-1/2/3) is unaffected and ships now.
-  Phase 2 (US-4/5) is gated on upstream issue
-  [#7596](https://github.com/aaif-goose/goose/issues/7596) (currently
-  snoozed to 2026-05-28, actively being worked on). Mitigation: build
-  the Helix-side YAML schema + UI plumbing during the wait, leaving a
-  feature flag that flips on the recipe-aware `agent_servers` entries
-  once the upstream flag/protocol-extension is known. Re-validate the
-  upstream state before starting Phase 2 implementation work — do not
-  spend engineering time on workaround #2/#3 unless #7596 slips past
-  Q3 2026.
+- **PR #8925 (slash-command discovery in ACP) is in `main` but not
+  v1.34.1 — validated by inspecting `acp/server.rs` at the tag.**
+  Phase 2a requires building goose from a pinned `main` commit
+  (`GOOSE_COMMIT=<sha>`, same pattern as `ZED_COMMIT` and
+  `QWEN_COMMIT` in `sandbox-versions.txt`). When goose cuts the next
+  stable release that includes #8925, switch to the released binary
+  via `download_cli.sh` and drop the source build.
+- **Phase 2b depends on upstream #7596** (per-thread recipe at
+  session creation). If that slips past Q3 2026, Phase 2a is good
+  enough — the slash-command UX is fully functional, just less
+  discoverable than per-recipe agent entries in Zed's panel.
+- **Source-built goose adds build time.** Mitigations: a dedicated
+  build stage in `Dockerfile.ubuntu-helix` (same as Zed's stage) with
+  cargo's incremental cache so only `goose-cli` and its direct
+  dependencies rebuild on commit bump. Expect 5–15 min on cache miss,
+  seconds on cache hit.
 - **Recipe paths could escape the repo** (e.g.
   `path: ../../etc/passwd`). The server-side path resolver must
   reject any `path` that doesn't `filepath.Clean` to a subdirectory of
