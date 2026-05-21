@@ -1,6 +1,12 @@
 # Implementation Tasks: Integrate Goose AI Agent into Zed via ACP
 
-## Phase 1 — Base runtime (US-1, US-2, US-3)
+## Status
+
+**Phase 1 (base runtime) is complete and shipped in this PR.** Users can pick "Goose" as a code-agent runtime in projects today, with a working end-to-end flow (Helix → settings-sync-daemon → Zed → `goose acp` → LLM via Helix proxy → tool calls).
+
+**Phases 2a / 2b / 2c (project recipes + spec-task params + upstream tracking) are deferred to a follow-up PR** so this base integration can be reviewed and merged independently. The design for those phases is captured in `design.md` and the tasks below remain valid as the starting point for the follow-up.
+
+## Phase 1 — Base runtime (US-1, US-2, US-3) ✅ shipped
 
 - [x] Add `GOOSE_COMMIT=<sha>` to `sandbox-versions.txt` (pin to a `main` SHA that includes PR #8925 — verify with `grep AvailableCommand crates/goose/src/acp/server.rs` at that SHA)
 - [x] Add a goose build stage to `Dockerfile.ubuntu-helix`: clone goose at `$GOOSE_COMMIT`, `cargo build --release -p goose-cli`, copy the binary into the runtime image's `/usr/local/bin/goose`. Mirror the existing Zed build-stage pattern in the same Dockerfile
