@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
 )
 
-// Workspace is the agent.WorkspaceSync implementation that pushes
+// Workspace is the runtime.WorkspaceSync implementation that pushes
 // canonical role / identity content to the helix-specs branch of a
 // Worker's per-Worker repo. Each call resolves the target repo from
 // the Worker's runtime state (set by ProjectApplier at first
@@ -54,7 +54,7 @@ func NewWorkspace(client helixclient.Client, st *store.Store, branch, author, em
 	}
 }
 
-// MirrorFile satisfies agent.WorkspaceSync. `name` is the logical
+// MirrorFile satisfies runtime.WorkspaceSync. `name` is the logical
 // filename for this Worker (e.g. "role.md"); the Helix backend writes
 // it at `workers/<workerID>/.context/<name>` on the helix-specs
 // branch. Returns nil for Workers that aren't yet bound to a Helix
@@ -65,7 +65,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 	if workerID == "" {
 		return errors.New("helix workspace: workerID is empty")
 	}
-	if err := agent.ValidateWorkspaceName(name); err != nil {
+	if err := runtime.ValidateWorkspaceName(name); err != nil {
 		return fmt.Errorf("helix workspace: %w", err)
 	}
 	state, err := LoadState(ctx, w.store, workerID)
@@ -128,4 +128,4 @@ func (w *Workspace) lockFor(repoID string) *sync.Mutex {
 }
 
 // Compile-time check.
-var _ agent.WorkspaceSync = (*Workspace)(nil)
+var _ runtime.WorkspaceSync = (*Workspace)(nil)

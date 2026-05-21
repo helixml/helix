@@ -10,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -30,12 +31,12 @@ const (
 // parses cleanly, letting Roles inspect From/To/threading without
 // re-parsing.
 type eventView struct {
-	ID        event.ID        `json:"id"`
-	StreamID  stream.ID       `json:"streamId"`
-	Source    worker.ID       `json:"source"`
-	Body      string          `json:"body"`
-	Message   *domain.Message `json:"message,omitempty"`
-	CreatedAt time.Time       `json:"createdAt"`
+	ID        event.ID         `json:"id"`
+	StreamID  stream.ID        `json:"streamId"`
+	Source    worker.ID        `json:"source"`
+	Body      string           `json:"body"`
+	Message   *message.Message `json:"message,omitempty"`
+	CreatedAt time.Time        `json:"createdAt"`
 }
 
 func eventViewOf(e domain.Event) eventView {

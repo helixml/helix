@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
@@ -22,7 +23,7 @@ import (
 // claude runtime it's the embedded agent.Policy, for the Helix runtime
 // it's a short pointer at the helix-specs branch (which carries the
 // real policy text).
-func BuildPrompt(workerID worker.ID, mandate string, triggers []Trigger) string {
+func BuildPrompt(workerID worker.ID, mandate string, triggers []activation.Trigger) string {
 	var ctx strings.Builder
 
 	if len(triggers) > 1 {
@@ -34,9 +35,9 @@ func BuildPrompt(workerID worker.ID, mandate string, triggers []Trigger) string 
 			fmt.Fprintf(&ctx, "[%d/%d]\n", i+1, len(triggers))
 		}
 		switch t.Kind {
-		case TriggerHire:
+		case activation.TriggerHire:
 			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
-		case TriggerEvent:
+		case activation.TriggerEvent:
 			ctx.WriteString(renderTrigger(t))
 		default:
 			fmt.Fprintf(&ctx, "Activation kind: %q.\n", t.Kind)
@@ -59,7 +60,7 @@ Act now. No preamble.
 `, workerID, mandate, ctx.String())
 }
 
-// renderTrigger formats an event-kind Trigger for the activation
+// renderTrigger formats an event-kind activation.Trigger for the activation
 // prompt. Every populated field of the canonical Message envelope is
 // rendered so the Worker can branch on Subject, From, ThreadID, Extra,
 // etc. directly — no separate read_events round-trip needed for the
@@ -69,7 +70,7 @@ Act now. No preamble.
 // Header keys are aligned for legibility but the parser the Worker is
 // going to apply (Claude reading the prompt) is robust to spacing, so
 // "neat" is for humans tailing the prompt.
-func renderTrigger(t Trigger) string {
+func renderTrigger(t activation.Trigger) string {
 	var b strings.Builder
 	b.WriteString("A new event arrived on a Stream you subscribe to.\n\n")
 	fmt.Fprintf(&b, "  stream:      %s\n", t.StreamID)
@@ -131,13 +132,13 @@ func indentBlock(s, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
-// DescribeTrigger returns a short label for one Trigger — used for
+// DescribeTrigger returns a short label for one activation.Trigger — used for
 // activation-stream markers and structured logging.
-func DescribeTrigger(t Trigger) string {
+func DescribeTrigger(t activation.Trigger) string {
 	switch t.Kind {
-	case TriggerHire:
+	case activation.TriggerHire:
 		return "hire"
-	case TriggerEvent:
+	case activation.TriggerEvent:
 		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.StreamID, t.Source)
 	default:
 		return string(t.Kind)
@@ -149,7 +150,7 @@ func DescribeTrigger(t Trigger) string {
 // DescribeTrigger verbatim so observers see no change for the common
 // case; a coalesced batch summarises as "batch of N" with each
 // trigger's individual description joined by "; ".
-func DescribeTriggers(triggers []Trigger) string {
+func DescribeTriggers(triggers []activation.Trigger) string {
 	if len(triggers) == 1 {
 		return DescribeTrigger(triggers[0])
 	}

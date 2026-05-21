@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/config"
@@ -291,7 +292,7 @@ func TestEmitOutbound(t *testing.T) {
 	fakeSrv, fp := newFakePostmark(t)
 	tp.SetSendURL(fakeSrv.URL)
 
-	msg := domain.Message{
+	msg := message.Message{
 		From:      "w-sam",
 		To:        []string{"alice@example.com"},
 		Subject:   "Re: Webhook question",
@@ -356,7 +357,7 @@ func TestEmitOverridesFromIfRealAddress(t *testing.T) {
 	fakeSrv, fp := newFakePostmark(t)
 	tp.SetSendURL(fakeSrv.URL)
 
-	msg := domain.Message{
+	msg := message.Message{
 		From: "billing@x.com",
 		To:   []string{"alice@example.com"},
 		Body: "...",
@@ -377,7 +378,7 @@ func TestEmitNoRecipient(t *testing.T) {
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
 	stream := seedEmailStream(t, st, "s-support", "sam")
 
-	msg := domain.Message{
+	msg := message.Message{
 		Body: "I forgot the recipient",
 	}
 	event, _ := domain.NewMessageEvent("e-1", stream.ID, "", msg, time.Now().UTC())
@@ -397,7 +398,7 @@ func TestEmitPostmarkError(t *testing.T) {
 	fp.status = http.StatusUnprocessableEntity
 	tp.SetSendURL(fakeSrv.URL)
 
-	msg := domain.Message{
+	msg := message.Message{
 		To:   []string{"alice@example.com"},
 		Body: "...",
 	}

@@ -82,7 +82,7 @@ type hireWorkerGrant struct {
 type hireWorkerArgs struct {
 	ID              string            `json:"id,omitempty"`
 	PositionID      string            `json:"positionId"`
-	Kind            domain.WorkerKind `json:"kind"`
+	Kind            worker.Kind       `json:"kind"`
 	IdentityContent string            `json:"identityContent"`
 	Grants          []hireWorkerGrant `json:"grants,omitempty"`
 }
@@ -146,20 +146,20 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	}
 	envPath := filepath.Join(t.deps.EnvsDir, string(id))
 
-	var worker domain.Worker
+	var wkr domain.Worker
 	switch args.Kind {
-	case domain.WorkerKindHuman:
+	case worker.KindHuman:
 		w, err := domain.NewHumanWorker(id, []position.ID{pos.ID}, args.IdentityContent)
 		if err != nil {
 			return nil, err
 		}
-		worker = w
-	case domain.WorkerKindAI:
+		wkr = w
+	case worker.KindAI:
 		w, err := domain.NewAIWorker(id, []position.ID{pos.ID}, args.IdentityContent)
 		if err != nil {
 			return nil, err
 		}
-		worker = w
+		wkr = w
 	default:
 		// Unreachable: Validate() above already rejected unknown kinds.
 		return nil, args.Kind.Validate()
@@ -173,7 +173,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return nil, fmt.Errorf("create env dir %q: %w", envPath, err)
 	}
 
-	if err := t.deps.Store.Workers.Create(ctx, worker); err != nil {
+	if err := t.deps.Store.Workers.Create(ctx, wkr); err != nil {
 		return nil, err
 	}
 
@@ -202,7 +202,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		}
 	}
 
-	if args.Kind == domain.WorkerKindAI {
+	if args.Kind == worker.KindAI {
 		if err := createActivationStream(ctx, t.deps, id, inv.Caller.ID()); err != nil {
 			return nil, err
 		}
@@ -223,7 +223,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		}
 	}
 
-	if args.Kind == domain.WorkerKindAI && t.deps.Dispatcher != nil {
+	if args.Kind == worker.KindAI && t.deps.Dispatcher != nil {
 		t.deps.Dispatcher.DispatchHire(ctx, id, envPath)
 	}
 

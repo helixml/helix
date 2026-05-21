@@ -14,13 +14,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/dispatch"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
@@ -104,7 +106,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
 	WorkerID worker.ID
-	Triggers []agent.Trigger
+	Triggers []activation.Trigger
 }
 
 // newDispatcherWithSpawner returns a Dispatcher whose Spawner records
@@ -117,7 +119,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 		t.Fatalf("open store: %v", err)
 	}
 	rec := make(chan recordedActivation, 16)
-	spawner := agent.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []agent.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -527,7 +529,7 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 
 	e, err := domain.NewMessageEvent(
 		"e-1", "s-team", "w-publisher",
-		domain.Message{From: "w-publisher", Body: "hello"},
+		message.Message{From: "w-publisher", Body: "hello"},
 		time.Now().UTC(),
 	)
 	if err != nil {
@@ -562,7 +564,7 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 
 	e, err := domain.NewMessageEvent(
 		"e-2", "s-team", "w-publisher",
-		domain.Message{From: "w-publisher", Body: "ping"},
+		message.Message{From: "w-publisher", Body: "ping"},
 		time.Now().UTC(),
 	)
 	if err != nil {
@@ -580,8 +582,8 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 	if n := len(got[0].Triggers); n != 1 {
 		t.Fatalf("triggers = %d, want 1", n)
 	}
-	if k := got[0].Triggers[0].SourceKind; k != domain.WorkerKindAI {
-		t.Fatalf("SourceKind = %q, want %q", k, domain.WorkerKindAI)
+	if k := got[0].Triggers[0].SourceKind; k != worker.KindAI {
+		t.Fatalf("SourceKind = %q, want %q", k, worker.KindAI)
 	}
 }
 
@@ -612,7 +614,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := agent.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []agent.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -620,7 +622,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 		}
 		// Copy the slice so a later mutation in the dispatcher (it doesn't
 		// today, but defensive) can't race with the assertion read.
-		copied := make([]agent.Trigger, len(triggers))
+		copied := make([]activation.Trigger, len(triggers))
 		copy(copied, triggers)
 		rec <- recordedActivation{WorkerID: workerID, Triggers: copied}
 		return nil
@@ -634,7 +636,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	publish := func(id, body string) {
 		ev, err := domain.NewMessageEvent(
 			event.ID(id), "s-team", "w-other",
-			domain.Message{From: "w-other", Body: body},
+			message.Message{From: "w-other", Body: body},
 			time.Now().UTC(),
 		)
 		if err != nil {
@@ -708,7 +710,7 @@ func waitForActivation(t *testing.T, rec <-chan recordedActivation, timeout time
 	}
 }
 
-func eventIDs(ts []agent.Trigger) []event.ID {
+func eventIDs(ts []activation.Trigger) []event.ID {
 	out := make([]event.ID, len(ts))
 	for i, t := range ts {
 		out[i] = t.EventID

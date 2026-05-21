@@ -2,9 +2,9 @@
 // thing that takes "this Worker just got an event" and turns it into
 // an actual LLM-driven turn. Concrete runtimes live in sub-packages
 // (agent/claude, agent/helix). This package holds the runtime-shared
-// types: the Spawner contract, Trigger/TriggerKind, the WorkspaceSync
-// interface, and the canonical agent-policy text every runtime feeds
-// to the LLM.
+// types: the Spawner contract and the WorkspaceSync interface, plus
+// the canonical agent-policy text every runtime feeds to the LLM.
+// Trigger / TriggerKind moved to api/pkg/org/activation in B3c.
 package agent
 
 import _ "embed"

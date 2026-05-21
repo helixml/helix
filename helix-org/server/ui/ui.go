@@ -13,6 +13,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/stream"
@@ -35,15 +36,15 @@ import (
 // chat-session state (e.g. "user just clicked New chat") so the
 // chat page can suppress stale history rendering.
 type Deps struct {
-	Store       *store.Store
-	Configs     *config.Registry
-	Bridge      chat.Backend
-	ChatCWD     string
-	Settings    SettingsView
-	Hub *broadcast.Hub
-	Dispatcher  *dispatch.Dispatcher
-	NewID       func() string
-	Now         func() time.Time
+	Store      *store.Store
+	Configs    *config.Registry
+	Bridge     chat.Backend
+	ChatCWD    string
+	Settings   SettingsView
+	Hub        *broadcast.Hub
+	Dispatcher *dispatch.Dispatcher
+	NewID      func() string
+	Now        func() time.Time
 }
 
 // SettingsView is the snapshot of operational state rendered on the
@@ -694,7 +695,7 @@ func (u *uiHandler) handleStreamsPublish(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
-	msg := domain.Message{
+	msg := message.Message{
 		From:    string(owner),
 		To:      to,
 		Subject: subject,

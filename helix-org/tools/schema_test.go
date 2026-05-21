@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/transport"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -72,7 +73,7 @@ func TestHireWorkerInvokeRejectsUnknownKindWithValidList(t *testing.T) {
 // here, not in a Slack-channel report.
 func TestQuotedListRendersDomainEnums(t *testing.T) {
 	t.Parallel()
-	if got := domain.QuotedList(domain.WorkerKindValues()); got != `"human", "ai"` {
+	if got := domain.QuotedList(worker.KindValues()); got != `"human", "ai"` {
 		t.Errorf("WorkerKind QuotedList = %q", got)
 	}
 	if got := domain.QuotedList(transport.KindValues()); !strings.Contains(got, `"local"`) || !strings.Contains(got, `"github"`) {

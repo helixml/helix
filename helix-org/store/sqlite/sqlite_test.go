@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -142,7 +143,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get human: %v", err)
 	}
-	if gotHuman.Kind() != domain.WorkerKindHuman {
+	if gotHuman.Kind() != worker.KindHuman {
 		t.Fatalf("kind = %q, want human", gotHuman.Kind())
 	}
 	if _, ok := gotHuman.(*domain.HumanWorker); !ok {
@@ -153,7 +154,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get ai: %v", err)
 	}
-	if gotAI.Kind() != domain.WorkerKindAI {
+	if gotAI.Kind() != worker.KindAI {
 		t.Fatalf("kind = %q, want ai", gotAI.Kind())
 	}
 

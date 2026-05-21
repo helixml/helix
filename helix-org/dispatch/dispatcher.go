@@ -29,9 +29,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
+	"github.com/helixml/helix/api/pkg/org/message"
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -55,7 +57,7 @@ type EmailEmitter interface {
 // configured for them.
 type Dispatcher struct {
 	store        *store.Store
-	spawner      agent.Spawner
+	spawner      runtime.Spawner
 	logger       *slog.Logger
 	httpClient   *http.Client
 	emailEmitter EmailEmitter
@@ -75,7 +77,7 @@ type Dispatcher struct {
 // last writer wins if it ever does.
 type workerQueue struct {
 	mu      sync.Mutex
-	pending []agent.Trigger
+	pending []activation.Trigger
 	envPath string
 	running bool
 }
@@ -84,7 +86,7 @@ type workerQueue struct {
 // (useful for tests). logger must be non-nil. The internal HTTP client
 // uses a fixed timeout suitable for outbound webhook POSTs; tests that
 // need to substitute a fake transport can replace it via SetHTTPClient.
-func New(s *store.Store, spawner agent.Spawner, logger *slog.Logger) *Dispatcher {
+func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatcher {
 	return &Dispatcher{
 		store:      s,
 		spawner:    spawner,
@@ -114,7 +116,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath
 	if d.spawner == nil {
 		return
 	}
-	d.enqueue(workerID, envPath, agent.Trigger{Kind: agent.TriggerHire})
+	d.enqueue(workerID, envPath, activation.Trigger{Kind: activation.TriggerHire})
 }
 
 // Dispatch fans an Event out to every AI Worker subscribed to its
@@ -139,7 +141,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	msg, err := e.Message()
 	if err != nil {
 		d.logger.Warn("dispatch: parse message", "event", e.ID, "err", err)
-		msg = domain.Message{Body: e.Body}
+		msg = message.Message{Body: e.Body}
 	}
 	subs, err := d.store.Subscriptions.ListForStream(ctx, e.StreamID)
 	if err != nil {
@@ -150,7 +152,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	// gets the same source_kind on its Trigger. Empty Source (system or
 	// transport inbound) leaves SourceKind empty — agent.md treats that
 	// as human-origin by default.
-	var sourceKind domain.WorkerKind
+	var sourceKind worker.Kind
 	if e.Source != "" {
 		if sourceWorker, err := d.store.Workers.Get(ctx, e.Source); err == nil {
 			sourceKind = sourceWorker.Kind()
@@ -165,7 +167,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			d.logger.Warn("dispatch: get worker", "worker", sub.WorkerID, "err", err)
 			continue
 		}
-		if w.Kind() != domain.WorkerKindAI {
+		if w.Kind() != worker.KindAI {
 			continue // human Workers are not activated by the runtime
 		}
 		env, err := d.store.Environments.Get(ctx, sub.WorkerID)
@@ -173,8 +175,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			d.logger.Warn("dispatch: get environment", "worker", sub.WorkerID, "err", err)
 			continue
 		}
-		trigger := agent.Trigger{
-			Kind:       agent.TriggerEvent,
+		trigger := activation.Trigger{
+			Kind:       activation.TriggerEvent,
 			EventID:    e.ID,
 			StreamID:   e.StreamID,
 			Source:     e.Source,
@@ -190,7 +192,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 // runner goroutine if one isn't already draining the queue. Returns
 // immediately. The activation goroutine outlives the HTTP request
 // that triggered enqueue, so it uses context.Background internally.
-func (d *Dispatcher) enqueue(workerID worker.ID, envPath string, trigger agent.Trigger) {
+func (d *Dispatcher) enqueue(workerID worker.ID, envPath string, trigger activation.Trigger) {
 	q := d.queueFor(workerID)
 	q.mu.Lock()
 	q.pending = append(q.pending, trigger)
@@ -230,7 +232,7 @@ func (d *Dispatcher) run(workerID worker.ID, q *workerQueue) {
 // activate is one synchronous Spawner call. The runner serialises
 // these per-Worker so the Spawner is never invoked concurrently for
 // the same Worker.
-func (d *Dispatcher) activate(ctx context.Context, workerID worker.ID, envPath string, batch []agent.Trigger) {
+func (d *Dispatcher) activate(ctx context.Context, workerID worker.ID, envPath string, batch []activation.Trigger) {
 	d.logger.Info("dispatch.activate.start",
 		"worker", workerID,
 		"trigger", batch[0].Kind,

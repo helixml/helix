@@ -116,10 +116,10 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 			return nil, fmt.Errorf("unmarshal positions: %w", err)
 		}
 	}
-	switch domain.WorkerKind(row.Kind) {
-	case domain.WorkerKindHuman:
+	switch worker.Kind(row.Kind) {
+	case worker.KindHuman:
 		return domain.NewHumanWorker(worker.ID(row.ID), positions, row.IdentityContent)
-	case domain.WorkerKindAI:
+	case worker.KindAI:
 		return domain.NewAIWorker(worker.ID(row.ID), positions, row.IdentityContent)
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)

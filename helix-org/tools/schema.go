@@ -8,7 +8,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/transport"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
 // schemaOpts are passed to every jsonschema.For call so all our tool
@@ -27,8 +27,8 @@ import (
 var schemaOpts = &jsonschema.ForOptions{
 	TypeSchemas: map[reflect.Type]*jsonschema.Schema{
 		reflect.TypeFor[json.RawMessage](): {Type: "object"},
-		reflect.TypeFor[domain.WorkerKind](): enumSchema(
-			domain.WorkerKindValues(),
+		reflect.TypeFor[worker.Kind](): enumSchema(
+			worker.KindValues(),
 			"Worker kind: human (a person) or ai (a software agent).",
 		),
 		reflect.TypeFor[transport.Kind](): enumSchema(

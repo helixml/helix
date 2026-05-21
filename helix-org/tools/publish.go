@@ -8,6 +8,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
@@ -20,7 +21,7 @@ import (
 // "direct message a Worker" case, see the dm tool, which bundles
 // create-stream + subscribe-both + publish into a single call.
 //
-// All events are stored as canonical Message JSON (see domain.Message).
+// All events are stored as canonical Message JSON (see message.Message).
 // The minimal call form — streamId + body — yields a Message with
 // From=caller and Body=body. Optional fields (to, subject, threadId,
 // inReplyTo, messageId, bodyContentType, attachments) let the caller
@@ -43,15 +44,15 @@ func (t *Publish) Description() string {
 func (t *Publish) InputSchema() *jsonschema.Schema { return publishSchema }
 
 type publishArgs struct {
-	StreamID        string              `json:"streamId"`
-	Body            string              `json:"body"`
-	To              []string            `json:"to,omitempty"`
-	Subject         string              `json:"subject,omitempty"`
-	BodyContentType string              `json:"bodyContentType,omitempty"`
-	ThreadID        string              `json:"threadId,omitempty"`
-	InReplyTo       string              `json:"inReplyTo,omitempty"`
-	MessageID       string              `json:"messageId,omitempty"`
-	Attachments     []domain.Attachment `json:"attachments,omitempty"`
+	StreamID        string               `json:"streamId"`
+	Body            string               `json:"body"`
+	To              []string             `json:"to,omitempty"`
+	Subject         string               `json:"subject,omitempty"`
+	BodyContentType string               `json:"bodyContentType,omitempty"`
+	ThreadID        string               `json:"threadId,omitempty"`
+	InReplyTo       string               `json:"inReplyTo,omitempty"`
+	MessageID       string               `json:"messageId,omitempty"`
+	Attachments     []message.Attachment `json:"attachments,omitempty"`
 }
 
 func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
@@ -75,7 +76,7 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	if stream.Transport.Kind == transport.KindGitHub {
 		return nil, fmt.Errorf("stream %q: publish is not supported on github transport streams; use `gh` from your Environment to act on the repo", streamID)
 	}
-	msg := domain.Message{
+	msg := message.Message{
 		From:            string(inv.Caller.ID()),
 		To:              args.To,
 		Subject:         args.Subject,

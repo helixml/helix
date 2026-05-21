@@ -15,9 +15,9 @@ import (
 )
 
 type workerView struct {
-	ID        worker.ID         `json:"id"`
-	Kind      domain.WorkerKind `json:"kind"`
-	Positions []position.ID     `json:"positions"`
+	ID        worker.ID     `json:"id"`
+	Kind      worker.Kind   `json:"kind"`
+	Positions []position.ID `json:"positions"`
 }
 
 func workerViewOf(w domain.Worker) workerView {

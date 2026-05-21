@@ -34,7 +34,7 @@ func TestNewHumanWorker(t *testing.T) {
 				t.Fatalf("NewHumanWorker error = %v, wantErr = %v", err, tc.wantErr)
 			}
 			if !gotErr {
-				if w.Kind() != WorkerKindHuman {
+				if w.Kind() != worker.KindHuman {
 					t.Fatalf("Kind = %q, want human", w.Kind())
 				}
 				if w.ID() != tc.id {
@@ -55,7 +55,7 @@ func TestNewAIWorker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
-	if w.Kind() != WorkerKindAI {
+	if w.Kind() != worker.KindAI {
 		t.Fatalf("Kind = %q, want ai", w.Kind())
 	}
 	if got := w.Positions(); len(got) != 1 || got[0] != "p-docs" {

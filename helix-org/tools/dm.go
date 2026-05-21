@@ -10,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
@@ -105,7 +106,7 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 		}
 	}
 
-	msg := domain.Message{
+	msg := message.Message{
 		From: string(sender),
 		To:   []string{string(recipient)},
 		Body: args.Body,

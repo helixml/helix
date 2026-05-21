@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
@@ -74,7 +75,7 @@ func (s *Server) webhookHandler() http.Handler {
 			event.ID("e-"+uuid.NewString()),
 			streamID,
 			"", // system-emitted; webhooks have no Worker source
-			domain.Message{Body: string(body)},
+			message.Message{Body: string(body)},
 			nowUTC(),
 		)
 		if err != nil {

@@ -90,13 +90,13 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	}
 
 	target := worker.ID(args.WorkerID)
-	worker, err := t.deps.Store.Workers.Get(ctx, target)
+	wkr, err := t.deps.Store.Workers.Get(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", target, err)
 	}
-	if worker.Kind() != domain.WorkerKindAI {
+	if wkr.Kind() != worker.KindAI {
 		return nil, fmt.Errorf("worker %q is %s; only AI workers have activation logs",
-			target, worker.Kind())
+			target, wkr.Kind())
 	}
 
 	streamID := agent.ActivationStreamID(target)

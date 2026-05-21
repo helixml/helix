@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
@@ -182,7 +182,7 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 		outputs:        []helixclient.Output{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	err := sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerHire}})
+	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestSpawnerFollowUpUsesSendSessionMessage(t *testing.T) {
 		outputs: []helixclient.Output{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerEvent, EventID: "e-1"}}); err != nil {
+	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
@@ -290,7 +290,7 @@ func TestSpawnerRefusesWhenDesktopQuotaExceeded(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	err := sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerHire}})
+	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil {
 		t.Fatal("expected error when quota exhausted")
 	}
@@ -329,7 +329,7 @@ func TestSpawnerColdStartReQueues(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
@@ -367,7 +367,7 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	cfg := newHelixCfg(t, fc, s)
 	cfg.ActivationTimeout = 30 * time.Millisecond
 	sp := Spawner(cfg)
-	err := sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerHire}})
+	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
 	}
@@ -398,7 +398,7 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = sp(context.Background(), wid, "/ignored", []agent.Trigger{{Kind: agent.TriggerHire}})
+			_ = sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 		}()
 	}
 	time.Sleep(20 * time.Millisecond)

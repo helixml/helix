@@ -1,100 +1,28 @@
-package domain
+package domain_test
 
 import (
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/org/message"
+	"github.com/helixml/helix/helix-org/domain"
 )
 
-func TestMessageRoundTrip(t *testing.T) {
-	t.Parallel()
-	msg := Message{
-		From:            "w-alice",
-		To:              []string{"w-bob"},
-		Subject:         "hi",
-		Body:            "hello\nthere",
-		BodyContentType: "text/plain",
-		ThreadID:        "t-123",
-		InReplyTo:       "m-prev",
-		MessageID:       "m-now",
-		Attachments: []Attachment{
-			{Filename: "x.pdf", ContentType: "application/pdf", URL: "https://e.com/x", SizeBytes: 1024},
-		},
-	}
-	encoded, err := msg.Encode()
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	got, err := DecodeMessage(encoded)
-	if err != nil {
-		t.Fatalf("DecodeMessage: %v", err)
-	}
-	if got.From != msg.From || got.Body != msg.Body || len(got.To) != 1 || got.To[0] != "w-bob" {
-		t.Fatalf("round-trip mismatch: %+v", got)
-	}
-	if got.ThreadID != msg.ThreadID || got.InReplyTo != msg.InReplyTo || got.MessageID != msg.MessageID {
-		t.Fatalf("threading mismatch: %+v", got)
-	}
-	if len(got.Attachments) != 1 || got.Attachments[0].Filename != "x.pdf" {
-		t.Fatalf("attachment lost: %+v", got.Attachments)
-	}
-}
-
-func TestMessageMinimal(t *testing.T) {
-	t.Parallel()
-	// Only Body set is valid — most internal events look like this.
-	msg := Message{Body: "hello"}
-	encoded, err := msg.Encode()
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	if !strings.Contains(encoded, `"body":"hello"`) {
-		t.Fatalf("expected body field in JSON, got %q", encoded)
-	}
-	if strings.Contains(encoded, `"from"`) || strings.Contains(encoded, `"to"`) {
-		t.Fatalf("unset fields should be omitted, got %q", encoded)
-	}
-}
-
-func TestMessageEmpty(t *testing.T) {
-	t.Parallel()
-	// Empty Message — pure trigger pulse — is also valid; encodes to "{}".
-	msg := Message{}
-	encoded, err := msg.Encode()
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	if encoded != "{}" {
-		t.Fatalf("empty message = %q, want %q", encoded, "{}")
-	}
-}
-
-func TestDecodeMessageMalformed(t *testing.T) {
-	t.Parallel()
-	cases := []string{
-		``,
-		`not json`,
-		`{`,
-		`[`,
-	}
-	for _, c := range cases {
-		t.Run(c, func(t *testing.T) {
-			t.Parallel()
-			if _, err := DecodeMessage(c); err == nil {
-				t.Fatalf("DecodeMessage(%q) = nil, want error", c)
-			}
-		})
-	}
-}
+// The Message round-trip tests (M1..M4) moved to
+// api/pkg/org/message/message_test.go in B3b alongside the lifted
+// type. The two tests that stay here exercise the Event bridge:
+// NewMessageEvent (constructor) and Event.Message() (accessor) —
+// both still live in helix-org/domain because they depend on the
+// Event struct, which has not been lifted yet.
 
 func TestEventMessage(t *testing.T) {
 	t.Parallel()
-	msg := Message{From: "w-alice", Body: "hi"}
+	msg := message.Message{From: "w-alice", Body: "hi"}
 	body, err := msg.Encode()
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	e, err := NewEvent("e-1", "s-1", "w-alice", body, time.Now().UTC())
+	e, err := domain.NewEvent("e-1", "s-1", "w-alice", body, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("NewEvent: %v", err)
 	}
@@ -110,8 +38,8 @@ func TestEventMessage(t *testing.T) {
 func TestNewMessageEvent(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
-	msg := Message{From: "w-alice", To: []string{"w-bob"}, Body: "hi"}
-	e, err := NewMessageEvent("e-1", "s-dm", "w-alice", msg, now)
+	msg := message.Message{From: "w-alice", To: []string{"w-bob"}, Body: "hi"}
+	e, err := domain.NewMessageEvent("e-1", "s-dm", "w-alice", msg, now)
 	if err != nil {
 		t.Fatalf("NewMessageEvent: %v", err)
 	}
@@ -133,7 +61,7 @@ func TestNewMessageEventRejectsEmptyEncoding(t *testing.T) {
 	// NewEvent's empty-body check passes. This documents that "{}" is a
 	// valid (if degenerate) Body — pure trigger events.
 	now := time.Now().UTC()
-	e, err := NewMessageEvent("e-1", "s-1", "", Message{}, now)
+	e, err := domain.NewMessageEvent("e-1", "s-1", "", message.Message{}, now)
 	if err != nil {
 		t.Fatalf("NewMessageEvent(empty msg): %v", err)
 	}

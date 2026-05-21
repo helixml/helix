@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/activation"
+	"github.com/helixml/helix/api/pkg/org/message"
 )
 
 // TestRenderTriggerGitHub: a github-shaped event (issue.opened) must
@@ -14,13 +15,13 @@ func TestRenderTriggerGitHub(t *testing.T) {
 	t.Parallel()
 
 	extra := []byte(`{"action":"opened","event":"issues","issue":{"id":12345,"number":42,"title":"x","body":"y"},"sender":{"login":"philwinder"},"repository":{"full_name":"helixml/helix-org"}}`)
-	tr := Trigger{
-		Kind:      TriggerEvent,
+	tr := activation.Trigger{
+		Kind:      activation.TriggerEvent,
 		EventID:   "e-abc",
 		StreamID:  "s-github",
 		Source:    "",
 		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
-		Message: domain.Message{
+		Message: message.Message{
 			From:      "philwinder",
 			Subject:   "README setup steps mention an env var that no longer exists",
 			Body:      "Step 3 references HELIX_FOO; the code reads HELIX_BAR now.",
@@ -62,13 +63,13 @@ func TestRenderTriggerGitHub(t *testing.T) {
 func TestRenderTriggerEmail(t *testing.T) {
 	t.Parallel()
 
-	tr := Trigger{
-		Kind:      TriggerEvent,
+	tr := activation.Trigger{
+		Kind:      activation.TriggerEvent,
 		EventID:   "e-1",
 		StreamID:  "s-support",
 		Source:    "",
 		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
-		Message: domain.Message{
+		Message: message.Message{
 			From:      "alice@example.com",
 			To:        []string{"abc123+sam@inbound.postmarkapp.com"},
 			Subject:   "[eng] Re: Webhook stream isn't firing",
@@ -100,13 +101,13 @@ func TestRenderTriggerEmail(t *testing.T) {
 func TestRenderTriggerWorkerPublished(t *testing.T) {
 	t.Parallel()
 
-	tr := Trigger{
-		Kind:      TriggerEvent,
+	tr := activation.Trigger{
+		Kind:      activation.TriggerEvent,
 		EventID:   "e-1",
 		StreamID:  "s-general",
 		Source:    "w-alice",
 		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
-		Message: domain.Message{
+		Message: message.Message{
 			From: "w-alice",
 			Body: "hello",
 		},
@@ -125,25 +126,25 @@ func TestRenderTriggerWorkerPublished(t *testing.T) {
 	}
 }
 
-// TestBuildPromptIncludesEnvelope checks the integration: a Trigger
+// TestBuildPromptIncludesEnvelope checks the integration: a activation.Trigger
 // with full envelope fields produces a prompt whose === Trigger ===
 // section carries all of them.
 func TestBuildPromptIncludesEnvelope(t *testing.T) {
 	t.Parallel()
 
-	tr := Trigger{
-		Kind:      TriggerEvent,
+	tr := activation.Trigger{
+		Kind:      activation.TriggerEvent,
 		EventID:   "e-abc",
 		StreamID:  "s-github",
 		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
-		Message: domain.Message{
+		Message: message.Message{
 			From:    "philwinder",
 			Subject: "Confusing example in the docs",
 			Body:    "The README has an install command that doesn't run as written.",
 			Extra:   []byte(`{"event":"issues","action":"opened"}`),
 		},
 	}
-	prompt := BuildPrompt("w-doc-engineer", "[role.md contents]", []Trigger{tr})
+	prompt := BuildPrompt("w-doc-engineer", "[role.md contents]", []activation.Trigger{tr})
 
 	if !strings.Contains(prompt, "=== Trigger ===") || !strings.Contains(prompt, "=== end trigger ===") {
 		t.Fatalf("trigger fences missing\n%s", prompt)

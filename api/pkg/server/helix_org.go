@@ -14,8 +14,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
-	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/bootstrap"
 	"github.com/helixml/helix/helix-org/config"
@@ -171,7 +172,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Wire helix-org's production Spawner. The owner is a Worker, so
 	// helix-org/server/chat.HelixBridge reuses the same applier; both
 	// drive per-Worker projects through the same default settings.
-	var spawnerFn agent.Spawner
+	var spawnerFn runtime.Spawner
 	if projectApplier != nil {
 		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, serviceClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
 	}
@@ -224,14 +225,14 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 
 	baseUIHandler := helixorgui.Handler(helixorgui.Deps{
-		Store:       st,
-		Configs:     configReg,
-		Bridge:      chatBridge,
-		ChatCWD:     orgRoot,
-		Hub: bc,
-		Dispatcher:  dispatcher,
-		NewID:       deps.NewID,
-		Now:         deps.Now,
+		Store:      st,
+		Configs:    configReg,
+		Bridge:     chatBridge,
+		ChatCWD:    orgRoot,
+		Hub:        bc,
+		Dispatcher: dispatcher,
+		NewID:      deps.NewID,
+		Now:        deps.Now,
 		Settings: helixorgui.SettingsView{
 			Owner:   "w-owner",
 			DBPath:  dbPath,
@@ -449,7 +450,7 @@ func buildHelixOrgSpawnerConfig(
 		Model:         model,
 		MCPAuthBearer: apiKey,
 		Store:         orgStore,
-		Hub:   bc,
+		Hub:           bc,
 		Logger:        logger,
 		NewID:         newID,
 		Now:           now,
@@ -459,7 +460,7 @@ func buildHelixOrgSpawnerConfig(
 	}, nil
 }
 
-// lazyHelixOrgSpawner returns an agent.Spawner that defers building
+// lazyHelixOrgSpawner returns an runtime.Spawner that defers building
 // the underlying SpawnerConfig (and the wrapped helix.Spawner closure)
 // until the first activation arrives. Subsequent activations reuse
 // the same built Spawner — semaphore + MaxInflight live on the
@@ -490,12 +491,12 @@ func lazyHelixOrgSpawner(
 	applier *dynamicProjectApplier,
 	newID func() string,
 	now func() time.Time,
-) agent.Spawner {
+) runtime.Spawner {
 	var (
 		mu      sync.Mutex
-		spawner agent.Spawner
+		spawner runtime.Spawner
 	)
-	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []agent.Trigger) error {
+	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating. Without this, the cached
 		// spawner's first activation bakes whatever worker.* values

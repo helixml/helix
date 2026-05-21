@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 )
 
-// Workspace is the agent.WorkspaceSync implementation for the local
+// Workspace is the runtime.WorkspaceSync implementation for the local
 // `claude` runtime. It writes files into <envsDir>/<workerID>/<name>
 // — the same directory the spawner exec's claude in — so role and
 // identity edits land on disk between activations without waiting for
@@ -32,7 +32,7 @@ func NewWorkspace(envsDir string) *Workspace {
 }
 
 // MirrorFile writes content to <envsDir>/<workerID>/<name>. `name`
-// must satisfy agent.ValidateWorkspaceName (no absolute paths, no
+// must satisfy runtime.ValidateWorkspaceName (no absolute paths, no
 // upward traversal). `message` is unused by this backend (no commit
 // log on the local filesystem).
 //
@@ -44,7 +44,7 @@ func (w *Workspace) MirrorFile(_ context.Context, workerID worker.ID, name, cont
 	if workerID == "" {
 		return errors.New("claude workspace: workerID is empty")
 	}
-	if err := agent.ValidateWorkspaceName(name); err != nil {
+	if err := runtime.ValidateWorkspaceName(name); err != nil {
 		return fmt.Errorf("claude workspace: %w", err)
 	}
 	envDir := filepath.Join(w.EnvsDir, string(workerID))
@@ -65,4 +65,4 @@ func (w *Workspace) MirrorFile(_ context.Context, workerID worker.ID, name, cont
 }
 
 // Compile-time check.
-var _ agent.WorkspaceSync = (*Workspace)(nil)
+var _ runtime.WorkspaceSync = (*Workspace)(nil)

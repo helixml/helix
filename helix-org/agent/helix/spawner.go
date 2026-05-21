@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
@@ -66,12 +68,12 @@ type SpawnerConfig struct {
 	PollMax           time.Duration // default 30s
 	Logger            *slog.Logger
 	Store             *store.Store
-	Hub       *broadcast.Hub
+	Hub               *broadcast.Hub
 	Now               func() time.Time
 	NewID             func() string
 }
 
-// Spawner returns an agent.Spawner that runs each activation as a
+// Spawner returns an runtime.Spawner that runs each activation as a
 // long-lived Helix chat session. Either a fresh one (first activation
 // or stale pointer) or a follow-up message on the Worker's already-
 // open session.
@@ -83,7 +85,7 @@ type SpawnerConfig struct {
 // dedup map and republished onto s-activations-<workerID> in the
 // same shape claude.Spawner emits, so observers see one transcript
 // format regardless of backend.
-func Spawner(cfg SpawnerConfig) agent.Spawner {
+func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if cfg.PollInitial == 0 {
 		cfg.PollInitial = 250 * time.Millisecond
 	}
@@ -97,7 +99,7 @@ func Spawner(cfg SpawnerConfig) agent.Spawner {
 		cfg.MaxInflight = 8
 	}
 	sem := make(chan struct{}, cfg.MaxInflight)
-	return func(ctx context.Context, workerID worker.ID, _ string, triggers []agent.Trigger) error {
+	return func(ctx context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -150,7 +152,7 @@ func Spawner(cfg SpawnerConfig) agent.Spawner {
 		}
 
 		// Make sure the Worker has a Helix project. First activation
-		// (TriggerHire, or a TriggerEvent before hire fully ran)
+		// (activation.TriggerHire, or a activation.TriggerEvent before hire fully ran)
 		// applies one and persists the IDs.
 		if err := cfg.ensureProject(actCtx, workerID); err != nil {
 			publish(fmt.Sprintf("=== exit: error: %v ===", err))

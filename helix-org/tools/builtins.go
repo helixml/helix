@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -45,18 +45,18 @@ type EventDispatcher interface {
 // that don't exercise the runtime can leave it nil. The dispatcher
 // itself owns the Spawner.
 //
-// Workspace is required (use agent.NoopWorkspaceSync{} for tests).
+// Workspace is required (use runtime.NoopWorkspaceSync{} for tests).
 // update_role and update_identity call MirrorFile on it after
 // persisting to the DB so the per-runtime view of role/identity stays
 // in sync with the canonical domain copy.
 type Deps struct {
-	Store       *store.Store
-	Now         Clock
-	NewID       IDGen
-	EnvsDir     string
-	Hub *broadcast.Hub
-	Dispatcher  EventDispatcher
-	Workspace   agent.WorkspaceSync
+	Store      *store.Store
+	Now        Clock
+	NewID      IDGen
+	EnvsDir    string
+	Hub        *broadcast.Hub
+	Dispatcher EventDispatcher
+	Workspace  runtime.WorkspaceSync
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
@@ -68,7 +68,7 @@ func DefaultDeps(s *store.Store) Deps {
 		Store:     s,
 		Now:       func() time.Time { return time.Now().UTC() },
 		NewID:     uuid.NewString,
-		Workspace: agent.NoopWorkspaceSync{},
+		Workspace: runtime.NoopWorkspaceSync{},
 	}
 }
 
@@ -77,7 +77,7 @@ func DefaultDeps(s *store.Store) Deps {
 // (like Ping) are not included.
 func RegisterBuiltins(reg *Registry, deps Deps) error {
 	if deps.Workspace == nil {
-		return fmt.Errorf("tools.RegisterBuiltins: deps.Workspace is required (use agent.NoopWorkspaceSync{} for tests)")
+		return fmt.Errorf("tools.RegisterBuiltins: deps.Workspace is required (use runtime.NoopWorkspaceSync{} for tests)")
 	}
 	builtins := []domain.Tool{
 		// Mutations.

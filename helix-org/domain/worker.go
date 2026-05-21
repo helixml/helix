@@ -8,34 +8,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
-// WorkerKind distinguishes HumanWorker from AIWorker.
-type WorkerKind string
-
-const (
-	WorkerKindHuman WorkerKind = "human"
-	WorkerKindAI    WorkerKind = "ai"
-)
-
-// WorkerKindValues lists every valid WorkerKind. Source of truth for
-// the JSON Schema `enum` constraint surfaced through MCP and for
-// listing valid options in validation errors. Adding a new kind means
-// touching this one place.
-func WorkerKindValues() []WorkerKind {
-	return []WorkerKind{WorkerKindHuman, WorkerKindAI}
-}
-
-// Validate returns an error if k is not one of the known worker kinds.
-// The error lists the valid options verbatim so a client that posted
-// a bad value can self-correct without reading source.
-func (k WorkerKind) Validate() error {
-	for _, v := range WorkerKindValues() {
-		if k == v {
-			return nil
-		}
-	}
-	return fmt.Errorf("unknown worker kind %q (valid: %s)", k, QuotedList(WorkerKindValues()))
-}
-
 // Worker is the common abstraction over humans and AI agents occupying
 // Positions. HumanWorker and AIWorker are the only concrete
 // implementations; the unexported marker method keeps the set closed.
@@ -53,7 +25,7 @@ func (k WorkerKind) Validate() error {
 // the domain when a new runtime backend appears.
 type Worker interface {
 	ID() worker.ID
-	Kind() WorkerKind
+	Kind() worker.Kind
 	Positions() []position.ID
 	IdentityContent() string
 	WithIdentityContent(content string) Worker
@@ -80,7 +52,7 @@ func NewHumanWorker(id worker.ID, positions []position.ID, identityContent strin
 }
 
 func (h *HumanWorker) ID() worker.ID            { return h.id }
-func (h *HumanWorker) Kind() WorkerKind         { return WorkerKindHuman }
+func (h *HumanWorker) Kind() worker.Kind         { return worker.KindHuman }
 func (h *HumanWorker) Positions() []position.ID { return copyPositions(h.positions) }
 func (h *HumanWorker) IdentityContent() string  { return h.identity }
 func (h *HumanWorker) WithIdentityContent(content string) Worker {
@@ -108,7 +80,7 @@ func NewAIWorker(id worker.ID, positions []position.ID, identityContent string) 
 }
 
 func (a *AIWorker) ID() worker.ID            { return a.id }
-func (a *AIWorker) Kind() WorkerKind         { return WorkerKindAI }
+func (a *AIWorker) Kind() worker.Kind         { return worker.KindAI }
 func (a *AIWorker) Positions() []position.ID { return copyPositions(a.positions) }
 func (a *AIWorker) IdentityContent() string  { return a.identity }
 func (a *AIWorker) WithIdentityContent(content string) Worker {

@@ -24,8 +24,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
+	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
@@ -54,10 +57,10 @@ type SpawnerConfig struct {
 	// activation events to the Worker's activation Stream
 	// (s-activations-<workerID>). Store and NewID and Now are required;
 	// Hub is optional (long-poll observers won't wake without it).
-	Store       *store.Store
-	Hub *broadcast.Hub
-	Now         func() time.Time
-	NewID       func() string
+	Store *store.Store
+	Hub   *broadcast.Hub
+	Now   func() time.Time
+	NewID func() string
 }
 
 // mcpServerName is the key under which the helix MCP server is registered
@@ -65,7 +68,7 @@ type SpawnerConfig struct {
 // mcp__<mcpServerName>__<toolName>.
 const mcpServerName = "helix"
 
-// Spawner returns an agent.Spawner that runs `claude -p` in the new
+// Spawner returns an runtime.Spawner that runs `claude -p` in the new
 // Worker's Environment directory and BLOCKS until claude exits. The
 // dispatcher is responsible for serialising calls per Worker.
 //
@@ -93,8 +96,8 @@ const mcpServerName = "helix"
 // process that publishes one Event per atomic message segment to the
 // Worker's activation Stream. Observers (typically the hiring Worker,
 // auto-subscribed at hire) watch via read_events on that Stream.
-func Spawner(cfg SpawnerConfig) agent.Spawner {
-	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []agent.Trigger) error {
+func Spawner(cfg SpawnerConfig) runtime.Spawner {
+	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []activation.Trigger) error {
 		if len(triggers) == 0 {
 			return fmt.Errorf("spawner invoked with no triggers")
 		}
@@ -257,7 +260,7 @@ func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID wor
 		event.ID("e-"+cfg.NewID()),
 		streamID,
 		workerID,
-		domain.Message{From: string(workerID), Body: body},
+		message.Message{From: string(workerID), Body: body},
 		cfg.Now(),
 	)
 	if err != nil {

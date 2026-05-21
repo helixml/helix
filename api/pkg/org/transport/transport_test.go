@@ -1,22 +1,20 @@
 // Package transport_test characterises the public behaviour of the
-// helix-org transport types — TransportKind enum, Transport struct, the
-// per-Kind Config types, and the Validate() / *Config() parsers — prior
-// to the B1 lift.
+// transport types — Kind enum, Transport struct, the per-Kind Config
+// types, and the Validate() / *Config() parsers — lifted from
+// helix-org/domain in B1.
 //
-// Today the types being tested live in `helix-org/domain`. After B1
-// step 2 they move into this package (`api/pkg/org/transport`) and the
-// import below changes to a local reference. The test cases themselves
-// must not change between step 1 (these tests, against the unmoved
-// code) and step 2 (the lift). If they do, B1 is no longer
-// behaviour-preserving — see the "Characterisation tests" rule in
-// helix-org/CLAUDE.md.
+// The test cases were authored against the unmoved code (with a
+// temporary upward import to helix-org/domain) and ran green before
+// the B1 step 2 lift; only the import path and symbol references
+// changed in the lift commit. Names lost the redundant "Transport"
+// prefix on the way through (domain.TransportKind -> transport.Kind,
+// domain.TransportEmail -> transport.KindEmail, etc.).
 //
-// Coverage was widened versus the legacy `helix-org/domain/transport_test.go`
+// Coverage widened versus the legacy helix-org/domain/transport_test.go
 // in two places: direct round-trip tests for the Email and GitHub
 // config parsers (previously only exercised indirectly via Validate),
 // and explicit Validate cases for the GitHub transport (previously
-// missing entirely). The legacy file is deleted in this same commit;
-// every case it pinned is preserved below.
+// missing entirely).
 package transport_test
 
 import (

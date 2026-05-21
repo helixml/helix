@@ -41,6 +41,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/domain"
@@ -211,7 +212,7 @@ func (t *Transport) HandleInbound() http.Handler {
 			return
 		}
 
-		msg := domain.Message{
+		msg := message.Message{
 			From:      sender(payload),
 			Subject:   subjectFor(eventType, payload),
 			Body:      bodyFor(eventType, payload),
