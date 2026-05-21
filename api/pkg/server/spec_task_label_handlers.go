@@ -38,7 +38,7 @@ func (s *HelixAPIServer) listProjectLabels(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (s *HelixAPIServer) addSpecTaskLabel(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -167,7 +167,7 @@ func (s *HelixAPIServer) removeSpecTaskLabel(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 

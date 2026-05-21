@@ -7,6 +7,7 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
+import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
@@ -15,13 +16,16 @@ import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Skeleton from '@mui/material/Skeleton'
+import Tooltip from '@mui/material/Tooltip'
 
 import {
-  isUserOwnerOfOrganization
+  getUserMembership,
+  isUserOwnerOfOrganization,
 } from '../../utils/organizations'
 
 import {
   TypesOrganization,
+  TypesOrganizationRole,
 } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
@@ -66,13 +70,83 @@ const StatItem: FC<{
   </Box>
 )
 
+// Membership state for a card: drives both the chip label and the
+// non-member dimming. We treat admins-viewing-someone-else's-org as
+// distinct so the UI makes that obvious.
+//
+// Source of truth is `org.member` (set by the backend list handler in
+// organization_handlers.go:134), because the `memberships` array isn't
+// preloaded on the admin list path. We still consult the array when it
+// IS populated to distinguish Owner from plain Member.
+type MembershipState =
+  | { kind: 'owner' }
+  | { kind: 'member' }
+  | { kind: 'admin-view' }
+
+const computeMembershipState = (
+  org: TypesOrganization,
+  userID: string,
+): MembershipState => {
+  if (!org.member) {
+    return { kind: 'admin-view' }
+  }
+  const membership = getUserMembership(org, userID)
+  if (membership?.role === TypesOrganizationRole.OrganizationRoleOwner) {
+    return { kind: 'owner' }
+  }
+  return { kind: 'member' }
+}
+
+const MembershipChip: FC<{ state: MembershipState }> = ({ state }) => {
+  switch (state.kind) {
+    case 'owner':
+      return (
+        <Chip
+          label="Owner"
+          size="small"
+          color="secondary"
+          variant="outlined"
+          sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }}
+        />
+      )
+    case 'member':
+      return (
+        <Chip
+          label="Member"
+          size="small"
+          variant="outlined"
+          sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }}
+        />
+      )
+    case 'admin-view':
+      return (
+        <Tooltip title="You are not a member of this organization. You can see it because you are an admin.">
+          <Chip
+            label="Admin view"
+            size="small"
+            variant="outlined"
+            sx={{
+              height: 20,
+              fontSize: '0.65rem',
+              fontWeight: 600,
+              color: 'text.secondary',
+              borderColor: 'rgba(0, 0, 0, 0.18)',
+            }}
+          />
+        </Tooltip>
+      )
+  }
+}
+
 const OrgCard: FC<{
   org: TypesOrganization
   userID: string
   onMenuOpen: (event: React.MouseEvent<HTMLElement>, org: TypesOrganization) => void
 }> = ({ org, userID, onMenuOpen }) => {
   const router = useRouter()
-  const isOwner = isUserOwnerOfOrganization(org, userID)
+  const membership = computeMembershipState(org, userID)
+  const isOwner = membership.kind === 'owner'
+  const isNonMember = membership.kind === 'admin-view'
   const memberCount = org.memberships?.length ?? 0
 
   return (
@@ -87,11 +161,13 @@ const OrgCard: FC<{
         borderLeft: '3px solid transparent',
         borderRadius: 1,
         boxShadow: 'none',
+        opacity: isNonMember ? 0.65 : 1,
         transition: 'all 0.15s ease-in-out',
         '&:hover': {
           borderColor: 'rgba(0, 0, 0, 0.12)',
           borderLeftColor: 'secondary.main',
           backgroundColor: 'rgba(0, 0, 0, 0.01)',
+          opacity: 1,
         },
       }}
     >
@@ -109,7 +185,7 @@ const OrgCard: FC<{
           router.navigate('org_projects', { org_id: org.name })
         }}
       >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography
               variant="body2"
@@ -124,6 +200,9 @@ const OrgCard: FC<{
             >
               {org.display_name || org.name}
             </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+            <MembershipChip state={membership} />
           </Box>
           {isOwner && (
             <IconButton

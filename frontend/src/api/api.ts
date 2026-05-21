@@ -5272,6 +5272,25 @@ export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
 }
 
+export interface TypesSpecTaskAttachment {
+  /** optional user note */
+  caption?: string;
+  /** helix-specs commit hash once staged */
+  committed_sha?: string;
+  created_at?: string;
+  /** original filename, sanitised */
+  filename?: string;
+  /** att_01k... */
+  id?: string;
+  mime_type?: string;
+  /** denormalised for fast authz */
+  project_id?: string;
+  size_bytes?: number;
+  spec_task_id?: string;
+  /** who uploaded */
+  user_id?: string;
+}
+
 export interface TypesSpecTaskDesignReview {
   approved_at?: string;
   /** Timestamps */
@@ -13724,6 +13743,87 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsDetail
+     * @summary List attachments for a spec task
+     * @request GET:/api/v1/spec-tasks/{taskId}/attachments
+     * @secure
+     */
+    v1SpecTasksAttachmentsDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskAttachment[], any>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one or more files (images, PDFs, text) to be made available to the agent.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsCreate
+     * @summary Upload attachments for a spec task
+     * @request POST:/api/v1/spec-tasks/{taskId}/attachments
+     * @secure
+     */
+    v1SpecTasksAttachmentsCreate: (
+      taskId: string,
+      data: {
+        /** Files to attach (multipart form data, field 'files') */
+        files: File;
+        /** Optional caption for the attachment (single file uploads only) */
+        caption?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskAttachment[], TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsDelete
+     * @summary Delete a spec task attachment
+     * @request DELETE:/api/v1/spec-tasks/{taskId}/attachments/{attId}
+     * @secure
+     */
+    v1SpecTasksAttachmentsDelete: (taskId: string, attId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments/${attId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsContentDetail
+     * @summary Stream the bytes of a spec task attachment
+     * @request GET:/api/v1/spec-tasks/{taskId}/attachments/{attId}/content
+     * @secure
+     */
+    v1SpecTasksAttachmentsContentDetail: (taskId: string, attId: string, params: RequestParams = {}) =>
+      this.request<File, any>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments/${attId}/content`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

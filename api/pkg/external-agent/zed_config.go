@@ -161,14 +161,24 @@ func GenerateZedMCPConfig(
 		// those sessions still come up.
 		provider = "anthropic"
 		model = "claude-sonnet-4-5-latest"
-	} else if assistant.CodeAgentCredentialType.IsSubscription() {
-		// Subscription-credential agents (e.g. Claude Code with OAuth) handle
-		// inference upstream, not through a Helix provider. Don't write a
-		// Helix-routed default into settings.json — Zed falls back to its
-		// built-in defaults for inline assistant / commit messages / thread
-		// summaries, and the agent itself (Claude Code) routes via its own
-		// OAuth path. The pre-flight ValidateAssistantModelConfig already
-		// applies the same bypass so spec-task start handlers don't 422.
+	} else if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
+		// Subscription credentials only make sense for Claude Code: it handles
+		// inference upstream via OAuth, not through a Helix provider. Don't
+		// write a Helix-routed default into settings.json — Zed falls back to
+		// its built-in defaults for inline assistant / commit messages / thread
+		// summaries, and Claude Code routes via its own OAuth path. The pre-
+		// flight ValidateAssistantModelConfig already applies the same bypass
+		// so spec-task start handlers don't 422.
+		//
+		// We deliberately scope this branch to claude_code: a non-Claude
+		// runtime (zed_agent, qwen_code, gemini_cli, codex_cli) cannot use a
+		// "subscription" credential — there's no OAuth path for it. Treating
+		// such an assistant as subscription-credentialed leaves agent.default_model
+		// unset, which trips start-zed-helix.sh's wait_for_zed_config (it greps
+		// for the literal "default_model" key) and the dev container times out
+		// with a generic "Agent never connected" banner. The misconfigured
+		// credential_type=subscription is almost always a stale UI default; we
+		// log it and fall through to the api_key path so the agent can boot.
 		useAgentModel = false
 	} else if reason := ValidateAssistantModelConfig(app, providerSnapshot); reason != "" {
 		log.Error().
@@ -715,18 +725,19 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if assistant == nil {
 		return ""
 	}
-	// Subscription-credential agents (e.g. Claude Code with OAuth) auth
-	// directly with the upstream provider and do not route inference through
-	// a Helix provider, so empty provider/model is the documented shape
+	// Subscription-credential agents (Claude Code with OAuth) auth directly
+	// with the upstream provider and do not route inference through a Helix
+	// provider, so empty provider/model is the documented shape
 	// (see types.CodeAgentCredentialTypeSubscription). Validating against a
 	// Helix provider snapshot would be meaningless and incorrectly 422s any
 	// task started on such an agent.
 	//
-	// Today only zed_external+claude_code uses subscription credentials. If
-	// other runtimes ever adopt OAuth, audit this bypass — and the matching
-	// useAgentModel=false branch in GenerateZedMCPConfig — so we don't mask
-	// misconfig on agents that DO need a Helix-routed provider.
-	if assistant.CodeAgentCredentialType.IsSubscription() {
+	// Scoped to claude_code runtime: a zed_agent / qwen_code / gemini_cli /
+	// codex_cli assistant cannot use OAuth, so credential_type=subscription
+	// on those is misconfig (almost always a stale UI default) — we let it
+	// fall through to the normal provider/model check rather than silently
+	// bypassing it. See the matching condition in GenerateZedMCPConfig.
+	if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
 		return ""
 	}
 	provider := assistant.GenerationModelProvider
