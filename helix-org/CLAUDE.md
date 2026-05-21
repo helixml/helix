@@ -32,16 +32,12 @@ When a design choice looks like it could go either way, pick the one that pushes
 
 ## Architecture at a Glance
 
-- **Storage**: SQLite, driven by GORM with `AutoMigrate`. In dev the file lives alongside the `bin/helix-org` binary; embedded in helix it lives at `$FILESTORE_LOCALFS_PATH/helix-org/helix-org.db` (so the feature requires `FILESTORE_TYPE=fs` — gcs/s3 deployments skip the mount). No raw SQL migration files. The redesign target is to move persistence onto helix's Postgres-backed `store` — see migration H4 in [`design/2026-05-21-redesign/09-integration-reframe.md`](design/2026-05-21-redesign/09-integration-reframe.md).
-- **Interface**: Every mutation of the org graph runs through MCP at `/workers/{id}/mcp` (Streamable HTTP). The worker ID in the URL identifies the caller; the server exposes only the tools that worker holds grants for. In dev (`helix-org serve`) this is mounted directly on `:8080`; embedded in helix it is registered as an MCP gateway backend and reachable at `/api/v1/mcp/helix-org/workers/{id}/mcp` behind helix auth. The owner-facing UI at `/ui/` also reads and writes the store directly server-side (for things like settings); this is a deliberate operator-trusted bypass — see ADR-0010 (TBD) and `09-integration-reframe.md §3.04`.
-- **Owner seeding**: The first start against an empty database creates the initial owner Worker (`w-owner`), Position (`p-root`), Role (`r-owner`), Environment, activation Stream, and the root grant set. This runs inside `helix-org serve` and inside helix's `initHelixOrgHandler` — **not** inside the `helix-org bootstrap` subcommand (which is reserved for *external dependency* setup, e.g. validating a Helix project ID). After seeding, all org-graph mutations go through MCP.
-- **CLI** (dev affordance, not production):
-  - `helix-org serve` — runs the standalone HTTP listener.
-  - `helix-org chat` — exec's an interactive `claude` CLI session against a chosen Worker's MCP endpoint (default `w-owner`). Session continuity is implemented by hand-parsing claude's per-cwd `.jsonl` files and passing `--resume <sid>` (not `--continue` — see `cmd/helix-org/chat.go:88-104` for the reason).
-  - `helix-org bootstrap helix-runtime` — pre-flight that pings a Helix project and validates `chat.provider` / `chat.model`.
-  - `helix-org config` — read/write rows in the `configs` table (CLI-only; never via MCP).
-- **Production runtime**: the embedded Helix agent backend (`agent/helix`). Each Worker is provisioned with a per-Worker `helix.Project` + Agent App + git repo, and runs in a Zed sandbox with Claude Code authenticated via the operator's OAuth (no API key at rest). The dev-only `agent/claude` backend exec's a local `claude` CLI per activation — useful for sandboxed local testing.
-- **Auth**: When embedded, helix's `requireUser + requireFeature` middleware gates every surface. In standalone dev mode all callers are treated as the root owner. Real per-Worker authentication / multi-tenancy (one Org Graph per `helix.Organization`) is the H5–H6 migration; today every gated user shares one `w-owner` (PR #2286 OOS).
+- **Library only — no binary.** The standalone `helix-org` CLI was deleted in H7. There is no `./bin/helix-org` to build, no `helix-org serve`, no `helix-org chat`. Production runs inside `helix api`, which mounts helix-org via `api/pkg/server/helix_org.go`. To exercise helix-org locally, run the helix api binary with `HELIX_ORG_ENABLED=true`.
+- **Storage**: SQLite, driven by GORM with `AutoMigrate`. The file lives at `$FILESTORE_LOCALFS_PATH/helix-org/helix-org.db`, so the feature requires `FILESTORE_TYPE=fs` (gcs/s3 deployments skip the mount). No raw SQL migration files. The redesign target is to move persistence onto helix's Postgres-backed `store` — see migration H4 in [`design/2026-05-21-redesign/09-integration-reframe.md`](design/2026-05-21-redesign/09-integration-reframe.md).
+- **Interface**: Every mutation of the org graph runs through MCP at `/workers/{id}/mcp` (Streamable HTTP), registered as a backend of helix's MCP gateway and reachable at `/api/v1/mcp/helix-org/workers/{id}/mcp` behind helix auth. The worker ID in the URL identifies the caller; the server exposes only the tools that worker holds grants for. The owner-facing UI at `/ui/` also reads and writes the store directly server-side (for things like settings); this is a deliberate operator-trusted bypass — see ADR-0010 (TBD) and `09-integration-reframe.md §3.04`.
+- **Owner seeding**: On first start against an empty database, `initHelixOrgHandler` (`api/pkg/server/helix_org.go`) calls `bootstrap.Run` which creates the initial owner Worker (`w-owner`), Position (`p-root`), Role (`r-owner`), Environment, activation Stream, and the root grant set. After seeding, all org-graph mutations go through MCP.
+- **Production runtime**: the embedded Helix agent backend (`agent/helix`). Each Worker is provisioned with a per-Worker `helix.Project` + Agent App + git repo, and runs in a Zed sandbox with Claude Code authenticated via the operator's OAuth (no API key at rest). A `agent/claude` backend still exists (exec's a local `claude` CLI per activation) and is wired through the same `agent.Spawner` port — usable for tests and sandboxed local testing without a real Helix sandbox.
+- **Auth**: helix's `requireUser + requireFeature` middleware gates every surface. Real per-Worker authentication / multi-tenancy (one Org Graph per `helix.Organization`) is the H5–H6 migration; today every gated user shares one `w-owner` (PR #2286 OOS).
 
 ## Setup
 
@@ -53,36 +49,22 @@ make tools
 
 ## Build, Test, and Check
 
-**Always prefer `make` targets over raw shell commands.** The Makefile sets required build tags, CGO flags, environment variables, and opinionated defaults (envs dir, DB path, listen address) that ad-hoc `go run` / `go test` / `golangci-lint` invocations miss. Running raw commands silently drifts from how the project actually builds and runs.
+**Always prefer `make` targets over raw shell commands.** The Makefile sets required build tags, CGO flags, and an opinionated test invocation that ad-hoc `go test` / `golangci-lint` runs miss. Running raw commands silently drifts from how the project actually builds and runs.
 
-If you find yourself reaching for a multi-step shell incantation to build, run, test, format, lint, clean, or seed local state — **add a `make` target for it instead**, then call that target. Future-you and other agents will reuse it; one-off shell strings rot. Keep targets discoverable via `make help`.
+If you find yourself reaching for a multi-step shell incantation to test, format, lint, clean, or seed local state — **add a `make` target for it instead**, then call that target. Future-you and other agents will reuse it; one-off shell strings rot. Keep targets discoverable via `make help`.
 
 ```bash
-make build                       # Build the binary into ./bin
-make run                         # Run `helix-org serve` with opinionated defaults (./envs, ./helix-org.db, :8080)
-make run ARGS="--model sonnet"     # Run with extra flags appended after the defaults
 make test                        # Run all tests (race + -count=1)
 make test PKG=./domain/...       # Test a specific package
 make test-cover                  # Run tests + write coverage.out / coverage.html
 make check                       # Format, vet, lint, and test (modifies files)
 make ci                          # CI-safe: fmt-check, vet, lint, test (no writes)
-make clean                       # Kill running servers, remove ./bin, ./envs, *.db, coverage files
+make clean                       # Remove coverage and envs artefacts; nuke local *.db
 ```
 
 `make check` is for local use — it runs `goimports -w` and may modify files. `make ci` runs `fmt-check` instead, failing if anything is unformatted without touching files. CI must use `make ci`; contributors must pass `make check` locally before pushing.
 
-## Running the Project End-to-End
-
-```bash
-make run                                  # opinionated defaults: serve, ./envs, ./helix-org.db, :8080
-make run ARGS="--model opus"              # append extra flags
-make clean && make run                    # nuke local state (DB + envs + running server) and start fresh
-make build && ./bin/helix-org --help      # compiled binary (matches what CI ships)
-```
-
-`make run` is for fast iteration. Before pushing or tagging a release, exercise the compiled binary (`make build && ./bin/helix-org ...`) — the `go run` path can mask build-tag or linker differences.
-
-`make clean` is destructive on purpose: it kills any `helix-org serve` process it can find, deletes `./bin`, `./envs`, every `*.db` in the project root, and the coverage artefacts. Use it whenever local state has drifted (stale Workers, half-bootstrapped DB, lingering server holding port 8080).
+To run helix-org end-to-end, build and run the **helix api** binary with `HELIX_ORG_ENABLED=true` and grant the `helix-org` alpha feature flag to a user — see [PR #2286](https://github.com/helixml/helix/pull/2286) for the enable steps.
 
 ## Shipping Code
 

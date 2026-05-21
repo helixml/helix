@@ -129,10 +129,10 @@ type Environments interface {
 }
 
 // Configs persists operational-config rows: transport credentials,
-// claude binary path, model selection, etc. Keys are flat dot-
-// namespaced strings; values are JSON-encoded. See design/config.md
-// for the org-graph-vs-ops split. Configs are written exclusively
-// through the helix-org config CLI — never via MCP.
+// model selection, runtime knobs, etc. Keys are flat dot-namespaced
+// strings; values are JSON-encoded. Configs are written through the
+// `/ui/settings` admin page — never via MCP. The CLI surface that
+// used to set them was deleted in H7.
 type Configs interface {
 	Set(ctx context.Context, cfg domain.Config) error
 	Get(ctx context.Context, key string) (domain.Config, error)

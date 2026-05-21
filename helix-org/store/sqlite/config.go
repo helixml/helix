@@ -27,8 +27,9 @@ type configsRepo struct {
 	db *gorm.DB
 }
 
-// Set upserts a config row by key. The `helix-org config` CLI is the
-// only intended caller — there is no MCP tool path in.
+// Set upserts a config row by key. The `/ui/settings` admin page is
+// the intended caller (helix-org/server/ui — see handleSettingsSet);
+// there is no MCP tool path in.
 func (r *configsRepo) Set(ctx context.Context, cfg domain.Config) error {
 	row := configRow{
 		Key:       cfg.Key,

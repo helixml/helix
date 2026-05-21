@@ -1,11 +1,14 @@
-# Helix Org Makefile — always drive builds/tests/lint through make.
+# Helix Org Makefile — package-level test/lint/format only.
+#
+# The standalone `helix-org` CLI binary was removed in H7 — production
+# deployments mount helix-org from inside `helix api`
+# (api/pkg/server/helix_org.go), so there is no longer a `cmd/` to
+# build or run from here. What remains is library code: tests,
+# linting, formatting, coverage. Build targets that produced ./bin/helix-org
+# have been removed; run the helix api binary instead.
 
-BINARY      := helix-org
-MODULE      := github.com/helixml/helix-org
-CMD_PKG     := ./cmd/$(BINARY)
-BIN_DIR     := bin
+MODULE      := github.com/helixml/helix
 PKG         ?= ./...
-ARGS        ?=
 
 GOLANGCI_LINT_VERSION := v2.11.4
 
@@ -15,7 +18,7 @@ CGO_ENABLED ?= 0
 
 export CGO_ENABLED
 
-.PHONY: help tools build run test test-cover test-e2e-helix fmt fmt-check vet lint check ci clean
+.PHONY: help tools test test-cover test-e2e-helix fmt fmt-check vet lint check ci clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -24,13 +27,6 @@ tools: ## Install required development tools
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
 	$(GO) install go.uber.org/mock/mockgen@latest
-
-build: ## Build the binary into ./bin
-	mkdir -p $(BIN_DIR)
-	$(GO) build $(GOFLAGS) -o $(BIN_DIR)/$(BINARY) $(CMD_PKG)
-
-run: ## Run `helix-org serve` with opinionated defaults; pass extra flags via ARGS="..."
-	$(GO) run $(CMD_PKG) serve --envs-dir ./envs --db ./helix-org.db --addr :8080 $(ARGS)
 
 test: ## Run tests (use PKG=./path/... to scope)
 	CGO_ENABLED=1 $(GO) test $(GOFLAGS) -race -count=1 $(PKG)
@@ -63,7 +59,6 @@ check: fmt vet lint test ## Format, vet, lint, and test (modifies files)
 
 ci: fmt-check vet lint test ## CI-safe: checks formatting without modifying
 
-clean: ## Remove build artefacts, kill running servers, wipe local DBs and envs
-	@pkill -f '[h]elix-org serve' 2>/dev/null || true
-	rm -rf $(BIN_DIR) coverage.out coverage.html envs
+clean: ## Remove coverage and envs artefacts (no binary to delete any more)
+	rm -rf coverage.out coverage.html envs
 	rm -f *.db

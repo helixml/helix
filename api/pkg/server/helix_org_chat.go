@@ -65,6 +65,24 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 		Type:        config.TypeString,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request (rare — most calls forward the user's own api key). Auto-provisioned at startup against the first admin user.",
 	})
+	// Transport-level secrets: every Stream whose transport is `postmark`
+	// or `github` reads these. Secrets are redacted on `config get` —
+	// see TestRegisterHelixOrgConfigSpecs_RedactsTransportSecrets. Any
+	// future refactor that drops one of the entries from the Secrets
+	// list would silently start leaking the value to anyone with shell
+	// access who reads the configs table; the test pins them.
+	r.Register(config.Spec{
+		Key:         "transport.postmark",
+		Type:        config.TypeObject,
+		Secrets:     []string{"token"},
+		Description: `Postmark account config: {"token","inbound","from"}. Required only if any Stream uses transport=email.`,
+	})
+	r.Register(config.Spec{
+		Key:         "transport.github",
+		Type:        config.TypeObject,
+		Secrets:     []string{"token", "webhook_secret"},
+		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
+	})
 }
 
 // buildEmbeddedChatBackend constructs a HelixBridge that opens the
