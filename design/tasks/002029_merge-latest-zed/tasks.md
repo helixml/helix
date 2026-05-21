@@ -2,15 +2,15 @@
 
 ## Setup
 
-- [ ] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, 762 lines as of start of task
-- [ ] Read prior plan `001996_merge-latest-zed/` end-to-end — closest precedent (mandatory, not optional)
-- [ ] Skim 001980 plan for the `BaseView::Terminal` exhaustiveness lesson and the GPUI-event-flush race pattern
-- [ ] Read commit messages of Helix PRs since 001996: `git log 8841edb2b1..origin/main` — PR #50 (`b16e4a948a`), PR #55 (`3778eb04a3`), PR #56 (`32a1e3ba30`, `455c095fcc`, `056fe07180`, `769a463a2f`), PR #57 (`b35224530f`), direct fix (`fd26c1a113`)
-- [ ] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] `git fetch upstream && git fetch origin`
-- [ ] Verify divergence: **261** commits to merge, fork HEAD `fd26c1a113`, upstream HEAD `1399540715` (re-confirm at runtime — numbers may shift if upstream pushed since)
-- [ ] Pull `origin/main` first in case fork main moved
-- [ ] Create feature branch: `feature/002029-merge-latest-zed` from current fork main
+- [~] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, 762 lines as of start of task
+- [~] Read prior plan `001996_merge-latest-zed/` end-to-end — closest precedent (mandatory, not optional)
+- [~] Skim 001980 plan for the `BaseView::Terminal` exhaustiveness lesson and the GPUI-event-flush race pattern
+- [~] Read commit messages of Helix PRs since 001996: `git log 8841edb2b1..origin/main` — PR #50 (`b16e4a948a`), PR #55 (`3778eb04a3`), PR #56 (`32a1e3ba30`, `455c095fcc`, `056fe07180`, `769a463a2f`), PR #57 (`b35224530f`), direct fix (`fd26c1a113`)
+- [~] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
+- [~] `git fetch upstream && git fetch origin`
+- [~] Verify divergence: **261** commits to merge, fork HEAD `fd26c1a113`, upstream HEAD `1399540715` (re-confirm at runtime — numbers may shift if upstream pushed since)
+- [~] Pull `origin/main` first in case fork main moved
+- [~] Create feature branch: `feature/002029-merge-latest-zed` from current fork main
 
 ## Pre-Merge Reconnaissance
 
