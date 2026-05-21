@@ -173,14 +173,23 @@ func (n *Notion) OnExternalCreate(ctx context.Context, triggerConfig *types.Trig
 	}
 
 	prompt := extractPrompt(ev, cfg.ColumnMapping.PromptColumn)
+	name := extractTitle(ev)
 	if prompt == "" {
-		// Fallback would be to GET the page and read body blocks. For the
-		// MVP if no prompt column was configured (or it's empty) we error
-		// loudly — the user can re-fire after filling it in.
-		return fmt.Errorf("notion: page %s has no prompt (configure prompt_column or set the column on the row)", pageID)
+		// Fall back to the row's Name when the Prompt column is empty (or
+		// not configured). A single-column UX where the user just types
+		// "make me a fish" into the title and flips Go is the most natural
+		// interaction and we should honour it. Logged as info so operators
+		// can observe how often the fallback path runs.
+		prompt = name
+		log.Info().
+			Str("page_id", pageID).
+			Msg("notion: prompt column empty, using row name as prompt")
+	}
+	if prompt == "" {
+		// Both empty — genuinely nothing to send the agent.
+		return fmt.Errorf("notion: page %s has neither a prompt nor a name", pageID)
 	}
 
-	name := extractTitle(ev)
 	if name == "" {
 		name = "Notion: " + pageID
 	}
