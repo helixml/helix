@@ -48,17 +48,25 @@ failed`), so the user is told the copy succeeded when locally it did not.
    Cmd+C results in that text being available in the macOS system
    clipboard (verified by pasting into a native macOS app such as Notes
    or TextEdit).
-2. The "Copied" green toast is only shown when the local system clipboard
-   was actually written. If only the remote copy succeeded but the local
+2. In Safari on macOS, copying an image on the remote desktop and
+   pressing Cmd+C results in that image being available in the macOS
+   system clipboard (verified by pasting into Preview → File → New
+   from Clipboard, or into a chat app).
+3. The success toast is only shown when the local system clipboard was
+   actually written, and reflects what was copied ("Copied text" or
+   "Copied image"). If only the remote copy succeeded but the local
    write failed, the toast text and colour must reflect the partial
    failure (e.g. "Copied on remote — local clipboard blocked by browser",
    warning/error style).
-3. Chrome on macOS and Linux continues to behave as it does today.
-4. The macOS Wails app (iframe + postMessage bridge) continues to work
-   as it does today.
-5. No regression in the existing paste flows (Safari paste button, Chrome
+4. Chrome on macOS and Linux continues to behave as it does today, for
+   both text and image copy.
+5. The macOS Wails app (iframe + postMessage bridge) continues to work
+   as it does today for text. Image copy inside the iframe shows a
+   clear error toast (matches the existing limitation that the
+   postMessage bridge has no image path).
+6. No regression in the existing paste flows (Safari paste button, Chrome
    keyboard paste, native `paste` DOM event, iframe paste).
-6. The 2.7-second background clipboard polling loop (`syncClipboard`
+7. The 2.7-second background clipboard polling loop (`syncClipboard`
    inside the `useEffect` near line 2664) is **removed** as part of this
    change. Rationale: it cannot work on Safari at all (no user gesture
    → silent fail), it races with explicit Cmd+C on slow networks (stale
@@ -79,14 +87,29 @@ focus to the desktop stream and pressing Cmd+C explicitly, which routes
 through the new gesture-anchored copy path. This was a Chrome-only
 side-effect of the polling loop and never worked on Safari.
 
+## Image clipboard (in scope)
+
+Images must also work — Cmd+C of an image on the remote desktop in
+Safari must land that image in the macOS system clipboard, pasteable
+into Preview / chat apps / image editors. Same gesture-anchored
+`clipboard.write()` mechanism, multi-MIME `ClipboardItem`. See
+`design.md` decision 4 for the trade-off (paste of a text-copy into
+an image-only destination, or vice versa, yields nothing instead of
+the right content — user retries with the matching destination).
+
+The macOS Wails app (iframe) keeps its existing limitation that the
+postMessage bridge has no image path — image copy there shows a
+clear error toast rather than silently failing.
+
 ## Out of scope
 
 - Changing Safari's "Paste" button affordance — that is Safari's native
   security UI and we accept it.
-- Image clipboard handling on Safari — text is the priority. If image
-  copy on Safari is straightforward to fix with the same mechanism it
-  may be included, otherwise it stays as-is.
-- Any backend / Go-side changes to the
+- A server-side "wait for clipboard change" endpoint that would let
+  the frontend skip its 500 ms polling loop. The current bounded
+  client polling is good enough; the server-side fix is tracked as
+  *Future work* in `design.md` and is a sensible follow-up.
+- Backend / Go-side changes to the existing
   `v1ExternalAgentsClipboardDetail` endpoint. The bug is purely
   frontend.
 - Replacing the polling with a push-based remote-clipboard-changed

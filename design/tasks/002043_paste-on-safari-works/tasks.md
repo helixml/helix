@@ -2,18 +2,24 @@
 
 - [ ] Reproduce the bug in Safari on macOS: select text in the remote desktop, press Cmd+C, paste into a native macOS app, confirm previous clipboard content is pasted (not the new selection) while the UI shows "Copied"
 - [ ] Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` in `frontend/src/components/external-agent/DesktopStreamViewer.tsx` (around lines 3905–4049) so the local clipboard write is initiated synchronously inside the user-gesture handler
-- [ ] Use `navigator.clipboard.write([new ClipboardItem({ "text/plain": promise })])` where `promise` resolves to a `Blob` after the 300 ms wait and the `v1ExternalAgentsClipboardDetail` API call returns
-- [ ] Feature-detect `ClipboardItem` and `navigator.clipboard.write`; fall back to the existing `clipboardWriteText` path when missing, and keep the iframe / postMessage branch (`isInIframe`) unchanged
-- [ ] Fix the misleading toast: only show green "Copied" when the local clipboard write actually succeeds; show the `"error"` toast variant (e.g. "Copied on remote — local clipboard blocked") when the local write fails or is rejected by the browser
-- [ ] Remove the 2.7-second background polling `useEffect` (around lines 2664–2740) that calls `v1ExternalAgentsClipboardDetail` and writes the result to local clipboard — it can't work on Safari and races with explicit Cmd+C on slow networks
-- [ ] Delete the `lastRemoteClipboardHash` ref (line ~403) and all references to it (lines ~2692, ~2723, ~4034)
-- [ ] Delete the `lastAutoSyncedText` ref (line ~404) and the paste-flow short-circuit at ~line 4091 that reads it (`if (text === lastAutoSyncedText.current) { ... skip upload ... }`) — with auto-sync gone, paste always uploads then sends Ctrl+V
-- [ ] Preserve all remaining `[Clipboard]` and `[Paste DEBUG]` console logging for future debugging (only remove the auto-sync-specific log lines)
-- [ ] Verify in Safari on macOS that Cmd+C in the remote desktop now lands the selected text in the macOS system clipboard (paste into Notes / TextEdit)
+- [ ] Construct a single `ClipboardItem` that declares **both** `text/plain` and `image/png` synchronously, with each MIME's `Promise<Blob>` resolving to the real Blob if the fetched type matches or a 0-byte Blob otherwise
+- [ ] Replace the hard-coded `setTimeout(300)` with bounded adaptive polling inside the deferred promise: snapshot the pre-copy clipboard hash (in parallel with forwarding Ctrl+C), then poll `v1ExternalAgentsClipboardDetail` every ~30 ms for up to ~500 ms, return as soon as the hash differs from the snapshot
+- [ ] Use `ClipboardItem.supports("image/png")` to feature-detect image support; on browsers that lack it, drop the image representation and write text-only
+- [ ] Keep the iframe / postMessage branch (`isInIframe`) for text; for image copy inside the iframe, surface a clear error toast (matches existing limitation that the postMessage bridge has no image path)
+- [ ] Feature-detect `ClipboardItem` and `navigator.clipboard.write`; fall back to the existing `clipboardWriteText` text-only path when missing
+- [ ] Fix the misleading toast: show green "Copied text" / "Copied image" only when the local clipboard write actually succeeds; show the `"error"` toast variant (e.g. "Copied on remote — local clipboard blocked") when the local write fails or is rejected by the browser
+- [ ] Remove the 2.7-second background polling `useEffect` (around lines 2664–2740) that calls `v1ExternalAgentsClipboardDetail` and writes the result to local clipboard
+- [ ] Delete the `lastRemoteClipboardHash` ref (line ~403) and all references to it
+- [ ] Delete the `lastAutoSyncedText` ref (line ~404) and the paste-flow short-circuit at ~line 4091 that reads it
+- [ ] Preserve all remaining `[Clipboard]` and `[Paste DEBUG]` console logging; add a `[Clipboard] poll resolved in NNms` log inside the new poll loop for latency observability
+- [ ] Verify in Safari on macOS that Cmd+C in the remote desktop now lands text in the macOS system clipboard (paste into Notes / TextEdit)
+- [ ] Verify in Safari on macOS that Cmd+C with an image on the remote clipboard lands the image in the macOS system clipboard (paste into Preview via File → New from Clipboard, or into a chat app)
+- [ ] Verify the accepted UX trade-off: copying text and pasting into an image-only destination (or vice versa) results in nothing / 0-byte representation, not the wrong content — retry into the matching destination works
 - [ ] Verify Safari toast goes red/orange when clipboard permission is denied or the local write fails
-- [ ] Regression test Chrome on macOS: Cmd+C still works identically to today
-- [ ] Regression test the macOS Wails app (iframe): postMessage clipboard bridge unchanged
+- [ ] Regression test Chrome on macOS: Cmd+C still works identically for text and image
+- [ ] Regression test the macOS Wails app (iframe): text postMessage clipboard bridge unchanged; image copy shows a clear error toast
 - [ ] Regression test paste flows on Safari (paste button, native `paste` DOM event, keyboard fallback) — none should regress
-- [ ] Confirm the auto-sync removal does NOT regress Cmd+C → ⌘V (it shouldn't — that path now does the local write itself); the only intentional regression is "copy on remote via right-click then ⌘V locally without pressing Cmd+C," which we accept
+- [ ] Confirm the auto-sync removal does NOT regress Cmd+C → ⌘V; only intentional regression is "copy on remote via right-click then ⌘V locally without pressing Cmd+C"
+- [ ] Check that the poll loop typically resolves in 30–90 ms on a healthy local desktop (console logs); only hits the 500 ms deadline on slow / unresponsive backends
 - [ ] `cd frontend && yarn build` succeeds with no new TypeScript errors and no unused-symbol warnings from the deleted refs
-- [ ] Open PR against `helixml/helix` with a concise description and the manual test results, calling out the auto-sync removal explicitly
+- [ ] Open PR against `helixml/helix` with a concise description and the manual test results, calling out the auto-sync removal and image support explicitly

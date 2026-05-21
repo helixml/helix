@@ -99,59 +99,168 @@ This lets us:
 
 - Initiate the local clipboard write **inside the Cmd+C keydown handler**
   (preserves the user gesture).
-- Resolve the actual text **asynchronously** — after the 300 ms wait and
-  the API call — without losing the gesture.
+- Resolve the actual payload **asynchronously** — after the remote
+  clipboard updates and an API round-trip — without losing the gesture.
+- Cover **text and image** in the same gesture-anchored `write()` call
+  by declaring both MIME types up front (we don't know which the remote
+  will return until the fetch resolves).
+
+### Two architectural sub-problems
+
+We have to solve two things at the same time:
+
+1. **"When does the remote clipboard actually have the new value?"** —
+   client JS has no synchronous signal. The data path is
+   `Browser ⌘C → WebSocket input → focused app handles Ctrl+C → GNOME
+   D-Bus/wl-copy/xclip → port-9876 clipboard server → API GET → us`.
+   The current code hard-codes a 300 ms wait. We replace this with
+   **bounded adaptive polling** inside the deferred promise: snapshot
+   the clipboard hash before sending Ctrl+C, then poll every ~30 ms
+   for up to ~500 ms, return the moment the hash differs. On a fast
+   desktop this resolves in ~30–60 ms; on a slow one we still wait up
+   to 500 ms (vs today's unconditional 300 ms). A proper server-side
+   "wait for clipboard change" endpoint is the right long-term fix —
+   tracked as a follow-up (see *Future work*).
+2. **"We don't know if it's text or image until the fetch returns,
+   but ClipboardItem requires MIME types declared synchronously."** —
+   we declare **both** `text/plain` and `image/png` in the
+   `ClipboardItem`. Each MIME's `Promise<Blob>` resolves with the real
+   Blob if the fetched type matches, or a zero-byte Blob of that MIME
+   if it doesn't. Paste destinations naturally prefer the MIME they
+   support: Notes/TextEdit/IDEs read `text/plain`, Preview/Photoshop
+   read `image/png`. The unused-type empty Blob is the unavoidable
+   cost of not knowing up front; in practice paste destinations
+   either ignore a 0-byte representation or render nothing for it.
 
 ### New copy flow
 
 ```ts
+const POLL_INTERVAL_MS = 30;
+const POLL_DEADLINE_MS = 500;
+const EMPTY_TEXT = new Blob([], { type: "text/plain" });
+const EMPTY_IMAGE = new Blob([], { type: "image/png" });
+
+function hashClip(d: TypesClipboardData | null | undefined): string {
+  if (!d) return "";
+  return `${d.type}:${(d.data || "").length}:${(d.data || "").slice(0, 64)}`;
+}
+
 if (isCopyKeystroke && sessionIdRef.current) {
   event.preventDefault();
   event.stopPropagation();
+  const sessionId = sessionIdRef.current;
 
-  // 1. forward Ctrl+C to remote (unchanged)
+  // 1. Snapshot pre-copy clipboard hash in parallel with forwarding the
+  //    keystroke. Used to detect "the value just changed". Fire-and-forget
+  //    — if it fails we fall through to "first non-empty response wins".
+  const beforeHashPromise: Promise<string> = apiClient
+    .v1ExternalAgentsClipboardDetail(sessionId)
+    .then((r) => hashClip(r.data))
+    .catch(() => "");
+
+  // 2. Forward Ctrl+C to remote (unchanged, synchronous).
   forwardCtrlCToRemote(input, event);
 
-  // 2. Build a promise that fetches the remote clipboard.
-  //    The promise resolves to a Blob containing the new text.
-  const sessionId = sessionIdRef.current;
-  const textBlobPromise: Promise<Blob> = (async () => {
-    await delay(300);
-    const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
-    const data = response.data;
-    const text = (data && data.type === "text" && data.data) || "";
-    return new Blob([text], { type: "text/plain" });
+  // 3. Bounded poll for the new clipboard value.
+  const fetchPromise: Promise<TypesClipboardData> = (async () => {
+    const beforeHash = await beforeHashPromise;
+    const deadline = Date.now() + POLL_DEADLINE_MS;
+    let lastData: TypesClipboardData = { type: "text", data: "" };
+    while (Date.now() < deadline) {
+      try {
+        const r = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+        lastData = r.data;
+        if (hashClip(lastData) !== beforeHash) return lastData;
+      } catch {
+        // Ignore transient errors; loop until deadline.
+      }
+      await new Promise((res) => setTimeout(res, POLL_INTERVAL_MS));
+    }
+    return lastData;
   })();
 
-  // 3. Synchronously start the clipboard write inside the user gesture.
-  //    Safari accepts this; the promise resolves later and Safari uses it.
+  // 4. Per-MIME promises: real Blob if type matches, empty Blob if not.
+  const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+    if (d?.type === "text" && d.data) {
+      return new Blob([d.data], { type: "text/plain" });
+    }
+    return EMPTY_TEXT;
+  });
+  const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+    if (d?.type === "image" && d.data) {
+      const bytes = base64ToBytes(d.data);
+      return new Blob([bytes], { type: "image/png" });
+    }
+    return EMPTY_IMAGE;
+  });
+
+  // 5. Synchronously start the gesture-anchored write.
   if (
     !isInIframe &&
     typeof ClipboardItem !== "undefined" &&
     navigator.clipboard?.write
   ) {
+    const supportsImage =
+      typeof ClipboardItem.supports === "function"
+        ? ClipboardItem.supports("image/png")
+        : true;
+
+    const item = supportsImage
+      ? new ClipboardItem({
+          "text/plain": textBlobPromise,
+          "image/png": imageBlobPromise,
+        })
+      : new ClipboardItem({ "text/plain": textBlobPromise });
+
     navigator.clipboard
-      .write([new ClipboardItem({ "text/plain": textBlobPromise })])
-      .then(() => {
-        showClipboardToast("Copied", "success");
-      })
+      .write([item])
+      .then(() =>
+        fetchPromise.then((d) => {
+          const kind = d?.type === "image" ? "image" : "text";
+          showClipboardToast(`Copied ${kind}`, "success");
+        }),
+      )
       .catch((err) => {
-        // Local write blocked. The remote copy still happened.
         console.warn("[Clipboard] local write blocked:", err);
-        showClipboardToast("Copied on remote — local clipboard blocked", "error");
+        showClipboardToast(
+          "Copied on remote — local clipboard blocked",
+          "error",
+        );
       });
   } else {
-    // Fallback for: iframe (postMessage bridge), or browsers without
-    // ClipboardItem (covers the same code paths already in use).
-    textBlobPromise.then(async (blob) => {
-      const text = await blob.text();
-      try {
-        if (text) await clipboardWriteText(text);
-        showClipboardToast("Copied", "success");
-      } catch (err) {
-        showClipboardToast("Copied on remote — local sync failed", "error");
-      }
-    });
+    // Fallback: iframe (postMessage bridge) or no ClipboardItem support.
+    fetchPromise
+      .then(async (d) => {
+        if (d?.type === "text" && d.data) {
+          await clipboardWriteText(d.data);
+          showClipboardToast("Copied text", "success");
+        } else if (
+          d?.type === "image" &&
+          d.data &&
+          !isInIframe &&
+          navigator.clipboard?.write
+        ) {
+          const blob = new Blob([base64ToBytes(d.data)], { type: "image/png" });
+          await navigator.clipboard.write([
+            new ClipboardItem({ "image/png": blob }),
+          ]);
+          showClipboardToast("Copied image", "success");
+        } else if (d?.type === "image" && isInIframe) {
+          // No postMessage image bridge today — match existing limitation.
+          showClipboardToast(
+            "Image copy not supported in macOS app — use Chrome/Safari directly",
+            "error",
+          );
+        } else {
+          showClipboardToast("Clipboard empty", "error");
+        }
+      })
+      .catch((err) => {
+        showClipboardToast(
+          `Copied on remote — local sync failed: ${err.message}`,
+          "error",
+        );
+      });
   }
 }
 ```
@@ -183,16 +292,37 @@ write failed. The new code distinguishes:
   which already auto-dismisses after 4 s instead of 2 s — perfect for
   reading the longer message).
 
-### 4. Image clipboard
+### 4. Image clipboard — same gesture-anchored write
 
-For now keep the existing 300 ms `setTimeout` path for images —
-`ClipboardItem` with a Promise<Blob> works for `image/png` too in
-theory, but the image case is rarer, the data is much larger, and the
-existing image path is gated behind `clipboardData.type === "image"`
-which we don't know until *after* the API call. Mixing text + image
-into the same ClipboardItem before knowing the type would force us to
-fetch the clipboard twice. Out of scope for this fix — we focus on
-text, which is the reported and dominant case.
+Images go through the **same** `clipboard.write()` call as text. We
+construct a single `ClipboardItem` that declares both `text/plain` and
+`image/png` synchronously, and each MIME's `Promise<Blob>` resolves
+with either the real Blob (if the fetched type matches) or a zero-byte
+Blob of that type (if it doesn't). The paste destination picks the
+MIME it prefers.
+
+This is the only way to support images without knowing the type up
+front: we cannot make a second `clipboard.write()` call from a
+non-gesture continuation, because Safari rejects it (same root cause
+as the original bug).
+
+**Trade-off**: when the user copies text on the remote and pastes into
+an image-only app (e.g. Preview), Preview reads the 0-byte
+`image/png` representation and produces nothing. Symmetrically, copy
+an image and paste into a text-only field, the field reads an empty
+string. The user can retry with the appropriate destination. This is
+strictly better than today on Safari, where neither works.
+
+**Feature-detection**: `ClipboardItem.supports("image/png")` is the
+standard probe (available in Chrome 113+, Safari 16.4+). When it
+returns false (very old browsers), drop the image representation and
+fall through with text-only.
+
+**iframe / postMessage bridge**: the existing bridge does not carry
+images today (`type === "image"` already takes the non-iframe path
+via `navigator.clipboard.write`). We preserve that behaviour — copy
+of an image inside the macOS Wails app shows a clear error toast
+instead of silently failing.
 
 ### 5. Remove the 2.7-second auto-sync polling loop
 
@@ -239,12 +369,35 @@ buys makes the new code substantially easier to reason about.
 
 | Risk | Mitigation |
 |------|------------|
-| `ClipboardItem` constructor missing on very old browsers | Feature-detect and fall back to the existing `clipboardWriteText` path |
-| Promise rejects (API 404, network) → Safari pastes an empty string | Resolve the inner async with empty string on error, return empty Blob; toast shows error so user knows |
-| The 300 ms wait is too short for the remote desktop to actually update the X11 selection | Unchanged from today's behaviour; if it's a problem it's a separate bug |
+| `ClipboardItem` constructor missing on very old browsers | Feature-detect and fall back to the existing `clipboardWriteText` text-only path |
+| Inner promise rejects (API 5xx, network drop) → spec says the entire `write()` fails | Catch all errors inside the inner async block, resolve to empty Blob of the declared type; the outer `.catch` on `clipboard.write()` shows an error toast |
+| 500 ms poll deadline too short for a slow remote desktop | Poll returns the *last* response on timeout, so paste still works (just with whatever was on the remote clipboard previously). 500 ms is 67% longer than today's unconditional 300 ms; configurable via constant |
+| User copies the same value twice — hash never changes, poll always hits the deadline | Acceptable: paste still gets the right value at deadline (it's the same value). The 500 ms latency is the cost. A server-side wait-for-change would solve this cleanly (see *Future work*) |
+| Pre-copy snapshot call adds an extra round-trip before each Cmd+C | Fires in *parallel* with the synchronous Ctrl+C forward, so it doesn't delay the keystroke itself. On a 200 ms RTT link the snapshot resolves before the first poll inside the deferred async |
 | Race with the 2.7-second auto-sync overwriting what we just wrote | Removed entirely — see design decision 5 |
 | Removing auto-sync regresses users who copy on the remote via right-click (not Cmd+C) | Documented in `requirements.md` — user presses Cmd+C explicitly to recover; was a Chrome-only feature anyway |
 | Safari user has denied clipboard permission | Caught in `.catch`, toast tells them why; matches acceptance criterion 2 |
+| Paste into image-only app when remote is text (or vice versa) gets a 0-byte representation | Accepted UX cost of not knowing MIME type at gesture time; documented in design decision 4. User retries with appropriate destination |
+| `base64ToBytes` choking on large images | Use the same decode loop already present in the file (it handles the existing image case); add streaming via `fetch("data:image/png;base64,...")` only if perf becomes a problem |
+
+## Future work (out of scope for this PR)
+
+- **Server-side wait-for-change endpoint**: add an optional
+  `?wait_until_change=<hash>&timeout=500ms` query param to
+  `GET /api/v1/external-agents/{sessionID}/clipboard`. Backend hooks
+  into the existing GNOME D-Bus clipboard signal handler
+  (`startClipboardSignalHandler` in
+  `api/pkg/desktop/clipboard.go`) — or `wl-paste --watch` for
+  wlroots, or X11 `XFixesSelectionNotify` — and returns the moment
+  the clipboard changes (or on timeout). This eliminates the
+  client-side polling loop and resolves in single-digit ms on a fast
+  desktop. Touches Go + Rust/C clipboard managers; deliberately
+  separate change.
+- **Pre-emptive type hint**: tiny endpoint that returns just `{type:
+  "text" | "image" | "empty"}` cheaply, so the frontend could pick
+  the right MIME type before declaring the `ClipboardItem`. Probably
+  not worth it — the dual-MIME-with-empty-blob approach is fine in
+  practice.
 
 ## Files to touch
 
@@ -267,22 +420,39 @@ No backend or generated-API-client changes.
 Manual end-to-end (the only meaningful test for a browser-clipboard
 quirk):
 
-1. **Safari on macOS** — primary regression target.
-   - Open a desktop session in Safari at `https://app.helix.example/...`.
+1. **Safari on macOS — text copy** (primary regression target).
+   - Open a desktop session in Safari.
    - Select text in the remote desktop (e.g. open Terminal, type
      `echo hello world`, select "hello world"). Press Cmd+C.
-   - Switch to a native macOS app (Notes / TextEdit) and Cmd+V.
-     Expected: "hello world" pastes. (Today: previous clipboard contents.)
-   - Verify the toast says "Copied" (green) on success.
-   - Revoke clipboard permission for the site in Safari settings, retry,
-     verify the toast becomes the error variant.
-2. **Chrome on macOS** — verify no regression. Same flow as above.
-3. **macOS Wails app (iframe)** — verify the postMessage bridge is
-   unchanged.
-4. **Paste flows on Safari** — Cmd+V via Safari's paste button, native
-   `paste` DOM event, and the keyboard fallback. None should regress.
-5. **Auto-sync** — copy something on the remote via the agent (no user
-   keypress), wait 2 s in Chrome, verify local clipboard updates.
+   - Switch to Notes / TextEdit and Cmd+V. Expected: "hello world".
+     (Today: previous clipboard contents.)
+   - Toast: green "Copied text".
+   - Revoke clipboard permission for the site in Safari settings,
+     retry, verify the toast becomes the error variant.
+2. **Safari on macOS — image copy** (new in this fix).
+   - In the remote desktop, take a screenshot or open an image in
+     Eye of GNOME / Files and use the app's Copy command (or
+     select an image in a chat client and Ctrl+C). Press Cmd+C from
+     the browser.
+   - Switch to Preview → File → New from Clipboard, or paste into a
+     chat app. Expected: the image pastes.
+   - Toast: green "Copied image".
+3. **Safari on macOS — text → image-only destination** (accepted
+   regression). Copy text via Cmd+C, paste into Preview's "New from
+   Clipboard". Expected: nothing or "no image on clipboard" message
+   (0-byte representation). Retry by pasting into Notes — that
+   works.
+4. **Chrome on macOS** — verify no regression. Repeat tests 1 and 2.
+5. **macOS Wails app (iframe)** — text copy still works via the
+   postMessage bridge. Image copy shows a clear error toast
+   (preserves existing limitation).
+6. **Paste flows on Safari** — Cmd+V via Safari's paste button,
+   native `paste` DOM event, keyboard fallback. None should
+   regress.
+7. **Latency** — copy on a fast local desktop, observe console
+   timing logs. The poll loop should resolve in 30–90 ms on a
+   healthy setup; 500 ms deadline only kicks in on a slow or
+   unresponsive backend.
 
 ## Notes for the implementer
 
