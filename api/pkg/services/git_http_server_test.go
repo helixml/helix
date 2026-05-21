@@ -317,3 +317,80 @@ func TestGetSpecDocsBaseURL(t *testing.T) {
 		})
 	}
 }
+
+func TestPullRequestFileChangedForTask(t *testing.T) {
+	tests := []struct {
+		name          string
+		files         []string
+		designDocPath string
+		want          bool
+	}{
+		{
+			name:          "empty designDocPath returns false",
+			files:         []string{"design/tasks/spt_01abc/pull_request_helix.md"},
+			designDocPath: "",
+			want:          false,
+		},
+		{
+			name:          "matching pull_request_<repo>.md",
+			files:         []string{"design/tasks/spt_01abc/pull_request_helix.md"},
+			designDocPath: "spt_01abc",
+			want:          true,
+		},
+		{
+			name:          "matching generic pull_request.md",
+			files:         []string{"design/tasks/spt_01abc/pull_request.md"},
+			designDocPath: "spt_01abc",
+			want:          true,
+		},
+		{
+			name:          "matching pull_request_<repo-with-dashes>.md",
+			files:         []string{"design/tasks/spt_01abc/pull_request_qwen-code.md"},
+			designDocPath: "spt_01abc",
+			want:          true,
+		},
+		{
+			name:          "wrong task dir ignored",
+			files:         []string{"design/tasks/spt_other/pull_request_helix.md"},
+			designDocPath: "spt_01abc",
+			want:          false,
+		},
+		{
+			name:          "non-pull_request file in same dir ignored",
+			files:         []string{"design/tasks/spt_01abc/requirements.md", "design/tasks/spt_01abc/design.md"},
+			designDocPath: "spt_01abc",
+			want:          false,
+		},
+		{
+			name:          "file in subdirectory (screenshots) ignored",
+			files:         []string{"design/tasks/spt_01abc/screenshots/pull_request_helix.md"},
+			designDocPath: "spt_01abc",
+			want:          false,
+		},
+		{
+			name:          "non-md file ignored",
+			files:         []string{"design/tasks/spt_01abc/pull_request_helix.txt"},
+			designDocPath: "spt_01abc",
+			want:          false,
+		},
+		{
+			name:          "mix returns true when at least one PR file present",
+			files:         []string{"design/tasks/spt_01abc/requirements.md", "design/tasks/spt_01abc/pull_request_helix.md"},
+			designDocPath: "spt_01abc",
+			want:          true,
+		},
+		{
+			name:          "empty files list",
+			files:         nil,
+			designDocPath: "spt_01abc",
+			want:          false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pullRequestFileChangedForTask(tt.files, tt.designDocPath)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
