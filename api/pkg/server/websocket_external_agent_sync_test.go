@@ -804,6 +804,54 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
 	time.Sleep(50 * time.Millisecond)
 }
 
+// TestMessageCompleted_PreservesInterruptedStateOnEmptyResponse pins down the
+// race between handleTurnCancelled and handleMessageCompleted that Phase 13 of
+// the Zed WS E2E test exercises: a cancel lands before any token streamed, so
+// the interaction is marked Interrupted with an empty ResponseMessage. The
+// agent then emits message_completed for the same request_id as it tears the
+// turn down. Previously the empty-response branch in handleMessageCompleted
+// clobbered the Interrupted state with Error and re-queued the prompt, which
+// broke the E2E assertion "interaction in store with state=interrupted".
+// Verify the handler returns without touching the interaction.
+func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesInterruptedStateOnEmptyResponse() {
+	s.server.contextMappings["thread-int"] = "ses_int"
+	s.server.requestToInteractionMapping = map[string]string{
+		"req-int": "int-int",
+	}
+
+	session := &types.Session{
+		ID:    "ses_int",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_int").Return(session, nil).AnyTimes()
+
+	interruptedInteraction := &types.Interaction{
+		ID:              "int-int",
+		SessionID:       "ses_int",
+		State:           types.InteractionStateInterrupted,
+		ResponseMessage: "",
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-int").Return(interruptedInteraction, nil)
+
+	// Critical: no UpdateInteraction, no RequeueBouncedPrompt, no
+	// processPromptQueue follow-up. The handler must return as soon as it
+	// sees the Interrupted-with-empty-response pattern. gomock's default
+	// strict mode fails the test if any unexpected store call is made.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-int",
+			"request_id":    "req-int",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	time.Sleep(50 * time.Millisecond)
+}
+
 func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
 	s.server.contextMappings["thread-nw"] = "ses_nw"
 
