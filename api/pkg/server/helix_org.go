@@ -154,13 +154,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// `worker.runtime` (default `claude_code`) and the same MCP
 	// wiring (auth-gated gateway URL with the service api_key in
 	// headers).
-	var projectApplier *agenthelix.ProjectApplier
+	//
+	// The wrapper re-resolves `worker.*` and `helix.*` from the config
+	// registry on every Ensure call, so live changes via /ui/settings
+	// take effect on the next activation — no API restart needed.
+	var projectApplier *dynamicProjectApplier
 	if serviceClient != nil {
-		applier, applierErr := buildHelixOrgProjectApplier(context.Background(), configReg, serviceClient, st, logger)
-		if applierErr != nil {
-			log.Warn().Err(applierErr).Msg("helix-org project applier not built — chat and worker activations will not run")
-		} else {
-			projectApplier = applier
+		projectApplier = &dynamicProjectApplier{
+			cfg:    configReg,
+			client: serviceClient,
+			Store:  st,
+			logger: logger,
 		}
 	}
 
@@ -169,7 +173,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// drive per-Worker projects through the same default settings.
 	var spawnerFn agent.Spawner
 	if projectApplier != nil {
-		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, serviceClient, st, bc, logger, deps.NewID, deps.Now)
+		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, serviceClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
 	}
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
@@ -278,6 +282,36 @@ type helixOrgConfig struct {
 	LocalFSPath   string
 }
 
+// dynamicProjectApplier is a chat.ProjectEnsurer that re-reads
+// `worker.*` and `helix.*` from the config registry on every Ensure
+// call. Building the underlying agenthelix.ProjectApplier at API
+// startup and reusing it freezes `worker.runtime`/`credentials`/
+// `provider`/`model` at boot time — operators changing those via
+// /ui/settings then had to restart the API container for the new
+// values to take effect. Resolving per-call removes that surprise.
+//
+// Store is exposed directly because helix_org_chat.go needs it to
+// load/save the per-Worker session pointer on the same SQLite row
+// the spawner uses (helix-org's WorkerRuntimeState).
+type dynamicProjectApplier struct {
+	cfg    *config.Registry
+	client helixclient.Client
+	Store  *helixorgstore.Store
+	logger *slog.Logger
+}
+
+// Ensure satisfies chat.ProjectEnsurer. Builds a fresh
+// agenthelix.ProjectApplier from the current registry state and
+// delegates. ProjectApplier.Ensure is itself idempotent — first call
+// applies, subsequent calls fast-path on the existing project.
+func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID domain.WorkerID) (projectID, agentAppID, repoID string, err error) {
+	applier, err := buildHelixOrgProjectApplier(ctx, d.cfg, d.client, d.Store, d.logger)
+	if err != nil {
+		return "", "", "", err
+	}
+	return applier.Ensure(ctx, workerID)
+}
+
 // buildHelixOrgProjectApplier constructs the ProjectApplier that
 // both the chat bridge (owner-chat) and the spawner (AI Worker
 // activations) drive. Single source of truth for the embedded
@@ -286,6 +320,11 @@ type helixOrgConfig struct {
 // our MCP-gateway URL so each Worker's agent app phones home for
 // helix-org tools via Helix's auth-gated proxy rather than a
 // separate tunnel.
+//
+// Called per Ensure by dynamicProjectApplier so registry edits
+// (worker.runtime/credentials/provider/model, helix.url/api_key)
+// take effect immediately. The struct it returns is cheap to build
+// and short-lived — one apply call, then discarded.
 func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	cfg *config.Registry,
@@ -428,10 +467,19 @@ func buildHelixOrgSpawnerConfig(
 //
 // Re-reads SpawnerConfig only if the first attempt failed; this lets
 // "pick an agent" flow seamlessly after API boot without restart.
-// Once successfully built, the Spawner is frozen — re-picking a
-// different owner agent does NOT change Worker provider/model for
-// existing or future activations. That's acceptable for the alpha;
-// document it in the picker if confusion arises.
+//
+// Worker.* drift handling: once the inner Spawner is built, its
+// captured SpawnerConfig.Runtime/Provider/Model/Credentials are frozen
+// for the life of the process. Those fields are only consumed inside
+// the spawner's own ensureProject call, so we run the dynamic applier
+// first — it re-reads worker.* on every activation and materialises
+// (or fast-paths) the per-Worker project with current settings. The
+// spawner's internal ensureProject then fast-paths against the project
+// our wrapper just touched, and the frozen fields are dead weight.
+// Net effect: changing worker.runtime / credentials / provider / model
+// via /ui/settings takes effect on the next activation, without
+// disturbing the shared MaxInflight semaphore inside the cached
+// spawner.
 func lazyHelixOrgSpawner(
 	cfg *config.Registry,
 	helixStore helixstore.Store,
@@ -439,6 +487,7 @@ func lazyHelixOrgSpawner(
 	orgStore *helixorgstore.Store,
 	bc *broadcast.Broadcaster,
 	logger *slog.Logger,
+	applier *dynamicProjectApplier,
 	newID func() string,
 	now func() time.Time,
 ) agent.Spawner {
@@ -447,6 +496,16 @@ func lazyHelixOrgSpawner(
 		spawner agent.Spawner
 	)
 	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []agent.Trigger) error {
+		// Apply (or fast-path) the per-Worker project with the current
+		// worker.* settings before delegating. Without this, the cached
+		// spawner's first activation bakes whatever worker.* values
+		// were live at boot into the project; later edits via
+		// /ui/settings never propagate.
+		if applier != nil {
+			if _, _, _, err := applier.Ensure(ctx, workerID); err != nil {
+				return fmt.Errorf("helix-org spawner: pre-apply project for %s: %w", workerID, err)
+			}
+		}
 		mu.Lock()
 		current := spawner
 		mu.Unlock()

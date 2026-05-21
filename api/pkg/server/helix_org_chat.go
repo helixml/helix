@@ -82,7 +82,7 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // Returns nil + nil if helix.api_key isn't set yet (auto-provision
 // happens at startup; a fresh DB with no admin user is a legitimate
 // "not configured" state).
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *agenthelix.ProjectApplier, client helixclient.Client, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Broadcaster, newID func() string, now func() time.Time) (chat.Backend, error) {
+func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client helixclient.Client, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Broadcaster, newID func() string, now func() time.Time) (chat.Backend, error) {
 	if applier == nil {
 		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
 		return nil, nil
