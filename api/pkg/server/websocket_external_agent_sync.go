@@ -2588,6 +2588,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return nil
 	}
 
+	// An interaction already in Interrupted state is the expected terminal state
+	// after handleTurnCancelled — message_completed arrives shortly after as the
+	// agent finishes in-flight work, but the response can legitimately be empty
+	// if the cancel landed before any token streamed (Phase 13 of the Zed WS E2E
+	// test exercises exactly this race). Don't treat that as a bounce.
+	if targetInteraction.State == types.InteractionStateInterrupted &&
+		targetInteraction.ResponseMessage == "" && len(responseEntries) == 0 {
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("⏭️ [HELIX] message_completed for already-interrupted interaction with empty response — preserving interrupted state")
+		return nil
+	}
+
 	// If the response is empty, something went wrong — either the agent bounced the
 	// message (busy with another turn) or content was lost during the streaming flush.
 	// Mark as error and re-queue the prompt so it will be retried.
