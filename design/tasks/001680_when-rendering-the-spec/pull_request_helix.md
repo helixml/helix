@@ -33,4 +33,12 @@ This change splits on the `**User Request:**` (or `**Original Request (for conte
 
 ## Screenshots
 
-End-to-end browser verification was not possible during the session that authored this PR (the inner Helix API stack was still mid-build). The change is small, type-safe, unit-tested, and visually mirrors the existing `CollapsibleToolCall` pattern.
+Verified end-to-end in the inner Helix on a fresh spec task ("Add a CONTRIBUTING.md file...").
+
+**Collapsed (default):** small "Planning Instructions" pill above a clean user-message bubble that shows only what the user actually wrote.
+
+![Collapsed](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001680_when-rendering-the-spec/screenshots/01-collapsed.png)
+
+**Expanded:** clicking the pill reveals the full planning prompt; the user's request remains visible as the bubble below.
+
+![Expanded](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001680_when-rendering-the-spec/screenshots/02-expanded.png)
