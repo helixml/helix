@@ -8,14 +8,18 @@ Zed uses to talk to Claude Code and Qwen Code in Helix today. Adding Goose
 gives Helix users another agent option without re-inventing any of the Zed
 plumbing.
 
-The Goose CLI exposes ACP via `goose acp` (stdio JSON-RPC). Configuring it
-in Zed is a single `agent_servers` entry; provider/model are overridden per
-instance with `GOOSE_PROVIDER` and `GOOSE_MODEL` env vars.
+In Goose terminology, **a "custom agent" is a recipe** — a YAML file that
+bundles `instructions`, `prompt`, `extensions` (MCP servers), `parameters`,
+and `settings` (model/provider) into a reusable workflow. Recipes can be
+loaded from the local filesystem (`GOOSE_RECIPE_PATH`) or from a GitHub
+repo (`GOOSE_RECIPE_GITHUB_REPO`). Each recipe surfaces in an ACP client
+(Zed) as its own selectable agent.
 
-Helix already routes each user's chosen runtime through
-`api/cmd/settings-sync-daemon/main.go`, which writes
-`~/.config/zed/settings.json` for the active session. Adding Goose follows
-the same `case "goose_code":` pattern as Qwen and Claude Code.
+Helix already has a project YAML spec (`ProjectSpec` in
+`api/pkg/types/project.go`) with an `agent:` block and a `repositories:`
+list. Custom Goose agents slot in there naturally: recipes live as files
+inside the project's primary git repo, and the project YAML points at
+them.
 
 ## User Stories
 
@@ -27,64 +31,113 @@ session, the same way I can already use Qwen Code or Claude Code today.
 - Project Settings → Code Agent Runtime offers "Goose" alongside the
   existing options (Zed Agent, Qwen Code, Claude Code).
 - Onboarding flow lets a new user pick Goose with no extra steps.
-- When Goose is selected, opening Zed shows a "Goose" thread option in
-  the agent panel and a fresh thread starts a working Goose session
-  bound to the user's configured LLM provider/model.
+- When Goose is selected with no custom recipes, opening Zed shows a
+  single "Goose" thread option in the agent panel and a fresh thread
+  starts a working Goose session bound to the user's configured LLM.
 
 ### US-2: As an operator, I want Goose pre-installed in the desktop image
 So that sessions start instantly with no per-session download.
 
 **Acceptance Criteria**
 - `goose --version` works inside a fresh `helix-ubuntu` container.
-- The installed version is pinned (`GOOSE_VERSION`) so rebuilds are
-  reproducible and CI doesn't break on upstream releases.
-- Goose telemetry/auto-update are disabled (consistent with how Qwen and
-  Gemini are configured in `Dockerfile.ubuntu-helix`).
+- Version is pinned (`GOOSE_VERSION`) so rebuilds are reproducible.
+- Goose telemetry/auto-update are disabled (mirroring the
+  `~/.qwen/settings.json` and `~/.gemini/settings.json` pattern in
+  `Dockerfile.ubuntu-helix`).
 
-### US-3: As a Helix user, my LLM provider/model selection drives Goose
-So that I don't have to configure Goose separately — it picks up the
-provider, model, base URL, and API key Helix already knows about.
+### US-3: My LLM provider/model selection drives Goose
+So that I don't have to configure Goose separately.
 
 **Acceptance Criteria**
 - `GOOSE_PROVIDER` and `GOOSE_MODEL` are derived from `CodeAgentConfig`
-  and written into the Zed `agent_servers.goose.env` block by the
-  settings-sync-daemon.
-- An API key supplied by Helix (proxied via `BaseURL`) is forwarded to
-  Goose via the provider's expected env var (`OPENAI_API_KEY`,
-  `ANTHROPIC_API_KEY`, …).
-- Localhost rewriting (`rewriteLocalhostURL`) is applied to base URLs so
-  Goose can reach the Helix API proxy from inside the container.
+  and written into Zed `agent_servers.goose.env` by settings-sync-daemon.
+- Helix-proxy API key + base URL forwarded via the provider's expected
+  env vars (`OPENAI_API_KEY` + `OPENAI_BASE_URL`, etc.), with
+  `rewriteLocalhostURL` applied.
 
-### US-4: As an operator, I need a decision on Sway
+### US-4: As an advanced user, I want to bring my own custom Goose agents
+So that my team's recipes (prompts, MCPs, model settings) appear as
+first-class threads in Zed inside Helix.
+
+**Acceptance Criteria**
+- Project YAML supports a new field under `agent:`:
+  ```yaml
+  agent:
+    runtime: goose_code
+    goose:
+      recipes:
+        - name: "Security Reviewer"
+          path: goose-recipes/security-reviewer.yaml
+        - name: "Migration Bot"
+          path: goose-recipes/migration-bot.yaml
+      github_recipe_repo: my-org/goose-recipes  # optional
+  ```
+- Each entry in `recipes` becomes its own `agent_servers.<slug>` entry
+  in Zed settings.json. The Zed agent panel then shows "New Security
+  Reviewer", "New Migration Bot", etc. as separate thread options.
+- Recipe files are resolved relative to the project's primary git repo
+  (already cloned into `/home/retro/work/<repo>/` at session start).
+- If `github_recipe_repo` is set, `GOOSE_RECIPE_GITHUB_REPO` is exported
+  to every Goose agent_server entry so recipes can also be referenced by
+  short name (Goose's existing convention).
+- A project with `recipes:` defined and `runtime: goose_code` still
+  shows the plain "Goose" thread alongside the named recipes — losing
+  the default would be a regression.
+
+### US-5: As a custom-agent author, I want to iterate on recipes inside Helix
+So that I can edit a recipe in Zed, try it, fix it, and ship it without
+leaving the Helix session.
+
+**Acceptance Criteria**
+- Recipe files in the project repo are immediately editable in Zed
+  (they're just YAML files in the workspace).
+- A terminal in the Helix session can run `goose recipe validate <file>`
+  against the edited recipe — the `goose` binary is on `$PATH`.
+- Closing and reopening a Goose thread in Zed picks up edits without
+  needing to restart the whole session (each new ACP `initialize` call
+  re-reads the recipe from disk).
+- Committing the recipe via Git from inside the Helix session
+  propagates to all future sessions (same git flow Helix already uses
+  for code).
+
+### US-6: As an operator, I need a decision on Sway
 The user explicitly asked: "do we need to install goose in helix-ubuntu
 (and sway, although increasingly I'm thinking we should just delete sway)".
 
 **Acceptance Criteria**
 - This task installs Goose in `helix-ubuntu` only.
-- `helix-sway` is left untouched in this PR. A separate task can either
-  delete `Dockerfile.sway-helix` + `desktop/sway-config/` outright, or
-  mirror the Goose install. Recommendation in `design.md` is to delete
-  Sway in a follow-up — it's already gated behind
-  `HELIX_EXPERIMENTAL_DESKTOPS` and is not part of the production path.
+- `helix-sway` is left untouched; recommendation in `design.md` is to
+  delete it in a follow-up task (it's already gated behind
+  `HELIX_EXPERIMENTAL_DESKTOPS` and is not on the production path).
 
 ## Out of Scope
 
-- Deleting `helix-sway` (separate task — surface the recommendation only).
-- A Helix-hosted Goose extension registry or recipe library.
-- Custom Goose extensions / MCP server bundling beyond what Helix already
-  installs for Zed (`chrome-devtools-mcp`, `server-github`, Kodit, etc.).
-  Goose auto-picks up MCPs declared in Zed's `context_servers`, so the
-  existing set is reused for free.
-- Goose Desktop (Electron app) — Helix users interact with Goose through
-  Zed; the Desktop app would compete for the window manager and isn't
-  needed.
+- Deleting `helix-sway` (separate task).
+- A Helix-hosted Goose recipe registry / marketplace.
+- Authoring/editing recipes through a Helix UI form (vs editing the
+  YAML directly in Zed). Form-based authoring can be a later UX layer
+  on top of the same YAML schema.
+- Goose Desktop (Electron app) — Helix users interact with Goose
+  through Zed.
+- Per-user recipe overrides — recipes are scoped to the project for v1.
+  Per-user customisation can come later by layering a user recipe dir
+  on top of the project's.
 
 ## Notes for Future Agents
 
-- The Goose docs live at `https://goose-docs.ai`. The ACP-clients page
-  (`/docs/guides/acp-clients`) is the authoritative integration reference.
-- Goose's source repo moved to `github.com/aaif-goose/goose`.
-- Goose currently works best with Claude 4 models (per upstream docs), but
-  any provider it supports (OpenAI, Gemini, OpenRouter, Tetrate, Ollama)
-  can be wired through Helix's existing OpenAI-compatible proxy by setting
-  `GOOSE_PROVIDER=openai` + `OPENAI_BASE_URL=<helix-proxy>`.
+- Goose docs live at `https://goose-docs.ai`. Authoritative refs:
+  - ACP clients: `/docs/guides/acp-clients`
+  - Recipe reference: `/docs/guides/recipes/recipe-reference`
+  - Reusable recipes: `/docs/guides/recipes/session-recipes`
+- Goose's source repo: `github.com/aaif-goose/goose`.
+- Goose recipes use Jinja-style `{{ parameter }}` substitution; required
+  vs optional vs `user_prompt` parameter modes affect the Desktop dialog
+  (recipes used through ACP rely on `user_prompt` for interactivity).
+- The `extensions:` block inside a recipe declares MCP servers per-recipe.
+  This is separate from Helix-injected MCPs in Zed's `context_servers`,
+  but both are visible to Goose at runtime — recipe-declared extensions
+  layer on top of `context_servers`.
+- Goose currently works best with Claude 4 models (per upstream docs)
+  but any provider Goose supports can be wired through Helix's
+  OpenAI-compatible proxy via `GOOSE_PROVIDER=openai` +
+  `OPENAI_BASE_URL=<helix-proxy>`.
