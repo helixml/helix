@@ -208,6 +208,10 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
 		BranchPrefix: req.BranchPrefix,  // User-specified prefix for new branches
 		BranchName:   req.WorkingBranch, // For existing mode, this is the branch to continue on
+		// Goose recipe selection — bakes parameter values into the agent's
+		// recipe at session start. Skipped silently if the agent isn't goose.
+		GooseRecipeName:   req.GooseRecipeName,
+		GooseRecipeParams: req.GooseRecipeParams,
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),

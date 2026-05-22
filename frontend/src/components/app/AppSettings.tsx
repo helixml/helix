@@ -38,6 +38,7 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
+import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
@@ -756,6 +757,22 @@ const AppSettings: FC<AppSettingsProps> = ({
                   }}
                   currentType="text"
                   displayMode="short"
+                />
+              </Box>
+            )}
+
+            {code_agent_runtime === 'goose_code' && (
+              <Box>
+                <GooseRecipesEditor
+                  recipeRepoURL={app.goose_recipe_repo_url || ''}
+                  recipes={app.goose_recipes || []}
+                  disabled={readOnly}
+                  onChange={(next) => {
+                    onUpdate({
+                      goose_recipe_repo_url: next.recipeRepoURL,
+                      goose_recipes: next.recipes,
+                    })
+                  }}
                 />
               </Box>
             )}

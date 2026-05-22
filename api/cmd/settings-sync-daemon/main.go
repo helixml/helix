@@ -65,9 +65,27 @@ type CodeAgentConfig struct {
 	AgentName       string `json:"agent_name"`
 	BaseURL         string `json:"base_url"`
 	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code"
+	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code" or "goose_code"
 	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
 	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+
+	// Goose-specific fields (only populated when Runtime == "goose_code").
+	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
+	GooseRecipeRootDir string            `json:"goose_recipe_root_dir,omitempty"`
+	GooseBakedRecipe   *GooseBakedRecipe `json:"goose_baked_recipe,omitempty"`
+}
+
+// GooseRecipe maps a slash-command name to a recipe YAML on disk (container path).
+type GooseRecipe struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// GooseBakedRecipe is a fully-substituted recipe YAML that the daemon writes to
+// a temp file and registers as a single slash_command.
+type GooseBakedRecipe struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
 // AvailableModel represents a model entry for IDE model configuration.
@@ -260,8 +278,26 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			env["GOOSE_MODEL"] = d.codeAgentConfig.Model
 		}
 
-		log.Printf("Using goose_code runtime: provider=%s, model=%s, base_url=%s",
-			gooseProvider, d.codeAgentConfig.Model, baseURL)
+		// Set GOOSE_RECIPE_PATH so subrecipes and fragments referenced by
+		// project recipes resolve relative paths against the recipe repo
+		// root rather than goose's default cwd.
+		if d.codeAgentConfig.GooseRecipeRootDir != "" {
+			env["GOOSE_RECIPE_PATH"] = d.codeAgentConfig.GooseRecipeRootDir
+		}
+
+		// Use a per-session XDG_CONFIG_HOME so the goose config we write
+		// doesn't trample any user-level config that may also live under
+		// ~/.config. goose uses XDG via etcetera::choose_app_strategy.
+		xdgConfig := "/home/retro/.config/helix-goose"
+		env["XDG_CONFIG_HOME"] = xdgConfig
+
+		if err := d.writeGooseConfig(xdgConfig); err != nil {
+			log.Printf("goose_code: failed to write config.yaml: %v", err)
+		}
+
+		log.Printf("Using goose_code runtime: provider=%s, model=%s, base_url=%s, recipes=%d, baked=%v",
+			gooseProvider, d.codeAgentConfig.Model, baseURL,
+			len(d.codeAgentConfig.GooseRecipes), d.codeAgentConfig.GooseBakedRecipe != nil)
 
 		return map[string]interface{}{
 			"goose": map[string]interface{}{
@@ -279,6 +315,76 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
 		return nil
 	}
+}
+
+// writeGooseConfig writes ${xdgConfigHome}/goose/config.yaml so the goose acp
+// process picks up our slash_commands. We use a dedicated XDG_CONFIG_HOME
+// (set on the agent_servers env) to avoid clobbering any user-level goose
+// config — goose resolves config via etcetera::choose_app_strategy which
+// honours XDG_CONFIG_HOME on Linux.
+//
+// Two sources contribute slash_commands:
+//   - GooseRecipes: project-declared recipes (Phase 2a).
+//   - GooseBakedRecipe: a single recipe with parameters pre-substituted by the
+//     API for a spec-task (Phase 2b). Written to a stable per-session path so
+//     the recipe survives daemon restarts within the session.
+func (d *SettingsDaemon) writeGooseConfig(xdgConfigHome string) error {
+	configDir := filepath.Join(xdgConfigHome, "goose")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", configDir, err)
+	}
+
+	type slashCommand struct {
+		Command    string `yaml:"command"`
+		RecipePath string `yaml:"recipe_path"`
+	}
+
+	var slashCommands []slashCommand
+	for _, r := range d.codeAgentConfig.GooseRecipes {
+		if r.Name == "" || r.Path == "" {
+			continue
+		}
+		slashCommands = append(slashCommands, slashCommand{
+			Command:    r.Name,
+			RecipePath: r.Path,
+		})
+	}
+
+	if baked := d.codeAgentConfig.GooseBakedRecipe; baked != nil && baked.Name != "" && baked.Content != "" {
+		bakedDir := filepath.Join(xdgConfigHome, "goose", "baked-recipes")
+		if err := os.MkdirAll(bakedDir, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", bakedDir, err)
+		}
+		bakedPath := filepath.Join(bakedDir, baked.Name+".yaml")
+		if err := os.WriteFile(bakedPath, []byte(baked.Content), 0o644); err != nil {
+			return fmt.Errorf("write baked recipe %s: %w", bakedPath, err)
+		}
+		slashCommands = append(slashCommands, slashCommand{
+			Command:    baked.Name,
+			RecipePath: bakedPath,
+		})
+	}
+
+	// goose config.yaml is plain YAML; we hand-render to avoid pulling a
+	// yaml dep into this binary. Keys are stable and don't need quoting.
+	var buf bytes.Buffer
+	buf.WriteString("# Generated by helix settings-sync-daemon. Do not edit by hand.\n")
+	if len(slashCommands) == 0 {
+		buf.WriteString("slash_commands: []\n")
+	} else {
+		buf.WriteString("slash_commands:\n")
+		for _, sc := range slashCommands {
+			fmt.Fprintf(&buf, "  - command: %q\n", sc.Command)
+			fmt.Fprintf(&buf, "    recipe_path: %q\n", sc.RecipePath)
+		}
+	}
+
+	configPath := filepath.Join(configDir, "config.yaml")
+	if err := os.WriteFile(configPath, buf.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", configPath, err)
+	}
+	log.Printf("goose_code: wrote %s with %d slash_commands", configPath, len(slashCommands))
+	return nil
 }
 
 // rewriteLocalhostURL replaces localhost in a URL with our known-working API host.

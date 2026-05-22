@@ -1,0 +1,39 @@
+apiVersion: helix.ml/v1alpha1
+kind: Project
+metadata:
+  name: goose-recipes-demo
+
+spec:
+  description: "Demo project showing Goose code agent with custom recipes"
+  technologies: [Go]
+
+  repositories:
+    - url: "https://github.com/org/my-app"
+      branch: main
+      primary: true
+    # Recipes can live in any attached repo. Here they share the primary;
+    # to use a dedicated repo, attach it as a second entry and set
+    # spec.agent.goose.recipe_repo_url to its URL.
+    # - url: "https://github.com/org/goose-recipes"
+    #   branch: main
+
+  agent:
+    name: "Goose Agent"
+    runtime: goose_code
+    model: claude-sonnet-4-6
+    provider: anthropic
+
+    # Goose-specific configuration: attach a project-scoped recipe library
+    # that becomes slash commands inside the Goose thread.
+    #
+    # recipe_repo_url: optional — when set, must match an attached repo's
+    #   URL above. When omitted, recipes resolve against the primary repo.
+    # recipes: each entry creates a slash command. `path` is repo-relative
+    #   to the resolved recipe repo's checkout.
+    goose:
+      # recipe_repo_url: "https://github.com/org/goose-recipes"
+      recipes:
+        - name: triage
+          path: .goose/recipes/triage.yaml
+        - name: fix-flaky-test
+          path: .goose/recipes/fix-flaky-test.yaml

@@ -624,6 +624,18 @@ export interface IAssistantConfig {
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
   tests?: ITest[];
+
+  /**
+   * Goose recipes (slash commands) declared on this agent. Only meaningful
+   * when code_agent_runtime is 'goose_code'.
+   */
+  goose_recipe_repo_url?: string;
+  goose_recipes?: IAssistantGooseRecipe[];
+}
+
+export interface IAssistantGooseRecipe {
+  name: string;
+  path: string;
 }
 
 export interface IKnowledgeProgress {
@@ -792,6 +804,8 @@ export interface IAppFlatState {
   small_generation_model_provider?: string
   code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code'
   code_agent_credential_type?: 'api_key' | 'subscription'
+  goose_recipe_repo_url?: string
+  goose_recipes?: IAssistantGooseRecipe[]
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number
