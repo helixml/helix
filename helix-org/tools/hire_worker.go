@@ -11,7 +11,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/position"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -213,13 +212,13 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	// it up on its very first call. Empty userID — standalone helix-org
 	// with no HTTP auth, or any path that didn't stash a user — is a
 	// no-op; the Spawner then falls back to its static service api_key.
-	if uid := helixclient.UserIDFromContext(ctx); uid != "" {
-		if err := runtimehelix.SaveHiringUser(ctx, t.deps.Store, id, uid); err != nil {
-			// Non-fatal: hire succeeds, the Worker just won't have
-			// per-user identity propagated to its sessions and the
-			// Spawner falls back to the service key. Log via the
-			// activation Stream so it's visible if anyone audits.
-			return nil, fmt.Errorf("persist hiring user: %w", err)
+	//
+	// Routes through the runtime.HireHandler port so non-helix runtimes
+	// (claude / dev / test) can no-op without hire_worker knowing
+	// anything about helix-runtime internals.
+	if uid := helixclient.UserIDFromContext(ctx); uid != "" && t.deps.HireHandler != nil {
+		if err := t.deps.HireHandler.OnHire(ctx, id, uid); err != nil {
+			return nil, fmt.Errorf("hire handler: %w", err)
 		}
 	}
 

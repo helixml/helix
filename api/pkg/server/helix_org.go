@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/runtime"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/bootstrap"
 	"github.com/helixml/helix/helix-org/config"
@@ -149,6 +150,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	if serviceClient != nil {
 		deps.Workspace = agenthelix.NewWorkspace(serviceClient, st, "helix-specs", "helix-org", "helix-org@helix.local")
 	}
+
+	// Wire the helix-runtime HireHandler so hire_worker persists the
+	// hiring user's identifier onto the new Worker's runtime state.
+	// Replaces the direct agenthelix.SaveHiringUser call hire_worker
+	// used to make.
+	deps.HireHandler = &runtimehelix.HireRecorder{Store: st}
 
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same

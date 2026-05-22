@@ -57,6 +57,12 @@ type Deps struct {
 	Hub        *broadcast.Hub
 	Dispatcher EventDispatcher
 	Workspace  runtime.WorkspaceSync
+	// HireHandler runs runtime-side bookkeeping after a new Worker is
+	// created (hire_worker invokes it once the Worker row is in the
+	// store). Pick the right impl at wiring time — the helix runtime
+	// uses helix.HireRecorder to persist the hiring user; claude / dev
+	// runtimes use runtime.NoopHireHandler.
+	HireHandler runtime.HireHandler
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
@@ -65,10 +71,11 @@ type Deps struct {
 // left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
 	return Deps{
-		Store:     s,
-		Now:       func() time.Time { return time.Now().UTC() },
-		NewID:     uuid.NewString,
-		Workspace: runtime.NoopWorkspaceSync{},
+		Store:       s,
+		Now:         func() time.Time { return time.Now().UTC() },
+		NewID:       uuid.NewString,
+		Workspace:   runtime.NoopWorkspaceSync{},
+		HireHandler: runtime.NoopHireHandler{},
 	}
 }
 

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -293,6 +294,104 @@ func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 	}
 }
 
+// captureHireHandler records OnHire calls. Used to assert hire_worker
+// routes through runtime.HireHandler rather than calling
+// SaveHiringUser directly.
+type captureHireHandler struct {
+	calls   []captureHireCall
+	failErr error
+}
+
+type captureHireCall struct {
+	workerID worker.ID
+	userID   string
+}
+
+func (h *captureHireHandler) OnHire(_ context.Context, w worker.ID, uid string) error {
+	h.calls = append(h.calls, captureHireCall{workerID: w, userID: uid})
+	return h.failErr
+}
+
+// TestHireWorkerInvokesHireHandlerWithUserID verifies the new B4 flow:
+// hire_worker routes the hiring-user side-effect through the
+// HireHandler port, not via a direct SaveHiringUser call.
+func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
+	t.Parallel()
+	deps, _, _, caller := newHireTestEnv(t)
+	hook := &captureHireHandler{}
+	deps.HireHandler = hook
+	tool := &HireWorker{deps: deps}
+
+	ctx := helixclient.WithUserID(context.Background(), "u-phil")
+	args, _ := json.Marshal(hireWorkerArgs{
+		ID:              "w-alice",
+		PositionID:      "p-root",
+		Kind:            worker.KindAI,
+		IdentityContent: "# Alice",
+	})
+	if _, err := tool.Invoke(ctx, domain.Invocation{Caller: caller, Args: args}); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if len(hook.calls) != 1 {
+		t.Fatalf("OnHire calls = %d, want 1", len(hook.calls))
+	}
+	if hook.calls[0].workerID != "w-alice" || hook.calls[0].userID != "u-phil" {
+		t.Errorf("OnHire(%q, %q), want (w-alice, u-phil)", hook.calls[0].workerID, hook.calls[0].userID)
+	}
+}
+
+// TestHireWorkerSkipsHireHandlerWithoutUserID confirms the no-op
+// path: without a userID in context, the hook is NOT invoked.
+// Matches the prior contract that unauthenticated hires don't write
+// any hiring-user state.
+func TestHireWorkerSkipsHireHandlerWithoutUserID(t *testing.T) {
+	t.Parallel()
+	deps, _, _, caller := newHireTestEnv(t)
+	hook := &captureHireHandler{}
+	deps.HireHandler = hook
+	tool := &HireWorker{deps: deps}
+
+	args, _ := json.Marshal(hireWorkerArgs{
+		ID:              "w-alice",
+		PositionID:      "p-root",
+		Kind:            worker.KindAI,
+		IdentityContent: "# Alice",
+	})
+	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if len(hook.calls) != 0 {
+		t.Errorf("OnHire called %d times without userID in ctx (want 0)", len(hook.calls))
+	}
+}
+
+// TestHireWorkerHireHandlerErrorIsFatal verifies the error contract:
+// an OnHire failure aborts the hire with a wrapped error. Matches
+// the existing fatal behaviour at hire_worker.go (the doc comment
+// said non-fatal but the code returned the error).
+func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
+	t.Parallel()
+	deps, _, _, caller := newHireTestEnv(t)
+	hook := &captureHireHandler{failErr: errors.New("boom")}
+	deps.HireHandler = hook
+	tool := &HireWorker{deps: deps}
+
+	ctx := helixclient.WithUserID(context.Background(), "u-phil")
+	args, _ := json.Marshal(hireWorkerArgs{
+		ID:              "w-alice",
+		PositionID:      "p-root",
+		Kind:            worker.KindAI,
+		IdentityContent: "# Alice",
+	})
+	_, err := tool.Invoke(ctx, domain.Invocation{Caller: caller, Args: args})
+	if err == nil {
+		t.Fatal("expected error when hook fails")
+	}
+	if !strings.Contains(err.Error(), "hire handler") {
+		t.Errorf("err = %v, want mention of 'hire handler'", err)
+	}
+}
+
 // TestHireWorkerPersistsHiringUserFromContext verifies that when the
 // request context carries a userID, the runtime state for the new
 // Worker has it persisted. This pins the existing
@@ -301,6 +400,10 @@ func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
+	// Wire the real HireRecorder so the persistence side-effect runs
+	// end-to-end. NoopHireHandler is the default and would skip the
+	// SaveHiringUser side-effect.
+	deps.HireHandler = &runtimehelix.HireRecorder{Store: deps.Store}
 	tool := &HireWorker{deps: deps}
 
 	ctx := helixclient.WithUserID(context.Background(), "u-phil")
