@@ -16,7 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 // fakeProjectService is the test stand-in for ProjectService. Counters
@@ -154,10 +154,7 @@ func discardLogger() *slog.Logger {
 
 func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, worker.ID) {
 	t.Helper()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	r, err := role.New("r-eng", roleContent, nil, nil, time.Now().UTC())
 	if err != nil {
@@ -440,10 +437,7 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 // TestEnsureSkipsRolePushIfNoPosition.
 func TestEnsureSkipsRolePushIfNoPosition(t *testing.T) {
 	t.Parallel()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	w, _ := domain.NewAIWorker("w-orphan", "", "# I am alone")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)

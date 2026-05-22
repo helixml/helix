@@ -6,15 +6,12 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/domain"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 func TestHireRecorderPersistsHiringUser(t *testing.T) {
 	t.Parallel()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	w, _ := domain.NewAIWorker("w-alice", "p-x", "# Alice")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
@@ -35,10 +32,7 @@ func TestHireRecorderPersistsHiringUser(t *testing.T) {
 
 func TestHireRecorderEmptyUserIDIsNoop(t *testing.T) {
 	t.Parallel()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	w, _ := domain.NewAIWorker("w-alice", "p-x", "# Alice")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)

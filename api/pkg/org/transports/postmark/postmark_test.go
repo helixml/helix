@@ -16,7 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/transport"
@@ -47,10 +47,7 @@ func (d *recordingDispatcher) snapshot() []domain.Event {
 
 func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *streamhub.Hub, *config.Registry) {
 	t.Helper()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("NewInMemoryNats: %v", err)

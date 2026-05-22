@@ -20,7 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 // fakeHelixClient is a deterministic stand-in for Client.
@@ -65,10 +65,7 @@ func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) 
 
 func newHelixTestStore(t *testing.T) (*store.Store, worker.ID) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	role, _ := role.New("r-eng", "# Role: Engineer", nil, nil, time.Now().UTC())
 	if err := s.Roles.Create(ctx, role); err != nil {

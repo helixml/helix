@@ -26,8 +26,7 @@ import (
 	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/server/api"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
-	orgpostgres "github.com/helixml/helix/api/pkg/org/store/postgres"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/tools"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -55,12 +54,10 @@ const alphaFeatureHelixOrg = "helix-org"
 // feature flag.
 //
 // Storage: the org-graph rows land in the same Postgres database
-// helix uses for its primary state (H4.4) — no separate connection
-// pool, no FILESTORE_TYPE=fs requirement, no per-deployment SQLite
-// file. When helixStore is something other than the production
-// Postgres impl (e.g. an in-memory test store) the call falls back
-// to a SQLite file under LocalFSPath if one is configured, or a
-// temp directory otherwise.
+// helix uses for its primary state — no separate connection pool,
+// no FILESTORE_TYPE=fs requirement. The helixStore must expose a
+// *gorm.DB accessor (helix's PostgresStore does); otherwise this
+// returns an error.
 //
 // Working directories: each Worker still has an envsDir entry for
 // the Spawner's cwd, but the directory's contents are placeholder
@@ -104,11 +101,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("create owner env %q: %w", ownerEnvPath, err)
 	}
 
-	// Open the org store against helix's existing connection when
-	// available (production Postgres). Tests and dev wirings that
-	// pass non-Postgres helixStore impls fall back to a sqlite file
-	// under orgRoot — keeps the test surface unchanged.
-	st, err := openOrgStore(helixStore, orgRoot)
+	// Open the org store against helix's Postgres connection. The
+	// helixStore must expose a *gorm.DB accessor — there is no
+	// dialect fallback any more.
+	st, err := openOrgStore(helixStore)
 	if err != nil {
 		return nil, err
 	}
@@ -301,8 +297,8 @@ type helixOrgConfig struct {
 // values to take effect. Resolving per-call removes that surprise.
 //
 // Store is exposed directly because helix_org_chat.go needs it to
-// load/save the per-Worker session pointer on the same SQLite row
-// the spawner uses (helix-org's WorkerRuntimeState).
+// load/save the per-Worker session pointer on the same row the
+// spawner uses (helix-org's WorkerRuntimeState).
 type dynamicProjectApplier struct {
 	cfg        *config.Registry
 	projectSvc runtimehelix.ProjectService
@@ -564,30 +560,25 @@ func lazyHelixOrgSpawner(
 }
 
 // openOrgStore binds the org-graph repos against helix's existing
-// connection when the helixStore exposes a *gorm.DB (production
-// Postgres, H4.3); falls back to a SQLite file under orgRoot for
-// test wirings that pass non-Postgres stores. Centralised here so
-// initHelixOrgHandler stays linear.
+// Postgres connection. The helixStore must expose a *gorm.DB
+// accessor (helix's PostgresStore does); there is no dialect
+// fallback — helix-org now shares helix's database.
 //
 // The orgPostgresDB anonymous interface lets us pick up the
 // (*PostgresStore).GormDB() accessor without leaking a hard
 // dependency on the concrete type — a future store impl that
-// exposes the same method gets the Postgres path automatically.
-func openOrgStore(helixStore helixstore.Store, orgRoot string) (*helixorgstore.Store, error) {
+// exposes the same method works transparently.
+func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 	type orgPostgresDB interface {
 		GormDB() *gorm.DB
 	}
-	if accessor, ok := helixStore.(orgPostgresDB); ok {
-		st, err := orgpostgres.Open(accessor.GormDB())
-		if err != nil {
-			return nil, fmt.Errorf("open helix-org postgres: %w", err)
-		}
-		return st, nil
+	accessor, ok := helixStore.(orgPostgresDB)
+	if !ok {
+		return nil, fmt.Errorf("helix-org requires a Postgres-backed helix store; got %T", helixStore)
 	}
-	dbPath := filepath.Join(orgRoot, "helix-org.db")
-	st, err := sqlite.Open(dbPath)
+	st, err := orggorm.OpenWithDB(accessor.GormDB())
 	if err != nil {
-		return nil, fmt.Errorf("open helix-org sqlite %q: %w", dbPath, err)
+		return nil, fmt.Errorf("open helix-org gorm: %w", err)
 	}
 	return st, nil
 }

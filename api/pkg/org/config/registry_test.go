@@ -7,15 +7,12 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 func newRegistry(t *testing.T) *config.Registry {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	return config.New(s.Configs)
 }
 

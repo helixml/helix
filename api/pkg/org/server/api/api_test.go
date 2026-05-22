@@ -16,7 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/role"
 	orgapi "github.com/helixml/helix/api/pkg/org/server/api"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -27,10 +27,7 @@ import (
 // add the ones they need.
 func newDeps(t *testing.T) (orgapi.Deps, *store.Store, *config.Registry) {
 	t.Helper()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("new in-memory nats: %v", err)

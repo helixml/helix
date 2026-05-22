@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	helixorgconfig "github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 // TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets pins
@@ -24,10 +24,7 @@ import (
 func TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets(t *testing.T) {
 	t.Parallel()
 
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(st.Configs)
 	registerHelixOrgConfigSpecs(reg)
 
@@ -70,10 +67,7 @@ func TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets(t *testing.T)
 func TestRegisterHelixOrgConfigSpecs_RedactsPostmarkToken(t *testing.T) {
 	t.Parallel()
 
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(st.Configs)
 	registerHelixOrgConfigSpecs(reg)
 

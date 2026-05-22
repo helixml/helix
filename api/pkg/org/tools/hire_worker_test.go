@@ -14,7 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/role"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/org/domain"
@@ -55,10 +55,7 @@ func (f *fakeDispatcher) hireCount() int {
 
 func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, domain.Worker) {
 	t.Helper()
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 

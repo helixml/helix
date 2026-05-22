@@ -18,7 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/tools"
@@ -56,10 +56,7 @@ func (d *recordingDispatcher) snapshot() []domain.Event {
 // seed streams and observe wakeups.
 func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Server, *store.Store, *streamhub.Hub) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	bc := newStreamhub(t)
 	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), bc, dispatcher, nil).Handler())
 	t.Cleanup(srv.Close)
@@ -264,10 +261,7 @@ func TestWebhookBodySizeBoundary(t *testing.T) {
 // unwired. The event still lands; nothing panics.
 func TestWebhookWithNilCollaborators(t *testing.T) {
 	t.Parallel()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
@@ -413,10 +407,7 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 	}))
 	t.Cleanup(catcher.Close)
 
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), newStreamhub(t), d, nil).Handler())
 	t.Cleanup(srv.Close)

@@ -13,7 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	"github.com/helixml/helix/api/pkg/org/role"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/tools"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/org/server"
@@ -25,10 +25,7 @@ import (
 // httptest.Server and the workerID to act as.
 func newTestServer(t *testing.T) (*httptest.Server, worker.ID) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 
 	reg := tools.NewRegistry()
 	if err := reg.Register(tools.Ping{}); err != nil {
@@ -168,10 +165,7 @@ func TestMCPUngrantedToolHidden(t *testing.T) {
 // (create_role); callers exercise both branches.
 func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Server, worker.ID) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 
 	reg := tools.NewRegistry()
 	if err := reg.Register(tools.Ping{}); err != nil {

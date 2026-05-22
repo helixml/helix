@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/bootstrap"
 )
 
@@ -18,10 +18,7 @@ import (
 // bootstrap independently without colliding on "w-owner".
 func TestRunStampsOwnerWorkerWithOrganizationID(t *testing.T) {
 	t.Parallel()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envDir := filepath.Join(t.TempDir(), "w-owner")
 	if err := mkdirAll(envDir); err != nil {
 		t.Fatalf("mkdir env: %v", err)
@@ -52,10 +49,7 @@ func TestRunStampsOwnerWorkerWithOrganizationID(t *testing.T) {
 // the owner Worker has no OrgID, single-tenant alpha-mode.
 func TestRunOmitsOrgIDWhenUnspecified(t *testing.T) {
 	t.Parallel()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envDir := filepath.Join(t.TempDir(), "w-owner")
 	if err := mkdirAll(envDir); err != nil {
 		t.Fatalf("mkdir env: %v", err)

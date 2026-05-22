@@ -12,7 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 // fakeGitWriter is the minimum WorkspaceGit fake — captures the
@@ -42,10 +42,7 @@ func (f *fakeGitWriter) CreateBranch(_ context.Context, _, _, _ string) error { 
 
 func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	r, _ := role.New("r-eng", "# Role", nil, nil, time.Now().UTC())
 	_ = s.Roles.Create(ctx, r)

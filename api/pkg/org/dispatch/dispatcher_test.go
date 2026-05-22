@@ -21,7 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -95,10 +95,7 @@ func (c *catcher) expectNone(t *testing.T, window time.Duration) {
 // discard logger; callers wire in a fresh in-memory store.
 func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return d, s
 }
@@ -114,10 +111,7 @@ type recordedActivation struct {
 // who was activated (and not activated) for a given Dispatch call.
 func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store, <-chan recordedActivation) {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
 	spawner := runtime.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
@@ -601,10 +595,7 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 func TestDispatchCoalescesEvents(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 8)
 
 	// First Spawner call gates on `release` so the test can stack more

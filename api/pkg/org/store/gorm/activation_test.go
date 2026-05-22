@@ -1,4 +1,4 @@
-package sqlite
+package gorm
 
 import (
 	"context"
@@ -12,15 +12,11 @@ import (
 	"github.com/helixml/helix/api/pkg/org/store"
 )
 
-// newActivationStore opens an in-memory sqlite Store for activation
-// round-trip tests. Fails the test if open errors.
+// newActivationStore opens a per-test Postgres-schema Store for
+// activation round-trip tests.
 func newActivationStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	return s
+	return GetOrgTestDB(t)
 }
 
 // TestActivationCreateGetRoundTrip pins the storage seam for the

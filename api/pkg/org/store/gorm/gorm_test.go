@@ -1,4 +1,4 @@
-package sqlite_test
+package gorm_test
 
 import (
 	"context"
@@ -10,15 +10,12 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/store"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 )
 
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	return s
 }
 

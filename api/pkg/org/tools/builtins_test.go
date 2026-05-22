@@ -16,7 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/role"
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
@@ -39,10 +39,7 @@ import (
 func TestDemoOwnerHiresCEO(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -191,10 +188,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -309,10 +303,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 func TestStreamMembers(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -373,10 +364,7 @@ func TestStreamMembers(t *testing.T) {
 func TestInviteWorkers(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -463,10 +451,7 @@ func TestInviteWorkers(t *testing.T) {
 func TestDM(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -580,10 +565,7 @@ func TestDM(t *testing.T) {
 func TestReadsOverMCP(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -701,10 +683,7 @@ func membersOf(t *testing.T, session *mcp.ClientSession, streamID string) []stri
 func TestWorkerLog(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 
 	reg := tools.NewRegistry()
@@ -817,10 +796,7 @@ func TestWorkerLog(t *testing.T) {
 func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	t.Parallel()
 
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
 	reg := tools.NewRegistry()
 	deps := tools.DefaultDeps(s)

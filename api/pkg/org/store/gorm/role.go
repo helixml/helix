@@ -1,4 +1,4 @@
-package sqlite
+package gorm
 
 import (
 	"context"

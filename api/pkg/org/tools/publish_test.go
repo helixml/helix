@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/store/sqlite"
+	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/domain"
 )
@@ -19,10 +19,7 @@ import (
 func TestPublishRejectsGitHubStream(t *testing.T) {
 	t.Parallel()
 
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 
 	// Seed a github-transport Stream and a caller Worker.
@@ -72,10 +69,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 func TestPublishLocalStreamStillWorks(t *testing.T) {
 	t.Parallel()
 
-	st, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 
 	stream, err := domain.NewStream("s-general", "s-general", "", "w-owner",

@@ -1,4 +1,4 @@
-package sqlite_test
+package gorm_test
 
 import (
 	"context"
