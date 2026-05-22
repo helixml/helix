@@ -12,16 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/transports/postmark"
+	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
 // recordingDispatcher captures Dispatch calls for assertion.
@@ -44,13 +45,17 @@ func (d *recordingDispatcher) snapshot() []domain.Event {
 	return out
 }
 
-func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *broadcast.Hub, *config.Registry) {
+func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *streamhub.Hub, *config.Registry) {
 	t.Helper()
 	st, err := sqlite.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	bc := broadcast.New()
+	ps, err := pubsub.NewInMemoryNats()
+	if err != nil {
+		t.Fatalf("NewInMemoryNats: %v", err)
+	}
+	bc := streamhub.New(ps)
 	rd := &recordingDispatcher{}
 	reg := config.New(st.Configs)
 	reg.Register(config.Spec{

@@ -17,7 +17,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/bootstrap"
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
 	"github.com/helixml/helix/api/pkg/org/prompts"
@@ -130,7 +130,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("helix-org bootstrap: %w", err)
 	}
 
-	bc := broadcast.New()
+	// Wake-only stream notifier. Backed by the host API server's
+	// pubsub.PubSub (the canonical Helix NATS instance) — the
+	// streamhub package is a thin facade preserving the typed
+	// stream.ID API the helix-org call sites used when this was the
+	// in-process broadcast.Hub.
+	bc := streamhub.New(cfg.APIServer.pubsub)
 	deps := tools.DefaultDeps(st)
 	deps.Hub = bc
 	deps.EnvsDir = envsDir
@@ -486,7 +491,7 @@ func buildHelixOrgSpawnerConfig(
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
 	orgStore *helixorgstore.Store,
-	bc *broadcast.Hub,
+	bc *streamhub.Hub,
 	logger *slog.Logger,
 	newID func() string,
 	now func() time.Time,
@@ -549,7 +554,7 @@ func lazyHelixOrgSpawner(
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
 	orgStore *helixorgstore.Store,
-	bc *broadcast.Hub,
+	bc *streamhub.Hub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
 	newID func() string,

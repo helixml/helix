@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/store"
@@ -35,7 +35,7 @@ import (
 func PublishActivationEvent(
 	ctx context.Context,
 	st *store.Store,
-	bc *broadcast.Hub,
+	bc *streamhub.Hub,
 	newID func() string,
 	now func() time.Time,
 	logger *slog.Logger,

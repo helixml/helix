@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -81,7 +81,7 @@ type SpawnerConfig struct {
 	PollMax           time.Duration // default 30s
 	Logger            *slog.Logger
 	Store             *store.Store
-	Hub               *broadcast.Hub
+	Hub               *streamhub.Hub
 	Now               func() time.Time
 	NewID             func() string
 }

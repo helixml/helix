@@ -14,16 +14,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/tools"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/server"
+	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
 // recordingDispatcher captures every Dispatch call so tests can assert
@@ -53,16 +54,29 @@ func (d *recordingDispatcher) snapshot() []domain.Event {
 // the supplied dispatcher (may be nil) into a Server. Returns the
 // running httptest.Server plus the store + broadcaster so tests can
 // seed streams and observe wakeups.
-func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Server, *store.Store, *broadcast.Hub) {
+func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Server, *store.Store, *streamhub.Hub) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	bc := broadcast.New()
+	bc := newStreamhub(t)
 	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), bc, dispatcher, nil).Handler())
 	t.Cleanup(srv.Close)
 	return srv, s, bc
+}
+
+// newStreamhub spins up an in-memory NATS-backed streamhub. The
+// embedded NATS server is cleaned up at test exit via the test's
+// natural goroutine teardown — the in-memory provider doesn't expose
+// an explicit Close hook.
+func newStreamhub(t *testing.T) *streamhub.Hub {
+	t.Helper()
+	ps, err := pubsub.NewInMemoryNats()
+	if err != nil {
+		t.Fatalf("NewInMemoryNats: %v", err)
+	}
+	return streamhub.New(ps)
 }
 
 // seedStream creates a Stream with the given transport kind. The
@@ -92,6 +106,11 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 
 	wake := bc.Subscribe([]stream.ID{"s-inbox"})
 	t.Cleanup(func() { bc.Unsubscribe([]stream.ID{"s-inbox"}, wake) })
+	// streamhub is pubsub-backed (NATS); the SUB has to round-trip to
+	// the embedded server before Publish can route to us. Give it a
+	// short window — the wake check at the bottom of the test then
+	// waits up to a second for the asynchronous delivery to land.
+	time.Sleep(100 * time.Millisecond)
 
 	body := "incoming text — anything goes here"
 	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader(body))
@@ -135,7 +154,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 
 	select {
 	case <-wake:
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("broadcaster did not wake long-poll observer")
 	}
 }
@@ -399,7 +418,7 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), broadcast.New(), d, nil).Handler())
+	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), newStreamhub(t), d, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: catcher.URL})

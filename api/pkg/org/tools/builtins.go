@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -61,7 +61,7 @@ type Deps struct {
 	Now        Clock
 	NewID      IDGen
 	EnvsDir    string
-	Hub        *broadcast.Hub
+	Hub        *streamhub.Hub
 	Dispatcher EventDispatcher
 	Workspace  runtime.WorkspaceSync
 	// HireHook runs runtime-side bookkeeping after a new Worker is

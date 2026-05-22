@@ -11,7 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/agent"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/config"
@@ -109,7 +109,7 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // (api/pkg/server/helix_org_inproc.go::inProcHelixClient) — same
 // instance the spawner uses for SpawnerClient and the project
 // applier uses for ProjectService. No loopback-HTTP indirection.
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Hub, newID func() string, now func() time.Time) (chat.Backend, error) {
+func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *streamhub.Hub, newID func() string, now func() time.Time) (chat.Backend, error) {
 	if applier == nil {
 		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
 		return nil, nil

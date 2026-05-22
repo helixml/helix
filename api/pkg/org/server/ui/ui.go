@@ -11,7 +11,7 @@ import (
 
 	"github.com/tylermmorton/tmpl"
 
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain"
@@ -38,7 +38,7 @@ type Deps struct {
 	Configs    *config.Registry
 	Bridge     chat.Backend
 	Settings   SettingsView
-	Hub        *broadcast.Hub
+	Hub        *streamhub.Hub
 	Dispatcher *dispatch.Dispatcher
 	NewID      func() string
 	Now        func() time.Time

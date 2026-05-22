@@ -39,7 +39,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/message"
@@ -90,7 +90,7 @@ type Dispatcher interface {
 type Transport struct {
 	registry    *config.Registry
 	store       *store.Store
-	broadcaster *broadcast.Hub
+	broadcaster *streamhub.Hub
 	dispatcher  Dispatcher
 	logger      *slog.Logger
 }
@@ -100,7 +100,7 @@ type Transport struct {
 // dispatcher (for activating subscribed Workers on inbound).
 // dispatcher and broadcaster may be nil for tests that don't
 // exercise those paths.
-func New(reg *config.Registry, st *store.Store, bc *broadcast.Hub, d Dispatcher, logger *slog.Logger) *Transport {
+func New(reg *config.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
 	return &Transport{
 		registry:    reg,
 		store:       st,
