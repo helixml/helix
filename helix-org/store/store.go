@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/position"
@@ -143,6 +144,11 @@ type Configs interface {
 // Store bundles all repositories a single concrete implementation provides.
 // Handlers and tools depend on the narrower interfaces above; Store is the
 // wiring point.
+//
+// Activations is the typed port defined in api/pkg/org/activation —
+// the interface lives next to the aggregate it persists, so the
+// storage boundary is part of the domain package, not a parallel
+// declaration here. Lifted in B5.5.
 type Store struct {
 	Roles              Roles
 	Positions          Positions
@@ -154,4 +160,5 @@ type Store struct {
 	Events             Events
 	Environments       Environments
 	Configs            Configs
+	Activations        activation.Repository
 }
