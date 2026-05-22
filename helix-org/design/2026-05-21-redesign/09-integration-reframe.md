@@ -378,14 +378,18 @@ marks landed in the `refactor/helix-org-redesign` branch as of
     impl wired against `(*helixstore.PostgresStore).GormDB()`, and
     the `FILESTORE_TYPE=fs` gate removed. Embedded alpha now boots
     on gcs/s3 deployments.
-15. **H5 + H6** (multi-tenant + identity model) — depends on H4 (need
-    Postgres for `(org_id, worker_id)` keys) and H1 (need direct
-    controller access for clean identity flow). **Next up.**
-16. **H8** (move packages into `api/pkg/orgs/`) — symbolic completion.
-    Do this last; it's churn-heavy and risks merge pain if done early.
-    Most lifts already landed alongside their refactors (B5, H3, H4);
-    what remains under `helix-org/` is the dispatch/domain/tools/
-    transports/server tree that the next migrations touch.
+15. ✓ **H5 + H6** (multi-tenant + identity model) — scaffolding landed:
+    Worker carries OrgID (H5.1), bootstrap stamps it on the owner
+    (H5.2), hire_worker inherits from the caller (H5.3), HelixIdentity
+    VO + middleware wire UserID + OrganizationID + BearerToken
+    through the request context (H6.1–H6.2). The remaining tenant-
+    scoping in queries (H5.4+) and the Activation-row identity stamp
+    (H6.3+) layer on top.
+16. ✓ **H8** (move packages into `api/pkg/org/`) — structurally
+    complete: every Go package that used to live under `helix-org/`
+    now lives under `api/pkg/org/`. The `helix-org/` directory holds
+    only docs (CLAUDE.md, TODO.md, design/), sample data (demos/),
+    and the Makefile.
 
 ### Two-sprint slice (replacing `08 §F`)
 
