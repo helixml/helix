@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/prompts"
-	"github.com/helixml/helix/helix-org/tools"
+	"github.com/helixml/helix/api/pkg/org/tools"
 )
 
 func TestRoleRequiresCreateRoleGrant(t *testing.T) {

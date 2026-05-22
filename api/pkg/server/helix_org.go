@@ -30,7 +30,7 @@ import (
 	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
 	orgpostgres "github.com/helixml/helix/api/pkg/org/store/postgres"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
-	"github.com/helixml/helix/helix-org/tools"
+	"github.com/helixml/helix/api/pkg/org/tools"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	helixstore "github.com/helixml/helix/api/pkg/store"

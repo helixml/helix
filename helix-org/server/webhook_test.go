@@ -20,10 +20,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/api/pkg/org/stream"
+	"github.com/helixml/helix/api/pkg/org/tools"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/server"
-	"github.com/helixml/helix/helix-org/tools"
 )
 
 // recordingDispatcher captures every Dispatch call so tests can assert

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/helix-org/tools"
+	"github.com/helixml/helix/api/pkg/org/tools"
 )
 
 // RoleName is the slash-command identifier for the role-design prompt.

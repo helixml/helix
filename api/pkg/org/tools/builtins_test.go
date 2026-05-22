@@ -23,7 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/server"
-	"github.com/helixml/helix/helix-org/tools"
+	"github.com/helixml/helix/api/pkg/org/tools"
 )
 
 // TestDemoOwnerHiresCEO walks the "manager does the orchestration" story
