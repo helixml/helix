@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -127,14 +126,17 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath
 // have no such ordering guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	d.emitOutbound(ctx, e)
-	// Parse the canonical Message envelope once — every appended event
-	// stores Message JSON in Body. A parse failure here means a
-	// hand-poked or pre-migration event; surface the raw body and warn,
-	// don't crash the activation.
+	// Parse the canonical Message envelope. Every production write
+	// goes through Message.Encode via domain.NewMessageEvent, so a
+	// parse failure here is a programming bug — a hand-poked DB row,
+	// or a regression in a future write path. Skip fan-out so a bad
+	// event doesn't render a half-formed activation prompt; the error
+	// is logged so the bug is visible. Outbound emission already
+	// fired above and is unaffected.
 	msg, err := e.Message()
 	if err != nil {
-		d.logger.Warn("dispatch: parse message", "event", e.ID, "err", err)
-		msg = message.Message{Body: e.Body}
+		d.logger.Error("dispatch: parse message — skipping fan-out", "event", e.ID, "err", err)
+		return
 	}
 	subs, err := d.store.Subscriptions.ListForStream(ctx, e.StreamID)
 	if err != nil {

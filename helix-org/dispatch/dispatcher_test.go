@@ -717,3 +717,38 @@ func eventIDs(ts []activation.Trigger) []event.ID {
 	}
 	return out
 }
+
+// TestDispatchSkipsFanOutOnBadMessageBody pins B6.2: an Event whose
+// Body isn't canonical Message JSON is a programming bug — every
+// production write goes through Message.Encode. The dispatcher used
+// to silently fall back to {Body: raw}; B6.2 makes that path strict
+// (no fan-out) so a bad event is visible rather than emitting a
+// half-rendered activation prompt.
+//
+// Outbound emission is unaffected — it runs before the parse and
+// posts the raw e.Body to webhook receivers regardless.
+func TestDispatchSkipsFanOutOnBadMessageBody(t *testing.T) {
+	t.Parallel()
+	d, s, rec := newDispatcherWithSpawner(t)
+	seedWebhookStream(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
+	seedAIWorker(t, s, "w-listener")
+	seedSubscription(t, s, "w-listener", "s-bad")
+
+	// Hand-craft an event with non-JSON body — bypasses NewMessageEvent
+	// on purpose to simulate the only path that produces this state
+	// (hand-poked DB or a regression in a future write path).
+	e, err := domain.NewEvent("e-bad", "s-bad", "w-author", "not-json-payload", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("new event: %v", err)
+	}
+
+	d.Dispatch(context.Background(), e)
+
+	// Listener must NOT be activated. With the old fallback the
+	// dispatcher would activate with {Body: "not-json-payload"};
+	// strict-parse skips fan-out entirely.
+	got := drainActivations(t, rec, 100*time.Millisecond)
+	if len(got) != 0 {
+		t.Fatalf("activations = %d, want 0 (bad body must not fan out); got %+v", len(got), got)
+	}
+}
