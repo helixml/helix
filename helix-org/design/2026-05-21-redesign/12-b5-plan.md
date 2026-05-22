@@ -45,7 +45,7 @@ api/pkg/org/activation/
   segment.go           # NEW — TranscriptSegment VO + parser of "assistant: …" lines
   activation.go        # NEW — Activation aggregate {ID, WorkerID, Triggers, StartedAt, EndedAt, Outcome, TranscriptStreamID}
   repository.go        # NEW — Repository port; sqlite/postgres impls land alongside H4
-  coalescing.go        # NEW — extracted from helix-org/dispatch
+  queue.go             # NEW — per-Worker activation Queue (extracted from helix-org/dispatch)
 ```
 
 Behaviour:
@@ -89,7 +89,7 @@ behaviour preserved across lifts.
 | B5.7 | `worker_log` gains `activation_id` filter | New optional arg; without it, behaviour unchanged. | S |
 | B5.8 | `hire_worker` returns ActivationID | Schema change: `hire_worker` MCP response gains `activation_id`. Caller (the chat bridge / Worker prompt) can poll on a single Activation. | S |
 | B5.9 | Move activation-Stream creation to Worker creation | Single enforcement site (replaces `bootstrap.go:155` + `hire_worker.go:237`). | S |
-| B5.10 | Extract CoalescingQueue from Dispatcher | Lifts the per-Worker burst-folding state into `activation.Coalescer`. Closes `05 §3.5`. | M |
+| B5.10 | Extract CoalescingQueue from Dispatcher | Lifts the per-Worker burst-folding state into `activation.Queue` (renamed from Coalescer per CLAUDE.md "no -er suffixes"). Closes `05 §3.5`. | M |
 
 ## Recommended order
 

@@ -23,10 +23,8 @@ package dispatch
 import (
 	"bytes"
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
@@ -55,31 +53,17 @@ type EmailEmitter interface {
 // configured Spawner for each one. It also emits outbound webhook
 // POSTs and outbound email sends for Streams whose Transport is
 // configured for them.
+//
+// The per-Worker coalescing logic (one in-flight Spawn per Worker,
+// bursts folded into the next batch) moved out to
+// activation.Queue in B5.10; Dispatcher delegates Enqueue to its
+// embedded Queue and focuses on the event/transport-side fan-out.
 type Dispatcher struct {
 	store        *store.Store
-	spawner      runtime.Spawner
+	queue        *activation.Queue
 	logger       *slog.Logger
 	httpClient   *http.Client
 	emailEmitter EmailEmitter
-
-	// per-worker queues coalesce activations. Each is created on first
-	// use via sync.Map.LoadOrStore.
-	queues sync.Map // map[worker.ID]*workerQueue
-}
-
-// workerQueue holds the pending triggers for one Worker plus the
-// state needed to coordinate the single runner goroutine that drains
-// them. New triggers arriving while running == true are appended to
-// pending; the runner picks them up at the top of its next loop
-// iteration and feeds them to the Spawner as a single batched
-// activation. envPath is captured from the most recent enqueue —
-// stable in practice (a Worker's environment doesn't move) but the
-// last writer wins if it ever does.
-type workerQueue struct {
-	mu      sync.Mutex
-	pending []activation.Trigger
-	envPath string
-	running bool
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -87,9 +71,13 @@ type workerQueue struct {
 // uses a fixed timeout suitable for outbound webhook POSTs; tests that
 // need to substitute a fake transport can replace it via SetHTTPClient.
 func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatcher {
+	var spawn activation.Spawn
+	if spawner != nil {
+		spawn = activation.Spawn(spawner)
+	}
 	return &Dispatcher{
 		store:      s,
-		spawner:    spawner,
+		queue:      activation.NewQueue(spawn, logger),
 		logger:     logger,
 		httpClient: &http.Client{Timeout: outboundTimeout},
 	}
@@ -121,10 +109,7 @@ func (d *Dispatcher) SetEmailEmitter(e EmailEmitter) { d.emailEmitter = e }
 //
 // No-op if the Spawner is nil.
 func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string, activationID activation.ID) {
-	if d.spawner == nil {
-		return
-	}
-	d.enqueue(workerID, envPath, activation.Trigger{
+	d.queue.Enqueue(workerID, envPath, activation.Trigger{
 		Kind:         activation.TriggerHire,
 		ActivationID: activationID,
 	})
@@ -142,9 +127,6 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath
 // have no such ordering guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	d.emitOutbound(ctx, e)
-	if d.spawner == nil {
-		return
-	}
 	// Parse the canonical Message envelope once — every appended event
 	// stores Message JSON in Body. A parse failure here means a
 	// hand-poked or pre-migration event; surface the raw body and warn,
@@ -195,81 +177,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
 			CreatedAt:  e.CreatedAt,
 		}
-		d.enqueue(sub.WorkerID, env.Path, trigger)
+		d.queue.Enqueue(sub.WorkerID, env.Path, trigger)
 	}
-}
-
-// enqueue appends a trigger to the Worker's queue and starts the
-// runner goroutine if one isn't already draining the queue. Returns
-// immediately. The activation goroutine outlives the HTTP request
-// that triggered enqueue, so it uses context.Background internally.
-func (d *Dispatcher) enqueue(workerID worker.ID, envPath string, trigger activation.Trigger) {
-	q := d.queueFor(workerID)
-	q.mu.Lock()
-	q.pending = append(q.pending, trigger)
-	q.envPath = envPath // last writer wins; stable in practice
-	if q.running {
-		q.mu.Unlock()
-		return
-	}
-	q.running = true
-	q.mu.Unlock()
-	// Runner outlives the HTTP request that triggered enqueue — it
-	// uses context.Background internally for the same reason.
-	go d.run(workerID, q)
-}
-
-// run drains the Worker's queue, calling the Spawner once per drain
-// with however many triggers accumulated. Exits when an iteration
-// finds the queue empty under the lock — at which point any later
-// enqueue will see running == false and start a fresh runner.
-func (d *Dispatcher) run(workerID worker.ID, q *workerQueue) {
-	for {
-		q.mu.Lock()
-		if len(q.pending) == 0 {
-			q.running = false
-			q.mu.Unlock()
-			return
-		}
-		batch := q.pending
-		q.pending = nil
-		envPath := q.envPath
-		q.mu.Unlock()
-
-		d.activate(context.Background(), workerID, envPath, batch)
-	}
-}
-
-// activate is one synchronous Spawner call. The runner serialises
-// these per-Worker so the Spawner is never invoked concurrently for
-// the same Worker.
-func (d *Dispatcher) activate(ctx context.Context, workerID worker.ID, envPath string, batch []activation.Trigger) {
-	d.logger.Info("dispatch.activate.start",
-		"worker", workerID,
-		"trigger", batch[0].Kind,
-		"triggers", len(batch),
-		"event", batch[0].EventID,
-	)
-	err := d.spawner(ctx, workerID, envPath, batch)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		d.logger.Warn("dispatch.activate.fail",
-			"worker", workerID,
-			"trigger", batch[0].Kind,
-			"triggers", len(batch),
-			"err", err,
-		)
-		return
-	}
-	d.logger.Info("dispatch.activate.done",
-		"worker", workerID,
-		"trigger", batch[0].Kind,
-		"triggers", len(batch),
-	)
-}
-
-func (d *Dispatcher) queueFor(workerID worker.ID) *workerQueue {
-	got, _ := d.queues.LoadOrStore(workerID, &workerQueue{})
-	return got.(*workerQueue)
 }
 
 // emitOutbound dispatches Event-level outbound traffic for Streams
