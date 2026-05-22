@@ -28,14 +28,14 @@ import (
 type SpawnerConfig struct {
 	Client         SpawnerClient
 	ProjectService ProjectService
-	ProjectGit     ProjectGitWriter
+	Workspace      *Workspace
 	// PubSub + Snapshotter drive the in-process equivalent of
 	// helixclient.SubscribeUpdates — see SubscribeSessionUpdates.
 	PubSub      pubsub.PubSub
-	Snapshotter SessionSnapshotter
+	Snapshotter SessionPreamble
 	HelixOrgURL    string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
-	// back to helix.Runtime. See ProjectApplier.Runtime for the
+	// back to helix.Runtime. See WorkerProject.Runtime for the
 	// embedded SaaS use case (`claude_code` + subscription credentials).
 	Runtime string
 	// Provider/Model drive the project's Agent App config when Runtime
@@ -44,20 +44,27 @@ type SpawnerConfig struct {
 	// authenticates Anthropic directly via the operator's OAuth.
 	Provider string
 	Model    string
-	// Credentials forwards to ProjectApplier.Credentials. See there.
+	// Credentials forwards to WorkerProject.Credentials. See there.
 	Credentials string
 	// AgentMD is the org-wide agent.md policy text pushed to
 	// `.context/agent.md` on each per-Worker project's helix-specs
 	// branch. The spawner's activation prompt tells every Worker to
 	// read it first. Embedded by main.go from agent/policy.md.
 	AgentMD string
-	// MCPAuthBearer is forwarded to ProjectApplier so the helix-org
+	// MCPAuthBearer is forwarded to WorkerProject so the helix-org
 	// MCP entry on each Worker's agent app carries an Authorization
 	// header. Used when HelixOrgURL routes through an auth-gated
 	// proxy (embedded SaaS alpha). Empty in standalone mode.
 	MCPAuthBearer string
+	// SpecsMandate is the activation-prompt directive that tells the
+	// agent how to find role.md / identity.md / agent.md on the
+	// helix-specs branch. Surfaced as an operator-editable config
+	// (helixSpecsMandate) so changes to the file layout or git-pull
+	// recipe don't require a deploy. Empty falls back to
+	// DefaultHelixSpecsMandate.
+	SpecsMandate string
 	// BearerForUser, when non-nil, is called by the Spawner (and
-	// ProjectApplier) on every activation to resolve the api_key that
+	// WorkerProject) on every activation to resolve the api_key that
 	// requests should be issued under. Passed the userID persisted on
 	// the Worker's runtime state at hire time (see
 	// state.go::HiringUserID). Letting the host mint or look up the
@@ -115,7 +122,11 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if cfg.Store == nil {
 			return errors.New("helix spawner: store is nil")
 		}
-		prompt := agent.BuildPrompt(workerID, helixSpecsMandate, triggers)
+		mandate := cfg.SpecsMandate
+		if mandate == "" {
+			mandate = DefaultHelixSpecsMandate
+		}
+		prompt := agent.BuildPrompt(workerID, mandate, triggers)
 
 		// Acquire global slot. The dispatcher serialises per-Worker, so
 		// blocking here only delays one Worker behind the rest of the
@@ -190,14 +201,17 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	}
 }
 
-// helixSpecsMandate points the agent at its role + identity files,
-// which the project applier pushes to the per-Worker repo's
-// `helix-specs` branch. Helix's workspace-setup script creates a
-// worktree for that branch at ~/work/helix-specs/ on every boot —
-// but the worktree is only created when the branch exists on the
-// remote at boot time, so if the worktree is missing the agent must
-// materialise it itself.
-const helixSpecsMandate = `Your org-wide policy, role, and identity files live on the
+// DefaultHelixSpecsMandate points the agent at its role + identity
+// files, which the project applier pushes to the per-Worker repo's
+// `helix-specs` branch. Surfaced through SpawnerConfig.SpecsMandate
+// — operators override via the `worker.specs_mandate` config key
+// when the file layout or pull recipe changes (no deploy required).
+//
+// Helix's workspace-setup script creates a worktree for the branch
+// at ~/work/helix-specs/ on every boot — but only when the branch
+// exists on the remote at boot time, so if the worktree is missing
+// the agent must materialise it itself.
+const DefaultHelixSpecsMandate = `Your org-wide policy, role, and identity files live on the
 **helix-specs** branch of your per-Worker repo. helix-org pushes them
 on hire and re-pushes them on every activation, so the remote always
 has the current owner-edited version. Path inside the branch:
@@ -225,13 +239,13 @@ tells you how to be an agent at all), then role.md, then identity.md:
 After meaningful work, persist state on helix-specs:
   cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
 
-// ensureProject is a thin wrapper around ProjectApplier
+// ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
 func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) error {
-	a := &ProjectApplier{
+	a := &WorkerProject{
 		Service:       c.ProjectService,
-		Git:           c.ProjectGit,
+		Workspace:     c.Workspace,
 		Store:         c.Store,
 		HelixOrgURL:   c.HelixOrgURL,
 		OrgID:         c.OrgID,
@@ -328,7 +342,7 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 			if c.Logger != nil {
 				c.Logger.Warn("helix poll", "session", sessionID, "err", err)
 			}
-		} else if out.IsTerminal() {
+		} else if IsTerminalOutput(out) {
 			if out.Status == "error" {
 				return fmt.Errorf("session error: %s", agent.OneLine(out.Output, 500))
 			}

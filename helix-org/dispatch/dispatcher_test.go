@@ -175,7 +175,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID worker.ID) {
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	w, err := domain.NewAIWorker(workerID, []position.ID{posID}, "# "+string(workerID)+"\nTest persona.")
+	w, err := domain.NewAIWorker(workerID, posID, "# "+string(workerID)+"\nTest persona.")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}

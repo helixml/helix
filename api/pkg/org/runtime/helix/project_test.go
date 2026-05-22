@@ -2,7 +2,6 @@ package helix
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -12,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/types"
@@ -39,20 +37,26 @@ type fakeProjectService struct {
 	createGitRepoErr   error
 	attachRepoCalls    int
 	getAppCalls        int
-	appConfigRaw       json.RawMessage
+	appConfig          types.AppConfig
 	updateAppCalls     int
-	updateAppLastCfg   json.RawMessage
+	updateAppLastCfg   types.AppConfig
 	whoAmIResp         string
 }
 
 func newFakeProjectService() *fakeProjectService {
-	const seededAppConfig = `{"helix":{"assistants":[{"name":"main"}]}}`
+	// Helix's auto-provisioned Agent App always has one assistant —
+	// AttachMCP inserts the MCP entry on assistants[0]. Without this,
+	// the attach helper aborts before UpdateAppConfig.
 	return &fakeProjectService{
 		applyResponse:  types.ProjectApplyResponse{ProjectID: "prj_test", AgentAppID: "app_test", Created: true},
 		getProjectResp: types.Project{ID: "prj_test", DefaultRepoID: ""},
 		whoAmIResp:     "u-test",
 		putSecretLast:  map[string]string{},
-		appConfigRaw:   json.RawMessage(seededAppConfig),
+		appConfig: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{Name: "main"}},
+			},
+		},
 	}
 }
 
@@ -102,14 +106,14 @@ func (f *fakeProjectService) CreateBranch(_ context.Context, _, _, _ string) err
 	return nil
 }
 
-func (f *fakeProjectService) GetAppRawConfig(_ context.Context, _ string) (json.RawMessage, error) {
+func (f *fakeProjectService) GetAppConfig(_ context.Context, _ string) (types.AppConfig, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.getAppCalls++
-	return f.appConfigRaw, nil
+	return f.appConfig, nil
 }
 
-func (f *fakeProjectService) UpdateAppRawConfig(_ context.Context, _ string, cfg json.RawMessage) error {
+func (f *fakeProjectService) UpdateAppConfig(_ context.Context, _ string, cfg types.AppConfig) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updateAppCalls++
@@ -117,7 +121,7 @@ func (f *fakeProjectService) UpdateAppRawConfig(_ context.Context, _ string, cfg
 	return nil
 }
 
-// fakeGitForProject is the ProjectGitWriter stand-in. Same shape as
+// fakeGitForProject is the ProjectGit stand-in. Same shape as
 // fakeGitWriter but with an additional path map.
 type fakeGitForProject struct {
 	mu            sync.Mutex
@@ -166,7 +170,7 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, worker
 	if err := st.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	w, err := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Identity content")
+	w, err := domain.NewAIWorker("w-eng", "p-eng", "# Identity content")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
@@ -176,15 +180,22 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, worker
 	return st, w.ID()
 }
 
-func newApplier(svc ProjectService, git ProjectGitWriter, st *store.Store) *ProjectApplier {
-	return &ProjectApplier{
+func newApplier(svc ProjectService, ws *Workspace, st *store.Store) *WorkerProject {
+	return &WorkerProject{
 		Service:     svc,
-		Git:         git,
+		Workspace:   ws,
 		Store:       st,
 		HelixOrgURL: "http://helix-org:8081",
 		AgentMD:     "# Org policy",
 		Logger:      discardLogger(),
 	}
+}
+
+// newApplierGit wraps fakeGitForProject in a Workspace so tests stay
+// terse — the test fakes still capture branch + put calls.
+func newApplierGit(svc ProjectService, git *fakeGitForProject, st *store.Store) *WorkerProject {
+	ws := NewWorkspace(git, st, "helix-specs", "helix-org", "ho@example.com")
+	return newApplier(svc, ws, st)
 }
 
 // TestEnsureFreshAppliesProjectAndPushesFiles verifies the
@@ -194,7 +205,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role: engineer")
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	projectID, agentAppID, repoID, err := a.Ensure(context.Background(), wid)
 	if err != nil {
@@ -256,7 +267,7 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.getProjectResp = types.Project{ID: "prj_existing", DefaultRepoID: "repo_existing"}
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	pid, aid, rid, err := a.Ensure(context.Background(), wid)
 	if err != nil {
@@ -273,13 +284,17 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if svc.getProjectCalls < 1 {
 		t.Errorf("GetProject calls = %d, want >=1", svc.getProjectCalls)
 	}
-	if atomic.LoadInt32(&git.branchCalls) < 1 {
-		t.Errorf("republish must still create-branch; got %d", atomic.LoadInt32(&git.branchCalls))
+	// Fast path must NOT re-push canonical files — that would clobber
+	// any external edits made on the helix-specs branch since the
+	// last apply. Canonical-content updates go through
+	// Workspace.MirrorFile explicitly.
+	if atomic.LoadInt32(&git.branchCalls) != 0 {
+		t.Errorf("fast path must not create-branch; got %d", atomic.LoadInt32(&git.branchCalls))
 	}
 	git.mu.Lock()
 	defer git.mu.Unlock()
-	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; !ok {
-		t.Errorf("role.md must be republished on fast path")
+	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; ok {
+		t.Errorf("fast path must not republish role.md (would clobber external edits)")
 	}
 }
 
@@ -297,7 +312,7 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.getProjectErr = ErrProjectNotFound
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	_, _, _, err := a.Ensure(context.Background(), wid)
 	if err != nil {
@@ -331,7 +346,7 @@ func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.getProjectErr = errors.New("transient")
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	if _, _, _, err := a.Ensure(context.Background(), wid); err == nil {
 		t.Fatal("expected error on transient GetProject failure")
@@ -350,7 +365,7 @@ func TestEnsureAttachesMCPToAgentApp(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	if _, _, _, err := a.Ensure(context.Background(), wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -360,9 +375,27 @@ func TestEnsureAttachesMCPToAgentApp(t *testing.T) {
 	if svc.getAppCalls < 1 || svc.updateAppCalls < 1 {
 		t.Fatalf("MCP attach must call GetApp+UpdateApp; got get=%d update=%d", svc.getAppCalls, svc.updateAppCalls)
 	}
-	if !strings.Contains(string(svc.updateAppLastCfg), "/workers/w-eng/mcp") {
-		t.Errorf("UpdateApp config missing MCP URL: %s", svc.updateAppLastCfg)
+	mcp := findMCP(svc.updateAppLastCfg, "helix")
+	if mcp == nil {
+		t.Fatalf("UpdateApp config missing 'helix' MCP entry: %+v", svc.updateAppLastCfg)
 	}
+	if !strings.Contains(mcp.URL, "/workers/w-eng/mcp") {
+		t.Errorf("MCP URL = %q, want contains /workers/w-eng/mcp", mcp.URL)
+	}
+}
+
+// findMCP returns the AssistantMCP named `name` on assistants[0], or
+// nil if not present.
+func findMCP(cfg types.AppConfig, name string) *types.AssistantMCP {
+	if len(cfg.Helix.Assistants) == 0 {
+		return nil
+	}
+	for i := range cfg.Helix.Assistants[0].MCPs {
+		if cfg.Helix.Assistants[0].MCPs[i].Name == name {
+			return &cfg.Helix.Assistants[0].MCPs[i]
+		}
+	}
+	return nil
 }
 
 // TestEnsureMCPAttachUsesBearerFromContext pins the per-call bearer
@@ -372,7 +405,7 @@ func TestEnsureMCPAttachUsesBearerFromContext(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	ctx := WithBearerToken(context.Background(), "k_bob")
 	if _, _, _, err := a.Ensure(ctx, wid); err != nil {
@@ -380,8 +413,9 @@ func TestEnsureMCPAttachUsesBearerFromContext(t *testing.T) {
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if !strings.Contains(string(svc.updateAppLastCfg), "Bearer k_bob") {
-		t.Errorf("UpdateApp config missing per-call bearer; got %s", svc.updateAppLastCfg)
+	mcp := findMCP(svc.updateAppLastCfg, "helix")
+	if mcp == nil || mcp.Headers["Authorization"] != "Bearer k_bob" {
+		t.Errorf("MCP entry missing Authorization=Bearer k_bob; got %+v", mcp)
 	}
 }
 
@@ -391,7 +425,7 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role: ChiefEngineer")
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	if _, _, _, err := a.Ensure(context.Background(), wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -410,13 +444,13 @@ func TestEnsureSkipsRolePushIfNoPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	w, _ := domain.NewAIWorker("w-orphan", nil, "# I am alone")
+	w, _ := domain.NewAIWorker("w-orphan", "", "# I am alone")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	if _, _, _, err := a.Ensure(context.Background(), w.ID()); err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -438,7 +472,7 @@ func TestEnsureLogsButDoesNotFailOnPutFileError(t *testing.T) {
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
 	git.putFileErr = errors.New("disk full")
-	a := newApplier(svc, git, st)
+	a := newApplierGit(svc, git, st)
 
 	if _, _, _, err := a.Ensure(context.Background(), wid); err != nil {
 		t.Fatalf("Ensure must not fail on PutFile error; got %v", err)

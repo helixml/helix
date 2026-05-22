@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 )
 
 func newTestClient(t *testing.T, h http.Handler) Client {
@@ -165,7 +167,7 @@ func TestGetOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("output: %v", err)
 	}
-	if !out.IsTerminal() || out.Output != "ok" {
+	if !runtimehelix.IsTerminalOutput(out) || out.Output != "ok" {
 		t.Errorf("output: %+v", out)
 	}
 }

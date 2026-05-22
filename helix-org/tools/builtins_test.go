@@ -14,7 +14,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/grant"
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
@@ -65,7 +64,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	ownerEnvPath := filepath.Join(envsDir, "w-owner")
 	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
@@ -213,7 +212,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	for _, name := range []tool.Name{
 		tools.CreateRoleName,
@@ -331,9 +330,9 @@ func TestStreamMembers(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	worker, _ := domain.NewAIWorker("w-listener", []position.ID{"p-root"}, "")
+	worker, _ := domain.NewAIWorker("w-listener", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, worker))
 	for _, name := range []tool.Name{
 		tools.CreateStreamName,
@@ -394,11 +393,11 @@ func TestInviteWorkers(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	alice, _ := domain.NewAIWorker("w-alice", []position.ID{"p-root"}, "")
+	alice, _ := domain.NewAIWorker("w-alice", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := domain.NewAIWorker("w-bob", []position.ID{"p-root"}, "")
+	bob, _ := domain.NewAIWorker("w-bob", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 	for _, name := range []tool.Name{
 		tools.CreateStreamName,
@@ -484,9 +483,9 @@ func TestDM(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	alice, _ := domain.NewHumanWorker("w-alice", []position.ID{"p-root"}, "")
+	alice, _ := domain.NewHumanWorker("w-alice", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := domain.NewAIWorker("w-bob", []position.ID{"p-root"}, "")
+	bob, _ := domain.NewAIWorker("w-bob", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 	for _, name := range []tool.Name{tools.DMName, tools.ReadEventsName} {
 		g, _ := domain.NewToolGrant(grant.ID("g-alice-"+name), "w-alice", name)
@@ -601,7 +600,7 @@ func TestReadsOverMCP(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	for _, name := range []tool.Name{
 		tools.CreateStreamName,
@@ -723,9 +722,9 @@ func TestWorkerLog(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := domain.NewAIWorker("w-bot", []position.ID{"p-root"}, "")
+	bot, _ := domain.NewAIWorker("w-bot", "p-root", "")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	// Pre-create the activation stream + seed a couple of events. In

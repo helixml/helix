@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -16,12 +15,12 @@ func TestHireRecorderPersistsHiringUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	w, _ := domain.NewAIWorker("w-alice", []position.ID{"p-x"}, "# Alice")
+	w, _ := domain.NewAIWorker("w-alice", "p-x", "# Alice")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
 
-	var h runtime.HireHandler = &HireRecorder{Store: st}
+	var h runtime.HireHook = &Hire{Store: st}
 	if err := h.OnHire(context.Background(), w.ID(), "u-phil"); err != nil {
 		t.Fatalf("OnHire: %v", err)
 	}
@@ -40,11 +39,11 @@ func TestHireRecorderEmptyUserIDIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	w, _ := domain.NewAIWorker("w-alice", []position.ID{"p-x"}, "# Alice")
+	w, _ := domain.NewAIWorker("w-alice", "p-x", "# Alice")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	h := &HireRecorder{Store: st}
+	h := &Hire{Store: st}
 	if err := h.OnHire(context.Background(), w.ID(), ""); err != nil {
 		t.Errorf("OnHire with empty userID should be a no-op: %v", err)
 	}

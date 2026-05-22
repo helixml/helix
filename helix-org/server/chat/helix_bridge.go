@@ -442,7 +442,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 // the same way (HTTP error or SSE-stream error → fall through to a
 // fresh session). The bridge's only bridge-specific work is:
 //
-//   - resolving project IDs via the ProjectApplier (which the
+//   - resolving project IDs via the WorkerProject (which the
 //     Spawner does too, just earlier),
 //   - persisting the new session ID and managing the in-process WS
 //     subscriber state (Spawner has no WS — it polls),

@@ -55,6 +55,11 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 		Description: "Model ID for the chosen provider (e.g. `claude-sonnet-4-5`, `gpt-4o-mini`). Required alongside `worker.provider` whenever inference routes through Helix. Ignored for `claude_code`+`subscription` (the CLI picks its own model).",
 	})
 	r.Register(config.Spec{
+		Key:         "worker.specs_mandate",
+		Type:        config.TypeString,
+		Description: "Activation-prompt directive that tells every Worker how to find role.md / identity.md / agent.md on the helix-specs branch and how to checkpoint state back. The default (runtimehelix.DefaultHelixSpecsMandate) handles the standard layout; override when the file paths, the git-pull recipe, or the checkpoint convention change without redeploying. Use an empty string to fall back to the default.",
+	})
+	r.Register(config.Spec{
 		Key:         "helix.url",
 		Type:        config.TypeString,
 		Default:     `"http://localhost:8080"`,
@@ -87,7 +92,7 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 
 // buildEmbeddedChatBackend constructs a HelixBridge that opens the
 // owner Worker's persistent zed_external chat session. The bridge
-// runs ProjectApplier.Ensure(w-owner) per send to materialise the
+// runs WorkerProject.Ensure(w-owner) per send to materialise the
 // owner's per-Worker Helix project (idempotent — first call provisions,
 // subsequent calls return the same IDs), then opens / continues the
 // chat session against the project's auto-provisioned agent app.

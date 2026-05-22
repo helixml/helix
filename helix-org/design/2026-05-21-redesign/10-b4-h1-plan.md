@@ -69,7 +69,7 @@ entry to an App's tools list).
 | `helix-org/agent/helix/workspace.go` | `PutFile`, `GetFile` | role.md / identity.md mirror onto helix-specs branch. |
 | `helix-org/agent/helix/spawner.go` | `EnsureAndSend`, `NewEntryStream`, `SubscribeUpdates`, `StopExternalAgent`, `GetSession` | Session lifecycle for each activation. |
 | `helix-org/server/chat/helix_bridge.go` | Same session methods as spawner | Owner-chat session. |
-| `helix-org/tools/hire_worker.go` | (imports for `ProjectApplier.Ensure` and `SaveHiringUser`) | The B4 DIP violation. |
+| `helix-org/tools/hire_worker.go` | (imports for `WorkerProject.Ensure` and `SaveHiringUser`) | The B4 DIP violation. |
 | `helix-org/server/mcp.go` | `WithBearerToken`, `WithUserID`, `BearerFromContext`, `UserIDFromContext` | Auth-context helpers. No HTTP. |
 | `api/pkg/server/helix_org.go` | Constructs the loopback `helixclient.Client` and injects it. | Wiring. |
 | `api/pkg/server/helix_org_chat.go` | Same wiring + chat bridge | Wiring. |
@@ -131,7 +131,7 @@ subscriber.
 - **Synchronous**: subscribers run in the publisher's goroutine. The
   first subscriber error bubbles up to the publisher (hire_worker)
   and fails the hire. Matches current behaviour where
-  `ProjectApplier.Ensure` is called inline before hire returns.
+  `WorkerProject.Ensure` is called inline before hire returns.
 - **In-process**: no NATS, no payload-serialisation, no cross-process
   delivery. Same rationale as the H2 broadcast decision.
 - **Fail-fast**: better UX for "did hire succeed?" than
@@ -143,13 +143,13 @@ subscriber.
 
 | Package | Reaction |
 |---|---|
-| `runtime/helix.OnWorkerHired` | `ProjectApplier.Ensure(workerID)` + `SaveHiringUser`. Moves out of hire_worker. |
+| `runtime/helix.OnWorkerHired` | `WorkerProject.Ensure(workerID)` + `SaveHiringUser`. Moves out of hire_worker. |
 | `runtime/claude.OnWorkerHired` | No-op. (Claude needs nothing at hire time; the env dir is created by hire_worker.) |
 | (optional) `activation.OnWorkerHired` | Create activation Stream + subscribe hiring Worker. Currently inline in hire_worker. **Skip in B4; do as part of B5.** |
 
 ### Scope for B4
 
-- **(small)** Decouple `ProjectApplier.Ensure` + `SaveHiringUser`
+- **(small)** Decouple `WorkerProject.Ensure` + `SaveHiringUser`
   only. Leave activation-stream creation inline. ~150 LOC of moves +
   ~80 LOC for the bus. **Recommended.**
 - **(medium)** Also move activation-stream creation. Cleaner end
@@ -158,13 +158,13 @@ subscriber.
 ### Characterisation needed before B4
 
 Pin `hire_worker`'s current side-effect order through a fake
-`ProjectApplier`:
+`WorkerProject`:
 
 1. Worker row inserted.
 2. Environment row inserted.
 3. Grants inserted.
 4. Activation Stream + subscription inserted.
-5. ProjectApplier.Ensure called (with the right WorkerID).
+5. WorkerProject.Ensure called (with the right WorkerID).
 6. SaveHiringUser called (with the right user ID).
 7. Dispatcher.DispatchHire called.
 
@@ -336,7 +336,7 @@ tests.
 
 8. **Failure semantics after B4**: if `OnWorkerHired` (helix runtime
    provisioning) fails, does the hire roll back? Today
-   `ProjectApplier.Ensure` failure surfaces as hire failure but
+   `WorkerProject.Ensure` failure surfaces as hire failure but
    doesn't roll back the inserted rows — the Worker exists in the
    DB without a Helix project. Is this OK to preserve, or do we
    want transactional rollback as part of B4?

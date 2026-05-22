@@ -5,7 +5,7 @@
 // implementation is now the only thing keeping it alive — every
 // helix-org call site for chat / project / git operations goes
 // through the api/pkg/org/runtime/helix ports (ProjectService,
-// SessionClient, SpawnerClient, ProjectGitWriter), with this package
+// SessionClient, SpawnerClient, ProjectGit), with this package
 // providing an adapter (AsProjectService) and the realClient as the
 // HTTP impl.
 //
@@ -69,8 +69,6 @@ type (
 	EntryPatch          = runtimehelix.EntryPatch
 	Session             = runtimehelix.Session
 	Interaction         = runtimehelix.Interaction
-	OpenAIToolCall      = runtimehelix.OpenAIToolCall
-	OpenAIFunctionCall  = runtimehelix.OpenAIFunctionCall
 )
 
 // NewTextMessage re-exports the canonical helper.

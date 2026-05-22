@@ -49,7 +49,7 @@ const (
 // WorkerState holds the per-Worker pointers the Helix runtime needs.
 // All five fields are empty for a Worker that hasn't been activated
 // yet; the runtime's first activation materialises ProjectID +
-// AgentAppID + RepoID via ProjectApplier.Ensure, and SessionID is
+// AgentAppID + RepoID via WorkerProject.Ensure, and SessionID is
 // set when the first chat session opens.
 //
 // HiringUserID is the identity (typically a Helix user_id) of
@@ -111,7 +111,7 @@ func SaveHiringUser(ctx context.Context, st *store.Store, workerID worker.ID, us
 }
 
 // SaveProject persists the per-Worker project triple — created once
-// at first activation by ProjectApplier.Ensure.
+// at first activation by WorkerProject.Ensure.
 func SaveProject(ctx context.Context, st *store.Store, workerID worker.ID, projectID, agentAppID, repoID string) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")

@@ -96,10 +96,14 @@ func (r *workersRepo) Update(ctx context.Context, worker domain.Worker) error {
 }
 
 func workerToRow(worker domain.Worker) (workerRow, error) {
-	positions := worker.Positions()
-	encoded, err := json.Marshal(positions)
+	// Positions column is preserved as JSON-array for backward compat
+	// with existing rows; we encode the single Position into a one-
+	// element array on write, and unwrap it on read. A future migration
+	// can flatten this to a scalar column.
+	pos := worker.Position()
+	encoded, err := json.Marshal([]position.ID{pos})
 	if err != nil {
-		return workerRow{}, fmt.Errorf("marshal positions: %w", err)
+		return workerRow{}, fmt.Errorf("marshal position: %w", err)
 	}
 	return workerRow{
 		ID:              string(worker.ID()),
@@ -116,11 +120,15 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 			return nil, fmt.Errorf("unmarshal positions: %w", err)
 		}
 	}
+	var pos position.ID
+	if len(positions) > 0 {
+		pos = positions[0]
+	}
 	switch worker.Kind(row.Kind) {
 	case worker.KindHuman:
-		return domain.NewHumanWorker(worker.ID(row.ID), positions, row.IdentityContent)
+		return domain.NewHumanWorker(worker.ID(row.ID), pos, row.IdentityContent)
 	case worker.KindAI:
-		return domain.NewAIWorker(worker.ID(row.ID), positions, row.IdentityContent)
+		return domain.NewAIWorker(worker.ID(row.ID), pos, row.IdentityContent)
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
 	}

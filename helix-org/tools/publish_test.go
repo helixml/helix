@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -40,7 +39,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 
 	deps := DefaultDeps(st)
 	tool := &Publish{deps: deps}
@@ -87,7 +86,7 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 
 	deps := DefaultDeps(st)
 	tool := &Publish{deps: deps}

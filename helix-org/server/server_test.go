@@ -10,7 +10,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
@@ -48,7 +47,7 @@ func newTestServer(t *testing.T) (*httptest.Server, worker.ID) {
 	if err := s.Positions.Create(ctx, root); err != nil {
 		t.Fatalf("seed root: %v", err)
 	}
-	ai, _ := domain.NewAIWorker("w-ceo", []position.ID{"p-root"}, "")
+	ai, _ := domain.NewAIWorker("w-ceo", "p-root", "")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}
@@ -195,7 +194,7 @@ func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Ser
 	_ = s.Roles.Create(ctx, role)
 	root, _ := domain.NewPosition("p-root", "r-ceo", nil)
 	_ = s.Positions.Create(ctx, root)
-	ai, _ := domain.NewAIWorker("w-ceo", []position.ID{"p-root"}, "")
+	ai, _ := domain.NewAIWorker("w-ceo", "p-root", "")
 	_ = s.Workers.Create(ctx, ai)
 	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName)
 	_ = s.Grants.Create(ctx, pingGrant)

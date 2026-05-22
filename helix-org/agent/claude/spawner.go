@@ -208,11 +208,11 @@ func projectEnv(ctx context.Context, s *store.Store, workerID worker.ID, envPath
 	if err != nil {
 		return fmt.Errorf("get worker: %w", err)
 	}
-	positions := worker.Positions()
-	if len(positions) == 0 {
-		return fmt.Errorf("worker %s has no positions", workerID)
+	posID := worker.Position()
+	if posID == "" {
+		return fmt.Errorf("worker %s has no position", workerID)
 	}
-	pos, err := s.Positions.Get(ctx, positions[0])
+	pos, err := s.Positions.Get(ctx, posID)
 	if err != nil {
 		return fmt.Errorf("get position: %w", err)
 	}

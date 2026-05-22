@@ -164,7 +164,7 @@ change straightforward.
 ### 10. Worker ↔ helix.Project is 1:1 and explicit
 
 Every AI Worker corresponds to exactly one `helix.Project` (provisioned
-lazily by `ProjectApplier.Ensure`). This binding becomes an explicit
+lazily by `WorkerProject.Ensure`). This binding becomes an explicit
 typed field `Worker.HelixProjectID`, not a kv-row in
 `WorkerRuntimeState` keyed by `(workerID, backend, "project_id")`.
 

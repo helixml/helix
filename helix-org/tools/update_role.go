@@ -79,7 +79,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	workers, _ := t.deps.Store.Workers.List(ctx)
 	positionWorkers := map[position.ID][]worker.ID{}
 	for _, w := range workers {
-		for _, p := range w.Positions() {
+		if p := w.Position(); p != "" {
 			positionWorkers[p] = append(positionWorkers[p], w.ID())
 		}
 	}

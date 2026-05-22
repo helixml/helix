@@ -228,7 +228,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 	return session.ID, true, nil
 }
 
-// SessionSnapshotter exposes the late-joiner catch-up snapshot the
+// SessionPreamble exposes the late-joiner catch-up snapshot the
 // HTTP-WS handler in api/pkg/server emits before any patches arrive.
 // In-process subscribers (Spawner bridge, chat bridge after H1.3d)
 // call Snapshot before subscribing so they see a baseline frame
@@ -236,17 +236,17 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 //
 // Empty snapshot ([]byte{}) is a valid "no streaming in progress"
 // response — no preamble frame is emitted.
-type SessionSnapshotter interface {
+type SessionPreamble interface {
 	Snapshot(ctx context.Context, sessionID string) ([]byte, error)
 }
 
-// NoopSessionSnapshotter is a SessionSnapshotter that returns no
+// NoopSessionPreamble is a SessionPreamble that returns no
 // snapshot for any session. Useful in tests and when no streaming
 // context tracking is available.
-type NoopSessionSnapshotter struct{}
+type NoopSessionPreamble struct{}
 
 // Snapshot returns no preamble frame.
-func (NoopSessionSnapshotter) Snapshot(_ context.Context, _ string) ([]byte, error) {
+func (NoopSessionPreamble) Snapshot(_ context.Context, _ string) ([]byte, error) {
 	return nil, nil
 }
 
@@ -265,7 +265,7 @@ func (NoopSessionSnapshotter) Snapshot(_ context.Context, _ string) ([]byte, err
 //
 // Topic format: pubsub.GetSessionQueue(ownerID, sessionID) — the
 // same topic websocket_server_user.go subscribes the browser WS to.
-func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter SessionSnapshotter, ownerID, sessionID string) (<-chan SessionUpdate, error) {
+func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter SessionPreamble, ownerID, sessionID string) (<-chan SessionUpdate, error) {
 	out := make(chan SessionUpdate, 64)
 	topic := pubsub.GetSessionQueue(ownerID, sessionID)
 	sub, err := ps.Subscribe(ctx, topic, func(payload []byte) error {

@@ -74,7 +74,7 @@ the declaration site that anchors the term.
 | **Broadcaster** | Tiny in-process pub/sub used by long-poll readers (e.g. `read_events(wait=…)`, the live UI) to wake on Notify. Distinct from the Dispatcher. | `broadcast/broadcaster.go:11-22` | Load-bearing. Easy to confuse with Dispatcher — see homonyms. |
 | **WorkspaceSync** | Interface that mirrors canonical Role/Identity content into the agent's working location. Two backends: `claude` writes to `<envsDir>/<workerID>/<name>`, `helix` pushes to a `helix-specs` branch. | `agent/spawner.go:62-83` | Load-bearing — but its name overlaps with `Environment` and with `helix.Workspace`. |
 | **Workspace** (claude backend) | `agent/claude.Workspace` — concrete file-mirroring `WorkspaceSync`. Unrelated to the Helix "workspace" concept. | `agent/claude/workspace.go` | Incidental. |
-| **ProjectApplier** | Helix-runtime component that ensures each Worker has a Helix Project + auto-provisioned Agent App + git repo, and pushes role/identity/agent.md to the `helix-specs` branch. | `agent/helix/project.go:21-60` | Load-bearing inside the helix runtime; invisible elsewhere. |
+| **WorkerProject** | Helix-runtime component that ensures each Worker has a Helix Project + auto-provisioned Agent App + git repo, and pushes role/identity/agent.md to the `helix-specs` branch. | `agent/helix/project.go:21-60` | Load-bearing inside the helix runtime; invisible elsewhere. |
 | **Backend** (runtime) | String label namespacing `WorkerRuntimeState` rows. Today exactly `"helix"`. | `agent/helix/state.go:23` | Incidental — premature plural. |
 | **Backend** (chat) | Interface in `server/chat/backend.go` — abstraction over a chat driver (claude / helix). Different "Backend" entirely from the runtime one. | `server/chat/backend.go` | See homonyms. |
 
@@ -336,7 +336,7 @@ These are the highest-signal items for the redesign.
 |---|---|---|
 | **TransportLocal** as a default Kind | `domain/transport.go:480` | Demos treat "local" as the unmarked default; never names it. |
 | **`WorkerRuntimeState` sidecar** + the `helix` Backend label | `agent/helix/state.go`, `store/sqlite/worker_runtime.go` | Completely invisible to prompts. Yet `HiringUserID` here decides which API key the activation runs under. |
-| **`ProjectApplier` + per-Worker Helix project + Agent App + `helix-specs` branch** | `agent/helix/project.go` | Demos and roles say "your Environment is the current working directory" — false on the Helix runtime, where it's a git branch. |
+| **`WorkerProject` + per-Worker Helix project + Agent App + `helix-specs` branch** | `agent/helix/project.go` | Demos and roles say "your Environment is the current working directory" — false on the Helix runtime, where it's a git branch. |
 | **`Broadcaster`** (wake-up channels for long-poll) | `broadcast/broadcaster.go` | Prompts say "the dispatcher will reactivate you" — collapsing Dispatcher + Broadcaster + Spawner into one "the runtime" actor. |
 | **`workerQueue` + coalescing** of bursts into one activation | `dispatch/dispatcher.go`, `agent/prompt.go:28` (the "%d triggers have queued" line) | The agent.md policy mentions it ("most cascades resolve to a single response or to silence") but doesn't explain the mechanism. |
 | **Per-Worker MCP server**, tools filtered by Grant | `server/mcp.go` | Prompts say "you have these tools" and list them by name; no awareness that the very list is gated by `grants` rows. |

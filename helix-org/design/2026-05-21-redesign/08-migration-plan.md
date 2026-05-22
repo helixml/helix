@@ -54,7 +54,7 @@ custom owner Role still gets it via post-bootstrap edits, same as today.
 **Today's awkwardness.**
 
 - `tools/hire_worker.go` imports `agent/helix` + `helix/helixclient`
-  directly and conditionally calls `ProjectApplier.Ensure` (`04 §4
+  directly and conditionally calls `WorkerProject.Ensure` (`04 §4
   cut #1`, `06 §3`, `07 DIP`).
 - Hire does *not* subscribe the new Worker to Streams; the LLM has to
   remember (`02 Cap. 2 pain point 1`; `TODO.md` item 1).
@@ -68,7 +68,7 @@ custom owner Role still gets it via post-bootstrap edits, same as today.
 - `hire_worker` becomes a pure `Org Graph` operation. It emits a
   `WorkerHired` domain event (`05 §1 domain events`). Subscribers:
   - `Agent Runtime`'s `OnWorkerHired` ensures the Helix project (was
-    `ProjectApplier.Ensure`). Lives in `runtime/helix/`. **Org Graph
+    `WorkerProject.Ensure`). Lives in `runtime/helix/`. **Org Graph
     no longer imports Runtime.**
   - `Communication`'s `OnWorkerHired` reads `Role.DefaultStreams`
     (newly typed, `05 §8 carve-out`) and creates the Subscriptions
@@ -321,7 +321,7 @@ The headline DIP violation (`04 §4 cut #1`, `06 §3`, `07 DIP`,
 2. `tools/hire_worker.go` stops importing `agent/helix`. The tool
    inserts rows, then emits `WorkerHired`. **No knowledge of which
    runtime exists.**
-3. Move `ProjectApplier.Ensure(...)` into `runtime/helix/`'s
+3. Move `WorkerProject.Ensure(...)` into `runtime/helix/`'s
    `OnWorkerHired` subscriber.
 4. Move "create activation stream + subscribe hiring worker" into the
    Activation context's `OnWorkerHired` subscriber.

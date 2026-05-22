@@ -15,13 +15,13 @@ import (
 )
 
 type workerView struct {
-	ID        worker.ID     `json:"id"`
-	Kind      worker.Kind   `json:"kind"`
-	Positions []position.ID `json:"positions"`
+	ID       worker.ID   `json:"id"`
+	Kind     worker.Kind `json:"kind"`
+	Position position.ID `json:"position,omitempty"`
 }
 
 func workerViewOf(w domain.Worker) workerView {
-	return workerView{ID: w.ID(), Kind: w.Kind(), Positions: w.Positions()}
+	return workerView{ID: w.ID(), Kind: w.Kind(), Position: w.Position()}
 }
 
 // ListWorkers returns every Worker — humans and AIs.

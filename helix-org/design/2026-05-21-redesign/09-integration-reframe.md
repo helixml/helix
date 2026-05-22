@@ -159,7 +159,7 @@ production entry points:
   (`withHelixUserBearer` at `helix_org.go:266`), not as an anonymous
   owner. `tools/hire_worker.go`'s direct `agenthelix` import is still
   the same DIP violation `04 §4 cut #1` flagged, *and* now the
-  ProjectApplier it calls makes loopback HTTP to the same process.
+  WorkerProject it calls makes loopback HTTP to the same process.
 - **Cap. 3 (Inbound event)**: same shape; webhook receivers are still
   helix-org's own routes mounted under `/api/v1/org/` and the
   transport-specific paths.
@@ -182,7 +182,7 @@ claude" story is dev-only now.
 
 - **"Project"**: helix has `Project` (a top-level workspace concept);
   helix-org's Spawner provisions a `helix.Project` per Worker via
-  `ProjectApplier`. Inside helix-org, "Project" only means the helix
+  `WorkerProject`. Inside helix-org, "Project" only means the helix
   thing — but every helix-org Worker now corresponds to a helix
   Project, and that's a 1:1 relationship the schema doesn't make
   explicit.
@@ -204,7 +204,7 @@ claude" story is dev-only now.
   Either rename helix-org's concept ("Workspace"? "Roster"?) or scope
   one Org Graph instance per helix.Organization.
 - **10. Resolve `Project` 1:1 with `Worker`.** Today it's implicit in
-  `ProjectApplier.Ensure(workerID)`. Make it explicit: either
+  `WorkerProject.Ensure(workerID)`. Make it explicit: either
   `Worker.HelixProjectID` is a real field, or stop having a 1:1 and
   share Projects across Workers.
 
@@ -305,7 +305,7 @@ before, during, and after the dissolution moves. They interleave.
 
 | # | Title | Effect | Effort |
 |---|---|---|---|
-| H1 | **Replace helixclient loopback with direct controller calls** | Delete most of `helix/helixclient/client.go` (~1300 LOC). Spawner, ProjectApplier, chat bridge call helix controllers directly. | L |
+| H1 | **Replace helixclient loopback with direct controller calls** | Delete most of `helix/helixclient/client.go` (~1300 LOC). Spawner, WorkerProject, chat bridge call helix controllers directly. | L |
 | H2 | **Replace helix-org's broadcast pubsub with helix's `pubsub.PubSub`** | `broadcast/` package gone; subscribers move to helix pubsub topics. | S |
 | H3 | **Replace helix-org's config registry with helix's `api/pkg/config/`** | `helix-org/config/` gone; settings live in helix's config infrastructure. | M |
 | H4 | **Move helix-org's data from SQLite → Postgres via helix's `store`** | The `FILESTORE_TYPE=fs` requirement disappears (`helix_org.go:70-75`); the feature works on gcs/s3 deployments. | L |
@@ -324,7 +324,7 @@ These all still apply. Re-numbered for clarity; the work is the same.
 | B1 | M1 | Transport parsers out of `domain/` | Unchanged. |
 | B2 | M2 | Split Dispatcher → Scheduler + Outbox | Unchanged. |
 | B3 | M3 | Runtime port + registry | Smaller scope: in production there's one runtime (helix). Port still useful for dev-claude and for future runtimes. |
-| B4 | M4 | Decouple hire from Runtime via `WorkerHired` event | **Pairs naturally with H1.** When `tools/hire_worker.go` stops calling `agenthelix.ProjectApplier` directly, that call moves to a `WorkerHired` subscriber. Once H1 lands, that subscriber is direct controller calls, not helixclient. |
+| B4 | M4 | Decouple hire from Runtime via `WorkerHired` event | **Pairs naturally with H1.** When `tools/hire_worker.go` stops calling `agenthelix.WorkerProject` directly, that call moves to a `WorkerHired` subscriber. Once H1 lands, that subscriber is direct controller calls, not helixclient. |
 | B5 | M5 | Promote `Activation` to a first-class aggregate | Unchanged. |
 | B6 | M6 | Typed `Message` VO + `Principal` VO | Unchanged. |
 | B7 | M7 | `Role.DefaultTools` + `DefaultStreams` | Unchanged. |

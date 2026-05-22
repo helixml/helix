@@ -2,7 +2,6 @@ package helix
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,7 +14,7 @@ import (
 
 // ErrProjectNotFound is the sentinel a ProjectService impl must return
 // when GetProject is called against a project that no longer exists on
-// the Helix side. ProjectApplier compares with errors.Is — a 404-shaped
+// the Helix side. WorkerProject compares with errors.Is — a 404-shaped
 // error from the underlying transport must wrap this sentinel so the
 // fast-path verification can clear stale state and re-apply.
 //
@@ -24,7 +23,7 @@ import (
 var ErrProjectNotFound = errors.New("helix project: not found")
 
 // ProjectService is the slice of Helix's project/git/app API that the
-// per-Worker ProjectApplier depends on. Lifted out of helixclient.Client
+// per-Worker WorkerProject depends on. Lifted out of helixclient.Client
 // during H1.2 so api/pkg/org/runtime/helix doesn't import the legacy
 // helixclient package — the wiring in api/pkg/server provides an impl
 // that either wraps helixclient (today, transitional) or calls the
@@ -45,7 +44,7 @@ type ProjectService interface {
 
 	// GetProject returns the current state of a Helix project. Returns
 	// ErrProjectNotFound (wrapped if needed) when the project doesn't
-	// exist; ProjectApplier uses errors.Is to detect this.
+	// exist; WorkerProject uses errors.Is to detect this.
 	GetProject(ctx context.Context, id string) (types.Project, error)
 
 	// PutProjectSecret upserts an env-var injected into the agent's
@@ -64,19 +63,17 @@ type ProjectService interface {
 	// Idempotent: re-creating an existing branch is a 200.
 	CreateBranch(ctx context.Context, repoID, branch, baseBranch string) error
 
-	// GetAppRawConfig returns the raw JSON of an App's `config` column.
-	// Used to round-trip the helix.assistants[0] config for MCP
-	// attachment — we mutate one nested field, so working at the JSON
-	// level avoids dropping unknown fields we don't have types for.
-	GetAppRawConfig(ctx context.Context, id string) (json.RawMessage, error)
+	// GetAppConfig returns the typed config for an App. Used to round-
+	// trip the helix.assistants[0] MCP list for MCP attachment.
+	GetAppConfig(ctx context.Context, id string) (types.AppConfig, error)
 
-	// UpdateAppRawConfig persists a mutated app config (raw JSON).
-	// ProjectApplier uses this to attach helix-org's MCP server to the
-	// auto-provisioned Agent App.
-	UpdateAppRawConfig(ctx context.Context, id string, config json.RawMessage) error
+	// UpdateAppConfig persists a mutated app config. WorkerProject
+	// uses this to attach helix-org's MCP server to the auto-provisioned
+	// Agent App.
+	UpdateAppConfig(ctx context.Context, id string, config types.AppConfig) error
 }
 
-// ProjectApplier ensures a Worker has a Helix project of its own.
+// WorkerProject ensures a Worker has a Helix project of its own.
 // Used by both Spawner (AI Worker activations) and chat.HelixBridge
 // (owner chat) — every Worker, human or AI, that drives an LLM call
 // needs a per-Worker project so the org-graph MCP server can be wired
@@ -86,18 +83,23 @@ type ProjectService interface {
 // a no-op for the project itself, but always re-pushes the canonical
 // role/identity files so update_role / update_identity changes land.
 //
-// H1.2 lifted ProjectApplier to its canonical home and decoupled it
+// H1.2 lifted WorkerProject to its canonical home and decoupled it
 // from helix-org/helix/helixclient by routing the project / git / app
 // calls through the ProjectService interface and the file pushes
-// through ProjectGitWriter (a thin slice of WorkspaceGitWriter).
+// through ProjectGit (a thin slice of WorkspaceGit).
 // During the H1.x transitional state the production wiring in
 // api/pkg/server/helix_org.go satisfies ProjectService with an adapter
 // over helixclient.Client; the eventual end state is a direct adapter
 // over the Helix controller.
-type ProjectApplier struct {
+type WorkerProject struct {
 	Service ProjectService
-	Git     ProjectGitWriter
-	Store   *store.Store
+	// Workspace owns the on-branch file layout — WorkerProject
+	// delegates all file pushes (agent.md / role.md / identity.md
+	// at first apply) through it so there is exactly one place in
+	// the helix runtime that knows the `workers/<id>/.context/`
+	// / `.context/` path convention.
+	Workspace   *Workspace
+	Store       *store.Store
 	HelixOrgURL string
 	OrgID       string
 	// Runtime overrides the default `zed_agent` runtime constant.
@@ -123,19 +125,12 @@ type ProjectApplier struct {
 	Logger        *slog.Logger
 }
 
-// ProjectGitWriter is the slice of the git servicer ProjectApplier uses
-// for branch/file mutations. Same shape as WorkspaceGitWriter but with
-// CreateBranch included; *services.GitRepositoryService satisfies both.
-type ProjectGitWriter interface {
-	CreateBranch(ctx context.Context, repoID, branchName, baseBranch string) error
-	CreateOrUpdateFileContents(ctx context.Context, repoID, path, branch string, content []byte, commitMessage, authorName, authorEmail string) (string, error)
-}
 
 // Ensure applies a Helix project for the given Worker if one
 // doesn't exist yet. Returns the resolved project / agent-app /
 // repo IDs (read from the runtime state after persistence so callers
 // see the same view of state).
-func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
+func (a *WorkerProject) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
 	worker, err := a.Store.Workers.Get(ctx, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get worker: %w", err)
@@ -144,10 +139,10 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 	if err != nil {
 		return "", "", "", err
 	}
-	// Resolve role content from the Worker's first position (if any).
+	// Resolve role content from the Worker's Position (if any).
 	var roleContent, roleName string
-	if positions := worker.Positions(); len(positions) > 0 {
-		if pos, err := a.Store.Positions.Get(ctx, positions[0]); err == nil {
+	if posID := worker.Position(); posID != "" {
+		if pos, err := a.Store.Positions.Get(ctx, posID); err == nil {
 			if role, err := a.Store.Roles.Get(ctx, pos.RoleID); err == nil {
 				roleContent = role.Content
 				roleName = string(role.ID)
@@ -169,7 +164,14 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 				return "", "", "", fmt.Errorf("verify project %s for %s: %w", state.ProjectID, workerID, err)
 			}
 		} else {
-			a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())
+			// Project already exists — fast path. Do NOT re-push the
+			// canonical files: republishing on every activation
+			// clobbers any external edits the Worker has made on the
+			// helix-specs branch since the last apply. Canonical-content
+			// updates (update_role / update_identity) go through
+			// Workspace.MirrorFile explicitly; that's the only path
+			// that should touch these files outside the
+			// first-activation provisioning.
 			return state.ProjectID, state.AgentAppID, state.RepoID, nil
 		}
 	}
@@ -272,102 +274,71 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
 }
 
-// republishWorkerFiles writes (or rewrites) the agent.md / role.md /
-// identity.md files on the Worker's helix-specs branch.
-func (a *ProjectApplier) republishWorkerFiles(ctx context.Context, workerID worker.ID, repoID, roleContent, identityContent string) {
-	if repoID == "" || a.Git == nil {
+// republishWorkerFiles writes the agent.md / role.md / identity.md
+// files on the Worker's helix-specs branch through the Workspace, so
+// the on-branch path layout is owned in exactly one place
+// (workspace.go). Best-effort: errors are logged, not returned —
+// a single failed file shouldn't block the rest of the apply.
+func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID worker.ID, repoID, roleContent, identityContent string) {
+	if repoID == "" || a.Workspace == nil {
 		return
 	}
-	if err := a.Git.CreateBranch(ctx, repoID, "helix-specs", "main"); err != nil {
+	if err := a.Workspace.EnsureBranch(ctx, repoID, "main"); err != nil {
 		if a.Logger != nil {
 			a.Logger.Warn("republish worker files: create helix-specs branch", "worker", workerID, "err", err)
 		}
 	}
-	for path, content := range map[string]string{
-		".context/agent.md": a.AgentMD,
-		"workers/" + string(workerID) + "/.context/role.md":     roleContent,
-		"workers/" + string(workerID) + "/.context/identity.md": identityContent,
-	} {
-		if content == "" {
-			continue
+	if a.AgentMD != "" {
+		if err := a.Workspace.WriteOrgFile(ctx, repoID, "agent.md", a.AgentMD, "republish .context/agent.md"); err != nil && a.Logger != nil {
+			a.Logger.Warn("republish worker files: agent.md", "worker", workerID, "err", err)
 		}
-		if _, err := a.Git.CreateOrUpdateFileContents(ctx, repoID, path, "helix-specs", []byte(content), "republish "+path, "helix-org", "helix-org@helix.local"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: put", "worker", workerID, "path", path, "err", err)
+	}
+	if roleContent != "" {
+		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "role.md", roleContent, "republish role.md"); err != nil && a.Logger != nil {
+			a.Logger.Warn("republish worker files: role.md", "worker", workerID, "err", err)
+		}
+	}
+	if identityContent != "" {
+		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "identity.md", identityContent, "republish identity.md"); err != nil && a.Logger != nil {
+			a.Logger.Warn("republish worker files: identity.md", "worker", workerID, "err", err)
 		}
 	}
 }
 
-// attachMCPToApp is the in-package equivalent of
-// helixclient.AttachMCPToAppWithHeaders. Round-trips the app config
-// to avoid dropping unknown fields, mutates assistants[0].mcps, and
-// writes back.
-func (a *ProjectApplier) attachMCPToApp(ctx context.Context, appID, name, transport, mcpURL string, headers map[string]string) error {
+// attachMCPToApp upserts an MCP entry on the first assistant of the
+// given app, identified by name. Works against typed
+// types.AssistantMCP / types.AppConfig rather than raw JSON so the
+// shape Helix expects is checked at compile time.
+func (a *WorkerProject) attachMCPToApp(ctx context.Context, appID, name, transport, mcpURL string, headers map[string]string) error {
 	if appID == "" {
 		return errors.New("attachMCPToApp: appID is empty")
 	}
-	cfg, err := a.Service.GetAppRawConfig(ctx, appID)
+	cfg, err := a.Service.GetAppConfig(ctx, appID)
 	if err != nil {
 		return fmt.Errorf("get app: %w", err)
 	}
-	var raw map[string]any
-	if len(cfg) == 0 {
-		raw = map[string]any{}
-	} else if err := json.Unmarshal(cfg, &raw); err != nil {
-		return fmt.Errorf("decode config: %w", err)
-	}
-	helix, _ := raw["helix"].(map[string]any)
-	if helix == nil {
-		helix = map[string]any{}
-		raw["helix"] = helix
-	}
-	asstsAny, _ := helix["assistants"].([]any)
-	if len(asstsAny) == 0 {
+	if len(cfg.Helix.Assistants) == 0 {
 		return errors.New("attachMCPToApp: app has no assistants")
 	}
-	asst, _ := asstsAny[0].(map[string]any)
-	if asst == nil {
-		return errors.New("attachMCPToApp: assistant is not an object")
+	asst := &cfg.Helix.Assistants[0]
+	entry := types.AssistantMCP{
+		Name:      name,
+		Transport: transport,
+		URL:       mcpURL,
+		Headers:   headers,
 	}
-	mcpsAny, _ := asst["mcps"].([]any)
-	mcps := make([]any, 0, len(mcpsAny)+1)
 	replaced := false
-	for _, mAny := range mcpsAny {
-		m, ok := mAny.(map[string]any)
-		if !ok {
-			mcps = append(mcps, mAny)
-			continue
-		}
-		if m["name"] == name {
-			m["transport"] = transport
-			m["url"] = mcpURL
-			if len(headers) > 0 {
-				m["headers"] = headers
-			} else {
-				delete(m, "headers")
-			}
-			mcps = append(mcps, m)
+	for i := range asst.MCPs {
+		if asst.MCPs[i].Name == name {
+			asst.MCPs[i] = entry
 			replaced = true
-			continue
+			break
 		}
-		mcps = append(mcps, m)
 	}
 	if !replaced {
-		entry := map[string]any{
-			"name":      name,
-			"transport": transport,
-			"url":       mcpURL,
-		}
-		if len(headers) > 0 {
-			entry["headers"] = headers
-		}
-		mcps = append(mcps, entry)
+		asst.MCPs = append(asst.MCPs, entry)
 	}
-	asst["mcps"] = mcps
-	updated, err := json.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-	if err := a.Service.UpdateAppRawConfig(ctx, appID, updated); err != nil {
+	if err := a.Service.UpdateAppConfig(ctx, appID, cfg); err != nil {
 		return fmt.Errorf("update app: %w", err)
 	}
 	return nil

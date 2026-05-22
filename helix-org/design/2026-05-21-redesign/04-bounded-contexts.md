@@ -223,7 +223,7 @@ host files for `claude`, a `helix-specs` git branch for `helix`.
   mutations know which runtime is active and lazily provision Helix
   projects at hire time. Hire should be a pure Org Graph operation;
   if a runtime needs to react to a hire it should subscribe (e.g.
-  to a `WorkerHired` domain event). Put `ProjectApplier.Ensure` behind
+  to a `WorkerHired` domain event). Put `WorkerProject.Ensure` behind
   a `Runtime.OnWorkerHired` callback or an event subscription.
 - `helix/helixclient/client.go` is 1308 LOC. Inside this context, the
   client is fine as-is — the surface it covers (whoami, projects,

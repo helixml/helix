@@ -39,7 +39,7 @@ prescriptively wrong on five points the survey re-confirmed below:
    evaporates. There is no separate "move packages" step.
 
 4. **"Characterisation tests pin the current code in place, then move"**
-   misses that ProjectApplier has **zero tests today** (verified —
+   misses that WorkerProject has **zero tests today** (verified —
    the survey found a tested Spawner via fakeHelixClient but no
    project_test.go). For project.go and workspace.go we need
    intent-capturing tests *first*, against the existing helixclient-
@@ -60,24 +60,24 @@ prescriptively wrong on five points the survey re-confirmed below:
 
 ### D1 — B4 is an interface, not a bus
 
-Define `runtime.HireHandler` as a single-method interface in
+Define `runtime.HireHook` as a single-method interface in
 `api/pkg/org/runtime/`:
 
 ```go
-// HireHandler runs runtime-side bookkeeping immediately after a Worker
+// HireHook runs runtime-side bookkeeping immediately after a Worker
 // is created. The hire transaction has already committed by the time
 // OnHire is called; an error here is logged but does NOT roll back the
 // hire (matches today's behaviour — `agenthelix.SaveHiringUser` failures
 // are non-fatal at `helix-org/tools/hire_worker.go:217-222`).
-type HireHandler interface {
+type HireHook interface {
     OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error
 }
 ```
 
 Two implementations:
-- `runtime/helix.HireHandler` wraps `SaveHiringUser` (the call that
+- `runtime/helix.HireHook` wraps `SaveHiringUser` (the call that
   exists today as `agenthelix.SaveHiringUser`).
-- `runtime/claude.NoopHireHandler` returns nil.
+- `runtime/claude.NoopHireHook` returns nil.
 
 Wired into `tools.Deps` (the dep-injection bundle hire_worker reads),
 replacing the direct `agenthelix.SaveHiringUser` call.
@@ -91,7 +91,7 @@ don't have.
 
 **Why not a callback `func(...)error`**: future symmetry with other
 runtime ports (`Spawner`, `WorkspaceSync`) that *are* interfaces, and
-to make claude's no-op explicit and named (`NoopHireHandler`) rather
+to make claude's no-op explicit and named (`NoopHireHook`) rather
 than a `func() error { return nil }` literal at wiring sites.
 
 ### D2 — Code lifts to `api/pkg/org/runtime/helix/` **in the same PR** as the helixclient swap
@@ -108,7 +108,7 @@ calls in the same commit. No separate symbolic move.
 Final layout after H1:
 ```
 api/pkg/org/runtime/
-  runtime.go              (existing — Spawner, WorkspaceSync ports + HireHandler from D1)
+  runtime.go              (existing — Spawner, WorkspaceSync ports + HireHook from D1)
   runtime_test.go
   helix/
     workspace.go          (H1.1)
@@ -119,10 +119,10 @@ api/pkg/org/runtime/
     spawner_test.go
     state.go              (lifted with H1.2; small, no logic change)
     auth.go               (H1.0 — see D4)
-    hire.go               (B4 — the HireHandler impl)
+    hire.go               (B4 — the HireHook impl)
   claude/
     spawner.go            (lifted separately, not in this PR — out of scope)
-    hire.go               (B4 — NoopHireHandler; lifted with B4)
+    hire.go               (B4 — NoopHireHook; lifted with B4)
 ```
 
 The chat bridge (`helix-org/server/chat/helix_bridge.go`) is a separate
@@ -177,7 +177,7 @@ For the spawner's background flow (no request context):
 becomes `SpawnerConfig.UserForHiringID func(ctx, userID string) (*types.User, error)`.
 The callback is implemented in `api/pkg/server/helix_org.go` and
 looks up the user via the existing store. `HiringUserID` (persisted on
-WorkerRuntimeState by B4's HireHandler) is the lookup key.
+WorkerRuntimeState by B4's HireHook) is the lookup key.
 
 This is a one-time wiring change at the boundary, not a per-call site
 refactor.
@@ -254,7 +254,7 @@ Specifically:
 |---|---|---|
 | `helix-org/agent/helix/workspace.go` | `PutFile` | H1.1 |
 | `helix-org/agent/helix/project.go` | `GetProject`, `ApplyProject`, `PutProjectSecret`, `WhoAmI`, `CreateGitRepo`, `AttachRepoToProject`, `CreateBranch`, `PutFile`, `AttachMCPToAppWithHeaders` | H1.2 |
-| `helix-org/agent/helix/spawner.go` | `EnsureAndSend`, `GetOutput`, `SubscribeUpdates`, `WithBearerToken` (context); calls `ProjectApplier.Ensure` inline | H1.3 |
+| `helix-org/agent/helix/spawner.go` | `EnsureAndSend`, `GetOutput`, `SubscribeUpdates`, `WithBearerToken` (context); calls `WorkerProject.Ensure` inline | H1.3 |
 | `helix-org/server/chat/helix_bridge.go` | `GetSession`, `EnsureAndSend`, `StartChatWithStatus`, `SendSessionMessage`, `SubscribeUpdates`, `StopExternalAgent`, `GetProject` | H1.3 |
 | `helix-org/tools/hire_worker.go` | `UserIDFromContext` (no HTTP); imports `agenthelix.SaveHiringUser` | B4 |
 | `helix-org/server/mcp.go` | `WithBearerToken`, `WithUserID`, `UserIDFromContext` (no HTTP) | H1.0 |
@@ -287,7 +287,7 @@ checklist below includes the verification step.
 ## 3. Phase 0 — Characterisation tests
 
 Goal: pin INTENT, not implementation. Tests drive the public surface
-(`ProjectApplier.Ensure`, `Workspace.MirrorFile`, `Spawner`, the chat
+(`WorkerProject.Ensure`, `Workspace.MirrorFile`, `Spawner`, the chat
 bridge's `Send`/`History`/`New`/`Switch`, `HireWorker.Invoke`) through
 fakes; they must remain green after the H1 refactor changes the
 substrate underneath.
@@ -313,7 +313,7 @@ New file `helix-org/tools/hire_worker_test.go`. Tests:
 
 | Test name | Asserts |
 |---|---|
-| `TestHireWorkerHumanCreatesRowsInOrder` | Worker row, Environment row, Grants (when supplied) inserted in that order; NO activation stream; HireHandler called with hiring userID iff context carries one; Dispatcher NOT called. |
+| `TestHireWorkerHumanCreatesRowsInOrder` | Worker row, Environment row, Grants (when supplied) inserted in that order; NO activation stream; HireHook called with hiring userID iff context carries one; Dispatcher NOT called. |
 | `TestHireWorkerAICreatesActivationStreamAndDispatches` | Same as above PLUS activation Stream + Subscription created; `Dispatcher.DispatchHire` called once with right args. |
 | `TestHireWorkerGrantsBeforeDispatch` | Grants land in store BEFORE dispatcher fires (race-free first activation). |
 | `TestHireWorkerEnvDirCreated` | `<EnvsDir>/<workerID>/` exists on disk. |
@@ -322,7 +322,7 @@ New file `helix-org/tools/hire_worker_test.go`. Tests:
 | `TestHireWorkerHookFailureNotFatal` | Hook returns error → hire still returns success; error logged via Dispatcher's audit Stream OR returned as error per current code reading (verify against `hire_worker.go:217-222` — that path actually DOES `return nil, fmt.Errorf("persist hiring user: %w", err)`; today's code IS fatal; the doc comment claims non-fatal but the code is fatal. Adopt the **fatal** behaviour as the contract since it's what the code does. Note discrepancy in commit message.) |
 
 These tests use a `fakeStore` with the existing `store.Store` shape
-(or `memorystore` if compatible) and a captured `HireHandler`. They
+(or `memorystore` if compatible) and a captured `HireHook`. They
 exist before B4 commits to verify the refactor doesn't change behaviour.
 At Phase 0 they assert against the existing direct `agenthelix.SaveHiringUser`
 call shape — they fail to compile if the imports change.
@@ -331,10 +331,10 @@ call shape — they fail to compile if the imports change.
 Phase 0, because the hook doesn't exist yet. Phase 0 captures only
 what's verifiable against today's code.
 
-**Commit P0.2 — `test(helix-org/agent/helix): characterise ProjectApplier.Ensure`**
+**Commit P0.2 — `test(helix-org/agent/helix): characterise WorkerProject.Ensure`**
 
 New file `helix-org/agent/helix/project_test.go`. Tests
-(driving `(*ProjectApplier).Ensure` through `fakeHelixClient`):
+(driving `(*WorkerProject).Ensure` through `fakeHelixClient`):
 
 | Test name | Asserts |
 |---|---|
@@ -416,32 +416,32 @@ gomock variant just for this.
 
 Three commits. Total ~250 LOC of changes; mostly plumbing.
 
-### B4.1 — `feat(api/pkg/org/runtime): add HireHandler port`
+### B4.1 — `feat(api/pkg/org/runtime): add HireHook port`
 
 File `api/pkg/org/runtime/runtime.go` gains:
 
 ```go
-// HireHandler runs runtime-side bookkeeping immediately after a Worker
+// HireHook runs runtime-side bookkeeping immediately after a Worker
 // is created. See ADR-TBD (link from this commit's body) for why this
 // is an interface rather than an event bus.
-type HireHandler interface {
+type HireHook interface {
     OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error
 }
 ```
 
-Plus `NoopHireHandler` in the same file (dev runtimes and tests use it):
+Plus `NoopHireHook` in the same file (dev runtimes and tests use it):
 
 ```go
-type NoopHireHandler struct{}
-func (NoopHireHandler) OnHire(context.Context, worker.ID, string) error { return nil }
+type NoopHireHook struct{}
+func (NoopHireHook) OnHire(context.Context, worker.ID, string) error { return nil }
 ```
 
 Add `runtime_test.go` (or extend existing): one test that exercises
-NoopHireHandler returns nil for any inputs.
+NoopHireHook returns nil for any inputs.
 
 **Acceptance**: package compiles; `go test ./api/pkg/org/runtime/...` passes.
 
-### B4.2 — `feat(api/pkg/org/runtime/helix): add helix HireHandler impl`
+### B4.2 — `feat(api/pkg/org/runtime/helix): add helix HireHook impl`
 
 New file `api/pkg/org/runtime/helix/hire.go`:
 
@@ -456,20 +456,20 @@ import (
     "github.com/helixml/helix/helix-org/store"
 )
 
-// HireRecorder is runtime.HireHandler backed by the helix-runtime's
+// Hire is runtime.HireHook backed by the helix-runtime's
 // per-Worker runtime-state sidecar. Persists the hiring user's ID so
 // the Spawner can later mint per-user identity for that Worker's
 // sessions.
-type HireRecorder struct {
+type Hire struct {
     Store *store.Store
 }
 
-func (h *HireRecorder) OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error {
+func (h *Hire) OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error {
     // Re-uses the existing SaveHiringUser implementation (lifted next commit).
     return SaveHiringUser(ctx, h.Store, workerID, hiringUserID)
 }
 
-var _ runtime.HireHandler = (*HireRecorder)(nil)
+var _ runtime.HireHook = (*Hire)(nil)
 ```
 
 (Lifting `SaveHiringUser` itself to this package happens in H1.2 alongside
@@ -492,9 +492,9 @@ This is a pure rename + import update; no behaviour change.
 After B4.2a, B4.2 imports `SaveHiringUser` from its new home with no
 inversion.
 
-### B4.3 — `refactor(helix-org/tools): wire HireHandler into hire_worker`
+### B4.3 — `refactor(helix-org/tools): wire HireHook into hire_worker`
 
-`tools.Deps` gains a `HireHandler runtime.HireHandler` field.
+`tools.Deps` gains a `HireHook runtime.HireHook` field.
 `hire_worker.go` Invoke:
 
 - Imports `runtime "github.com/helixml/helix/api/pkg/org/runtime"`
@@ -509,8 +509,8 @@ inversion.
   ```
   with:
   ```go
-  if uid := authctx.UserIDFromContext(ctx); uid != "" && t.deps.HireHandler != nil {
-      if err := t.deps.HireHandler.OnHire(ctx, id, uid); err != nil {
+  if uid := authctx.UserIDFromContext(ctx); uid != "" && t.deps.HireHook != nil {
+      if err := t.deps.HireHook.OnHire(ctx, id, uid); err != nil {
           return nil, fmt.Errorf("hire handler: %w", err)
       }
   }
@@ -528,7 +528,7 @@ Test: extend Phase 0's `hire_worker_test.go` with the two hook tests
 Both pass against the new impl.
 
 Wiring: `api/pkg/server/helix_org.go` constructs a
-`helix.HireRecorder{Store: orgStore}` and injects it into `tools.Deps.HireHandler`.
+`helix.Hire{Store: orgStore}` and injects it into `tools.Deps.HireHook`.
 
 **Acceptance**: `helix-org/tools/hire_worker.go` no longer imports
 `agenthelix`. All Phase 0 hire tests pass plus the two new hook tests.
@@ -616,7 +616,7 @@ Two-step single commit:
   replicate the check in `Workspace.MirrorFile` (one helper, named
   for the HTTP handler).
 - For workspace.go specifically the repo is owned by the helix-org
-  service account (or whoever created it via ProjectApplier). The
+  service account (or whoever created it via WorkerProject). The
   `*types.User` in context is the hiring user. We may need to swap
   to a "service user" identity for this call. Decide in the slice.
 
@@ -631,7 +631,7 @@ Two-step single commit:
 The biggest single commit. ~600 LOC of changes.
 
 1. `git mv` the file pair (project.go + new project_test.go from Phase 0).
-2. Replace `ProjectApplier.Client helixclient.Client` with a constructor
+2. Replace `WorkerProject.Client helixclient.Client` with a constructor
    that takes `controller *controller.Controller`, `store *store.Store`,
    `git gitRepositoryServicer`. Or wrap in a smaller per-method interface.
 3. Method-by-method swap (using the mapping table in §2):
@@ -752,7 +752,7 @@ and sends a full-state snapshot before the subscription. We need the
 in-process equivalent. Two options:
 
 - (a) **Replicate**: expose `streamingContexts` as a method on
-  the server / a `SessionSnapshotter` interface and call it from
+  the server / a `SessionPreamble` interface and call it from
   `SubscribeSessionUpdates`.
 - (b) **Skip**: in-process subscribers know how to handle missed
   patches because EntryStream is patch-idempotent under snapshot
@@ -761,7 +761,7 @@ in-process equivalent. Two options:
 
 **Recommendation: (a)** — exposing the snapshot is a small additive
 move and removes one class of "first activation drops first patch"
-bug. Define a `SessionSnapshotter` interface and pass it to
+bug. Define a `SessionPreamble` interface and pass it to
 `SubscribeSessionUpdates`. The wiring file constructs it from the
 HelixAPIServer instance directly (in-process, no abstraction tax).
 
@@ -810,7 +810,7 @@ unit test for `EnsureAndSend` itself with a fake `sessionClient`
    - `cfg.Client.StopExternalAgent(...)` → controller method (verify).
 4. Update `SpawnerConfig` fields: drop `Client helixclient.Client`,
    add `Controller *controller.Controller`, `PubSub pubsub.PubSub`,
-   `Snapshotter SessionSnapshotter`. Rename
+   `Snapshotter SessionPreamble`. Rename
    `BearerForUser func(ctx, userID) (string, error)` to
    `UserForHiringID func(ctx, userID) (*types.User, error)` per D4.
 5. helix_bridge.go: refactor in place (per D2 — bridge stays in
@@ -877,14 +877,14 @@ specific helper and rename it for clarity (`ensureHelixOrgMCPServiceKey`?).
 | # | Title | Phase | LOC est |
 |---|---|---|---|
 | P0.1 | `test(helix-org/tools): characterise hire_worker side-effect order` | 0 | +200 |
-| P0.2 | `test(helix-org/agent/helix): characterise ProjectApplier.Ensure` | 0 | +400 |
+| P0.2 | `test(helix-org/agent/helix): characterise WorkerProject.Ensure` | 0 | +400 |
 | P0.3 | `test(helix-org/agent/helix): characterise Workspace.MirrorFile` | 0 | +150 |
 | P0.4 | `test(helix-org/agent/helix): augment spawner_test for SubscribeUpdates parity` | 0 | +200 |
 | P0.5 | `test(helix-org/server/chat): augment helix_bridge_test for owner-chat` | 0 | +250 |
-| B4.1 | `feat(api/pkg/org/runtime): add HireHandler port` | B4 | +50 |
+| B4.1 | `feat(api/pkg/org/runtime): add HireHook port` | B4 | +50 |
 | B4.2a | `refactor(api/pkg/org/runtime/helix): lift state.go` | B4 | move |
-| B4.2 | `feat(api/pkg/org/runtime/helix): add helix HireHandler impl` | B4 | +60 |
-| B4.3 | `refactor(helix-org/tools): wire HireHandler into hire_worker` | B4 | +/-40 |
+| B4.2 | `feat(api/pkg/org/runtime/helix): add helix HireHook impl` | B4 | +60 |
+| B4.3 | `refactor(helix-org/tools): wire HireHook into hire_worker` | B4 | +/-40 |
 | H1.0 | `refactor(api/pkg/org/runtime/helix): lift auth-context helpers` | H1 | move + 30 |
 | H1.1 | `refactor(api/pkg/org/runtime/helix): lift workspace + replace PutFile with git servicer` | H1.1 | -130 +80 |
 | H1.2 | `refactor(api/pkg/org/runtime/helix): lift project + replace controller calls` | H1.2 | -290 +400 |
@@ -928,7 +928,7 @@ finish the slice queue or revert to a stable state.
 |---|---|---|---|---|
 | R1 | Controller methods have different validation/error semantics than the HTTP handlers' wrappers | High | Med | Each slice's "Validation parity audit" reads the handler before the swap; replicate any handler-only check inside the helix-runtime caller. |
 | R2 | `pubsub.PubSub`'s payload shape differs subtly from `SessionUpdate` wire JSON | Low | High | Phase 0 commits include a payload-equivalence test: feed a real session-queue publish through `EntryStream.Apply` and verify the same events emerge as from a captured WebSocket payload. |
-| R3 | Late-joiner catch-up logic (websocket_server_user.go:128-156) is load-bearing and silently dropping it loses the first patch on activation | Med | Med | H1.3b's `SessionSnapshotter` interface is exposed; spawner calls it before subscribing. Verified via test `TestSpawnerCatchupReceivesSnapshotBeforeStream`. |
+| R3 | Late-joiner catch-up logic (websocket_server_user.go:128-156) is load-bearing and silently dropping it loses the first patch on activation | Med | Med | H1.3b's `SessionPreamble` interface is exposed; spawner calls it before subscribing. Verified via test `TestSpawnerCatchupReceivesSnapshotBeforeStream`. |
 | R4 | `StartChatStreaming`'s 10-min detached-context coldstart wait has no in-process equivalent and direct controller calls timeout sooner | Med | Med | Read `controller.CreateSession` before H1.3c. If it has a shorter timeout, parameterise it or wrap the call to honour `cfg.ActivationTimeout` instead. |
 | R5 | `withHelixUserBearer` middleware behaviour is subtly different from what direct `*types.User` threading produces (e.g., the bearer was per-organisation, not per-user) | Low | Med | Before H1.0, write one test that verifies a request from "user A in org X" produces the same downstream `*types.User.OrganizationID` whichever path. Mismatch is a fix here, not in the runtime. |
 | R6 | The chat bridge's heavy `helix_bridge.go` file (1000+ LOC by sight) doesn't lift to canonical in this work, and refactoring in place creates an "ugly" middle state | Med | Low | Document explicitly in commit message and CLAUDE.md: the chat bridge stays at `helix-org/server/chat/` for H1; canonical move is a separate follow-up. |
@@ -966,7 +966,7 @@ Explicitly NOT part of this work:
   this needs a target package (`api/pkg/org/chat/`?) that doesn't
   exist yet; deferred to its own design + lift.
 - **Lifting `helix-org/agent/claude/`** — the dev runtime stays where
-  it is; B4.1 / B4.2 only adds the `claude.NoopHireHandler`.
+  it is; B4.1 / B4.2 only adds the `claude.NoopHireHook`.
 - **Lifting `helix-org/domain/`** — the Worker, Stream, Event, Subscription,
   Environment aggregates stay in helix-org domain for now.
   Per `09-integration-reframe.md §4 H4`, they move when storage moves
@@ -985,7 +985,7 @@ Explicitly NOT part of this work:
 
 ## 10. Open questions to resolve mid-flight (not blockers)
 
-1. **Should `runtime.HireHandler` extend later to `OnFire` / `OnRoleChange`?**
+1. **Should `runtime.HireHook` extend later to `OnFire` / `OnRoleChange`?**
    Not now. When a second event needs runtime-side reaction, *then*
    we add the method or split to multiple interfaces. (Per D1 reasoning.)
 

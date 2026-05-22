@@ -93,7 +93,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /ui/org to " +
 		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
-	owner, err := domain.NewHumanWorker(worker.ID("w-owner"), []position.ID{rootPos.ID}, ownerIdentity)
+	owner, err := domain.NewHumanWorker(worker.ID("w-owner"), rootPos.ID, ownerIdentity)
 	if err != nil {
 		return Result{}, err
 	}

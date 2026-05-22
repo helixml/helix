@@ -310,14 +310,11 @@ func (u *uiHandler) fillPositionDetail(ctx context.Context, frag *OrgDetail, pos
 		frag.ParentID = string(*pos.ParentID)
 	}
 	for _, wk := range workers {
-		for _, pid := range wk.Positions() {
-			if pid == pos.ID {
-				frag.Workers = append(frag.Workers, OrgWorkerRef{
-					ID:   string(wk.ID()),
-					Kind: string(wk.Kind()),
-				})
-				break
-			}
+		if wk.Position() == pos.ID {
+			frag.Workers = append(frag.Workers, OrgWorkerRef{
+				ID:   string(wk.ID()),
+				Kind: string(wk.Kind()),
+			})
 		}
 	}
 	frag.HasWorkers = len(frag.Workers) > 0
@@ -338,7 +335,7 @@ func (u *uiHandler) fillWorkerDetail(ctx context.Context, frag *OrgDetail, worke
 	frag.WorkerID = string(wk.ID())
 	frag.WorkerKind = string(wk.Kind())
 	frag.IdentityContent = wk.IdentityContent()
-	for _, pid := range wk.Positions() {
+	if pid := wk.Position(); pid != "" {
 		frag.Positions = append(frag.Positions, string(pid))
 	}
 	frag.HasPositions = len(frag.Positions) > 0

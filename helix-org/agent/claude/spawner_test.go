@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
@@ -239,7 +238,7 @@ func TestProjectEnvWritesCanonicalState(t *testing.T) {
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	worker, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona\nAlice.")
+	worker, _ := domain.NewAIWorker("w-eng", "p-eng", "# Persona\nAlice.")
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}

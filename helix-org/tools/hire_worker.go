@@ -148,13 +148,13 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	var wkr domain.Worker
 	switch args.Kind {
 	case worker.KindHuman:
-		w, err := domain.NewHumanWorker(id, []position.ID{pos.ID}, args.IdentityContent)
+		w, err := domain.NewHumanWorker(id, pos.ID, args.IdentityContent)
 		if err != nil {
 			return nil, err
 		}
 		wkr = w
 	case worker.KindAI:
-		w, err := domain.NewAIWorker(id, []position.ID{pos.ID}, args.IdentityContent)
+		w, err := domain.NewAIWorker(id, pos.ID, args.IdentityContent)
 		if err != nil {
 			return nil, err
 		}
@@ -213,11 +213,11 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	// with no HTTP auth, or any path that didn't stash a user — is a
 	// no-op; the Spawner then falls back to its static service api_key.
 	//
-	// Routes through the runtime.HireHandler port so non-helix runtimes
+	// Routes through the runtime.HireHook port so non-helix runtimes
 	// (claude / dev / test) can no-op without hire_worker knowing
 	// anything about helix-runtime internals.
-	if uid := runtimehelix.UserIDFromContext(ctx); uid != "" && t.deps.HireHandler != nil {
-		if err := t.deps.HireHandler.OnHire(ctx, id, uid); err != nil {
+	if uid := runtimehelix.UserIDFromContext(ctx); uid != "" && t.deps.HireHook != nil {
+		if err := t.deps.HireHook.OnHire(ctx, id, uid); err != nil {
 			return nil, fmt.Errorf("hire handler: %w", err)
 		}
 	}

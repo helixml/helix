@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/types"
@@ -105,15 +106,26 @@ func (a *projectServiceAdapter) CreateBranch(ctx context.Context, repoID, branch
 	return a.c.CreateBranch(ctx, repoID, branch, baseBranch)
 }
 
-func (a *projectServiceAdapter) GetAppRawConfig(ctx context.Context, id string) (json.RawMessage, error) {
+func (a *projectServiceAdapter) GetAppConfig(ctx context.Context, id string) (types.AppConfig, error) {
 	app, err := a.c.GetApp(ctx, id)
 	if err != nil {
-		return nil, err
+		return types.AppConfig{}, err
 	}
-	return app.Config, nil
+	if len(app.Config) == 0 {
+		return types.AppConfig{}, nil
+	}
+	var cfg types.AppConfig
+	if err := json.Unmarshal(app.Config, &cfg); err != nil {
+		return types.AppConfig{}, fmt.Errorf("decode app config: %w", err)
+	}
+	return cfg, nil
 }
 
-func (a *projectServiceAdapter) UpdateAppRawConfig(ctx context.Context, id string, config json.RawMessage) error {
-	_, err := a.c.UpdateApp(ctx, id, AppRequest{Config: config})
+func (a *projectServiceAdapter) UpdateAppConfig(ctx context.Context, id string, cfg types.AppConfig) error {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode app config: %w", err)
+	}
+	_, err = a.c.UpdateApp(ctx, id, AppRequest{Config: raw})
 	return err
 }

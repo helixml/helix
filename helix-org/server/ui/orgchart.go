@@ -23,10 +23,10 @@ func renderOrgChart(positions []domain.Position, workers []domain.Worker) string
 		return ""
 	}
 
-	// Group workers by the positions they fill.
+	// Group workers by their Position.
 	byPos := make(map[position.ID][]domain.Worker)
 	for _, w := range workers {
-		for _, pid := range w.Positions() {
+		if pid := w.Position(); pid != "" {
 			byPos[pid] = append(byPos[pid], w)
 		}
 	}

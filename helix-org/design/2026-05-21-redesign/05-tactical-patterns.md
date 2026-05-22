@@ -389,13 +389,13 @@ projection of the Worker aggregate.
   `04 §4` item 1).
 - Listens for `IdentityUpdated` / `RoleUpdated` (today via
   `WorkspaceSync.PublishFile`).
-- Emits `RuntimeProvisioned` (helix only — when `ProjectApplier.Ensure`
+- Emits `RuntimeProvisioned` (helix only — when `WorkerProject.Ensure`
   succeeds). Today this is just a side-effect of the first activation.
 
 ### 5.5 Domain services
 
 - **Spawner impl** (`agent/claude/spawner.go`, `agent/helix/spawner.go`).
-- **ProjectApplier** (`agent/helix/project.go:21-60`) — helix-only.
+- **WorkerProject** (`agent/helix/project.go:21-60`) — helix-only.
 
 ### 5.6 Invariants that ought to hold but currently don't
 

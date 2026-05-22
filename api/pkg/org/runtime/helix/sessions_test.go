@@ -86,7 +86,7 @@ func TestSubscribeSessionUpdatesNoSnapshotter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ch, err := SubscribeSessionUpdates(ctx, ps, NoopSessionSnapshotter{}, "u-test", "ses_y")
+	ch, err := SubscribeSessionUpdates(ctx, ps, NoopSessionPreamble{}, "u-test", "ses_y")
 	if err != nil {
 		t.Fatalf("SubscribeSessionUpdates: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestSubscribeSessionUpdatesUnsubscribesOnCtxDone(t *testing.T) {
 	ps := newFakePubSub()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := SubscribeSessionUpdates(ctx, ps, NoopSessionSnapshotter{}, "u-test", "ses_z")
+	ch, err := SubscribeSessionUpdates(ctx, ps, NoopSessionPreamble{}, "u-test", "ses_z")
 	if err != nil {
 		t.Fatalf("SubscribeSessionUpdates: %v", err)
 	}

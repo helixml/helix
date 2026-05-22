@@ -132,7 +132,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		log.Warn().Err(err).Msg("helix-org service api key not provisioned — chat will stay disabled")
 	}
 
-	// Build the single ProjectApplier shared by the Spawner (for AI
+	// Build the single WorkerProject shared by the Spawner (for AI
 	// Worker activations) and the chat bridge (for owner-chat). The
 	// owner is just another Worker — they get a per-Worker Helix
 	// project + agent app + git repo + Zed sandbox just like every
@@ -143,24 +143,22 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		log.Warn().Err(serviceClientErr).Msg("helix-org service client init failed — chat and worker activations will not run")
 	}
 
-	// Wire the helix-backed WorkspaceSync so update_role /
-	// update_identity re-push role.md / identity.md to each affected
-	// Worker's per-Worker repo on the helix-specs branch.
+	// Build the single Workspace shared by the WorkerProject (for
+	// first-apply file pushes — agent.md / role.md / identity.md)
+	// and update_role / update_identity (which call MirrorFile to
+	// re-push canonical content on demand). One place owns the
+	// on-branch path layout.
 	if cfg.GitRepositoryService != nil {
-		deps.Workspace = runtimehelix.NewWorkspace(cfg.GitRepositoryService, st, "helix-specs", "helix-org", "helix-org@helix.local")
+		gitWriter := cfg.GitRepositoryService.(runtimehelix.WorkspaceGit)
+		helixOrgWorkspaceRef = runtimehelix.NewWorkspace(gitWriter, st, "helix-specs", "helix-org", "helix-org@helix.local")
+		deps.Workspace = helixOrgWorkspaceRef
 	}
 
-	// Wire the helix-runtime HireHandler so hire_worker persists the
+	// Wire the helix-runtime HireHook so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
 	// Replaces the direct runtimehelix.SaveHiringUser call hire_worker
 	// used to make.
-	deps.HireHandler = &runtimehelix.HireRecorder{Store: st}
-
-	// Stash the production git servicer for buildHelixOrgProjectApplier
-	// to pick up. (See the comment on helixOrgProjectGitRef.) The git
-	// servicer also satisfies ProjectGitWriter — it has CreateBranch +
-	// CreateOrUpdateFileContents.
-	helixOrgProjectGitRef = cfg.GitRepositoryService.(runtimehelix.ProjectGitWriter)
+	deps.HireHook = &runtimehelix.Hire{Store: st}
 
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
@@ -208,7 +206,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 
 	// Chat backend: owner-chat opens against the owner Worker's
-	// per-Worker project via the shared ProjectApplier. Same defaults,
+	// per-Worker project via the shared WorkerProject. Same defaults,
 	// same MCP wiring, same desktop runtime as any AI Worker.
 	var chatBridge chat.Backend
 	if projectApplier != nil && serviceClient != nil {
@@ -298,12 +296,12 @@ type helixOrgConfig struct {
 	// canonical files onto each Worker's per-Worker repo. The H1.1
 	// lift replaced helixclient.PutFile (loopback HTTP) with this
 	// direct call into the same servicer the HTTP handlers use.
-	GitRepositoryService runtimehelix.WorkspaceGitWriter
+	GitRepositoryService runtimehelix.WorkspaceGit
 }
 
 // dynamicProjectApplier is a chat.ProjectEnsurer that re-reads
 // `worker.*` and `helix.*` from the config registry on every Ensure
-// call. Building the underlying runtimehelix.ProjectApplier at API
+// call. Building the underlying runtimehelix.WorkerProject at API
 // startup and reusing it freezes `worker.runtime`/`credentials`/
 // `provider`/`model` at boot time — operators changing those via
 // /ui/settings then had to restart the API container for the new
@@ -320,8 +318,8 @@ type dynamicProjectApplier struct {
 }
 
 // Ensure satisfies chat.ProjectEnsurer. Builds a fresh
-// runtimehelix.ProjectApplier from the current registry state and
-// delegates. ProjectApplier.Ensure is itself idempotent — first call
+// runtimehelix.WorkerProject from the current registry state and
+// delegates. WorkerProject.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
 	applier, err := buildHelixOrgProjectApplier(ctx, d.cfg, d.client, d.Store, d.logger)
@@ -331,7 +329,7 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) 
 	return applier.Ensure(ctx, workerID)
 }
 
-// buildHelixOrgProjectApplier constructs the ProjectApplier that
+// buildHelixOrgProjectApplier constructs the WorkerProject that
 // both the chat bridge (owner-chat) and the spawner (AI Worker
 // activations) drive. Single source of truth for the embedded
 // SaaS's "Worker defaults" — `worker.runtime` from the config
@@ -350,7 +348,7 @@ func buildHelixOrgProjectApplier(
 	client helixclient.Client,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
-) (*runtimehelix.ProjectApplier, error) {
+) (*runtimehelix.WorkerProject, error) {
 	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
 	if apiKey == "" {
 		return nil, fmt.Errorf("helix.api_key not set")
@@ -361,9 +359,9 @@ func buildHelixOrgProjectApplier(
 	}
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
-	return &runtimehelix.ProjectApplier{
+	return &runtimehelix.WorkerProject{
 		Service:       helixclient.AsProjectService(client),
-		Git:           projectGitFromHelixOrgConfig(),
+		Workspace:     helixOrgWorkspaceRef,
 		Store:         orgStore,
 		HelixOrgURL:   helixOrgURL,
 		Runtime:       runtime,
@@ -375,14 +373,12 @@ func buildHelixOrgProjectApplier(
 	}, nil
 }
 
-// helixOrgProjectGitRef is a holder set at init time so
-// buildHelixOrgProjectApplier (which has no access to the helixOrgConfig)
-// can pick up the production git servicer. Set by initHelixOrgHandler.
-var helixOrgProjectGitRef runtimehelix.ProjectGitWriter
-
-func projectGitFromHelixOrgConfig() runtimehelix.ProjectGitWriter {
-	return helixOrgProjectGitRef
-}
+// helixOrgWorkspaceRef is the production Workspace, set at
+// initHelixOrgHandler time. buildHelixOrgProjectApplier picks it up
+// because it has no access to the helixOrgConfig directly. The same
+// Workspace also drives update_role / update_identity tools (the
+// only public WorkspaceSync surface).
+var helixOrgWorkspaceRef *runtimehelix.Workspace
 
 // resolveWorkerAgentConfig reads the four `worker.*` knobs and normalises
 // them into the (runtime, credentials, provider, model) tuple that
@@ -469,6 +465,7 @@ func buildHelixOrgSpawnerConfig(
 
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
+	specsMandate, _ := cfg.GetString(ctx, "worker.specs_mandate")
 	return runtimehelix.SpawnerConfig{
 		Client:        client,
 		HelixOrgURL:   helixOrgURL,
@@ -477,6 +474,7 @@ func buildHelixOrgSpawnerConfig(
 		Provider:      provider,
 		Model:         model,
 		MCPAuthBearer: apiKey,
+		SpecsMandate:  specsMandate,
 		Store:         orgStore,
 		Hub:           bc,
 		Logger:        logger,

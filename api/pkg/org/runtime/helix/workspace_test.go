@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
@@ -16,7 +15,7 @@ import (
 	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
-// fakeGitWriter is the minimum WorkspaceGitWriter fake — captures the
+// fakeGitWriter is the minimum WorkspaceGit fake — captures the
 // last write so tests can assert on path, branch, and content.
 type fakeGitWriter struct {
 	mu         sync.Mutex
@@ -39,6 +38,8 @@ func (f *fakeGitWriter) CreateOrUpdateFileContents(_ context.Context, repoID, pa
 	return "sha-test", f.err
 }
 
+func (f *fakeGitWriter) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
+
 func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
@@ -50,7 +51,7 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
 	_ = s.Roles.Create(ctx, r)
 	pos, _ := domain.NewPosition("p-eng", "r-eng", nil)
 	_ = s.Positions.Create(ctx, pos)
-	w, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona")
+	w, _ := domain.NewAIWorker("w-eng", "p-eng", "# Persona")
 	_ = s.Workers.Create(ctx, w)
 	if repoID != "" {
 		_ = SaveProject(ctx, s, w.ID(), "prj_x", "app_x", repoID)
@@ -218,6 +219,8 @@ type serialisingFake struct {
 	inflight *int32
 	peak     *int32
 }
+
+func (f *serialisingFake) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
 
 func (f *serialisingFake) CreateOrUpdateFileContents(_ context.Context, _, _, _ string, _ []byte, _, _, _ string) (string, error) {
 	cur := atomic.AddInt32(f.inflight, 1)

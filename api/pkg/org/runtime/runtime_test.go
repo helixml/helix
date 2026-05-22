@@ -17,7 +17,7 @@ func TestNoopWorkspaceSyncIsAlwaysNil(t *testing.T) {
 
 func TestNoopHireHandlerIsAlwaysNil(t *testing.T) {
 	t.Parallel()
-	var h HireHandler = NoopHireHandler{}
+	var h HireHook = NoopHireHook{}
 	// Empty and non-empty user IDs both must succeed.
 	if err := h.OnHire(context.Background(), "w-test", ""); err != nil {
 		t.Errorf("OnHire empty userID: %v", err)

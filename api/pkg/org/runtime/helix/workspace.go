@@ -11,32 +11,40 @@ import (
 	"github.com/helixml/helix/helix-org/store"
 )
 
-// WorkspaceGitWriter is the small slice of the helix git-repository
+// WorkspaceGit is the small slice of the helix git-repository
 // servicer the helix-runtime workspace needs. *services.GitRepositoryService
 // satisfies it; the production wiring in api/pkg/server/helix_org.go
 // passes that concrete impl directly.
 //
 // We define a thin interface here rather than depending on
 // *services.GitRepositoryService so workspace tests don't have to
-// build a full GitRepositoryService — just a fake of one method.
-type WorkspaceGitWriter interface {
+// build a full GitRepositoryService.
+//
+// All file writes for Worker provisioning (canonical role.md /
+// identity.md / agent.md plus any future per-Worker files) flow
+// through the Workspace, which is the only place in the helix
+// runtime that knows the on-branch path layout. WorkerProject
+// delegates to Workspace for its first-apply file pushes rather
+// than calling the git servicer directly.
+type WorkspaceGit interface {
+	CreateBranch(ctx context.Context, repoID, branchName, baseBranch string) error
 	CreateOrUpdateFileContents(ctx context.Context, repoID, path, branch string, content []byte, commitMessage, authorName, authorEmail string) (string, error)
 }
 
 // Workspace is the runtime.WorkspaceSync implementation that pushes
 // canonical role / identity content to the helix-specs branch of a
 // Worker's per-Worker repo. Each call resolves the target repo from
-// the Worker's runtime state (set by ProjectApplier at first
+// the Worker's runtime state (set by WorkerProject at first
 // activation) and PUTs one file onto the configured branch at
 // `workers/<workerID>/.context/<name>` — the same path layout
-// ProjectApplier.republishWorkerFiles writes and the activation
+// WorkerProject.republishWorkerFiles writes and the activation
 // mandate tells the agent to `git pull` and `cat`.
 //
 // Workers that haven't been activated against a Helix project yet
 // (RepoID == "") are no-ops; callers don't have to gate on activation
 // status.
 type Workspace struct {
-	git    WorkspaceGitWriter
+	git    WorkspaceGit
 	store  *store.Store
 	branch string
 	author string
@@ -54,7 +62,7 @@ type Workspace struct {
 // NewWorkspace constructs a Workspace that resolves repo IDs per
 // call from the runtime-state sidecar. branch is the target branch
 // (typically "helix-specs"); author/email are the commit metadata.
-func NewWorkspace(git WorkspaceGitWriter, st *store.Store, branch, author, email string) *Workspace {
+func NewWorkspace(git WorkspaceGit, st *store.Store, branch, author, email string) *Workspace {
 	return &Workspace{
 		git:       git,
 		store:     st,
@@ -90,14 +98,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 		// before the first activation completes.
 		return nil
 	}
-	repoPath := "workers/" + string(workerID) + "/.context/" + name
-	if message == "" {
-		message = fmt.Sprintf("update %s", repoPath)
-	}
-	lock := w.lockFor(state.RepoID)
-	lock.Lock()
-	defer lock.Unlock()
-	if _, err := w.git.CreateOrUpdateFileContents(ctx, state.RepoID, repoPath, w.branch, []byte(content), message, w.author, w.email); err != nil {
+	if err := w.WriteWorkerFile(ctx, workerID, state.RepoID, name, content, message); err != nil {
 		return err
 	}
 	// Invalidate the Worker's warm Helix chat session so the next
@@ -129,6 +130,57 @@ func (w *Workspace) lockFor(repoID string) *sync.Mutex {
 	l := &sync.Mutex{}
 	w.repoLocks[repoID] = l
 	return l
+}
+
+// EnsureBranch creates the branch (idempotent — re-creating an
+// existing branch is a 200). Used by WorkerProject before the first
+// file push so the helix-specs branch exists.
+func (w *Workspace) EnsureBranch(ctx context.Context, repoID, baseBranch string) error {
+	if repoID == "" {
+		return nil
+	}
+	return w.git.CreateBranch(ctx, repoID, w.branch, baseBranch)
+}
+
+// WriteOrgFile writes an org-wide file (no worker prefix) onto the
+// Workspace's branch — `.context/<name>`. Used for the org-wide
+// agent.md policy that every Worker reads.
+func (w *Workspace) WriteOrgFile(ctx context.Context, repoID, name, content, message string) error {
+	if repoID == "" {
+		return nil
+	}
+	if err := runtime.ValidateWorkspaceName(name); err != nil {
+		return fmt.Errorf("helix workspace: %w", err)
+	}
+	return w.writeAt(ctx, repoID, ".context/"+name, content, message)
+}
+
+// WriteWorkerFile writes a per-Worker file at
+// `workers/<workerID>/.context/<name>`. Used by WorkerProject's
+// first-apply path; MirrorFile is the public WorkspaceSync surface
+// that wraps this with session-invalidation semantics.
+func (w *Workspace) WriteWorkerFile(ctx context.Context, workerID worker.ID, repoID, name, content, message string) error {
+	if workerID == "" {
+		return errors.New("helix workspace: workerID is empty")
+	}
+	if repoID == "" {
+		return nil
+	}
+	if err := runtime.ValidateWorkspaceName(name); err != nil {
+		return fmt.Errorf("helix workspace: %w", err)
+	}
+	return w.writeAt(ctx, repoID, "workers/"+string(workerID)+"/.context/"+name, content, message)
+}
+
+func (w *Workspace) writeAt(ctx context.Context, repoID, path, content, message string) error {
+	if message == "" {
+		message = fmt.Sprintf("update %s", path)
+	}
+	lock := w.lockFor(repoID)
+	lock.Lock()
+	defer lock.Unlock()
+	_, err := w.git.CreateOrUpdateFileContents(ctx, repoID, path, w.branch, []byte(content), message, w.author, w.email)
+	return err
 }
 
 // Compile-time check.

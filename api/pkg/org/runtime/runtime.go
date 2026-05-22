@@ -61,7 +61,7 @@ type Spawner func(ctx context.Context, workerID worker.ID, envPath string, trigg
 //     (matches the layout `projectEnv` writes at activation)
 //   - helix:  workers/<workerID>/.context/<name> on the helix-specs
 //     branch of the Worker's per-Worker repo
-//     (matches what `ProjectApplier.republishWorkerFiles` writes
+//     (matches what `WorkerProject.republishWorkerFiles` writes
 //     and what the activation mandate tells the agent to `git
 //     pull` and `cat`)
 //
@@ -106,7 +106,7 @@ func ValidateWorkspaceName(name string) error {
 	return nil
 }
 
-// HireHandler runs runtime-side bookkeeping immediately after a Worker
+// HireHook runs runtime-side bookkeeping immediately after a Worker
 // is created. It's a single-method port — one publisher (the hire
 // tool), one subscriber per runtime backend (helix-runtime records
 // the hiring user; claude-runtime no-ops). Not an event bus: there is
@@ -123,14 +123,14 @@ func ValidateWorkspaceName(name string) error {
 // behaviour at helix-org/tools/hire_worker.go:217-222 where the same
 // SaveHiringUser call returns a wrapped error). Document the trade-off
 // at the call site.
-type HireHandler interface {
+type HireHook interface {
 	OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error
 }
 
-// NoopHireHandler is a HireHandler that does nothing. Useful for
+// NoopHireHook is a HireHook that does nothing. Useful for
 // tests and for dev runtimes (claude) that don't need per-hire
 // runtime-side state.
-type NoopHireHandler struct{}
+type NoopHireHook struct{}
 
-// OnHire is the no-op HireHandler: ignore the call and return nil.
-func (NoopHireHandler) OnHire(_ context.Context, _ worker.ID, _ string) error { return nil }
+// OnHire is the no-op HireHook: ignore the call and return nil.
+func (NoopHireHook) OnHire(_ context.Context, _ worker.ID, _ string) error { return nil }

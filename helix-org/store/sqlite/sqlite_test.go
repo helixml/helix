@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
@@ -123,7 +122,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	human, err := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "i am the owner")
+	human, err := domain.NewHumanWorker("w-owner", "p-root", "i am the owner")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}
@@ -131,7 +130,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("Create human: %v", err)
 	}
 
-	ai, err := domain.NewAIWorker("w-ceo", []position.ID{"p-ceo"}, "you are the ceo")
+	ai, err := domain.NewAIWorker("w-ceo", "p-ceo", "you are the ceo")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

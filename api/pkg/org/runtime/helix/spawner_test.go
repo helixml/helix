@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -79,7 +78,7 @@ func newHelixTestStore(t *testing.T) (*store.Store, worker.ID) {
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("pos: %v", err)
 	}
-	worker, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona")
+	worker, _ := domain.NewAIWorker("w-eng", "p-eng", "# Persona")
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("worker: %v", err)
 	}
@@ -92,9 +91,9 @@ func newHelixCfg(t *testing.T, fc SpawnerClient, s *store.Store) SpawnerConfig {
 	return SpawnerConfig{
 		Client:            fc,
 		ProjectService:    newFakeProjectService(),
-		ProjectGit:        newFakeGitForProject(),
+		Workspace:         NewWorkspace(newFakeGitForProject(), s, "helix-specs", "helix-org", "ho@example.com"),
 		PubSub:            newFakePubSub(),
-		Snapshotter:       NoopSessionSnapshotter{},
+		Snapshotter:       NoopSessionPreamble{},
 		HelixOrgURL:       "http://helix-org:8081",
 		Provider:          "openai",
 		Model:             "gpt-4o-mini",

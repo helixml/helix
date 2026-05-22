@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/stream"
@@ -74,7 +73,7 @@ func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, domain.Worker)
 	if err := st.Positions.Create(ctx, rootPos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", []position.ID{"p-root"}, "")
+	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "")
 	if err := st.Workers.Create(ctx, caller); err != nil {
 		t.Fatalf("create owner worker: %v", err)
 	}
@@ -294,7 +293,7 @@ func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 }
 
 // captureHireHandler records OnHire calls. Used to assert hire_worker
-// routes through runtime.HireHandler rather than calling
+// routes through runtime.HireHook rather than calling
 // SaveHiringUser directly.
 type captureHireHandler struct {
 	calls   []captureHireCall
@@ -313,12 +312,12 @@ func (h *captureHireHandler) OnHire(_ context.Context, w worker.ID, uid string) 
 
 // TestHireWorkerInvokesHireHandlerWithUserID verifies the new B4 flow:
 // hire_worker routes the hiring-user side-effect through the
-// HireHandler port, not via a direct SaveHiringUser call.
+// HireHook port, not via a direct SaveHiringUser call.
 func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{}
-	deps.HireHandler = hook
+	deps.HireHook = hook
 	tool := &HireWorker{deps: deps}
 
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
@@ -347,7 +346,7 @@ func TestHireWorkerSkipsHireHandlerWithoutUserID(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{}
-	deps.HireHandler = hook
+	deps.HireHook = hook
 	tool := &HireWorker{deps: deps}
 
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -372,7 +371,7 @@ func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{failErr: errors.New("boom")}
-	deps.HireHandler = hook
+	deps.HireHook = hook
 	tool := &HireWorker{deps: deps}
 
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
@@ -395,14 +394,14 @@ func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 // request context carries a userID, the runtime state for the new
 // Worker has it persisted. This pins the existing
 // `agenthelix.SaveHiringUser(...)` side-effect, which the B4 refactor
-// must preserve via the HireHandler port.
+// must preserve via the HireHook port.
 func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
-	// Wire the real HireRecorder so the persistence side-effect runs
-	// end-to-end. NoopHireHandler is the default and would skip the
+	// Wire the real Hire so the persistence side-effect runs
+	// end-to-end. NoopHireHook is the default and would skip the
 	// SaveHiringUser side-effect.
-	deps.HireHandler = &runtimehelix.HireRecorder{Store: deps.Store}
+	deps.HireHook = &runtimehelix.Hire{Store: deps.Store}
 	tool := &HireWorker{deps: deps}
 
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
@@ -427,7 +426,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 // TestHireWorkerWithoutUserIDDoesNotPersist confirms the no-op path:
 // when the context has no userID, the Worker's runtime state has no
 // HiringUserID stored. Tests the contract that
-// `agenthelix.SaveHiringUser` (and the future HireHandler) must
+// `agenthelix.SaveHiringUser` (and the future HireHook) must
 // preserve.
 func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	t.Parallel()
