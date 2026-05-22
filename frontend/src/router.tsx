@@ -45,6 +45,11 @@ import Onboarding from './pages/Onboarding'
 import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
+import HelixOrgChart from './pages/HelixOrgChart'
+import HelixOrgWorkers from './pages/HelixOrgWorkers'
+import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
+import HelixOrgSettings from './pages/HelixOrgSettings'
+import HelixOrgStreams from './pages/HelixOrgStreams'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -531,6 +536,47 @@ const routes: IApplicationRoute[] = [
     title: 'Runner Logs',
   },
   render: () => <AdminRunnerLogsPage />,
+}, {
+  // helix-org React pages — the Phase B replacement for the SSR at /ui/*.
+  // Routes intentionally live at top-level /helix-org/* (not under
+  // /orgs/:org_id/*) because helix-org is conceptually one shared
+  // owner-Worker today; multi-tenant scoping is a future track. Phase C
+  // deletes api/pkg/org/server/ui/ once these pages are exercised in CI.
+  name: 'helix_org_root',
+  path: '/helix-org',
+  meta: { drawer: false, title: 'Helix Org' },
+  render: () => {
+    const { navigateReplace } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('helix_org_chart', {})
+    }, [])
+    return null
+  },
+}, {
+  name: 'helix_org_chart',
+  path: '/helix-org/chart',
+  meta: { drawer: false, title: 'Helix Org · Chart' },
+  render: () => <HelixOrgChart />,
+}, {
+  name: 'helix_org_workers',
+  path: '/helix-org/workers',
+  meta: { drawer: false, title: 'Helix Org · Workers' },
+  render: () => <HelixOrgWorkers />,
+}, {
+  name: 'helix_org_worker_detail',
+  path: '/helix-org/workers/:worker_id',
+  meta: { drawer: false, title: 'Helix Org · Worker' },
+  render: () => <HelixOrgWorkerDetail />,
+}, {
+  name: 'helix_org_settings',
+  path: '/helix-org/settings',
+  meta: { drawer: false, title: 'Helix Org · Settings' },
+  render: () => <HelixOrgSettings />,
+}, {
+  name: 'helix_org_streams',
+  path: '/helix-org/streams',
+  meta: { drawer: false, title: 'Helix Org · Streams' },
+  render: () => <HelixOrgStreams />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

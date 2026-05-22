@@ -108,6 +108,15 @@ type apiHandler struct {
 
 // ---- Org chart ----------------------------------------------------------
 
+// getChart returns the org chart tree.
+//
+// @Summary Helix-org: get org chart
+// @Description Returns the positions+workers tree rendered by the helix-org React UI
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {object} api.Chart
+// @Security ApiKeyAuth
+// @Router /api/v1/org/chart [get]
 func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	positions, err := a.deps.Store.Positions.List(ctx)
@@ -190,6 +199,14 @@ func buildChart(positions []domain.Position, workers []domain.Worker) Chart {
 
 // ---- Positions / Roles / Workers ----------------------------------------
 
+// listPositions returns every Position row.
+//
+// @Summary Helix-org: list positions
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {array} api.PositionDTO
+// @Security ApiKeyAuth
+// @Router /api/v1/org/positions [get]
 func (a *apiHandler) listPositions(w http.ResponseWriter, r *http.Request) {
 	positions, err := a.deps.Store.Positions.List(r.Context())
 	if err != nil {
@@ -211,6 +228,14 @@ func positionDTO(p domain.Position) PositionDTO {
 	return dto
 }
 
+// listRoles returns every Role row.
+//
+// @Summary Helix-org: list roles
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {array} api.RoleDTO
+// @Security ApiKeyAuth
+// @Router /api/v1/org/roles [get]
 func (a *apiHandler) listRoles(w http.ResponseWriter, r *http.Request) {
 	roles, err := a.deps.Store.Roles.List(r.Context())
 	if err != nil {
@@ -241,6 +266,14 @@ func roleDTO(r role.Role) RoleDTO {
 	return dto
 }
 
+// listWorkers returns every Worker row.
+//
+// @Summary Helix-org: list workers
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {array} api.WorkerDTO
+// @Security ApiKeyAuth
+// @Router /api/v1/org/workers [get]
 func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	workers, err := a.deps.Store.Workers.List(r.Context())
 	if err != nil {
@@ -267,6 +300,16 @@ func workerDTO(wk domain.Worker, tools []string) WorkerDTO {
 	}
 }
 
+// getWorker returns a Worker + the role/position it fills.
+//
+// @Summary Helix-org: get worker detail
+// @Tags HelixOrg
+// @Produce json
+// @Param id path string true "Worker ID"
+// @Success 200 {object} api.WorkerDetailDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/workers/{id} [get]
 func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := worker.ID(r.PathValue("id"))
@@ -309,6 +352,16 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 // updateWorkerIdentity rewrites a Worker's IdentityContent. Mirrors
 // the SSR's POST /ui/org/identity/set — the Spawner projects the new
 // content into the Worker's identity.md on the next activation.
+//
+// @Summary Helix-org: update worker identity
+// @Tags HelixOrg
+// @Accept json
+// @Param id path string true "Worker ID"
+// @Param payload body api.UpdateWorkerIdentityRequest true "New identity content"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/workers/{id}/identity [post]
 func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := worker.ID(r.PathValue("id"))
@@ -340,6 +393,17 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 //
 // Returns 409 if the Worker has no Position (unassigned) — there is
 // no role to update.
+//
+// @Summary Helix-org: update worker role
+// @Tags HelixOrg
+// @Accept json
+// @Param id path string true "Worker ID"
+// @Param payload body api.UpdateWorkerRoleRequest true "New role content"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/workers/{id}/role [post]
 func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := worker.ID(r.PathValue("id"))
@@ -382,6 +446,14 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 
 // ---- Settings -----------------------------------------------------------
 
+// listSettings returns the registry's spec list + current redacted values.
+//
+// @Summary Helix-org: list settings
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {object} api.SettingsResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/settings [get]
 func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	resp := SettingsResponse{
@@ -425,6 +497,17 @@ func settingsSpecDTO(ctx context.Context, reg *config.Registry, st *store.Store,
 	return row
 }
 
+// setSetting writes a config row for the given key.
+//
+// @Summary Helix-org: set a setting
+// @Tags HelixOrg
+// @Accept json
+// @Param key path string true "Setting key"
+// @Param payload body api.SetSettingRequest true "Setting value (raw JSON per spec type)"
+// @Success 204
+// @Failure 400 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/settings/{key} [put]
 func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(r.PathValue("key"))
 	if key == "" {
@@ -443,6 +526,15 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// deleteSetting removes the config row for the given key, falling back to defaults.
+//
+// @Summary Helix-org: delete a setting
+// @Tags HelixOrg
+// @Param key path string true "Setting key"
+// @Success 204
+// @Failure 400 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/settings/{key} [delete]
 func (a *apiHandler) deleteSetting(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(r.PathValue("key"))
 	if key == "" {
@@ -458,6 +550,14 @@ func (a *apiHandler) deleteSetting(w http.ResponseWriter, r *http.Request) {
 
 // ---- Streams ------------------------------------------------------------
 
+// listStreams returns every stream + a unified recent-events firehose.
+//
+// @Summary Helix-org: list streams
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {object} api.StreamsResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/streams [get]
 func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	streams, err := a.deps.Store.Streams.List(ctx)
@@ -540,6 +640,14 @@ func eventCard(ev domain.Event) EventCard {
 // Each SSE `data:` line is a JSON array of recent events (cap 50,
 // newest first). Frontends replace their event list on every message
 // — simpler than diffing partial updates, matches what the SSR did.
+//
+// @Summary Helix-org: SSE stream of events for one stream
+// @Tags HelixOrg
+// @Produce text/event-stream
+// @Param id path string true "Stream ID"
+// @Success 200 {string} string "SSE: event: message / data: [EventCard,...]"
+// @Security ApiKeyAuth
+// @Router /api/v1/org/streams/{id}/events [get]
 func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -611,6 +719,18 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 // Mirrors the SSR's /ui/streams/publish (same validation, same
 // dispatch fan-out) but consumes JSON and returns the new event's
 // ID.
+//
+// @Summary Helix-org: publish a message to a stream
+// @Tags HelixOrg
+// @Accept json
+// @Produce json
+// @Param id path string true "Stream ID"
+// @Param payload body api.PublishRequest true "Message body+optional subject/to"
+// @Success 201 {object} api.PublishResponse
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/streams/{id}/publish [post]
 func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	streamID := stream.ID(r.PathValue("id"))

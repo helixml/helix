@@ -783,14 +783,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           )}
 
           {/* helix-org alpha entry — only rendered for users granted
-              the 'helix-org' flag in alpha_features. Opens the
-              embedded helix-org UI (server-gated via requireFeature
-              middleware; this is just the cosmetic entry point). */}
+              the 'helix-org' flag in alpha_features. Navigates to the
+              React /helix-org/* pages (Phase B); the JSON API the
+              pages consume is gated by requireFeature middleware
+              server-side. */}
           {account.user?.alpha_features?.includes('helix-org') && (
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                window.open('/ui/', '_blank', 'noopener,noreferrer')
+                router.navigate('helix_org_chart', {})
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
                 }
