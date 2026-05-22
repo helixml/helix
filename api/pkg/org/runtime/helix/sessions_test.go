@@ -1,6 +1,7 @@
 package helix
 
 import (
+	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"encoding/json"
 	"testing"
@@ -50,7 +51,7 @@ func TestSubscribeSessionUpdatesEmitsSnapshotThenLiveFrames(t *testing.T) {
 	t.Parallel()
 
 	ps := newFakePubSub()
-	snap, _ := json.Marshal(SessionUpdate{Type: "snapshot", SessionID: "ses_x"})
+	snap, _ := json.Marshal(types.WebsocketEvent{Type: "snapshot", SessionID: "ses_x"})
 	snapshotter := snapshotterFunc(func(_ context.Context, _ string) ([]byte, error) {
 		return snap, nil
 	})
@@ -64,7 +65,7 @@ func TestSubscribeSessionUpdatesEmitsSnapshotThenLiveFrames(t *testing.T) {
 	}
 
 	// Live frame after subscribe.
-	live, _ := json.Marshal(SessionUpdate{Type: "interaction_patch", SessionID: "ses_x", EntryPatches: []EntryPatch{{Index: 0, MessageID: "m1", Type: "text", Patch: "hi"}}})
+	live, _ := json.Marshal(types.WebsocketEvent{Type: "interaction_patch", SessionID: "ses_x", EntryPatches: []types.EntryPatch{{Index: 0, MessageID: "m1", Type: "text", Patch: "hi"}}})
 	ps.publish(t, pubsub.GetSessionQueue("u-test", "ses_x"), live)
 
 	got := readOne(t, ch)
@@ -90,7 +91,7 @@ func TestSubscribeSessionUpdatesNoSnapshotter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubscribeSessionUpdates: %v", err)
 	}
-	live, _ := json.Marshal(SessionUpdate{Type: "interaction_patch", SessionID: "ses_y"})
+	live, _ := json.Marshal(types.WebsocketEvent{Type: "interaction_patch", SessionID: "ses_y"})
 	ps.publish(t, pubsub.GetSessionQueue("u-test", "ses_y"), live)
 
 	got := readOne(t, ch)
@@ -126,7 +127,7 @@ func (f snapshotterFunc) Snapshot(ctx context.Context, sessionID string) ([]byte
 	return f(ctx, sessionID)
 }
 
-func readOne(t *testing.T, ch <-chan SessionUpdate) SessionUpdate {
+func readOne(t *testing.T, ch <-chan types.WebsocketEvent) types.WebsocketEvent {
 	t.Helper()
 	select {
 	case u, ok := <-ch:
@@ -137,5 +138,5 @@ func readOne(t *testing.T, ch <-chan SessionUpdate) SessionUpdate {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for frame")
 	}
-	return SessionUpdate{}
+	return types.WebsocketEvent{}
 }

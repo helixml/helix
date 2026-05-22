@@ -1,6 +1,7 @@
 package helix
 
 import (
+	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,7 +34,7 @@ import (
 // a no-op (the adapter returns hadStreamErr=false). Safe to keep —
 // it's a one-shot, idempotent retry.
 type SessionClient interface {
-	StartChatWithStatus(ctx context.Context, req StartChatRequest) (Session, bool, error)
+	StartChatWithStatus(ctx context.Context, req StartChatRequest) (types.Session, bool, error)
 	ServerStatus(ctx context.Context) (ServerStatus, error)
 }
 
@@ -48,7 +49,7 @@ type SessionClient interface {
 // future direct-controller adapter will too.
 type SpawnerClient interface {
 	SessionClient
-	GetOutput(ctx context.Context, sessionID string) (Output, error)
+	GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
 }
 
@@ -56,16 +57,16 @@ type SpawnerClient interface {
 // helixclient.SendToSession: try to push a message to an existing
 // session via /sessions/chat with SessionID set. Returns an error if
 // the session is no longer running (Helix reports streamHadErr=true).
-func sendToSession(ctx context.Context, client SessionClient, req StartChatRequest) (Session, error) {
+func sendToSession(ctx context.Context, client SessionClient, req StartChatRequest) (types.Session, error) {
 	if req.SessionID == "" {
-		return Session{}, errors.New("sendToSession: SessionID required")
+		return types.Session{}, errors.New("sendToSession: SessionID required")
 	}
 	session, streamHadErr, err := client.StartChatWithStatus(ctx, req)
 	if err != nil {
-		return Session{}, err
+		return types.Session{}, err
 	}
 	if streamHadErr {
-		return Session{}, errors.New("session no longer running on the server")
+		return types.Session{}, errors.New("session no longer running on the server")
 	}
 	return session, nil
 }
@@ -168,7 +169,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 			SessionRole:         exploratoryRole,
 			AgentType:           params.AgentType,
 			Type:                "text",
-			ExternalAgentConfig: &ExternalAgentConfig{},
+			ExternalAgentConfig: &types.ExternalAgentConfig{},
 			Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
 		}
 		if _, sendErr := sendToSession(ctx, client, resumeReq); sendErr == nil {
@@ -196,7 +197,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		Type:                "text",
 		Provider:            params.Provider,
 		Model:               params.Model,
-		ExternalAgentConfig: &ExternalAgentConfig{},
+		ExternalAgentConfig: &types.ExternalAgentConfig{},
 		Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
 		OnSessionID:         params.OnSessionID,
 	}
@@ -220,7 +221,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 			SessionRole:         exploratoryRole,
 			AgentType:           params.AgentType,
 			Type:                "text",
-			ExternalAgentConfig: &ExternalAgentConfig{},
+			ExternalAgentConfig: &types.ExternalAgentConfig{},
 			Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
 		}
 		_, _, _ = client.StartChatWithStatus(ctx, retryReq)
@@ -252,12 +253,12 @@ func (NoopSessionPreamble) Snapshot(_ context.Context, _ string) ([]byte, error)
 
 // SubscribeSessionUpdates subscribes to the pubsub topic that mirrors
 // the per-session WebSocket Helix publishes to. Returns a channel of
-// decoded SessionUpdate frames. Mirrors the order the browser WS
+// decoded types.WebsocketEvent frames. Mirrors the order the browser WS
 // handler uses (websocket_server_user.go:124-156):
 //
 //  1. Subscribe FIRST so no frames are missed.
 //  2. Request the late-joiner snapshot from the host (if any).
-//  3. Synthesise an initial SessionUpdate from the snapshot bytes and
+//  3. Synthesise an initial types.WebsocketEvent from the snapshot bytes and
 //     emit it on the channel before the live stream starts arriving.
 //
 // The buffer size matches the typical burst (per-token-emit). Raise
@@ -265,11 +266,11 @@ func (NoopSessionPreamble) Snapshot(_ context.Context, _ string) ([]byte, error)
 //
 // Topic format: pubsub.GetSessionQueue(ownerID, sessionID) — the
 // same topic websocket_server_user.go subscribes the browser WS to.
-func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter SessionPreamble, ownerID, sessionID string) (<-chan SessionUpdate, error) {
-	out := make(chan SessionUpdate, 64)
+func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter SessionPreamble, ownerID, sessionID string) (<-chan types.WebsocketEvent, error) {
+	out := make(chan types.WebsocketEvent, 64)
 	topic := pubsub.GetSessionQueue(ownerID, sessionID)
 	sub, err := ps.Subscribe(ctx, topic, func(payload []byte) error {
-		var u SessionUpdate
+		var u types.WebsocketEvent
 		if err := json.Unmarshal(payload, &u); err != nil {
 			// Best-effort: drop malformed frames; the next frame is
 			// likely well-formed.
@@ -290,7 +291,7 @@ func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter 
 	// (if any) first so the consumer sees a baseline before deltas.
 	if snapshotter != nil {
 		if snap, err := snapshotter.Snapshot(ctx, sessionID); err == nil && len(snap) > 0 {
-			var u SessionUpdate
+			var u types.WebsocketEvent
 			if jsonErr := json.Unmarshal(snap, &u); jsonErr == nil {
 				select {
 				case out <- u:

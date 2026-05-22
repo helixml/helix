@@ -1,9 +1,11 @@
 package helix
 
+import "github.com/helixml/helix/api/pkg/types"
+
 // EntryStream is a per-session translator from Helix's response-entry
 // patch wire format into stable, "settled" transcript events.
 //
-// Helix streams `EntryPatch[]` frames over the WebSocket. Each patch
+// Helix streams `types.EntryPatch[]` frames over the WebSocket. Each patch
 // targets one entry in the session's response-entry array (indexed
 // by `Index`, identified by `MessageID`). Text and tool_call entries
 // can be extended in place; a new MessageID at the same Index means
@@ -65,13 +67,13 @@ func NewEntryStream(emit func(Event)) *EntryStream {
 	return &EntryStream{emit: emit, entries: map[int]*entryState{}}
 }
 
-// Apply consumes one SessionUpdate frame from SubscribeUpdates. It
+// Apply consumes one types.WebsocketEvent frame from SubscribeUpdates. It
 // processes EntryPatches into the per-entry state and emits any
 // settled events. Frames with no EntryPatches (session_update /
 // interaction_update snapshots) are also handled — they may carry
-// terminal `Interaction.State` indicating end-of-turn, which flushes
+// terminal `types.Interaction.State` indicating end-of-turn, which flushes
 // any open text entries.
-func (s *EntryStream) Apply(u SessionUpdate) {
+func (s *EntryStream) Apply(u types.WebsocketEvent) {
 	for _, p := range u.EntryPatches {
 		s.applyPatch(p)
 	}
@@ -88,7 +90,7 @@ func (s *EntryStream) Apply(u SessionUpdate) {
 	}
 }
 
-func (s *EntryStream) applyPatch(p EntryPatch) {
+func (s *EntryStream) applyPatch(p types.EntryPatch) {
 	cur, exists := s.entries[p.Index]
 	if !exists || cur.messageID != p.MessageID {
 		// New entry at this index — seal the previous occupant first.

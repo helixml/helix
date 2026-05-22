@@ -1,6 +1,7 @@
 package helixclient
 
 import (
+	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -35,7 +36,7 @@ func TestStartChatSendsHelixSessionChatRequest(t *testing.T) {
 		if r.URL.Path != "/api/v1/sessions/chat" {
 			t.Errorf("path: %q", r.URL.Path)
 		}
-		var req StartChatRequest
+		var req runtimehelix.StartChatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
@@ -46,15 +47,15 @@ func TestStartChatSendsHelixSessionChatRequest(t *testing.T) {
 			t.Errorf("messages: %+v", req.Messages)
 		}
 		if req.ExternalAgentConfig == nil {
-			t.Errorf("ExternalAgentConfig is nil; expected default {}")
+			t.Errorf("types.ExternalAgentConfig is nil; expected default {}")
 		}
-		_ = json.NewEncoder(w).Encode(Session{ID: "ses_42", Interactions: []*Interaction{{ID: "ix1"}}})
+		_ = json.NewEncoder(w).Encode(types.Session{ID: "ses_42", Interactions: []*types.Interaction{{ID: "ix1"}}})
 	}))
-	s, err := c.StartChat(context.Background(), StartChatRequest{
+	s, err := c.StartChat(context.Background(), runtimehelix.StartChatRequest{
 		ProjectID:   "p1",
 		SessionRole: "job",
 		AgentType:   "zed_external",
-		Messages:    []SessionChatMessage{NewTextMessage("user", "hello")},
+		Messages:    []runtimehelix.SessionChatMessage{runtimehelix.NewTextMessage("user", "hello")},
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -67,16 +68,16 @@ func TestStartChatSendsHelixSessionChatRequest(t *testing.T) {
 // TestStartChatSyntheticInteractionFromOpenAIShape verifies that the
 // OpenAI-compatible /sessions/chat response shape (returned by
 // helix_basic / openai-routed sessions) is normalised into a
-// synthetic Interaction so callers see one shape regardless.
+// synthetic types.Interaction so callers see one shape regardless.
 func TestStartChatSyntheticInteractionFromOpenAIShape(t *testing.T) {
 	t.Parallel()
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"ses_oai","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hello back"}}]}`))
 	}))
-	s, err := c.StartChat(context.Background(), StartChatRequest{
+	s, err := c.StartChat(context.Background(), runtimehelix.StartChatRequest{
 		ProjectID: "p",
 		AgentType: "helix_basic",
-		Messages:  []SessionChatMessage{NewTextMessage("user", "hi")},
+		Messages:  []runtimehelix.SessionChatMessage{runtimehelix.NewTextMessage("user", "hi")},
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -161,7 +162,7 @@ func TestGetOutput(t *testing.T) {
 		if !strings.HasSuffix(r.URL.Path, "/output") {
 			t.Errorf("path: %q", r.URL.Path)
 		}
-		_ = json.NewEncoder(w).Encode(Output{SessionID: "ses_x", Status: "complete", Output: "ok", DurationMs: 12})
+		_ = json.NewEncoder(w).Encode(types.SessionOutputResponse{SessionID: "ses_x", Status: "complete", Output: "ok", DurationMs: 12})
 	}))
 	out, err := c.GetOutput(context.Background(), "ses_x")
 	if err != nil {
@@ -184,12 +185,12 @@ func TestSubscribeUpdatesParsesEntryPatches(t *testing.T) {
 			t.Fatalf("upgrade: %v", err)
 		}
 		defer func() { _ = conn.Close() }()
-		_ = conn.WriteJSON(SessionUpdate{
+		_ = conn.WriteJSON(types.WebsocketEvent{
 			Type:          "interaction_patch",
 			SessionID:     "ses_w",
 			InteractionID: "ix1",
 			EntryCount:    1,
-			EntryPatches: []EntryPatch{{
+			EntryPatches: []types.EntryPatch{{
 				Index: 0, MessageID: "msg-a", Type: "text", Patch: "hello", PatchOffset: 0, TotalLength: 5,
 			}},
 		})
@@ -283,9 +284,9 @@ func TestSendSessionMessagePostsToMessagesEndpoint(t *testing.T) {
 		if body.Content != "hello queue" || !body.Interrupt {
 			t.Errorf("body: %+v", body)
 		}
-		_ = json.NewEncoder(w).Encode(SendMessageResponse{RequestID: "req_1", InteractionID: "ix_7"})
+		_ = json.NewEncoder(w).Encode(runtimehelix.SendMessageResponse{RequestID: "req_1", InteractionID: "ix_7"})
 	}))
-	resp, err := c.SendSessionMessage(context.Background(), "ses_42", "hello queue", SendMessageOptions{Interrupt: true})
+	resp, err := c.SendSessionMessage(context.Background(), "ses_42", "hello queue", runtimehelix.SendMessageOptions{Interrupt: true})
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -405,7 +406,7 @@ func TestSendSessionMessageRejectsEmptySID(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("server must not be called when sessionID is empty")
 	}))
-	if _, err := c.SendSessionMessage(context.Background(), "", "x", SendMessageOptions{}); err == nil {
+	if _, err := c.SendSessionMessage(context.Background(), "", "x", runtimehelix.SendMessageOptions{}); err == nil {
 		t.Fatal("expected error on empty sessionID")
 	}
 }

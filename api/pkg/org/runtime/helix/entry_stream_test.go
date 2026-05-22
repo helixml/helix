@@ -1,6 +1,10 @@
 package helix
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 // TestEntryStreamTextSettlesOnReplace verifies the core invariant: a
 // text entry is held open until its slot is replaced by a different
@@ -11,10 +15,10 @@ func TestEntryStreamTextSettlesOnReplace(t *testing.T) {
 	s := NewEntryStream(func(e Event) { got = append(got, e) })
 
 	// Three append-only patches against the same MessageID.
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "Hello", PatchOffset: 0},
 	}})
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: " world", PatchOffset: 5},
 	}})
 	if len(got) != 0 {
@@ -22,7 +26,7 @@ func TestEntryStreamTextSettlesOnReplace(t *testing.T) {
 	}
 
 	// New MessageID at same index: previous text settles.
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m2", Type: "tool_call", Patch: `{"x":1}`, PatchOffset: 0, ToolName: "publish", ToolStatus: "In Progress"},
 	}})
 	if len(got) != 2 {
@@ -43,10 +47,10 @@ func TestEntryStreamToolCompletes(t *testing.T) {
 	var got []Event
 	s := NewEntryStream(func(e Event) { got = append(got, e) })
 
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, PatchOffset: 0, ToolName: "fetch", ToolStatus: "In Progress"},
 	}})
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: ` ok`, PatchOffset: 7, ToolStatus: "Completed"},
 	}})
 	if len(got) != 2 {
@@ -64,10 +68,10 @@ func TestEntryStreamToolFailedEmitsError(t *testing.T) {
 	var got []Event
 	s := NewEntryStream(func(e Event) { got = append(got, e) })
 
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: "boom", ToolName: "x", ToolStatus: "In Progress"},
 	}})
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", ToolStatus: "Failed"},
 	}})
 	if got[len(got)-1].Kind != EventToolResultError {
@@ -81,7 +85,7 @@ func TestEntryStreamFlushSealsOpenText(t *testing.T) {
 	t.Parallel()
 	var got []Event
 	s := NewEntryStream(func(e Event) { got = append(got, e) })
-	s.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "answer", PatchOffset: 0},
 	}})
 	s.Flush()
@@ -99,14 +103,14 @@ func TestEntryStreamSnapshotReplayDoesNotDoubleEmit(t *testing.T) {
 	t.Parallel()
 	var got []Event
 	s := NewEntryStream(func(e Event) { got = append(got, e) })
-	patches := []EntryPatch{
+	patches := []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, PatchOffset: 0, ToolName: "fetch", ToolStatus: "In Progress"},
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: ` done`, PatchOffset: 7, ToolStatus: "Completed"},
 	}
-	s.Apply(SessionUpdate{EntryPatches: patches})
+	s.Apply(types.WebsocketEvent{EntryPatches: patches})
 	first := append([]Event(nil), got...)
 	// Replay same patches.
-	s.Apply(SessionUpdate{EntryPatches: patches})
+	s.Apply(types.WebsocketEvent{EntryPatches: patches})
 	if len(got) != len(first) {
 		t.Errorf("snapshot replay double-emitted: %d → %d events", len(first), len(got))
 	}
@@ -118,7 +122,7 @@ func TestEntryStreamInteractionErrorEmitsErrorEvent(t *testing.T) {
 	t.Parallel()
 	var got []Event
 	s := NewEntryStream(func(e Event) { got = append(got, e) })
-	s.Apply(SessionUpdate{Interaction: &Interaction{State: "error", Error: "boom"}})
+	s.Apply(types.WebsocketEvent{Interaction: &types.Interaction{State: "error", Error: "boom"}})
 	if len(got) != 1 || got[0].Kind != EventError || got[0].Text != "boom" {
 		t.Errorf("expected one error event, got %v", got)
 	}

@@ -21,7 +21,7 @@
 //
 // What's already dead and re-exported as a type alias from
 // api/pkg/org/runtime/helix:
-//   - All chat-session wire types (SessionUpdate, EntryPatch, …)
+//   - All chat-session wire types (types.WebsocketEvent, types.EntryPatch, …)
 //   - EntryStream (entry_stream.go in canonical home)
 //   - EnsureAndSend (sessions.go in canonical home)
 //   - WorkerState + state helpers (state.go in canonical home)
@@ -49,32 +49,9 @@ import (
 	"github.com/gorilla/websocket"
 
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
-
-// Type aliases — the canonical definitions live in
-// api/pkg/org/runtime/helix. helixclient transitionally re-exports
-// them as aliases so existing call sites keep compiling during the
-// H1.3 sequence. H1.4 deletes this package entirely.
-type (
-	SendMessageOptions  = runtimehelix.SendMessageOptions
-	SendMessageResponse = runtimehelix.SendMessageResponse
-	ServerStatus        = runtimehelix.ServerStatus
-	StartChatRequest    = runtimehelix.StartChatRequest
-	ExternalAgentConfig = runtimehelix.ExternalAgentConfig
-	SessionChatMessage  = runtimehelix.SessionChatMessage
-	MessageContent      = runtimehelix.MessageContent
-	Output              = runtimehelix.Output
-	SessionUpdate       = runtimehelix.SessionUpdate
-	EntryPatch          = runtimehelix.EntryPatch
-	Session             = runtimehelix.Session
-	Interaction         = runtimehelix.Interaction
-)
-
-// NewTextMessage re-exports the canonical helper.
-func NewTextMessage(role, text string) SessionChatMessage {
-	return runtimehelix.NewTextMessage(role, text)
-}
 
 
 // Default per-call timeout for REST calls. The WebSocket has no
@@ -96,7 +73,7 @@ type Client interface {
 	// helix-org only consumes the desktop-quota fields today (see
 	// CheckDesktopQuota); the rest are surfaced for forward
 	// compatibility.
-	ServerStatus(ctx context.Context) (ServerStatus, error)
+	ServerStatus(ctx context.Context) (runtimehelix.ServerStatus, error)
 
 	// ListProviders returns the slug list Helix exposes at
 	// /api/v1/providers (e.g. ["openai","anthropic","helix",…]). Used
@@ -161,23 +138,23 @@ type Client interface {
 	// turn). Use this only for *first* contact — once the session ID
 	// is persisted, subsequent messages must go through
 	// SendSessionMessage so they queue durably across cold starts.
-	StartChat(ctx context.Context, req StartChatRequest) (Session, error)
+	StartChat(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, error)
 	// StartChatWithStatus is the streaming-aware variant: same wire
 	// call as StartChat, but additionally reports whether the SSE
 	// stream surfaced a transient "no agent WS" error after the
 	// session ID came through. Callers use the flag to decide whether
 	// to immediately re-queue the same prompt via SendSessionMessage
 	// (which queues durably and is delivered on agent reconnect).
-	StartChatWithStatus(ctx context.Context, req StartChatRequest) (Session, bool, error)
+	StartChatWithStatus(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error)
 	// SendSessionMessage POSTs a message to an existing session via
 	// /api/v1/sessions/{id}/messages. Helix persists the interaction
 	// and `pickupWaitingInteraction` delivers it once the agent's
 	// WebSocket is reachable — no client-side warmup loop required.
 	// Returns 200 even when no agent is connected yet.
-	SendSessionMessage(ctx context.Context, sessionID, content string, opts SendMessageOptions) (SendMessageResponse, error)
-	GetSession(ctx context.Context, id string) (Session, error)
-	GetOutput(ctx context.Context, sessionID string) (Output, error)
-	SubscribeUpdates(ctx context.Context, sessionID string) (<-chan SessionUpdate, error)
+	SendSessionMessage(ctx context.Context, sessionID, content string, opts runtimehelix.SendMessageOptions) (runtimehelix.SendMessageResponse, error)
+	GetSession(ctx context.Context, id string) (types.Session, error)
+	GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error)
+	SubscribeUpdates(ctx context.Context, sessionID string) (<-chan types.WebsocketEvent, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
 }
 
@@ -434,10 +411,10 @@ func (c *realClient) WhoAmI(ctx context.Context) (UserStatus, error) {
 }
 
 // ServerStatus calls GET /api/v1/config.
-func (c *realClient) ServerStatus(ctx context.Context) (ServerStatus, error) {
-	var st ServerStatus
+func (c *realClient) ServerStatus(ctx context.Context) (runtimehelix.ServerStatus, error) {
+	var st runtimehelix.ServerStatus
 	if err := c.do(ctx, http.MethodGet, "/api/v1/config", nil, &st); err != nil {
-		return ServerStatus{}, err
+		return runtimehelix.ServerStatus{}, err
 	}
 	return st, nil
 }
@@ -790,26 +767,26 @@ func (c *realClient) GetFile(ctx context.Context, repoID, path, branch string) (
 // still usable?" — both the owner-chat bridge and the Spawner share
 // it so worker activations and chat followups behave identically when
 // the operator's api restarts overnight.
-func SendToSession(ctx context.Context, client Client, req StartChatRequest) (Session, error) {
+func SendToSession(ctx context.Context, client Client, req runtimehelix.StartChatRequest) (types.Session, error) {
 	if req.SessionID == "" {
-		return Session{}, errors.New("SendToSession: SessionID required")
+		return types.Session{}, errors.New("SendToSession: SessionID required")
 	}
 	session, streamHadErr, err := client.StartChatWithStatus(ctx, req)
 	if err != nil {
-		return Session{}, err
+		return types.Session{}, err
 	}
 	if streamHadErr {
-		return Session{}, errors.New("session no longer running on the server")
+		return types.Session{}, errors.New("session no longer running on the server")
 	}
 	return session, nil
 }
 
-func (c *realClient) StartChat(ctx context.Context, req StartChatRequest) (Session, error) {
+func (c *realClient) StartChat(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, error) {
 	s, _, err := c.startChat(ctx, req)
 	return s, err
 }
 
-func (c *realClient) StartChatWithStatus(ctx context.Context, req StartChatRequest) (Session, bool, error) {
+func (c *realClient) StartChatWithStatus(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error) {
 	return c.startChat(ctx, req)
 }
 
@@ -819,31 +796,31 @@ func (c *realClient) StartChatWithStatus(ctx context.Context, req StartChatReque
 // delivers the message on reconnect. This is the durable replacement
 // for the client-side warmup loop helix-org used to run during cold
 // starts.
-func (c *realClient) SendSessionMessage(ctx context.Context, sessionID, content string, opts SendMessageOptions) (SendMessageResponse, error) {
+func (c *realClient) SendSessionMessage(ctx context.Context, sessionID, content string, opts runtimehelix.SendMessageOptions) (runtimehelix.SendMessageResponse, error) {
 	if strings.TrimSpace(sessionID) == "" {
-		return SendMessageResponse{}, errors.New("SendSessionMessage: sessionID is empty")
+		return runtimehelix.SendMessageResponse{}, errors.New("SendSessionMessage: sessionID is empty")
 	}
 	body := struct {
 		Content      string `json:"content"`
 		Interrupt    bool   `json:"interrupt,omitempty"`
 		NotifyUserID string `json:"notify_user_id,omitempty"`
 	}{Content: content, Interrupt: opts.Interrupt, NotifyUserID: opts.NotifyUserID}
-	var resp SendMessageResponse
+	var resp runtimehelix.SendMessageResponse
 	if err := c.do(ctx, http.MethodPost, "/api/v1/sessions/"+url.PathEscape(sessionID)+"/messages", body, &resp); err != nil {
-		return SendMessageResponse{}, err
+		return runtimehelix.SendMessageResponse{}, err
 	}
 	return resp, nil
 }
 
-func (c *realClient) startChat(ctx context.Context, req StartChatRequest) (Session, bool, error) {
+func (c *realClient) startChat(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error) {
 	if req.Type == "" {
 		req.Type = "text"
 	}
 	if len(req.Messages) == 0 {
-		return Session{}, false, errors.New("StartChat: req.Messages must contain at least one message")
+		return types.Session{}, false, errors.New("StartChat: req.Messages must contain at least one message")
 	}
 	if req.AgentType == "zed_external" && req.ExternalAgentConfig == nil {
-		req.ExternalAgentConfig = &ExternalAgentConfig{}
+		req.ExternalAgentConfig = &types.ExternalAgentConfig{}
 	}
 	if req.AgentType == "zed_external" {
 		req.Stream = true
@@ -858,27 +835,27 @@ func (c *realClient) startChat(ctx context.Context, req StartChatRequest) (Sessi
 	// endpoint.
 	buf, err := json.Marshal(req)
 	if err != nil {
-		return Session{}, false, fmt.Errorf("marshal: %w", err)
+		return types.Session{}, false, fmt.Errorf("marshal: %w", err)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/sessions/chat", bytes.NewReader(buf))
 	if err != nil {
-		return Session{}, false, err
+		return types.Session{}, false, err
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	httpReq.Header.Set("Content-Type", "application/json")
 	longClient := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := longClient.Do(httpReq)
 	if err != nil {
-		return Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %w", err)
+		return types.Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return types.Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Session{}, false, fmt.Errorf("read /api/v1/sessions/chat: %w", err)
+		return types.Session{}, false, fmt.Errorf("read /api/v1/sessions/chat: %w", err)
 	}
 	s, err := parseStartChatResponse(raw)
 	return s, false, err
@@ -902,16 +879,16 @@ func (c *realClient) startChat(ctx context.Context, req StartChatRequest) (Sessi
 // fails with "0 attempts". Detaching keeps Helix's handler running
 // long enough to complete startup; the body-drain goroutine reads to
 // EOF and closes the connection cleanly.
-func (c *realClient) startChatStreaming(ctx context.Context, req StartChatRequest) (Session, bool, error) {
+func (c *realClient) startChatStreaming(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error) {
 	buf, err := json.Marshal(req)
 	if err != nil {
-		return Session{}, false, fmt.Errorf("marshal: %w", err)
+		return types.Session{}, false, fmt.Errorf("marshal: %w", err)
 	}
 	upstreamCtx, upstreamCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	httpReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, c.base+"/api/v1/sessions/chat", bytes.NewReader(buf))
 	if err != nil {
 		upstreamCancel()
-		return Session{}, false, err
+		return types.Session{}, false, err
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -919,13 +896,13 @@ func (c *realClient) startChatStreaming(ctx context.Context, req StartChatReques
 	resp, err := c.http.Do(httpReq) //nolint:bodyclose // body is closed inside the drain goroutine below or on early-return paths; the lint can't follow it across the closure
 	if err != nil {
 		upstreamCancel()
-		return Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %w", err)
+		return types.Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %w", err)
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
 		upstreamCancel()
-		return Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+		return types.Session{}, false, fmt.Errorf("POST /api/v1/sessions/chat: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -981,33 +958,33 @@ func (c *realClient) startChatStreaming(ctx context.Context, req StartChatReques
 		}
 	}()
 	if sessionID != "" {
-		// Session ID was emitted, so the row exists in Helix. Any
+		// types.Session ID was emitted, so the row exists in Helix. Any
 		// streamed error is surfaced via the bool so the caller can
 		// decide whether to warmup-retry (first turn) or restart the
 		// session (followup). We don't return it via err — callers
 		// that didn't need recovery before shouldn't start now.
 		_ = streamErrMsg
-		return Session{ID: sessionID}, hadWSError, nil
+		return types.Session{ID: sessionID}, hadWSError, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return Session{}, false, fmt.Errorf("read SSE: %w", err)
+		return types.Session{}, false, fmt.Errorf("read SSE: %w", err)
 	}
 	if streamErrMsg != "" {
-		return Session{}, false, fmt.Errorf("start chat streaming: %s", streamErrMsg)
+		return types.Session{}, false, fmt.Errorf("start chat streaming: %s", streamErrMsg)
 	}
-	return Session{}, false, errors.New("start chat streaming: no session id in stream")
+	return types.Session{}, false, errors.New("start chat streaming: no session id in stream")
 }
 
 // parseStartChatResponse normalises the two response shapes Helix
-// returns from /sessions/chat. zed_external returns the full Session
+// returns from /sessions/chat. zed_external returns the full types.Session
 // JSON; helix_basic / openai-style returns an OpenAI chat-completion
 // shape with `id` (session ID) and `choices[0].message.content`.
-func parseStartChatResponse(raw json.RawMessage) (Session, error) {
-	var s Session
+func parseStartChatResponse(raw json.RawMessage) (types.Session, error) {
+	var s types.Session
 	_ = json.Unmarshal(raw, &s)
 	if len(s.Interactions) > 0 {
 		if s.ID == "" {
-			return Session{}, errors.New("start chat: session has no id")
+			return types.Session{}, errors.New("start chat: session has no id")
 		}
 		return s, nil
 	}
@@ -1022,14 +999,14 @@ func parseStartChatResponse(raw json.RawMessage) (Session, error) {
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &oai); err != nil {
-		return Session{}, fmt.Errorf("decode start-chat response: %w", err)
+		return types.Session{}, fmt.Errorf("decode start-chat response: %w", err)
 	}
 	if oai.ID == "" {
-		return Session{}, errors.New("start chat: empty session id")
+		return types.Session{}, errors.New("start chat: empty session id")
 	}
-	out := Session{ID: oai.ID}
+	out := types.Session{ID: oai.ID}
 	if len(oai.Choices) > 0 && oai.Choices[0].Message.Content != "" {
-		out.Interactions = []*Interaction{{
+		out.Interactions = []*types.Interaction{{
 			ID:              oai.ID + ":synth",
 			State:           "complete",
 			ResponseMessage: oai.Choices[0].Message.Content,
@@ -1038,18 +1015,18 @@ func parseStartChatResponse(raw json.RawMessage) (Session, error) {
 	return out, nil
 }
 
-func (c *realClient) GetSession(ctx context.Context, id string) (Session, error) {
-	var s Session
+func (c *realClient) GetSession(ctx context.Context, id string) (types.Session, error) {
+	var s types.Session
 	if err := c.do(ctx, http.MethodGet, "/api/v1/sessions/"+url.PathEscape(id), nil, &s); err != nil {
-		return Session{}, err
+		return types.Session{}, err
 	}
 	return s, nil
 }
 
-func (c *realClient) GetOutput(ctx context.Context, sessionID string) (Output, error) {
-	var out Output
+func (c *realClient) GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error) {
+	var out types.SessionOutputResponse
 	if err := c.do(ctx, http.MethodGet, "/api/v1/sessions/"+url.PathEscape(sessionID)+"/output", nil, &out); err != nil {
-		return Output{}, err
+		return types.SessionOutputResponse{}, err
 	}
 	return out, nil
 }
@@ -1060,7 +1037,7 @@ func (c *realClient) StopExternalAgent(ctx context.Context, sessionID string) er
 
 // ---- Live updates ----
 
-func (c *realClient) SubscribeUpdates(ctx context.Context, sessionID string) (<-chan SessionUpdate, error) {
+func (c *realClient) SubscribeUpdates(ctx context.Context, sessionID string) (<-chan types.WebsocketEvent, error) {
 	wsURL, err := wsURLFromBase(c.base, sessionID)
 	if err != nil {
 		return nil, err
@@ -1074,7 +1051,7 @@ func (c *realClient) SubscribeUpdates(ctx context.Context, sessionID string) (<-
 	if err != nil {
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
-	ch := make(chan SessionUpdate, 16)
+	ch := make(chan types.WebsocketEvent, 16)
 	go func() {
 		defer close(ch)
 		defer func() { _ = conn.Close() }()
@@ -1087,7 +1064,7 @@ func (c *realClient) SubscribeUpdates(ctx context.Context, sessionID string) (<-
 			if err != nil {
 				return
 			}
-			var u SessionUpdate
+			var u types.WebsocketEvent
 			if err := json.Unmarshal(data, &u); err != nil {
 				continue
 			}

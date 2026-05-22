@@ -91,6 +91,7 @@ When pushing additional commits to an existing PR, update the PR title and descr
 - Use gomock, not testify/mock
 - No fallbacks — one approach, no fallback code paths
 - No type aliases — update all references when moving or renaming types
+- **NEVER re-export.** Don't write `type X = otherpkg.X` to surface a foreign type under a local name, and don't write `func F(...) { return otherpkg.F(...) }` to surface a foreign function. If callers want the type or function, they import it from its canonical home. Re-exports lie about ownership (the local name implies authorship), double the surface area to audit during renames, and tempt the next refactor to keep the alias "for backwards compat" until the codebase has two names for everything. Touched a foreign type? Import its package and qualify the reference. Used often enough that the qualifier hurts? That's a hint to lift it to a shared package, not to alias it.
 - No panics — return errors; rewrite methods to support error returns if needed
 - Log errors once at the top level — domain code returns errors, only handlers/workers log them
 

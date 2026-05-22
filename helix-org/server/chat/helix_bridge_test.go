@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
@@ -34,24 +36,24 @@ type fakeChatClient struct {
 	helixclient.Client
 	startCalls     int
 	sendCalls      int
-	lastStartReq   helixclient.StartChatRequest
+	lastStartReq   runtimehelix.StartChatRequest
 	lastSendSID    string
 	lastSendBody   string
 	startSessionID string
 }
 
-func (f *fakeChatClient) SendSessionMessage(_ context.Context, sid, content string, _ helixclient.SendMessageOptions) (helixclient.SendMessageResponse, error) {
+func (f *fakeChatClient) SendSessionMessage(_ context.Context, sid, content string, _ runtimehelix.SendMessageOptions) (runtimehelix.SendMessageResponse, error) {
 	f.sendCalls++
 	f.lastSendSID = sid
 	f.lastSendBody = content
-	return helixclient.SendMessageResponse{RequestID: "req_x", InteractionID: "ix_x"}, nil
+	return runtimehelix.SendMessageResponse{RequestID: "req_x", InteractionID: "ix_x"}, nil
 }
 
-func (f *fakeChatClient) ServerStatus(_ context.Context) (helixclient.ServerStatus, error) {
-	return helixclient.ServerStatus{MaxConcurrentDesktops: 0}, nil // 0 = unlimited
+func (f *fakeChatClient) ServerStatus(_ context.Context) (runtimehelix.ServerStatus, error) {
+	return runtimehelix.ServerStatus{MaxConcurrentDesktops: 0}, nil // 0 = unlimited
 }
 
-func (f *fakeChatClient) StartChat(_ context.Context, req helixclient.StartChatRequest) (helixclient.Session, error) {
+func (f *fakeChatClient) StartChat(_ context.Context, req runtimehelix.StartChatRequest) (types.Session, error) {
 	f.startCalls++
 	f.lastStartReq = req
 	if f.startSessionID == "" {
@@ -64,10 +66,10 @@ func (f *fakeChatClient) StartChat(_ context.Context, req helixclient.StartChatR
 	if req.OnSessionID != nil {
 		req.OnSessionID(f.startSessionID)
 	}
-	return helixclient.Session{ID: f.startSessionID}, nil
+	return types.Session{ID: f.startSessionID}, nil
 }
 
-func (f *fakeChatClient) StartChatWithStatus(ctx context.Context, req helixclient.StartChatRequest) (helixclient.Session, bool, error) {
+func (f *fakeChatClient) StartChatWithStatus(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error) {
 	s, err := f.StartChat(ctx, req)
 	return s, false, err
 }
@@ -86,8 +88,8 @@ func (f *fakeChatClient) GetProject(_ context.Context, id string) (helixclient.P
 	return helixclient.Project{ID: id, OrganizationID: "org-test"}, nil
 }
 
-func (f *fakeChatClient) SubscribeUpdates(ctx context.Context, _ string) (<-chan helixclient.SessionUpdate, error) {
-	ch := make(chan helixclient.SessionUpdate)
+func (f *fakeChatClient) SubscribeUpdates(ctx context.Context, _ string) (<-chan types.WebsocketEvent, error) {
+	ch := make(chan types.WebsocketEvent)
 	go func() {
 		<-ctx.Done()
 		close(ch)
@@ -96,8 +98,8 @@ func (f *fakeChatClient) SubscribeUpdates(ctx context.Context, _ string) (<-chan
 }
 
 func (f *fakeChatClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
-func (f *fakeChatClient) GetSession(_ context.Context, _ string) (helixclient.Session, error) {
-	return helixclient.Session{}, nil
+func (f *fakeChatClient) GetSession(_ context.Context, _ string) (types.Session, error) {
+	return types.Session{}, nil
 }
 
 func newTestHelixBridge(t *testing.T, fc *fakeChatClient) *HelixBridge {
@@ -206,7 +208,7 @@ func TestHelixBridgeNewResetsSession(t *testing.T) {
 	if r, _ := http.PostForm(send.URL, url.Values{"message": {"second"}}); r != nil {
 		r.Body.Close() //nolint:errcheck,gosec // test cleanup
 	}
-	if fc.startCalls != 2 {
+	if !waitFor(func() bool { return fc.startCalls >= 2 }) {
 		t.Errorf("StartChat calls: %d (want 2)", fc.startCalls)
 	}
 }

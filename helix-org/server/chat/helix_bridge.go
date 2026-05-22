@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"
 )
@@ -566,12 +567,12 @@ func (b *HelixBridge) sendAppOnly(ctx context.Context, msg string) error {
 	b.mu.Unlock()
 
 	if sid != "" {
-		req := helixclient.StartChatRequest{
+		req := runtimehelix.StartChatRequest{
 			SessionID:   sid,
 			AppID:       agentAppID,
 			SessionRole: b.sessionRole,
 			Type:        "text",
-			Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+			Messages:    []runtimehelix.SessionChatMessage{runtimehelix.NewTextMessage("user", msg)},
 		}
 		session, err := helixclient.SendToSession(ctx, b.client, req)
 		if err == nil {
@@ -590,11 +591,11 @@ func (b *HelixBridge) sendAppOnly(ctx context.Context, msg string) error {
 		b.wsWG.Wait()
 	}
 
-	req := helixclient.StartChatRequest{
+	req := runtimehelix.StartChatRequest{
 		AppID:       agentAppID,
 		SessionRole: b.sessionRole,
 		Type:        "text",
-		Messages:    []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
+		Messages:    []runtimehelix.SessionChatMessage{runtimehelix.NewTextMessage("user", msg)},
 		OnSessionID: b.attachSession,
 	}
 	session, _, err := b.client.StartChatWithStatus(ctx, req)
@@ -612,7 +613,7 @@ func (b *HelixBridge) sendAppOnly(ctx context.Context, msg string) error {
 // becomes one HTML fragment broadcast to SSE listeners. The
 // EntryStream's dedup state covers the streamed path — this method
 // only fires on the OpenAI-shape path where there are no patches.
-func (b *HelixBridge) broadcastInteractions(ixs []*helixclient.Interaction) {
+func (b *HelixBridge) broadcastInteractions(ixs []*types.Interaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, ix := range ixs {

@@ -1,6 +1,7 @@
 package helix
 
 import (
+	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,22 +34,22 @@ type fakeHelixClient struct {
 	startSessionID string
 	startErr       error
 	sendErr        error
-	outputs        []Output
-	updatesFactory func() <-chan SessionUpdate
+	outputs        []types.SessionOutputResponse
+	updatesFactory func() <-chan types.WebsocketEvent
 	lastStartReq   StartChatRequest
 	lastSendSID    string
 	lastSendBody   string
 }
 
-func (f *fakeHelixClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (Session, bool, error) {
+func (f *fakeHelixClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
 	f.lastStartReq = req
 	f.mu.Unlock()
-	return Session{ID: f.startSessionID}, false, f.startErr
+	return types.Session{ID: f.startSessionID}, false, f.startErr
 }
 
-func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (Output, error) {
+func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionOutputResponse, error) {
 	i := int(atomic.AddInt32(&f.outputCalls, 1)) - 1
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -113,7 +114,7 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	s, wid := newHelixTestStore(t)
 	fc := &fakeHelixClient{
 		startSessionID: "ses_new",
-		outputs:        []Output{{Status: "complete", Output: "ok"}},
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
 	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
@@ -152,10 +153,10 @@ func TestBridgeRendersEntryPatchEvents(t *testing.T) {
 	t.Parallel()
 	var got []string
 	b := newBridge(func(s string) { got = append(got, s) })
-	b.stream.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	b.stream.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi", PatchOffset: 0},
 	}})
-	b.stream.Apply(SessionUpdate{EntryPatches: []EntryPatch{
+	b.stream.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 1, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, ToolName: "publish", ToolStatus: "Completed"},
 	}})
 	b.stream.Flush()
@@ -193,7 +194,7 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	}
 	fc := &fakeHelixClient{
 		startSessionID: "ses_existing",
-		outputs:        []Output{{Status: "complete", Output: "ok"}},
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
 	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
@@ -260,7 +261,7 @@ func TestSpawnerColdStartReQueues(t *testing.T) {
 	fc := &coldStartFakeClient{
 		fakeHelixClient: fakeHelixClient{
 			startSessionID: "ses_new",
-			outputs:        []Output{{Status: "complete", Output: "ok"}},
+			outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 		},
 		hadWSError: true,
 	}
@@ -291,12 +292,12 @@ type coldStartFakeClient struct {
 	hadWSError bool
 }
 
-func (f *coldStartFakeClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (Session, bool, error) {
+func (f *coldStartFakeClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
 	f.lastStartReq = req
 	f.mu.Unlock()
-	return Session{ID: f.startSessionID}, f.hadWSError, f.startErr
+	return types.Session{ID: f.startSessionID}, f.hadWSError, f.startErr
 }
 
 func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
@@ -304,7 +305,7 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	s, wid := newHelixTestStore(t)
 	fc := &fakeHelixClient{
 		startSessionID: "ses_x",
-		outputs:        []Output{{Status: "waiting"}},
+		outputs:        []types.SessionOutputResponse{{Status: "waiting"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
 	cfg.ActivationTimeout = 30 * time.Millisecond
@@ -322,10 +323,10 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 	var inflight, peak int32
 	fc := &fakeHelixClient{
 		startSessionID: "ses_x",
-		outputs:        []Output{{Status: "complete", Output: "ok"}},
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	original := fc.outputs[0]
-	fc.outputs = []Output{original}
+	fc.outputs = []types.SessionOutputResponse{original}
 
 	cfg := newHelixCfg(t, fc, s)
 	cfg.MaxInflight = 1
@@ -360,7 +361,7 @@ type concurrencyClient struct {
 	peak     *int32
 }
 
-func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req StartChatRequest) (Session, bool, error) {
+func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req StartChatRequest) (types.Session, bool, error) {
 	cur := atomic.AddInt32(c.inflight, 1)
 	for {
 		p := atomic.LoadInt32(c.peak)
@@ -377,7 +378,7 @@ func (c *concurrencyClient) ServerStatus(ctx context.Context) (ServerStatus, err
 	return c.inner.ServerStatus(ctx)
 }
 
-func (c *concurrencyClient) GetOutput(ctx context.Context, sid string) (Output, error) {
+func (c *concurrencyClient) GetOutput(ctx context.Context, sid string) (types.SessionOutputResponse, error) {
 	return c.inner.GetOutput(ctx, sid)
 }
 
@@ -399,7 +400,7 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 		startSessionID: "ses_y",
 		// Several waiting outputs so the bridge has time to consume
 		// the pubsub frames before pollUntilDone terminates.
-		outputs: []Output{
+		outputs: []types.SessionOutputResponse{
 			{Status: "waiting"}, {Status: "waiting"}, {Status: "complete", Output: "ok"},
 		},
 	}
@@ -429,11 +430,11 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	patch, _ := json.Marshal(SessionUpdate{EntryPatches: []EntryPatch{
+	patch, _ := json.Marshal(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi there"},
 	}})
 	ps.publish(t, topic, patch)
-	complete, _ := json.Marshal(SessionUpdate{Interaction: &Interaction{State: "complete"}})
+	complete, _ := json.Marshal(types.WebsocketEvent{Interaction: &types.Interaction{State: "complete"}})
 	ps.publish(t, topic, complete)
 
 	if err := <-done; err != nil {
@@ -476,7 +477,7 @@ func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
 	fc := &staleSessionFake{
 		fakeHelixClient: fakeHelixClient{
 			startSessionID: "ses_fresh",
-			outputs:        []Output{{Status: "complete", Output: "ok"}},
+			outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 		},
 	}
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
@@ -498,11 +499,11 @@ type staleSessionFake struct {
 	fakeHelixClient
 }
 
-func (f *staleSessionFake) StartChatWithStatus(_ context.Context, req StartChatRequest) (Session, bool, error) {
+func (f *staleSessionFake) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
 	f.lastStartReq = req
 	f.mu.Unlock()
 	hadErr := req.SessionID != "" // resume path → "session no longer running"
-	return Session{ID: f.startSessionID}, hadErr, f.startErr
+	return types.Session{ID: f.startSessionID}, hadErr, f.startErr
 }
