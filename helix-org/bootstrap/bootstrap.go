@@ -37,6 +37,15 @@ type Params struct {
 	// EnvironmentPath is an absolute path to the owner's Environment. The
 	// directory must already exist on disk — bootstrap does not create it.
 	EnvironmentPath string
+
+	// OrganizationID stamps the owner Worker (and, once H5.3 lands,
+	// the rest of the seeded graph) with the helix.Organization the
+	// bootstrap belongs to. Empty means single-tenant alpha — the
+	// owner Worker has no OrgID. Multi-tenant deployments call Run
+	// once per helix.Organization with the org's ID; the existing
+	// "already initialised" check is filtered to that org so other
+	// orgs can bootstrap independently.
+	OrganizationID string
 }
 
 // Result summarises the newly-created owner.
@@ -68,8 +77,14 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("check existing workers: %w", err)
 	}
-	if len(existing) > 0 {
-		return Result{}, ErrAlreadyInitialised
+	// "Already initialised" is per-org: a Worker carrying the
+	// requested OrgID means bootstrap already ran for this tenant.
+	// In single-tenant alpha (OrgID empty) the filter reduces to the
+	// original "any worker exists" semantic.
+	for _, w := range existing {
+		if w.OrganizationID() == params.OrganizationID {
+			return Result{}, ErrAlreadyInitialised
+		}
 	}
 
 	now := time.Now().UTC()
@@ -91,9 +106,13 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /ui/org to " +
 		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
-	owner, err := domain.NewHumanWorker(worker.ID("w-owner"), rootPos.ID, ownerIdentity)
+	ownerWorker, err := domain.NewHumanWorker(worker.ID("w-owner"), rootPos.ID, ownerIdentity)
 	if err != nil {
 		return Result{}, err
+	}
+	var owner domain.Worker = ownerWorker
+	if params.OrganizationID != "" {
+		owner = owner.WithOrgID(params.OrganizationID)
 	}
 	if err := s.Workers.Create(ctx, owner); err != nil {
 		return Result{}, fmt.Errorf("create owner worker: %w", err)
