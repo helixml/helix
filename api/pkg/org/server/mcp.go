@@ -30,9 +30,9 @@ func (s *Server) mcpHandler() http.Handler {
 		DisableLocalhostProtection: true, // helix-org is reverse-proxied through tunnels (cloudflared) when Helix's runner is on a different host; the SDK's DNS-rebinding guard rejects non-loopback Host headers, which kills the tunnel path.
 	})
 	// Hoist the HTTP request's bearer onto the request context so
-	// tools (and anything they call into via helixclient) can use
-	// runtimehelix.BearerFromContext to discover the caller's
-	// identity. In the embedded SaaS this is the picking user's
+	// tools (and anything they call into via the in-proc Helix
+	// adapter) can use runtimehelix.BearerFromContext to discover
+	// the caller's identity. In the embedded SaaS this is the picking user's
 	// own api_key; tools like hire_worker persist it onto the new
 	// Worker so subsequent activations run as the same user. In
 	// standalone helix-org the request carries no Authorization

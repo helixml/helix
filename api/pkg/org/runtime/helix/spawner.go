@@ -29,8 +29,8 @@ type SpawnerConfig struct {
 	Client         SpawnerClient
 	ProjectService ProjectService
 	Workspace      *Workspace
-	// PubSub + Snapshotter drive the in-process equivalent of
-	// helixclient.SubscribeUpdates — see SubscribeSessionUpdates.
+	// PubSub + Snapshotter back SubscribeSessionUpdates, which streams
+	// per-session WebsocketEvent frames to in-process subscribers.
 	PubSub      pubsub.PubSub
 	Snapshotter SessionPreamble
 	HelixOrgURL    string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
@@ -178,7 +178,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 
 		// Resolve the hiring user's bearer for THIS activation, if a
 		// host-provided callback is wired. The bearer is stashed on
-		// actCtx via the helixclient context key; every subsequent
+		// actCtx via the BearerToken context key; every subsequent
 		// client call inside this activation (project apply, session
 		// open, MCP attach, transcript subscribe) picks it up so the
 		// Worker's footprint in Helix is attributed to the hiring

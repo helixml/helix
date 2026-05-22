@@ -1,20 +1,19 @@
-// Package server: helix_org_inproc.go provides in-process adapters
-// satisfying the runtimehelix.ProjectService and runtimehelix.SpawnerClient
-// ports — replacing the loopback-HTTP helixclient indirection for the
-// embedded helix-org module (H1.3c).
+// Package server: helix_org_inproc.go provides the in-process adapter
+// satisfying runtimehelix.ProjectService, runtimehelix.SpawnerClient,
+// and chat.ChatBridgeClient for the embedded helix-org module.
 //
-// Both ports share one struct (`inProcHelixClient`) so a single instance
-// can be wired into both the WorkerProject.Service slot (project /
-// git / app surface) and the Spawner.Client slot (chat session
-// surface). The struct routes each call to the matching HelixAPIServer
-// handler method by crafting an *http.Request, attaching the caller's
-// *types.User to the context, and invoking the handler in-process.
+// All three ports share one struct (`inProcHelixClient`) so a single
+// instance can be wired into the WorkerProject.Service slot (project /
+// git / app surface), the Spawner.Client slot (chat session surface),
+// and the chat bridge. The struct routes each call to the matching
+// HelixAPIServer handler method by crafting an *http.Request,
+// attaching the caller's *types.User to the context, and invoking the
+// handler in-process — no HTTP loopback.
 //
 // Caller identity is resolved per request from runtimehelix's context
 // stashes (HelixIdentity → UserIDFromContext / BearerFromContext); when
 // none is present we fall back to the constructor-supplied service
-// user. This mirrors the bearer-forwarding behaviour the helixclient
-// HTTP path provided via withHelixUserBearer.
+// user (the bearer-forwarding equivalent the middleware path uses).
 package server
 
 import (
@@ -334,10 +333,9 @@ func (c *inProcHelixClient) StopExternalAgent(ctx context.Context, sessionID str
 // whether the SSE stream surfaced a transient error after the session
 // ID came through. The underlying startChatSessionHandler is streaming
 // (writes SSE chunks to the ResponseWriter and Flushes), so we capture
-// via a custom sseCapture writer that parses the chunks the same way
-// helixclient.realClient.startChatStreaming does — `data: ` prefix,
-// JSON chunks with `id` and `error.message`, sets hadWSError when an
-// error chunk arrives.
+// via a custom sseCapture writer that scans the chunks — `data: `
+// prefix, JSON chunks with `id` and `error.message`, sets hadWSError
+// when an error chunk arrives.
 func (c *inProcHelixClient) StartChatWithStatus(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error) {
 	if req.Type == "" {
 		req.Type = "text"
@@ -363,7 +361,7 @@ func (c *inProcHelixClient) StartChatWithStatus(ctx context.Context, req runtime
 		return types.Session{ID: id}, hadErr, nil
 	}
 	// Fall back: handler may have returned a JSON body (helix_basic /
-	// openai shape). Parse the same way helixclient does.
+	// openai shape).
 	if cap.body.Len() > 0 {
 		s, perr := parseStartChatResponseInProc(cap.body.Bytes())
 		if perr != nil {
@@ -377,11 +375,9 @@ func (c *inProcHelixClient) StartChatWithStatus(ctx context.Context, req runtime
 	return types.Session{}, false, errors.New("start chat: no session id and no body")
 }
 
-// parseStartChatResponseInProc is a local copy of helixclient's
-// parseStartChatResponse, kept here so this file doesn't import
-// helixclient (we're trying to retire it). Handles both the
-// zed_external types.Session shape and the OpenAI chat-completion
-// shape helix_basic returns.
+// parseStartChatResponseInProc handles both the zed_external
+// types.Session shape and the OpenAI chat-completion shape
+// helix_basic returns.
 func parseStartChatResponseInProc(raw []byte) (types.Session, error) {
 	var s types.Session
 	_ = json.Unmarshal(raw, &s)
@@ -420,8 +416,7 @@ func parseStartChatResponseInProc(raw []byte) (types.Session, error) {
 
 // sseCapture is an http.ResponseWriter + http.Flusher that buffers
 // everything the streaming startChatSessionHandler writes, so the
-// adapter can scan it for SSE chunks (session ID + error.message)
-// using the same parsing logic as helixclient's startChatStreaming.
+// adapter can scan it for SSE chunks (session ID + error.message).
 //
 // Flush() is a no-op — there's no client to push to, but the handler's
 // `if f, ok := rw.(http.Flusher); ok` check still needs to succeed for
@@ -464,7 +459,7 @@ func (s *sseCapture) Flush() {}
 // parseSSE scans the buffered body looking for `data: …` chunks of the
 // shape `{"id":"…","error":{"message":"…"}}` and returns the first
 // session ID it sees along with a flag indicating whether any chunk
-// carried an error.message. Mirrors helixclient.realClient.startChatStreaming.
+// carried an error.message.
 func (s *sseCapture) parseSSE() (sessionID string, hadWSError bool) {
 	// Quick check: does the body look like SSE? Handler emits "data: "
 	// prefixed lines for streaming sessions. helix_basic returns plain JSON.
@@ -510,9 +505,8 @@ func (s *sseCapture) parseSSE() (sessionID string, hadWSError bool) {
 // GetSession returns the session by ID with its Interactions loaded.
 // Used by the owner-chat bridge's History() handler to reconstruct
 // the page-refreshed transcript. Mirrors what the public
-// /api/v1/sessions/{id} handler does for the legacy helixclient path:
-// authorise the caller, load the row, then load interactions and
-// attach them. We skip the runtime external-agent status + ETag work
+// /api/v1/sessions/{id} handler does: authorise the caller, load the
+// row, then load interactions and attach them. We skip the runtime external-agent status + ETag work
 // the public handler does — neither is consumed by History rendering.
 func (c *inProcHelixClient) GetSession(ctx context.Context, id string) (types.Session, error) {
 	if id == "" {

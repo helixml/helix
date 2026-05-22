@@ -56,8 +56,8 @@ func (f *fakeChatBridgeClient) SubscribeUpdates(ctx context.Context, _ string) (
 // instead of letting tests pass against a stale fake.
 var _ ChatBridgeClient = (*fakeChatBridgeClient)(nil)
 
-// TestSendToSession_StreamErrorIsSurfaced mirrors the original
-// helixclient.SendToSession contract: when StartChatWithStatus
+// TestSendToSession_StreamErrorIsSurfaced pins the SendToSession
+// stream-error contract: when StartChatWithStatus
 // returns (session, true, nil) — i.e. the wire call succeeded but
 // the SSE stream emitted an error chunk after the session ID came
 // through — SendToSession surfaces a "session no longer running on

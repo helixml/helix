@@ -7,7 +7,7 @@ import (
 
 // Backend is the surface the HTTP server wires to /ui/chat/* and the
 // UI handler reads. The sole implementation is *HelixBridge — it
-// drives a Helix chat session via helixclient and translates
+// drives a Helix chat session via a ChatBridgeClient and translates
 // `interaction_update` / `interaction_patch` frames into the SSE
 // shape the UI expects. The dev-only claude-subprocess Bridge was
 // deleted in B9; production has always run on Helix's external-agent

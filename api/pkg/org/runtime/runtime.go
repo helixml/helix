@@ -11,8 +11,9 @@
 // takes a Spawner; the tools.Deps takes a WorkspaceSync) because the
 // helix-runtime constructors build them at different points with
 // different dependencies. A unified `Runtime` interface combining
-// both will land when H1.4 deletes the helixclient adapter — at that
-// point the two contracts can satisfy one struct.
+// both is a candidate follow-up — both contracts already satisfy one
+// struct (runtimehelix's per-Worker types), so the unification is
+// purely API-shape work.
 //
 // The sole concrete runtime lives at api/pkg/org/runtime/helix/
 // (lifted in H1.0–H1.3d). The dev-only claude-subprocess runtime

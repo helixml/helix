@@ -17,17 +17,12 @@ import (
 // the Helix side. WorkerProject compares with errors.Is — a 404-shaped
 // error from the underlying transport must wrap this sentinel so the
 // fast-path verification can clear stale state and re-apply.
-//
-// In the H1.x transitional state, the helixclient-backed adapter maps
-// helixclient.ErrNotFound to this sentinel.
 var ErrProjectNotFound = errors.New("helix project: not found")
 
 // ProjectService is the slice of Helix's project/git/app API that the
-// per-Worker WorkerProject depends on. Lifted out of helixclient.Client
-// during H1.2 so api/pkg/org/runtime/helix doesn't import the legacy
-// helixclient package — the wiring in api/pkg/server provides an impl
-// that either wraps helixclient (today, transitional) or calls the
-// controllers directly (the eventual canonical end state).
+// per-Worker WorkerProject depends on. The wiring in api/pkg/server
+// provides an in-process impl that calls the HelixAPIServer's handler
+// methods directly (no HTTP loopback).
 //
 // All shapes mirror api/pkg/types so the wiring adapter doesn't have to
 // translate. Methods take and return canonical Helix types verbatim.
@@ -83,14 +78,11 @@ type ProjectService interface {
 // a no-op for the project itself, but always re-pushes the canonical
 // role/identity files so update_role / update_identity changes land.
 //
-// H1.2 lifted WorkerProject to its canonical home and decoupled it
-// from helix-org/helix/helixclient by routing the project / git / app
-// calls through the ProjectService interface and the file pushes
-// through ProjectGit (a thin slice of WorkspaceGit).
-// During the H1.x transitional state the production wiring in
-// api/pkg/server/helix_org.go satisfies ProjectService with an adapter
-// over helixclient.Client; the eventual end state is a direct adapter
-// over the Helix controller.
+// WorkerProject routes the project / git / app calls through the
+// ProjectService interface and the file pushes through ProjectGit
+// (a thin slice of WorkspaceGit). Production wiring in
+// api/pkg/server/helix_org.go satisfies ProjectService with the
+// in-process adapter that calls HelixAPIServer handlers directly.
 type WorkerProject struct {
 	Service ProjectService
 	// Workspace owns the on-branch file layout — WorkerProject

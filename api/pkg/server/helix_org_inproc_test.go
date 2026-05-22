@@ -137,14 +137,12 @@ func TestInProcSpawnerClient_StopExternalAgent_NoSession_ReturnsError(t *testing
 	require.Error(t, err)
 }
 
-// TODO(H1.3c-followup): test for StartChatWithStatus. The streaming
-// handler `startChatSessionHandler` calls into the chat controller
-// (LLM + provider validation), which is non-trivial to satisfy from
+// TODO: test for StartChatWithStatus. The streaming handler
+// `startChatSessionHandler` calls into the chat controller (LLM +
+// provider validation), which is non-trivial to satisfy from
 // memorystore in isolation — providers, model catalogue, controller
 // scheduler, etc. The structural adapter logic (sseCapture + SSE
-// parsing) is identical to the loopback HTTP path covered by
-// helixclient's existing client_test.go::TestStartChatSendsHelixSessionChatRequest;
-// the in-Helix end-to-end test (helix-org alpha sandbox flow)
-// exercises the wire-through. A focused unit test belongs in the
+// parsing) is exercised end-to-end by the helix-org alpha sandbox
+// flow in the inner Helix; a focused unit test belongs in the
 // follow-up that stubs Controller.ChatCompletion / a fake
 // startChatSessionHandler entrypoint.

@@ -1,16 +1,10 @@
 // Package chat — client.go defines the ChatBridgeClient port: the
 // slice of helix's session+project+agent API the owner-chat bridge
-// (helix_bridge.go) depends on. Extracted in H1-chat so the bridge
-// no longer imports api/pkg/org/helixclient directly.
+// (helix_bridge.go) depends on.
 //
 // Production satisfier is api/pkg/server.inProcHelixClient (built by
 // buildInProcHelixClient in helix_org.go); tests can supply a fake
 // without HTTP / WebSocket plumbing.
-//
-// This file MUST NOT import api/pkg/org/helixclient — that's the
-// whole point of the H1-chat split. The chat bridge talks to Helix
-// through this narrow port; the in-proc adapter or the legacy HTTP
-// client both satisfy it.
 package chat
 
 import (
@@ -35,9 +29,9 @@ import (
 //   - SubscribeUpdates: used by runWebsocket() to stream live frame
 //     updates for the active chat session.
 //
-// GetProject returns types.Project (the canonical Helix type, not
-// helixclient.Project). The bridge only reads OrganizationID off the
-// returned value; the rest of the fields ride along free.
+// GetProject returns the canonical types.Project. The bridge only
+// reads OrganizationID off the returned value; the rest of the fields
+// ride along free.
 type ChatBridgeClient interface {
 	runtimehelix.SpawnerClient
 	GetSession(ctx context.Context, id string) (types.Session, error)
@@ -53,9 +47,7 @@ type ChatBridgeClient interface {
 // row deleted, etc.) and the caller should treat the persisted
 // SessionID as stale and open a fresh one.
 //
-// Local copy of helixclient.SendToSession, lifted into the chat
-// package so helix_bridge.go can drop its helixclient import. The
-// runtime/helix package has an unexported sibling (sendToSession)
+// The runtime/helix package has an unexported sibling (sendToSession)
 // used by EnsureAndSend; that one is on the resume path of
 // EnsureAndSend's own state machine and isn't exported.
 func SendToSession(ctx context.Context, client ChatBridgeClient, req runtimehelix.StartChatRequest) (types.Session, error) {

@@ -32,12 +32,9 @@ func (f *fakeEnsurer) Ensure(_ context.Context, _ worker.ID) (string, string, st
 // fakeChatClient is a minimum-viable ChatBridgeClient used by the
 // helix bridge tests. Captures StartChatWithStatus calls so the test
 // can assert the bridge persists the session ID and switches to
-// follow-up on subsequent messages.
-//
-// After H1-chat the bridge depends on the narrow ChatBridgeClient
-// port (api/pkg/org/server/chat/client.go) rather than the full
-// helixclient.Client, so this fake stubs only the seven methods on
-// that port.
+// follow-up on subsequent messages. The bridge depends only on the
+// narrow ChatBridgeClient port (api/pkg/org/server/chat/client.go),
+// so this fake stubs just those seven methods.
 type fakeChatClient struct {
 	startCalls     int
 	lastStartReq   runtimehelix.StartChatRequest

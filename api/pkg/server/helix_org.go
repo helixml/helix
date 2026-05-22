@@ -20,7 +20,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
-	"github.com/helixml/helix/api/pkg/org/helixclient"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
@@ -75,7 +74,18 @@ const alphaFeatureHelixOrg = "helix-org"
 // follow-up.
 // Returns nil (and logs) if the embedded org cannot be initialised for
 // this deployment — callers must treat that as "don't mount".
+//
+// Requires a non-nil cfg.APIServer: the embedded helix-org module talks
+// to Helix's project / git / app / session surfaces via an in-process
+// adapter (helix_org_inproc.go) that needs the live *HelixAPIServer.
+// Wirings without an APIServer (e.g. test harnesses) return (nil, nil)
+// — the module simply isn't mounted.
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
+	if cfg.APIServer == nil {
+		log.Warn().Msg("helix-org disabled: no HelixAPIServer threaded into helixOrgConfig")
+		return nil, nil
+	}
+
 	// Working directory root. LocalFSPath = the SaaS persistent
 	// volume mount when fs is enabled; os.TempDir() when not.
 	// Container restarts wipe TempDir contents, but the per-Worker
@@ -141,26 +151,21 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		log.Warn().Err(err).Msg("helix-org service api key not provisioned — chat will stay disabled")
 	}
 
-	// Build the single WorkerProject shared by the Spawner (for AI
-	// Worker activations) and the chat bridge (for owner-chat). The
-	// owner is just another Worker — they get a per-Worker Helix
-	// project + agent app + git repo + Zed sandbox just like every
-	// hired Worker, applied with the same `worker.*` defaults. The
-	// chat surface at /ui/ is a window onto the owner's sandbox.
-	serviceClient, serviceClientErr := buildHelixOrgServiceClient(context.Background(), configReg)
-	if serviceClientErr != nil {
-		log.Warn().Err(serviceClientErr).Msg("helix-org service client init failed — chat and worker activations will not run")
-	}
-
-	// H1.3c: build the in-process ProjectService + SpawnerClient
-	// adapter. Replaces the loopback-HTTP helixclient for the two
-	// per-Worker-project ports (project/git/app surface and chat
-	// session surface). The chat bridge still uses serviceClient
-	// — that gets its own port in H1-chat. inProcClient is nil when
-	// either the apiserver wasn't threaded (test wirings) or no admin
-	// service-owner user is found; in that case the wiring falls back
-	// to helixclient.AsProjectService(serviceClient) below.
+	// In-process adapter satisfying runtimehelix.ProjectService,
+	// runtimehelix.SpawnerClient, and chat.ChatBridgeClient — the three
+	// surfaces every Worker's per-project flow needs (project / git /
+	// app on apply; chat session create/output/stop on activation and
+	// owner-chat). The adapter calls HelixAPIServer's handler methods
+	// directly; no HTTP loopback.
+	//
+	// Returns nil only if there's no admin user available to use as the
+	// service identity — the alpha doesn't make sense without one, so
+	// we treat that as "feature disabled until an admin registers".
 	inProcClient := buildInProcHelixClient(context.Background(), cfg.APIServer, helixStore)
+	if inProcClient == nil {
+		log.Warn().Msg("helix-org disabled: in-proc adapter unavailable (no admin user found — register one before enabling the helix-org alpha)")
+		return nil, nil
+	}
 
 	// Build the single Workspace shared by the WorkerProject (for
 	// first-apply file pushes — agent.md / role.md / identity.md)
@@ -188,24 +193,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// The wrapper re-resolves `worker.*` and `helix.*` from the config
 	// registry on every Ensure call, so live changes via /ui/settings
 	// take effect on the next activation — no API restart needed.
-	var projectApplier *dynamicProjectApplier
-	if serviceClient != nil {
-		projectApplier = &dynamicProjectApplier{
-			cfg:        configReg,
-			client:     serviceClient,
-			projectSvc: inProcClient, // H1.3c — nil falls back to helixclient adapter
-			Store:      st,
-			logger:     logger,
-		}
+	projectApplier := &dynamicProjectApplier{
+		cfg:        configReg,
+		projectSvc: inProcClient,
+		Store:      st,
+		logger:     logger,
 	}
 
 	// Wire helix-org's production Spawner. The owner is a Worker, so
 	// helix-org/server/chat.HelixBridge reuses the same applier; both
 	// drive per-Worker projects through the same default settings.
-	var spawnerFn runtime.Spawner
-	if projectApplier != nil {
-		spawnerFn = lazyHelixOrgSpawner(configReg, helixStore, serviceClient, inProcClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
-	}
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -227,24 +225,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	// Chat backend: owner-chat opens against the owner Worker's
 	// per-Worker project via the shared WorkerProject. Same defaults,
-	// same MCP wiring, same desktop runtime as any AI Worker.
-	//
-	// H1-chat: the chat bridge now takes the in-proc ChatBridgeClient
-	// adapter (inProcClient) — same instance the spawner and project
-	// applier use. Falls back to nothing when inProcClient is nil
-	// (test wirings without an APIServer / no admin user); we
-	// intentionally don't fall back to the helixclient HTTP path here
-	// because the bridge contract is now "in-proc only" — keeping a
-	// second code path alive would defeat H1.4's coming deletion of
-	// helixclient.
+	// same MCP wiring, same desktop runtime as any AI Worker. The
+	// bridge drives the same in-proc adapter the spawner and project
+	// applier use — single source of truth for the Helix surface
+	// helix-org talks to.
 	var chatBridge chat.Backend
-	if projectApplier != nil && inProcClient != nil {
-		bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, inProcClient, logger, st, bc, deps.NewID, deps.Now)
-		if err != nil {
-			log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
-		} else {
-			chatBridge = bridge
-		}
+	bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, inProcClient, logger, st, bc, deps.NewID, deps.Now)
+	if err != nil {
+		log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
+	} else {
+		chatBridge = bridge
 	}
 	if hb, ok := chatBridge.(*chat.HelixBridge); ok && hb != nil {
 		chatBridge = hb.WithPrompts(promptReg)
@@ -295,12 +285,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	innerUIMux.Handle("/", baseUIHandler)
 
 	// Wrap the whole UI surface with middleware that forwards the
-	// logged-in Helix user's identity to helixclient. Calls from the
-	// chat bridge / agent picker then hit Helix as the actual user
-	// chatting, not as a shared service account — sessions and
-	// permissions are attributed correctly. Falls back to the
-	// auto-provisioned helix.api_key when no user is on the request
-	// (shouldn't happen for /ui/ routes since they're gated by
+	// logged-in Helix user's identity onto runtimehelix's HelixIdentity
+	// context. Calls from the chat bridge / agent picker then hit
+	// Helix as the actual user chatting, not as the service-account
+	// fallback — sessions and permissions are attributed correctly.
+	// (shouldn't matter for /ui/ routes since they're gated by
 	// requireUser, but the fallback keeps tests honest).
 	uiMux := withHelixUserBearer(innerUIMux, helixStore)
 
@@ -324,15 +313,14 @@ type helixOrgConfig struct {
 	// GitRepositoryService is the production git-write surface
 	// helix-org's Workspace uses to mirror role.md / identity.md /
 	// canonical files onto each Worker's per-Worker repo. The H1.1
-	// lift replaced helixclient.PutFile (loopback HTTP) with this
-	// direct call into the same servicer the HTTP handlers use.
+	// lift replaced the loopback-HTTP file push with this direct
+	// call into the same servicer the HTTP handlers use.
 	GitRepositoryService runtimehelix.WorkspaceGit
-	// APIServer is the live HelixAPIServer instance. H1.3c uses it to
-	// build an in-process ProjectService + SpawnerClient adapter that
-	// replaces the helixclient loopback-HTTP indirection for the
-	// embedded helix-org module. Nil disables the in-proc adapter and
-	// falls back to the helixclient HTTP path (transitional safety
-	// valve while the alpha-feature is gated on the same process).
+	// APIServer is the live HelixAPIServer instance. The embedded
+	// helix-org module needs it to build the in-process adapter that
+	// satisfies runtimehelix.ProjectService + SpawnerClient +
+	// chat.ChatBridgeClient. Nil disables helix-org entirely (init
+	// returns nil, nil).
 	APIServer *HelixAPIServer
 }
 
@@ -348,15 +336,7 @@ type helixOrgConfig struct {
 // load/save the per-Worker session pointer on the same SQLite row
 // the spawner uses (helix-org's WorkerRuntimeState).
 type dynamicProjectApplier struct {
-	cfg    *config.Registry
-	client helixclient.Client
-	// projectSvc, when non-nil, satisfies the runtimehelix.ProjectService
-	// port and is used in preference to helixclient.AsProjectService(client).
-	// H1.3c plumbs the in-process adapter through here so per-Worker
-	// project apply, git repo create, secret put, etc. route via direct
-	// HelixAPIServer handler calls instead of loopback HTTP. Nil = legacy
-	// helixclient HTTP path (transitional fallback while the in-proc
-	// adapter is alpha).
+	cfg        *config.Registry
 	projectSvc runtimehelix.ProjectService
 	Store      *helixorgstore.Store
 	logger     *slog.Logger
@@ -367,7 +347,7 @@ type dynamicProjectApplier struct {
 // delegates. WorkerProject.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
-	applier, err := buildHelixOrgProjectApplier(ctx, d.cfg, d.client, d.projectSvc, d.Store, d.logger)
+	applier, err := buildHelixOrgProjectApplier(ctx, d.cfg, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -390,7 +370,6 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) 
 func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	cfg *config.Registry,
-	client helixclient.Client,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
@@ -405,15 +384,8 @@ func buildHelixOrgProjectApplier(
 	}
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
-	// H1.3c: prefer the in-process adapter when present; fall back to
-	// helixclient's loopback-HTTP adapter when it isn't (test wirings
-	// or APIServer not threaded). One source of truth either way.
-	svc := projectSvc
-	if svc == nil {
-		svc = helixclient.AsProjectService(client)
-	}
 	return &runtimehelix.WorkerProject{
-		Service:       svc,
+		Service:       projectSvc,
 		Workspace:     helixOrgWorkspaceRef,
 		Store:         orgStore,
 		HelixOrgURL:   helixOrgURL,
@@ -464,21 +436,16 @@ func resolveWorkerAgentConfig(ctx context.Context, cfg *config.Registry) (runtim
 }
 
 // buildInProcHelixClient resolves the service-account *types.User and
-// builds the H1.3c in-process adapter that satisfies both
-// runtimehelix.ProjectService and runtimehelix.SpawnerClient. Returns
-// nil when prerequisites aren't met (no APIServer threaded, no admin
-// user found) — callers must treat nil as "fall back to the
-// helixclient HTTP adapter" rather than as an error, because the
-// embedded helix-org module is opt-in and shouldn't block API startup.
+// builds the in-process adapter that satisfies
+// runtimehelix.ProjectService, runtimehelix.SpawnerClient, and
+// chat.ChatBridgeClient. Returns nil when no admin user is available
+// to attribute the service identity to — callers treat that as
+// "feature disabled" (no production wiring without one).
 //
 // The service user mirrors ensureHelixOrgServiceAPIKey's owner-pick
 // (first admin user) so the auto-provisioned api_key and the
 // in-process adapter are attributed to the same identity.
 func buildInProcHelixClient(ctx context.Context, apiServer *HelixAPIServer, helixStore helixstore.Store) *inProcHelixClient {
-	if apiServer == nil {
-		log.Warn().Msg("helix-org in-proc adapter disabled — no HelixAPIServer threaded into helixOrgConfig (falling back to helixclient HTTP loopback)")
-		return nil
-	}
 	admins, _, err := helixStore.ListUsers(ctx, &helixstore.ListUsersQuery{Admin: true})
 	if err != nil {
 		log.Warn().Err(err).Msg("helix-org in-proc adapter disabled — list admins failed")
@@ -492,24 +459,8 @@ func buildInProcHelixClient(ctx context.Context, apiServer *HelixAPIServer, heli
 	log.Info().
 		Str("owner_id", owner.ID).
 		Str("owner_email", owner.Email).
-		Msg("helix-org in-proc adapter wired (replaces helixclient loopback for ProjectService + SpawnerClient)")
+		Msg("helix-org in-proc adapter wired (ProjectService + SpawnerClient + ChatBridgeClient)")
 	return NewInProcHelixClient(apiServer, owner)
-}
-
-// buildHelixOrgServiceClient constructs a helixclient backed by the
-// auto-provisioned service api_key. Used by the Spawner — it runs
-// outside any HTTP request context (driven by the dispatcher) so
-// withHelixUserBearer's per-request override isn't available.
-func buildHelixOrgServiceClient(ctx context.Context, cfg *config.Registry) (helixclient.Client, error) {
-	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
-	if apiKey == "" {
-		return nil, fmt.Errorf("helix.api_key not set — service client cannot be built")
-	}
-	baseURL, err := cfg.GetString(ctx, "helix.url")
-	if err != nil {
-		return nil, fmt.Errorf("read helix.url: %w", err)
-	}
-	return helixclient.New(helixclient.Config{BaseURL: baseURL, APIKey: apiKey})
 }
 
 // buildHelixOrgSpawnerConfig assembles the SpawnerConfig for
@@ -533,7 +484,6 @@ func buildHelixOrgSpawnerConfig(
 	ctx context.Context,
 	cfg *config.Registry,
 	helixStore helixstore.Store,
-	client helixclient.Client,
 	spawnerClient runtimehelix.SpawnerClient,
 	orgStore *helixorgstore.Store,
 	bc *broadcast.Hub,
@@ -553,15 +503,8 @@ func buildHelixOrgSpawnerConfig(
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	specsMandate, _ := cfg.GetString(ctx, "worker.specs_mandate")
-	// H1.3c: prefer the in-process SpawnerClient when present;
-	// fall back to the helixclient HTTP client (which also satisfies
-	// SpawnerClient via the same surface).
-	c := spawnerClient
-	if c == nil {
-		c = client
-	}
 	return runtimehelix.SpawnerConfig{
-		Client:        c,
+		Client:        spawnerClient,
 		HelixOrgURL:   helixOrgURL,
 		Runtime:       runtime,
 		Credentials:   credentials,
@@ -604,7 +547,6 @@ func buildHelixOrgSpawnerConfig(
 func lazyHelixOrgSpawner(
 	cfg *config.Registry,
 	helixStore helixstore.Store,
-	client helixclient.Client,
 	spawnerClient runtimehelix.SpawnerClient,
 	orgStore *helixorgstore.Store,
 	bc *broadcast.Hub,
@@ -632,7 +574,7 @@ func lazyHelixOrgSpawner(
 		current := spawner
 		mu.Unlock()
 		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, cfg, helixStore, client, spawnerClient, orgStore, bc, logger, newID, now)
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, cfg, helixStore, spawnerClient, orgStore, bc, logger, newID, now)
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}

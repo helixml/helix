@@ -6,17 +6,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// Auth-context helpers lifted from helix-org/helix/helixclient in H1.0
-// — same shape as before, new home so the helixclient package can
-// shrink toward deletion.
+// Auth-context helpers used by the in-proc Helix adapter and the
+// spawner.
 //
 // Two independent stashes on the request context:
 //
-//   - bearerToken: the per-request API key. realClient (helixclient)
-//     reads it via BearerFromContext to override its static apiKey.
-//     Used by the chat-bridge path (middleware mints a bearer for the
-//     logged-in user) and the spawner path (BearerForUser callback
-//     mints one per activation).
+//   - bearerToken: the per-request API key. Used by the chat-bridge
+//     path (middleware mints a bearer for the logged-in user) and the
+//     spawner path (BearerForUser callback mints one per activation).
 //
 //   - userID: the upstream caller's identifier (typically a Helix
 //     user_id). Independent of the bearer because we may know "who"

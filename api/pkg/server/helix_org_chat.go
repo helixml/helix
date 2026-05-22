@@ -105,11 +105,10 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // happens at startup; a fresh DB with no admin user is a legitimate
 // "not configured" state).
 //
-// H1-chat: `client` is the in-process chat.ChatBridgeClient adapter
+// `client` is the in-process chat.ChatBridgeClient adapter
 // (api/pkg/server/helix_org_inproc.go::inProcHelixClient) — same
 // instance the spawner uses for SpawnerClient and the project
-// applier uses for ProjectService. No more loopback-HTTP indirection
-// through helixclient for owner-chat.
+// applier uses for ProjectService. No loopback-HTTP indirection.
 func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Hub, newID func() string, now func() time.Time) (chat.Backend, error) {
 	if applier == nil {
 		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
@@ -252,8 +251,8 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 	return keyStr, nil
 }
 
-// withHelixUserBearer wraps an embedded helix-org handler so the
-// helixclient calls it makes inherit the logged-in user's identity.
+// withHelixUserBearer wraps an embedded helix-org handler so any
+// downstream Helix call inherits the logged-in user's identity.
 // The middleware:
 //
 //   - reads the user from the request context (set by Helix's

@@ -11,27 +11,13 @@ import (
 )
 
 // SessionClient is the small slice of the chat-session API
-// EnsureAndSend depends on. Lifted out of helixclient.Client during
-// H1.3a so sessions.go lives in canonical without importing the
-// legacy helixclient package.
+// EnsureAndSend depends on. Production impl is the in-process adapter
+// at api/pkg/server/helix_org_inproc.go::inProcHelixClient, which
+// routes calls to HelixAPIServer handler methods directly.
 //
-// Two impls satisfy this port:
-//
-//   - helixclient.Client (transitional, via the helixclient adapter
-//     at helix-org/helix/helixclient/runtime_adapter.go): same
-//     loopback-HTTP semantics as before, used by the H1 sequence's
-//     intermediate states.
-//   - A direct controller adapter (future): the wiring layer at
-//     api/pkg/server/helix_org.go builds a SessionClient that calls
-//     controller.WriteSession / WriteInteractions / ChatCompletion
-//     directly. Deferred to its own slice — the structural decoupling
-//     (this interface) is the H1.3a/c contribution; the behavioural
-//     rewrite happens against this stable surface.
-//
-// hadStreamErr semantics: the loopback retry at line 130 below is a
-// workaround for SSE-error chunks the loopback HTTP path emits. A
-// direct controller adapter never sees this race; the retry becomes
-// a no-op (the adapter returns hadStreamErr=false). Safe to keep —
+// hadStreamErr semantics: the SSE-error path is a workaround for
+// streaming-error chunks the chat handler may emit mid-stream. The
+// retry at line 130 below treats it as transient; safe to keep —
 // it's a one-shot, idempotent retry.
 type SessionClient interface {
 	StartChatWithStatus(ctx context.Context, req StartChatRequest) (types.Session, bool, error)
@@ -45,18 +31,16 @@ type SessionClient interface {
 //     session reports a terminal status.
 //   - StopExternalAgent: used by the chat bridge's NewHandler.
 //
-// helixclient.Client transitionally satisfies SpawnerClient; the
-// future direct-controller adapter will too.
+// Production impl is the in-process inProcHelixClient adapter.
 type SpawnerClient interface {
 	SessionClient
 	GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
 }
 
-// sendToSession is the in-package equivalent of
-// helixclient.SendToSession: try to push a message to an existing
-// session via /sessions/chat with SessionID set. Returns an error if
-// the session is no longer running (Helix reports streamHadErr=true).
+// sendToSession pushes a message to an existing session via
+// /sessions/chat with SessionID set. Returns an error if the session
+// is no longer running (Helix reports streamHadErr=true).
 func sendToSession(ctx context.Context, client SessionClient, req StartChatRequest) (types.Session, error) {
 	if req.SessionID == "" {
 		return types.Session{}, errors.New("sendToSession: SessionID required")
@@ -71,8 +55,8 @@ func sendToSession(ctx context.Context, client SessionClient, req StartChatReque
 	return session, nil
 }
 
-// checkDesktopQuota is the in-package equivalent of
-// helixclient.CheckDesktopQuota.
+// checkDesktopQuota pre-flights the desktop quota gate before
+// opening a new session.
 func checkDesktopQuota(ctx context.Context, client SessionClient) error {
 	status, err := client.ServerStatus(ctx)
 	if err != nil {
