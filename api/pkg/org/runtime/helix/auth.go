@@ -45,10 +45,15 @@ func WithBearerToken(ctx context.Context, token string) context.Context {
 }
 
 // BearerFromContext returns the per-request bearer stashed by
-// WithBearerToken, or "" if none.
+// WithBearerToken, falling back to the HelixIdentity stash (H6) if
+// the legacy bearer key isn't set. Empty when neither is present —
+// the runtime then uses its static service key.
 func BearerFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(bearerTokenKey{}).(string); ok {
+	if v, ok := ctx.Value(bearerTokenKey{}).(string); ok && v != "" {
 		return v
+	}
+	if id, ok := HelixIdentityFromContext(ctx); ok && id.BearerToken != "" {
+		return id.BearerToken
 	}
 	return ""
 }
@@ -63,10 +68,26 @@ func WithUserID(ctx context.Context, userID string) context.Context {
 }
 
 // UserIDFromContext returns the user identifier stashed by
-// WithUserID, or "" if none.
+// WithUserID, falling back to the HelixIdentity stash (H6) if the
+// legacy userID key isn't set.
 func UserIDFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(userIDKey{}).(string); ok {
+	if v, ok := ctx.Value(userIDKey{}).(string); ok && v != "" {
 		return v
+	}
+	if id, ok := HelixIdentityFromContext(ctx); ok && id.UserID != "" {
+		return id.UserID
+	}
+	return ""
+}
+
+// OrganizationIDFromContext returns the OrganizationID stashed via
+// WithHelixIdentity (H6) — the helix.Organization the request acts
+// within. Empty when the request hasn't been identified to an org
+// (service paths / legacy single-tenant alpha). H5.x call sites
+// use this to scope hires and lookups.
+func OrganizationIDFromContext(ctx context.Context) string {
+	if id, ok := HelixIdentityFromContext(ctx); ok {
+		return id.OrganizationID
 	}
 	return ""
 }
