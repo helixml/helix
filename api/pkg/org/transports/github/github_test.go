@@ -43,7 +43,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
-	githubtransport "github.com/helixml/helix/helix-org/transports/github"
+	githubtransport "github.com/helixml/helix/api/pkg/org/transports/github"
 )
 
 const testWebhookSecret = "abc123" // shared secret used in HMAC computations

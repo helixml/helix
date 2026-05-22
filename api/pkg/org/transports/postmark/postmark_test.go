@@ -21,7 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/transports/postmark"
+	"github.com/helixml/helix/api/pkg/org/transports/postmark"
 )
 
 // recordingDispatcher captures Dispatch calls for assertion.
