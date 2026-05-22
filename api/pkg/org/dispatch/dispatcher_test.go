@@ -26,7 +26,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // caught is one POST observed by the test catcher.

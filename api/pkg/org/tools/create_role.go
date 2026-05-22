@@ -10,7 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // CreateRole defines a new Role: an ID and the canonical markdown

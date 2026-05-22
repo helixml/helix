@@ -10,7 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // CreatePosition instantiates a Role as a concrete slot in the org chart.

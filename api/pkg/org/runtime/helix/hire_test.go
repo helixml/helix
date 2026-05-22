@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/runtime"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 )
 

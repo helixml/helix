@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/message"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // The Message round-trip tests (M1..M4) moved to

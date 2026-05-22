@@ -9,7 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // EnsureActivationStream creates the per-Worker activation Stream

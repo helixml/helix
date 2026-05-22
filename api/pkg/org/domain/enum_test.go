@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // WorkerKind tests moved to api/pkg/org/worker/kind_test.go in B3a

@@ -42,7 +42,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 	githubtransport "github.com/helixml/helix/api/pkg/org/transports/github"
 )
 

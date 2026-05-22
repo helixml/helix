@@ -6,7 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/principal"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // TestEventSourcePrincipalLiftsWorkerSource pins B6.3 on the Event

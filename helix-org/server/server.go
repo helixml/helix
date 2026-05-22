@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
+	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/tools"
-	"github.com/helixml/helix/helix-org/domain"
 )
 
 // Dispatcher is the subset of the dispatcher this package needs:

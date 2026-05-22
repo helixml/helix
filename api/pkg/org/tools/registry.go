@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/helix-org/domain"
+	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 // Registry is an in-memory map of tool name to implementation.
