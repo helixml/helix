@@ -783,6 +783,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
 			LocalFSPath:          apiServer.Cfg.FileStore.LocalFSPath,
 			GitRepositoryService: apiServer.gitRepositoryService,
+			APIServer:            apiServer,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
