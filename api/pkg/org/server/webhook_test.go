@@ -23,7 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tools"
 	"github.com/helixml/helix/api/pkg/org/transport"
-	"github.com/helixml/helix/helix-org/server"
+	"github.com/helixml/helix/api/pkg/org/server"
 )
 
 // recordingDispatcher captures every Dispatch call so tests can assert

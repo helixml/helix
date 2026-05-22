@@ -16,7 +16,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/helixclient"
-	"github.com/helixml/helix/helix-org/server/chat"
+	"github.com/helixml/helix/api/pkg/org/server/chat"
 	orgstore "github.com/helixml/helix/api/pkg/org/store"
 
 	"github.com/helixml/helix/api/pkg/org/worker"

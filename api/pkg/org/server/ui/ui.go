@@ -23,7 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/server/chat"
+	"github.com/helixml/helix/api/pkg/org/server/chat"
 )
 
 // Deps is everything the UI surface needs from its host. The wiring
