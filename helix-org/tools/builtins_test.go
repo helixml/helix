@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/role"
@@ -806,6 +807,166 @@ func TestWorkerLog(t *testing.T) {
 		"workerId": "w-owner",
 	}); err == nil {
 		t.Fatalf("worker_log on human worker should error")
+	}
+}
+
+// TestWorkerLogFiltersByActivationID pins B5.7 — when activationId is
+// passed, worker_log returns only the events that fall inside that
+// Activation's [StartedAt, EndedAt] window. Without it, the full
+// firehose is returned (back-compat).
+func TestWorkerLogFiltersByActivationID(t *testing.T) {
+	t.Parallel()
+
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	envsDir := t.TempDir()
+	reg := tools.NewRegistry()
+	deps := tools.DefaultDeps(s)
+	deps.EnvsDir = envsDir
+	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Second)
+
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, base)
+	mustCreate(t, s.Roles.Create(ctx, ownerRole))
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	mustCreate(t, s.Positions.Create(ctx, rootPos))
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	mustCreate(t, s.Workers.Create(ctx, owner))
+	bot, _ := domain.NewAIWorker("w-bot", "p-root", "")
+	mustCreate(t, s.Workers.Create(ctx, bot))
+
+	streamID := activation.StreamID("w-bot")
+	str, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", base, transport.Transport{})
+	mustCreate(t, s.Streams.Create(ctx, str))
+
+	// Two activations, non-overlapping windows. Events at +1s and +2s
+	// land inside their respective activation's window.
+	a1Start := base
+	a1End := base.Add(5 * time.Second)
+	a2Start := base.Add(10 * time.Second)
+	a2End := base.Add(15 * time.Second)
+
+	a1, _ := activation.New("a-1", "w-bot", []activation.Trigger{{Kind: activation.TriggerHire}}, a1Start)
+	mustCreate(t, s.Activations.Create(ctx, a1))
+	mustCreate(t, s.Activations.Complete(ctx, "a-1", activation.Outcome{Status: activation.StatusOK}, a1End))
+
+	a2, _ := activation.New("a-2", "w-bot", []activation.Trigger{{Kind: activation.TriggerEvent}}, a2Start)
+	mustCreate(t, s.Activations.Create(ctx, a2))
+	mustCreate(t, s.Activations.Complete(ctx, "a-2", activation.Outcome{Status: activation.StatusOK}, a2End))
+
+	// Seed events spanning both windows + one in the gap (must NOT be
+	// returned for either activation_id).
+	plan := []struct {
+		id   string
+		at   time.Time
+		body string
+	}{
+		{"e-1a", a1Start.Add(time.Second), "assistant: a1-first"},
+		{"e-1b", a1Start.Add(2 * time.Second), "assistant: a1-second"},
+		{"e-gap", a1End.Add(2 * time.Second), "assistant: between"},
+		{"e-2a", a2Start.Add(time.Second), "assistant: a2-first"},
+		{"e-2b", a2Start.Add(2 * time.Second), "assistant: a2-second"},
+	}
+	for _, p := range plan {
+		ev, _ := domain.NewEvent(event.ID(p.id), streamID, "w-bot", p.body, p.at)
+		mustCreate(t, s.Events.Append(ctx, ev))
+	}
+
+	for _, name := range []tool.Name{tools.WorkerLogName} {
+		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name)
+		mustCreate(t, s.Grants.Create(ctx, g))
+	}
+	ownerSession := connectMCP(t, srv.URL, "w-owner")
+
+	type result struct {
+		Events []struct {
+			ID   string `json:"id"`
+			Body string `json:"body"`
+		} `json:"events"`
+	}
+
+	// Without activationId: every event on the stream comes back.
+	raw, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{"workerId": "w-bot"})
+	if err != nil {
+		t.Fatalf("worker_log no filter: %v", err)
+	}
+	var all result
+	_ = json.Unmarshal(raw, &all)
+	if len(all.Events) != 5 {
+		t.Fatalf("no-filter events = %d, want 5 (back-compat)", len(all.Events))
+	}
+
+	// activationId=a-1 → only the two events whose CreatedAt falls in
+	// [a1Start, a1End]. The gap event and a-2's events are excluded.
+	raw, err = invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId":     "w-bot",
+		"activationId": "a-1",
+	})
+	if err != nil {
+		t.Fatalf("worker_log a-1: %v", err)
+	}
+	var first result
+	_ = json.Unmarshal(raw, &first)
+	if len(first.Events) != 2 {
+		t.Fatalf("a-1 events = %d, want 2; got: %+v", len(first.Events), first.Events)
+	}
+	for _, e := range first.Events {
+		if e.ID != "e-1a" && e.ID != "e-1b" {
+			t.Errorf("a-1 returned unexpected event %q (%q)", e.ID, e.Body)
+		}
+	}
+
+	// activationId=a-2 → a-2's two events only.
+	raw, err = invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId":     "w-bot",
+		"activationId": "a-2",
+	})
+	if err != nil {
+		t.Fatalf("worker_log a-2: %v", err)
+	}
+	var second result
+	_ = json.Unmarshal(raw, &second)
+	if len(second.Events) != 2 {
+		t.Fatalf("a-2 events = %d, want 2; got: %+v", len(second.Events), second.Events)
+	}
+	for _, e := range second.Events {
+		if e.ID != "e-2a" && e.ID != "e-2b" {
+			t.Errorf("a-2 returned unexpected event %q (%q)", e.ID, e.Body)
+		}
+	}
+
+	// Unknown activationId is a hard error — the caller pointed at a
+	// row that doesn't exist, and silently returning [] would be a
+	// data-loss bug.
+	if _, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId":     "w-bot",
+		"activationId": "a-missing",
+	}); err == nil {
+		t.Fatalf("worker_log with unknown activationId should error")
+	}
+
+	// activationId belonging to a *different* Worker is rejected too —
+	// no cross-Worker leakage even if the caller knows another
+	// Worker's activation IDs.
+	other, _ := domain.NewAIWorker("w-other", "p-root", "")
+	mustCreate(t, s.Workers.Create(ctx, other))
+	otherStream, _ := domain.NewStream(activation.StreamID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{})
+	mustCreate(t, s.Streams.Create(ctx, otherStream))
+	a3, _ := activation.New("a-3", "w-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base)
+	mustCreate(t, s.Activations.Create(ctx, a3))
+	if _, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId":     "w-bot",
+		"activationId": "a-3",
+	}); err == nil {
+		t.Fatalf("worker_log with cross-Worker activationId should error")
 	}
 }
 
