@@ -25,7 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/dispatch"
+	"github.com/helixml/helix/api/pkg/org/dispatch"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
