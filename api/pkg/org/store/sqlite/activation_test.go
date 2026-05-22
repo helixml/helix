@@ -9,7 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 // newActivationStore opens an in-memory sqlite Store for activation

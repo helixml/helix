@@ -109,7 +109,7 @@ func (a *Activation) IsCompleted() bool {
 }
 
 // Repository is the storage port. Implementations live next to the
-// host's store package (helix-org/store/sqlite for the alpha;
+// host's store package (api/pkg/org/store/sqlite for the alpha;
 // api/pkg/store for the H4 Postgres migration). The interface stays
 // in the domain package so the aggregate's persistence boundary is
 // explicit and swappable.

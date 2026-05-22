@@ -14,7 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 // SpawnerConfig wires the helix-backed Spawner. The Client is

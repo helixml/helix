@@ -17,7 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/server/chat"
-	orgstore "github.com/helixml/helix/helix-org/store"
+	orgstore "github.com/helixml/helix/api/pkg/org/store"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	helixstore "github.com/helixml/helix/api/pkg/store"

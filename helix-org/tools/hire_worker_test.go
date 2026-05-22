@@ -14,10 +14,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/role"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
 // fakeDispatcher records DispatchHire and Dispatch calls so the test

@@ -9,7 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 // ErrProjectNotFound is the sentinel a ProjectService impl must return

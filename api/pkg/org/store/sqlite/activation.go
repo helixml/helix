@@ -12,7 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 // activationRow is the GORM model for the activations table. Triggers

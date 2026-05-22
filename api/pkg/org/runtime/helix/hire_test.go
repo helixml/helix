@@ -6,7 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 )
 
 func TestHireRecorderPersistsHiringUser(t *testing.T) {

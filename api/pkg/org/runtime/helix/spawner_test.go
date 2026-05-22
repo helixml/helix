@@ -19,8 +19,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/store"
-	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/api/pkg/org/store"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 )
 
 // fakeHelixClient is a deterministic stand-in for Client.

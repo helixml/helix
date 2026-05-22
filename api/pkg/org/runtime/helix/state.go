@@ -14,7 +14,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 // Backend is the label used in WorkerRuntimeState to namespace this

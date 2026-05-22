@@ -1,5 +1,11 @@
-// Package store defines the persistence contracts used by the server and
-// tools. Concrete implementations live in sub-packages (e.g. sqlite).
+// Package store defines the persistence contracts for the org-graph
+// subsystem (workers, positions, roles, grants, streams, events,
+// subscriptions, activations, environments, configs). Concrete
+// implementations live in sub-packages (e.g. sqlite).
+//
+// Canonical home, lifted from helix-org/store in H4.1. The sqlite
+// impl stays the alpha's storage backend until the postgres impl
+// (H4.2+) lands, layered on the same interfaces here.
 package store
 
 import (

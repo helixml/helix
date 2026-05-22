@@ -11,11 +11,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/prompts"
 	"github.com/helixml/helix/helix-org/server"
-	"github.com/helixml/helix/helix-org/store/sqlite"
 	"github.com/helixml/helix/helix-org/tools"
 )
 

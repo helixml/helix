@@ -9,8 +9,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/store"
-	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/api/pkg/org/store"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 )
 
 func newStore(t *testing.T) *store.Store {

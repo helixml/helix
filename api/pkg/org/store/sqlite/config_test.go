@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/store"
+	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 func TestConfigsSetGetUpsert(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 )
 
 func newRegistry(t *testing.T) *config.Registry {

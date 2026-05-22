@@ -43,9 +43,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/message"
+	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/store"
 )
 
 // Config is the parsed shape of the operational-config row

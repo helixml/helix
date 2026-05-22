@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	helixorgconfig "github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/helix-org/store/sqlite"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 )
 
 // TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets pins

@@ -26,8 +26,8 @@ import (
 	helixorgserver "github.com/helixml/helix/helix-org/server"
 	"github.com/helixml/helix/helix-org/server/chat"
 	helixorgui "github.com/helixml/helix/helix-org/server/ui"
-	helixorgstore "github.com/helixml/helix/helix-org/store"
-	"github.com/helixml/helix/helix-org/store/sqlite"
+	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
+	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/helix-org/tools"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
