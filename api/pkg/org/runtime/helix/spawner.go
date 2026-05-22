@@ -146,9 +146,15 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// a Create failure becomes a hard error.
 		act := newActivationRecord(cfg, workerID, triggers)
 		if act != nil {
-			if err := cfg.Store.Activations.Create(ctx, act); err != nil {
-				if cfg.Logger != nil {
-					cfg.Logger.Warn("helix spawner: persist activation row", "worker", workerID, "activation", act.ID, "err", err)
+			// Skip Create when hire_worker pre-allocated the row (B5.8) —
+			// the row exists from the caller's request; this path just
+			// Completes it.
+			preallocated := triggers[0].ActivationID != ""
+			if !preallocated {
+				if err := cfg.Store.Activations.Create(ctx, act); err != nil {
+					if cfg.Logger != nil {
+						cfg.Logger.Warn("helix spawner: persist activation row", "worker", workerID, "activation", act.ID, "err", err)
+					}
 				}
 			}
 			defer func() {
@@ -223,11 +229,21 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // runs (transcript stream only) so older tests and dev wirings
 // keep working through the B5 transition. Once every caller wires
 // these, the nil branch becomes a hard error.
+//
+// When the lead trigger carries a pre-allocated ActivationID (set by
+// hire_worker in B5.8), the returned struct adopts that ID and the
+// caller (Spawner) skips Create — the row already exists in the
+// store. The Complete path still runs at end-of-activation to set
+// EndedAt/Outcome on the pre-existing row.
 func newActivationRecord(cfg SpawnerConfig, workerID worker.ID, triggers []activation.Trigger) *activation.Activation {
 	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
 		return nil
 	}
-	act, err := activation.New(activation.ID("a-"+cfg.NewID()), workerID, triggers, cfg.Now())
+	id := triggers[0].ActivationID
+	if id == "" {
+		id = activation.ID("a-" + cfg.NewID())
+	}
+	act, err := activation.New(id, workerID, triggers, cfg.Now())
 	if err != nil {
 		if cfg.Logger != nil {
 			cfg.Logger.Warn("helix spawner: build activation record", "worker", workerID, "err", err)

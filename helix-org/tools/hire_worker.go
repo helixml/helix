@@ -222,11 +222,36 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		}
 	}
 
-	if args.Kind == worker.KindAI && t.deps.Dispatcher != nil {
-		t.deps.Dispatcher.DispatchHire(ctx, id, envPath)
+	// Pre-create the hire-Activation audit row so hire_worker can
+	// return the ID synchronously. The Spawner picks up this row
+	// (matched by Trigger.ActivationID) and Completes it when the
+	// activation finishes, rather than minting a sibling.
+	var hireActID activation.ID
+	if args.Kind == worker.KindAI && t.deps.Store.Activations != nil {
+		hireActID = activation.ID("a-" + t.deps.NewID())
+		hireAct, err := activation.New(
+			hireActID,
+			id,
+			[]activation.Trigger{{Kind: activation.TriggerHire}},
+			t.deps.Now(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("build hire activation: %w", err)
+		}
+		if err := t.deps.Store.Activations.Create(ctx, hireAct); err != nil {
+			return nil, fmt.Errorf("persist hire activation: %w", err)
+		}
 	}
 
-	return json.Marshal(map[string]string{"id": string(id)})
+	if args.Kind == worker.KindAI && t.deps.Dispatcher != nil {
+		t.deps.Dispatcher.DispatchHire(ctx, id, envPath, hireActID)
+	}
+
+	resp := map[string]string{"id": string(id)}
+	if hireActID != "" {
+		resp["activation_id"] = string(hireActID)
+	}
+	return json.Marshal(resp)
 }
 
 // createActivationStream creates the per-Worker activation Stream and

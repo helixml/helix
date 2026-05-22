@@ -41,12 +41,20 @@ const (
 // Worker up.
 //
 // Fields are populated according to Kind:
-//   - TriggerHire: Kind only.
+//   - TriggerHire: Kind only (plus optional ActivationID below).
 //   - TriggerEvent: Kind, EventID, StreamID, Source, SourceKind,
 //     Message, CreatedAt all populated by the dispatcher at fan-out
 //     time.
 type Trigger struct {
 	Kind TriggerKind
+
+	// ActivationID, when non-empty, is the pre-allocated audit-row ID
+	// the caller wants the Spawner to use for this activation. Hire
+	// flows pre-create the row in the caller's request context so
+	// hire_worker can return the ID synchronously; the Spawner picks
+	// up the same row instead of creating a sibling. Empty means
+	// "Spawner mints its own ID" — the event-driven path today.
+	ActivationID ID
 
 	// Event fields, set when Kind == TriggerEvent.
 	EventID  event.ID

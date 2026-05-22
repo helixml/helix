@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -27,7 +28,13 @@ type IDGen func() string
 // dispatcher itself imports tools).
 type EventDispatcher interface {
 	Dispatch(ctx context.Context, event domain.Event)
-	DispatchHire(ctx context.Context, workerID worker.ID, envPath string)
+	// DispatchHire fires a TriggerHire activation. activationID is the
+	// pre-allocated audit-row ID hire_worker created before calling
+	// DispatchHire — it travels through the trigger so the Spawner
+	// reuses the existing row instead of writing a sibling. Empty
+	// activationID is allowed for callers that don't pre-allocate
+	// (legacy code paths, tests that don't wire activation.Repository).
+	DispatchHire(ctx context.Context, workerID worker.ID, envPath string, activationID activation.ID)
 }
 
 // Deps bundles the stores, clocks, and configuration tools need.

@@ -111,12 +111,23 @@ func (d *Dispatcher) SetEmailEmitter(e EmailEmitter) { d.emailEmitter = e }
 // its own background context — independent of the HTTP request that
 // triggered it, so the spawned process is not killed when the request
 // completes.
+//
+// activationID is the pre-allocated audit-row ID hire_worker created
+// alongside the Worker. It's threaded through the trigger so the
+// Spawner reuses the same row (StartedAt=now, EndedAt=nil) rather
+// than writing a sibling. Empty activationID is allowed for callers
+// that don't pre-allocate — the Spawner mints its own ID in that
+// case.
+//
 // No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string) {
+func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string, activationID activation.ID) {
 	if d.spawner == nil {
 		return
 	}
-	d.enqueue(workerID, envPath, activation.Trigger{Kind: activation.TriggerHire})
+	d.enqueue(workerID, envPath, activation.Trigger{
+		Kind:         activation.TriggerHire,
+		ActivationID: activationID,
+	})
 }
 
 // Dispatch fans an Event out to every AI Worker subscribed to its

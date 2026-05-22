@@ -30,8 +30,9 @@ type fakeDispatcher struct {
 }
 
 type dispatchHireCall struct {
-	workerID worker.ID
-	envPath  string
+	workerID     worker.ID
+	envPath      string
+	activationID activation.ID
 }
 
 func (f *fakeDispatcher) Dispatch(_ context.Context, _ domain.Event) {
@@ -40,9 +41,9 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, _ domain.Event) {
 	f.mu.Unlock()
 }
 
-func (f *fakeDispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string) {
+func (f *fakeDispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string, activationID activation.ID) {
 	f.mu.Lock()
-	f.hires = append(f.hires, dispatchHireCall{workerID: workerID, envPath: envPath})
+	f.hires = append(f.hires, dispatchHireCall{workerID: workerID, envPath: envPath, activationID: activationID})
 	f.mu.Unlock()
 }
 
@@ -151,6 +152,66 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 // hire ALSO creates the activation Stream, subscribes the hiring
 // Worker to it, and calls DispatchHire. This is the full AI-hire
 // recipe.
+// TestHireWorkerReturnsActivationID pins B5.8: a successful AI hire
+// responds with both the new Worker ID and the hire-Activation ID,
+// and the Activation row exists in the store at the moment the
+// response is built — callers can immediately filter worker_log by
+// the returned activation_id without racing the Spawner.
+func TestHireWorkerReturnsActivationID(t *testing.T) {
+	t.Parallel()
+	deps, dispatcher, _, caller := newHireTestEnv(t)
+	tool := &HireWorker{deps: deps}
+
+	args, _ := json.Marshal(hireWorkerArgs{
+		ID:              "w-alice",
+		PositionID:      "p-root",
+		Kind:            worker.KindAI,
+		IdentityContent: "# Alice",
+	})
+	raw, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args})
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	var resp struct {
+		ID           string `json:"id"`
+		ActivationID string `json:"activation_id"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal hire response: %v", err)
+	}
+	if resp.ID != "w-alice" {
+		t.Errorf("response.id = %q, want w-alice", resp.ID)
+	}
+	if resp.ActivationID == "" {
+		t.Fatal("response.activation_id is empty; want a hire-Activation ID")
+	}
+
+	row, err := deps.Store.Activations.Get(context.Background(), activation.ID(resp.ActivationID))
+	if err != nil {
+		t.Fatalf("activation %q not in store: %v", resp.ActivationID, err)
+	}
+	if row.WorkerID != "w-alice" {
+		t.Errorf("row.WorkerID = %q, want w-alice", row.WorkerID)
+	}
+	if row.TranscriptStreamID != activation.StreamID("w-alice") {
+		t.Errorf("row.TranscriptStreamID = %q, want %q", row.TranscriptStreamID, activation.StreamID("w-alice"))
+	}
+	if len(row.Triggers) != 1 || row.Triggers[0].Kind != activation.TriggerHire {
+		t.Errorf("row.Triggers = %+v, want one hire trigger", row.Triggers)
+	}
+	if row.IsCompleted() {
+		t.Error("row already completed at hire-response time; Spawner hasn't fired yet")
+	}
+	// DispatchHire was forwarded the same activation ID so the Spawner
+	// reuses this row rather than creating a sibling.
+	if n := dispatcher.hireCount(); n != 1 {
+		t.Fatalf("DispatchHire calls = %d, want 1", n)
+	}
+	if got := dispatcher.hires[0].activationID; got != activation.ID(resp.ActivationID) {
+		t.Errorf("DispatchHire activationID = %q, want %q", got, resp.ActivationID)
+	}
+}
+
 func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	t.Parallel()
 	deps, dispatcher, _, caller := newHireTestEnv(t)
@@ -233,11 +294,11 @@ func (d *dispatcherCapturingGrants) Dispatch(ctx context.Context, e domain.Event
 	d.inner.Dispatch(ctx, e)
 }
 
-func (d *dispatcherCapturingGrants) DispatchHire(ctx context.Context, w worker.ID, envPath string) {
+func (d *dispatcherCapturingGrants) DispatchHire(ctx context.Context, w worker.ID, envPath string, activationID activation.ID) {
 	if d.onHire != nil {
 		d.onHire()
 	}
-	d.inner.DispatchHire(ctx, w, envPath)
+	d.inner.DispatchHire(ctx, w, envPath, activationID)
 }
 
 // TestHireWorkerEnvDirCreated checks the on-disk Environment dir is
