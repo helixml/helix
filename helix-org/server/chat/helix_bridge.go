@@ -13,11 +13,11 @@ import (
 	"log/slog"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
+	"github.com/helixml/helix/api/pkg/org/helixclient"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
 // ActivationPublisher writes activation events to

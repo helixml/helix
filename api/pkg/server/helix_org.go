@@ -22,7 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/api/pkg/org/helixclient"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	helixorgserver "github.com/helixml/helix/helix-org/server"
 	"github.com/helixml/helix/helix-org/server/chat"

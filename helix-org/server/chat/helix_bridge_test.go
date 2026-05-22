@@ -15,9 +15,9 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
+	"github.com/helixml/helix/api/pkg/org/helixclient"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
 // fakeEnsurer is a fixed ProjectEnsurer that returns canned IDs so
