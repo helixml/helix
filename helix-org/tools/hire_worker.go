@@ -162,6 +162,14 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		// Unreachable: Validate() above already rejected unknown kinds.
 		return nil, args.Kind.Validate()
 	}
+	// New Worker inherits the hiring caller's OrgID (H5.3) so the
+	// tenancy boundary travels through the hire chain — w-owner in
+	// org-acme hires a Worker in org-acme; never cross-tenant. Empty
+	// caller OrgID (single-tenant alpha) leaves the new Worker
+	// unscoped, matching today's behaviour.
+	if orgID := inv.Caller.OrganizationID(); orgID != "" {
+		wkr = wkr.WithOrgID(orgID)
+	}
 
 	// The env directory exists so it can be the Worker's cwd at
 	// activation; the spawner writes role.md / identity.md / agent.md

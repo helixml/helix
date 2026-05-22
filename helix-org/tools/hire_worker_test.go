@@ -511,3 +511,58 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 		t.Errorf("HiringUserID = %q, want empty", state.HiringUserID)
 	}
 }
+
+// TestHireWorkerInheritsCallerOrgID pins H5.3: the new Worker
+// inherits its OrganizationID from the hiring caller's OrgID, so
+// tenancy travels through the hire chain — w-owner in org-acme can
+// only ever produce Workers in org-acme. Empty caller OrgID
+// (single-tenant alpha) leaves the new Worker unscoped, matching
+// today's behaviour.
+func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
+	t.Parallel()
+	deps, _, _, baseCaller := newHireTestEnv(t)
+	// Re-stamp the caller with an OrgID via WithOrgID so subsequent
+	// hires inherit it.
+	caller := baseCaller.WithOrgID("org-acme")
+	tool := &HireWorker{deps: deps}
+
+	args, _ := json.Marshal(hireWorkerArgs{
+		ID:              "w-alice",
+		PositionID:      "p-root",
+		Kind:            worker.KindAI,
+		IdentityContent: "# Alice",
+	})
+	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	got, err := deps.Store.Workers.Get(context.Background(), "w-alice")
+	if err != nil {
+		t.Fatalf("Get hired worker: %v", err)
+	}
+	if got.OrganizationID() != "org-acme" {
+		t.Errorf("hired worker OrgID = %q, want org-acme (inherited from caller)", got.OrganizationID())
+	}
+}
+
+// TestHireWorkerLeavesOrgIDEmptyForUnscopedCaller pins the
+// single-tenant default: caller with no OrgID hires Workers with no
+// OrgID. Mirrors today's behaviour where the alpha is single-tenant.
+func TestHireWorkerLeavesOrgIDEmptyForUnscopedCaller(t *testing.T) {
+	t.Parallel()
+	deps, _, _, caller := newHireTestEnv(t)
+	tool := &HireWorker{deps: deps}
+
+	args, _ := json.Marshal(hireWorkerArgs{
+		ID:              "w-bob",
+		PositionID:      "p-root",
+		Kind:            worker.KindAI,
+		IdentityContent: "# Bob",
+	})
+	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	got, _ := deps.Store.Workers.Get(context.Background(), "w-bob")
+	if got.OrganizationID() != "" {
+		t.Errorf("hired worker OrgID = %q, want empty (caller has no OrgID)", got.OrganizationID())
+	}
+}
