@@ -12,9 +12,26 @@ import (
 // SessionClient is the small slice of the chat-session API
 // EnsureAndSend depends on. Lifted out of helixclient.Client during
 // H1.3a so sessions.go lives in canonical without importing the
-// legacy helixclient package. helixclient.Client satisfies this
-// interface; the H1.3c rewrite will replace the helixclient adapter
-// with a direct controller adapter.
+// legacy helixclient package.
+//
+// Two impls satisfy this port:
+//
+//   - helixclient.Client (transitional, via the helixclient adapter
+//     at helix-org/helix/helixclient/runtime_adapter.go): same
+//     loopback-HTTP semantics as before, used by the H1 sequence's
+//     intermediate states.
+//   - A direct controller adapter (future): the wiring layer at
+//     api/pkg/server/helix_org.go builds a SessionClient that calls
+//     controller.WriteSession / WriteInteractions / ChatCompletion
+//     directly. Deferred to its own slice — the structural decoupling
+//     (this interface) is the H1.3a/c contribution; the behavioural
+//     rewrite happens against this stable surface.
+//
+// hadStreamErr semantics: the loopback retry at line 130 below is a
+// workaround for SSE-error chunks the loopback HTTP path emits. A
+// direct controller adapter never sees this race; the retry becomes
+// a no-op (the adapter returns hadStreamErr=false). Safe to keep —
+// it's a one-shot, idempotent retry.
 type SessionClient interface {
 	StartChatWithStatus(ctx context.Context, req StartChatRequest) (Session, bool, error)
 	ServerStatus(ctx context.Context) (ServerStatus, error)
