@@ -24,6 +24,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
+	helixorgapi "github.com/helixml/helix/api/pkg/org/server/api"
 	"github.com/helixml/helix/api/pkg/org/server/chat"
 	helixorgui "github.com/helixml/helix/api/pkg/org/server/ui"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
@@ -300,12 +301,35 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
+	// Phase A of the UI migration: JSON handlers stood up next to the
+	// SSR. The /api/v1/org/ surface picks them up automatically since
+	// they're passed as extras to the orgServer handler (which strips
+	// the /api/v1/org prefix at the host). The SSR routes under /ui/
+	// remain untouched and continue to render until Phase C.
+	apiDeps := helixorgapi.Deps{
+		Store:      st,
+		Configs:    configReg,
+		Hub:        bc,
+		Dispatcher: dispatcher,
+		Owner:      "w-owner",
+		DBPath:     orgRoot,
+		EnvsDir:    envsDir,
+		NewID:      deps.NewID,
+		Now:        deps.Now,
+	}
+	apiRoutes := helixorgapi.Routes(apiDeps)
+	extras := make([]helixorgserver.Route, 0, len(apiRoutes))
+	for _, rt := range apiRoutes {
+		extras = append(extras, helixorgserver.Route{Pattern: rt.Pattern, Handler: rt.Handler})
+	}
+
 	log.Info().
 		Str("root", orgRoot).
 		Str("envs", envsDir).
 		Bool("chat_enabled", chatBridge != nil).
+		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/org/ + /ui/")
-	return &helixOrgHandlers{api: orgServer.Handler(), ui: uiMux}, nil
+	return &helixOrgHandlers{api: orgServer.Handler(extras...), ui: uiMux}, nil
 }
 
 // helixOrgConfig is just enough of the surrounding config to bring
