@@ -14,7 +14,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/position"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 )
@@ -202,7 +201,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	}
 
 	if args.Kind == worker.KindAI {
-		if err := createActivationStream(ctx, t.deps, id, inv.Caller.ID()); err != nil {
+		if err := EnsureActivationStream(ctx, t.deps.Store, id, inv.Caller.ID(), t.deps.Now()); err != nil {
 			return nil, err
 		}
 	}
@@ -252,36 +251,4 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		resp["activation_id"] = string(hireActID)
 	}
 	return json.Marshal(resp)
-}
-
-// createActivationStream creates the per-Worker activation Stream and
-// subscribes the hiring Worker to it. The Stream ID is deterministic
-// (s-activations-<workerID>) so the Spawner can find it without an
-// extra lookup.
-func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWorkerID worker.ID) error {
-	streamID := activation.StreamID(workerID)
-	stream, err := domain.NewStream(
-		streamID,
-		"Activations: "+string(workerID),
-		"Per-message activation transcript for "+string(workerID)+
-			" — assistant text, tool calls, tool results. "+
-			"Read with read_events to audit a hire.",
-		hiringWorkerID,
-		deps.Now(),
-		transport.Transport{},
-	)
-	if err != nil {
-		return fmt.Errorf("activation stream: %w", err)
-	}
-	if err := deps.Store.Streams.Create(ctx, stream); err != nil {
-		return fmt.Errorf("create activation stream: %w", err)
-	}
-	sub, err := domain.NewSubscription(hiringWorkerID, streamID, deps.Now())
-	if err != nil {
-		return fmt.Errorf("activation subscription: %w", err)
-	}
-	if err := deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-		return fmt.Errorf("subscribe %q to activation stream: %w", hiringWorkerID, err)
-	}
-	return nil
 }
