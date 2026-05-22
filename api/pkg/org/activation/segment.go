@@ -37,7 +37,7 @@ const (
 
 // segmentBodyLimit caps the marker body at 500 runes plus an ellipsis
 // — the long-standing convention every emitter has used (lifted
-// from helix-org/agent.OneLine). Keeping it inside Marker() means
+// from api/pkg/org/agent.OneLine). Keeping it inside Marker() means
 // every emitter gets the same on-wire shape without each one having
 // to remember to truncate.
 const segmentBodyLimit = 500
@@ -117,7 +117,7 @@ func ParseSegment(body string) (TranscriptSegment, bool) {
 }
 
 // oneLine collapses whitespace and clips to max runes — the same
-// shape helix-org/agent.OneLine produces. Defined here so the
+// shape api/pkg/org/agent.OneLine produces. Defined here so the
 // activation package does not import agent.
 func oneLine(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")

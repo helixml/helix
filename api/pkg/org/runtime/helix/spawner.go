@@ -12,7 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/api/pkg/org/agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/org/store"
 )

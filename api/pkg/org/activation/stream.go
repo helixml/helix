@@ -13,7 +13,7 @@ import (
 // This is the single canonical place that derives the
 // `s-activations-<workerID>` convention. Every caller — hire_worker,
 // worker_log, the owner-chat bridge, /ui/streams, bootstrap — routes
-// through here. Lifted from helix-org/agent.ActivationStreamID in B5.1.
+// through here. Lifted from api/pkg/org/agent.ActivationStreamID in B5.1.
 func StreamID(workerID worker.ID) stream.ID {
 	return stream.ID("s-activations-" + string(workerID))
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
-	"github.com/helixml/helix/helix-org/agent"
+	"github.com/helixml/helix/api/pkg/org/agent"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
