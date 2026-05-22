@@ -1,14 +1,35 @@
 // Package helixclient is a thin REST + WebSocket client for the
 // co-located Helix server.
 //
-// Scope (after the per-Worker-project refactor):
-//   - Project lifecycle via the declarative apply endpoint.
-//   - Project secrets — env-var injection into agent containers.
-//   - Git contents — reading and writing job/* files on the helix-specs branch.
-//   - Chat session lifecycle (start, get, stop, output, live updates).
+// Status (post-H1.3d): TRANSITIONAL. The package's HTTP+WS transport
+// implementation is now the only thing keeping it alive — every
+// helix-org call site for chat / project / git operations goes
+// through the api/pkg/org/runtime/helix ports (ProjectService,
+// SessionClient, SpawnerClient, ProjectGitWriter), with this package
+// providing an adapter (AsProjectService) and the realClient as the
+// HTTP impl.
 //
-// All shapes mirror Helix's `api/pkg/types` so the client posts exactly
-// what Helix expects with no translation layer.
+// The plan's H1.4 target — delete this package outright — is blocked
+// on H1.3c (replace the helixclient HTTP adapter with a direct
+// controller adapter). Until that's done, helixclient remains as the
+// loopback transport for AI-Worker activations and owner-chat.
+//
+// What survives here in canonical form:
+//   - realClient: the HTTP+WS transport implementation
+//   - Client interface: minus a few methods the runtime ports replaced
+//   - AsProjectService: the transitional adapter
+//
+// What's already dead and re-exported as a type alias from
+// api/pkg/org/runtime/helix:
+//   - All chat-session wire types (SessionUpdate, EntryPatch, …)
+//   - EntryStream (entry_stream.go in canonical home)
+//   - EnsureAndSend (sessions.go in canonical home)
+//   - WorkerState + state helpers (state.go in canonical home)
+//
+// Once H1.3c lands, this package gets `git rm -r`'d in a single
+// commit — there are no longer any cross-package dependencies on
+// helixclient.Client outside the wiring file
+// (api/pkg/server/helix_org.go).
 package helixclient
 
 import (
