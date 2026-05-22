@@ -21,30 +21,31 @@ import (
 )
 
 // ActivationPublisher writes activation events to
-// s-activations-<workerID> for every owner-chat turn — same shape
-// the spawner uses for AI workers. Optional: when nil, owner-chat
-// runs without publishing (useful for tests).
+// s-activations-<workerID> for every chat turn — same shape the
+// spawner uses for AI Worker activations. Optional: when nil the
+// bridge runs without publishing (useful for tests).
 type ActivationPublisher func(ctx context.Context, workerID worker.ID, body string)
 
-// HelixBridge drives the owner chat surface against a Helix chat
-// session. Each Bridge owns **one** Helix session at a time (the
-// "current" session); New chat or Switch reset the pointer and the
-// next Send creates / resumes the chosen session.
+// HelixBridge is a chat surface bound to a single target Worker.
+// The Worker may be the owner ("w-owner" in today's alpha) or any
+// other AI Worker the operator wants a direct chat with — the
+// bridge does not distinguish. Multi-Worker chat surfaces are
+// constructed as separate bridges; each owns one Helix session at
+// a time for its target.
 //
-// Why one session per Bridge today: there is exactly one Owner chat
-// surface. When per-Worker chat surfaces arrive, swap the "current
-// session" field for a per-Worker map.
+// New chat or Switch reset the session pointer; the next Send
+// creates / resumes the chosen Helix session.
 //
-// SSE listeners: one channel per subscriber, broadcast publishes
-// drop on slow listeners. Frame translation lives in renderEvent
-// below — it converts Helix's WebsocketEvent payloads into the HTML
+// SSE listeners: one channel per subscriber, broadcasts drop on
+// slow listeners. Frame translation lives in renderEvent below —
+// it converts Helix's WebsocketEvent payloads into the HTML
 // fragment shape the UI expects.
 type HelixBridge struct {
 	client      helixclient.Client
-	ensure      ProjectEnsurer                        // resolves the owner Worker's per-Worker project; nil in app-only mode
+	ensure      ProjectEnsurer                        // resolves the target Worker's per-Worker project; nil in app-only mode
 	appID       string                                // app-only mode: when set, skip project lifecycle and chat against this existing Helix app
 	appIDFunc   func(context.Context) (string, error) // app-only mode: dynamic lookup (re-read per send so config changes take effect without restart). Takes precedence over appID.
-	ownerID     worker.ID
+	workerID    worker.ID                             // the Worker this bridge is chatting with
 	sessionRole string
 	provider    string
 	model       string
@@ -52,22 +53,22 @@ type HelixBridge struct {
 	logger      *slog.Logger
 	prompts     *prompts.Registry
 
-	// loadSessionID / saveSessionID persist the owner-chat session
-	// pointer so it survives process restarts. Optional — see
+	// loadSessionID / saveSessionID persist the chat session pointer
+	// so it survives process restarts. Optional — see
 	// HelixConfig.LoadSessionID / SaveSessionID.
 	loadSessionID func(ctx context.Context, workerID worker.ID) (string, error)
 	saveSessionID func(ctx context.Context, workerID worker.ID, sessionID string) error
 	loadOnce      sync.Once
 
 	// publishActivation writes events to s-activations-<workerID> so
-	// the owner's turns are observable in /ui/streams alongside every
-	// AI Worker's. nil disables publishing (tests, app-only mode).
+	// the target Worker's chat turns are observable in /ui/streams
+	// alongside every AI Worker's. nil disables publishing (tests,
+	// app-only mode).
 	publishActivation ActivationPublisher
 
 	// activations + newID + now persist one Activation row per send so
-	// the owner-chat audit surface matches the Spawner's (B5.6). All
-	// three nil = no row written; rows fire only when every field is
-	// wired.
+	// the chat audit surface matches the Spawner's (B5.6). All three
+	// nil = no row written; rows fire only when every field is wired.
 	activations activation.Repository
 	newID       func() string
 	now         func() time.Time
@@ -90,28 +91,32 @@ type HelixBridge struct {
 }
 
 // ProjectEnsurer resolves a Worker's Helix project IDs. The chat
-// bridge calls Ensure(ctx, ownerID) per send so the owner Worker's
+// bridge calls Ensure(ctx, workerID) per send so the target Worker's
 // project (and its auto-provisioned Agent App with MCP wiring) is
-// always the target. The interface keeps the chat package free of a
+// the chat target. The interface keeps the chat package free of a
 // hard import on tools/.
 type ProjectEnsurer interface {
 	Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error)
 }
 
 // HelixConfig wires a HelixBridge. The bridge holds no global
-// project ID — each chat session opens against the owner Worker's
+// project ID — each chat session opens against the target Worker's
 // per-Worker project, looked up via Ensure on every send.
 //
 // agent_type is fixed at runtimehelix.AgentType ("zed_external") — see
 // the constant for why. There is no `chat.agent_type` knob.
 type HelixConfig struct {
-	Client      helixclient.Client
-	Ensure      ProjectEnsurer
-	OwnerID     worker.ID // typically "w-owner"
-	SessionRole string    // chat.session_role, e.g. "owner-chat"
-	Provider    string    // chat.provider (ignored in app-only mode)
-	Model       string    // chat.model (ignored in app-only mode)
-	CWD         string    // server cwd, only used as a stable label
+	Client helixclient.Client
+	Ensure ProjectEnsurer
+	// WorkerID is the chat target — the Worker this bridge talks to.
+	// Today the alpha wires it to "w-owner"; future per-agent chat
+	// surfaces wire other Worker IDs. The bridge code path is the
+	// same regardless of which Worker.
+	WorkerID    worker.ID
+	SessionRole string // chat.session_role, e.g. "exploratory"
+	Provider    string // chat.provider (ignored in app-only mode)
+	Model       string // chat.model (ignored in app-only mode)
+	CWD         string // server cwd, only used as a stable label
 	Logger      *slog.Logger
 
 	// AppID enables "app-only" mode: instead of helix-org provisioning
@@ -131,25 +136,25 @@ type HelixConfig struct {
 	AppIDFunc func(context.Context) (string, error)
 
 	// LoadSessionID / SaveSessionID are optional persistence hooks for
-	// the owner-chat session pointer. Without them the bridge's
-	// sessionID lives in process memory only, so every restart opens
-	// a fresh session (and boots a fresh Zed sandbox) instead of
-	// continuing where the user left off. With them, the bridge
-	// looks up the persisted ID on first send and writes it on each
-	// attach. Both fields opt-in — leaving them nil keeps the legacy
-	// in-memory-only behaviour for tests and standalone deploys.
+	// the chat session pointer. Without them the bridge's sessionID
+	// lives in process memory only, so every restart opens a fresh
+	// session (and boots a fresh Zed sandbox) instead of continuing
+	// where the user left off. With them, the bridge looks up the
+	// persisted ID on first send and writes it on each attach. Both
+	// fields opt-in — leaving them nil keeps the legacy in-memory-only
+	// behaviour for tests and standalone deploys.
 	LoadSessionID func(ctx context.Context, workerID worker.ID) (string, error)
 	SaveSessionID func(ctx context.Context, workerID worker.ID, sessionID string) error
 
 	// PublishActivation writes events to s-activations-<workerID> so
-	// every owner-chat turn is recorded the same way every AI Worker's
+	// every chat turn is recorded the same way every AI Worker's
 	// activations are recorded. Optional — leave nil to suppress
 	// (tests, app-only mode). Wire it to agent.PublishActivationEvent
 	// with the embedding host's store / broadcaster / id / clock.
 	PublishActivation ActivationPublisher
 
-	// Activations + NewID + Now persist an Activation row per owner-chat
-	// turn so /ui/'s human chat sits in the same audit surface as every
+	// Activations + NewID + Now persist an Activation row per chat
+	// turn so the chat surface sits in the same audit surface as every
 	// AI Worker's activations (the Spawner does the same in B5.6). All
 	// three are optional and travel as a group — leaving any nil
 	// disables the row, mirroring the legacy in-memory-only behaviour
@@ -182,8 +187,8 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 	if configured > 1 {
 		return nil, fmt.Errorf("chat helix bridge: Ensure, AppID, AppIDFunc are mutually exclusive")
 	}
-	if cfg.OwnerID == "" {
-		return nil, fmt.Errorf("chat helix bridge: OwnerID is required")
+	if cfg.WorkerID == "" {
+		return nil, fmt.Errorf("chat helix bridge: WorkerID is required")
 	}
 	if cfg.SessionRole == "" {
 		return nil, fmt.Errorf("chat helix bridge: SessionRole is required (set chat.session_role)")
@@ -197,7 +202,7 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 		ensure:            cfg.Ensure,
 		appID:             cfg.AppID,
 		appIDFunc:         cfg.AppIDFunc,
-		ownerID:           cfg.OwnerID,
+		workerID:          cfg.WorkerID,
 		sessionRole:       cfg.SessionRole,
 		provider:          cfg.Provider,
 		model:             cfg.Model,
@@ -263,14 +268,14 @@ func (b *HelixBridge) History(ctx context.Context) []string {
 			if b.loadSessionID == nil {
 				return
 			}
-			persisted, err := b.loadSessionID(ctx, b.ownerID)
+			persisted, err := b.loadSessionID(ctx, b.workerID)
 			if err != nil {
-				b.logger.Warn("chat helix: load persisted session id (history)", "worker", b.ownerID, "err", err)
+				b.logger.Warn("chat helix: load persisted session id (history)", "worker", b.workerID, "err", err)
 				return
 			}
 			if persisted != "" {
 				b.attachSession(persisted)
-				b.logger.Info("chat helix: recovered persisted session (history)", "worker", b.ownerID, "sid", persisted)
+				b.logger.Info("chat helix: recovered persisted session (history)", "worker", b.workerID, "sid", persisted)
 			}
 		})
 		b.mu.Lock()
@@ -416,7 +421,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 		// Preserve the per-request bearer (set by the embedding host's
 		// auth middleware via runtimehelix.WithBearerToken) on the
 		// detached context so the downstream client picks the right
-		// identity. Stripping it would push every owner-chat session
+		// identity. Stripping it would push every Worker chat session
 		// onto the service api_key, which breaks per-user Claude
 		// subscription lookups and audit attribution.
 		bearer := runtimehelix.BearerFromContext(r.Context())
@@ -435,8 +440,8 @@ func (b *HelixBridge) SendHandler() http.Handler {
 			// spawner publishes. Recorded BEFORE the send so the
 			// stream shows the turn even if the send itself errors.
 			if b.publishActivation != nil {
-				b.publishActivation(ctx, b.ownerID, "=== activation: human chat ===")
-				b.publishActivation(ctx, b.ownerID, activation.TranscriptSegment{Kind: activation.SegmentUser, Body: bubble}.Marker())
+				b.publishActivation(ctx, b.workerID, "=== activation: human chat ===")
+				b.publishActivation(ctx, b.workerID, activation.TranscriptSegment{Kind: activation.SegmentUser, Body: bubble}.Marker())
 			}
 			err := b.send(ctx, msg)
 			if err != nil {
@@ -444,7 +449,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 				b.broadcast(renderTurnError(err.Error()))
 			}
 			if b.publishActivation != nil {
-				b.publishActivation(ctx, b.ownerID, activation.OutcomeFromError(err).Marker())
+				b.publishActivation(ctx, b.workerID, activation.OutcomeFromError(err).Marker())
 			}
 			b.completeActivation(ctx, actID, err)
 		}()
@@ -453,10 +458,10 @@ func (b *HelixBridge) SendHandler() http.Handler {
 	})
 }
 
-// send dispatches one user message to the owner Worker's chat
+// send dispatches one user message to the target Worker's chat
 // session via the shared runtimehelix.EnsureAndSend primitive —
 // exactly the same primitive worker activations (Spawner) use, so
-// owner-chat and worker activations have one code path. Both produce
+// Worker chat and worker activations have one code path. Both produce
 // session_role="exploratory" sessions, so both show up in Helix's
 // per-project desktop view; both recover from stale persisted IDs
 // the same way (HTTP error or SSE-stream error → fall through to a
@@ -476,9 +481,9 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		return b.sendAppOnly(ctx, msg)
 	}
 
-	projectID, agentAppID, _, err := b.ensure.Ensure(ctx, b.ownerID)
+	projectID, agentAppID, _, err := b.ensure.Ensure(ctx, b.workerID)
 	if err != nil {
-		return fmt.Errorf("ensure owner project: %w", err)
+		return fmt.Errorf("ensure project for worker %q: %w", b.workerID, err)
 	}
 	orgID, err := b.resolveProjectOrg(ctx, projectID)
 	if err != nil {
@@ -494,14 +499,14 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		if b.loadSessionID == nil {
 			return
 		}
-		persisted, err := b.loadSessionID(ctx, b.ownerID)
+		persisted, err := b.loadSessionID(ctx, b.workerID)
 		if err != nil {
-			b.logger.Warn("chat helix: load persisted session id", "worker", b.ownerID, "err", err)
+			b.logger.Warn("chat helix: load persisted session id", "worker", b.workerID, "err", err)
 			return
 		}
 		if persisted != "" {
 			b.attachSession(persisted)
-			b.logger.Info("chat helix: recovered persisted session", "worker", b.ownerID, "sid", persisted)
+			b.logger.Info("chat helix: recovered persisted session", "worker", b.workerID, "sid", persisted)
 		}
 	})
 
@@ -571,9 +576,9 @@ func (b *HelixBridge) sendAppOnly(ctx context.Context, msg string) error {
 		if b.loadSessionID == nil {
 			return
 		}
-		persisted, err := b.loadSessionID(ctx, b.ownerID)
+		persisted, err := b.loadSessionID(ctx, b.workerID)
 		if err != nil {
-			b.logger.Warn("chat helix: load persisted session id (appOnly)", "worker", b.ownerID, "err", err)
+			b.logger.Warn("chat helix: load persisted session id (appOnly)", "worker", b.workerID, "err", err)
 			return
 		}
 		if persisted != "" {
@@ -690,8 +695,8 @@ func (b *HelixBridge) attachSession(sid string) {
 		persistCtx, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
 		go func() {
 			defer cancelPersist()
-			if err := b.saveSessionID(persistCtx, b.ownerID, sid); err != nil {
-				b.logger.Warn("chat helix: persist session id", "worker", b.ownerID, "sid", sid, "err", err)
+			if err := b.saveSessionID(persistCtx, b.workerID, sid); err != nil {
+				b.logger.Warn("chat helix: persist session id", "worker", b.workerID, "sid", sid, "err", err)
 			}
 		}()
 	}
@@ -711,13 +716,13 @@ func (b *HelixBridge) runWebsocket(ctx context.Context, sid string) {
 	defer b.wsWG.Done()
 	stream := runtimehelix.NewEntryStream(func(e runtimehelix.Event) {
 		b.broadcast(b.renderEvent(e))
-		// Also publish transcript fragments to the owner's activation
+		// Also publish transcript fragments to the target Worker's activation
 		// stream so /ui/streams shows the same shape every AI Worker's
 		// activation produces. Matches the helix Spawner's
 		// transcript-bridge output (helix/bridge.go).
 		if b.publishActivation != nil {
 			if body := runtimehelix.TranscriptBody(e); body != "" {
-				b.publishActivation(ctx, b.ownerID, body)
+				b.publishActivation(ctx, b.workerID, body)
 			}
 		}
 	})
@@ -820,8 +825,8 @@ func (b *HelixBridge) NewHandler() http.Handler {
 			persistCtx, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
 			go func() {
 				defer cancelPersist()
-				if err := b.saveSessionID(persistCtx, b.ownerID, ""); err != nil {
-					b.logger.Warn("chat helix: clear persisted session on new-chat", "worker", b.ownerID, "err", err)
+				if err := b.saveSessionID(persistCtx, b.workerID, ""); err != nil {
+					b.logger.Warn("chat helix: clear persisted session on new-chat", "worker", b.workerID, "err", err)
 				}
 			}()
 		}
@@ -962,7 +967,7 @@ func jsonField(raw json.RawMessage, key string) string {
 // keep compiler happy if jsonField becomes unused as we evolve renderHelixFrames
 var _ = jsonField
 
-// startActivation persists a fresh Activation row for one owner-chat
+// startActivation persists a fresh Activation row for one Worker chat
 // turn and returns its ID, or "" when the bridge isn't wired with an
 // Activations repo (tests, app-only mode, legacy deploys). The row
 // mirrors what the AI-Worker Spawner writes in B5.6 — same shape,
@@ -978,19 +983,19 @@ func (b *HelixBridge) startActivation(ctx context.Context) activation.ID {
 		return ""
 	}
 	id := activation.ID("a-" + b.newID())
-	act, err := activation.New(id, b.ownerID, []activation.Trigger{{Kind: activation.TriggerEvent}}, b.now())
+	act, err := activation.New(id, b.workerID, []activation.Trigger{{Kind: activation.TriggerEvent}}, b.now())
 	if err != nil {
-		b.logger.Warn("chat helix: build activation row", "worker", b.ownerID, "err", err)
+		b.logger.Warn("chat helix: build activation row", "worker", b.workerID, "err", err)
 		return ""
 	}
 	if err := b.activations.Create(ctx, act); err != nil {
-		b.logger.Warn("chat helix: persist activation row", "worker", b.ownerID, "activation", id, "err", err)
+		b.logger.Warn("chat helix: persist activation row", "worker", b.workerID, "activation", id, "err", err)
 		return ""
 	}
 	return id
 }
 
-// completeActivation marks an owner-chat Activation row finished.
+// completeActivation marks an Worker chat Activation row finished.
 // No-op when startActivation returned "" (no row persisted) or the
 // bridge isn't fully wired. Failures are logged and swallowed for
 // the same reason startActivation's are.
@@ -999,6 +1004,6 @@ func (b *HelixBridge) completeActivation(ctx context.Context, id activation.ID, 
 		return
 	}
 	if err := b.activations.Complete(ctx, id, activation.OutcomeFromError(sendErr), b.now()); err != nil {
-		b.logger.Warn("chat helix: complete activation row", "worker", b.ownerID, "activation", id, "err", err)
+		b.logger.Warn("chat helix: complete activation row", "worker", b.workerID, "activation", id, "err", err)
 	}
 }

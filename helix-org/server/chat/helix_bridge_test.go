@@ -109,8 +109,8 @@ func newTestHelixBridge(t *testing.T, fc *fakeChatClient) *HelixBridge {
 	b, err := NewHelix(HelixConfig{
 		Client:      fc,
 		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
-		OwnerID:     "w-owner",
-		SessionRole: "owner-chat",
+		WorkerID:    "w-owner",
+		SessionRole: "exploratory",
 		CWD:         t.TempDir(),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -235,8 +235,8 @@ func TestHelixBridgeResumesPersistedSessionOnBoot(t *testing.T) {
 	b, err := NewHelix(HelixConfig{
 		Client:      fc,
 		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
-		OwnerID:     "w-owner",
-		SessionRole: "owner-chat",
+		WorkerID:    "w-owner",
+		SessionRole: "exploratory",
 		CWD:         t.TempDir(),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		LoadSessionID: func(_ context.Context, _ worker.ID) (string, error) {
@@ -273,8 +273,8 @@ func TestHelixBridgePersistsSessionIDOnFreshOpen(t *testing.T) {
 	b, err := NewHelix(HelixConfig{
 		Client:      fc,
 		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
-		OwnerID:     "w-owner",
-		SessionRole: "owner-chat",
+		WorkerID:    "w-owner",
+		SessionRole: "exploratory",
 		CWD:         t.TempDir(),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		SaveSessionID: func(_ context.Context, _ worker.ID, sid string) error {
@@ -304,11 +304,11 @@ func TestHelixBridgePersistsSessionIDOnFreshOpen(t *testing.T) {
 	}
 }
 
-// TestHelixBridgeRecordsActivationRow pins B5.11: every owner-chat
-// send persists an Activation row keyed to the owner Worker, with
-// the row Completed by the time the goroutine returns. Mirrors what
-// the AI-Worker Spawner does in B5.6 — the owner is just-another-
-// Worker, the audit surface must agree.
+// TestHelixBridgeRecordsActivationRow pins B5.11: every chat send
+// persists an Activation row keyed to the target Worker, with the
+// row Completed by the time the goroutine returns. Mirrors what the
+// AI-Worker Spawner does in B5.6 — the chat surface uses the same
+// audit shape regardless of which Worker is the target.
 func TestHelixBridgeRecordsActivationRow(t *testing.T) {
 	t.Parallel()
 	fc := &fakeChatClient{startSessionID: "ses_42"}
@@ -317,8 +317,8 @@ func TestHelixBridgeRecordsActivationRow(t *testing.T) {
 	b, err := NewHelix(HelixConfig{
 		Client:      fc,
 		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
-		OwnerID:     "w-owner",
-		SessionRole: "owner-chat",
+		WorkerID:    "w-owner",
+		SessionRole: "exploratory",
 		CWD:         t.TempDir(),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Activations: repo,
@@ -365,8 +365,8 @@ func TestHelixBridgeRecordsActivationRow(t *testing.T) {
 	}
 }
 
-// fakeActivationRepo records Create + Complete calls for owner-chat
-// tests. Implements activation.Repository.
+// fakeActivationRepo records Create + Complete calls for chat tests.
+// Implements activation.Repository.
 type fakeActivationRepo struct {
 	mu        sync.Mutex
 	created   []*activation.Activation
@@ -423,4 +423,51 @@ func (r *fakeActivationRepo) firstCompleted() fakeActivationComplete {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.completed[0]
+}
+
+// TestHelixBridgeIsWorkerAgnostic pins B5.12: the bridge's code path
+// is the same whether the target Worker is the owner or any other
+// hired AI Worker. Constructing a bridge with WorkerID="w-alice"
+// produces an Activation row keyed to w-alice, not w-owner — proof
+// that there is no special-case branch for the owner Worker
+// anywhere in the bridge.
+func TestHelixBridgeIsWorkerAgnostic(t *testing.T) {
+	t.Parallel()
+	fc := &fakeChatClient{startSessionID: "ses_alice"}
+	repo := &fakeActivationRepo{}
+	b, err := NewHelix(HelixConfig{
+		Client:      fc,
+		Ensure:      &fakeEnsurer{projectID: "prj_alice", agentAppID: "app_alice"},
+		WorkerID:    "w-alice",
+		SessionRole: "exploratory",
+		CWD:         t.TempDir(),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Activations: repo,
+		NewID:       func() string { return "alice-1" },
+		Now:         func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatalf("NewHelix: %v", err)
+	}
+	srv := httptest.NewServer(b.SendHandler())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL, url.Values{"message": {"hi alice"}})
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,gosec // test cleanup
+
+	if !waitFor(func() bool { return repo.completedCount() == 1 }) {
+		t.Fatalf("activation never recorded for w-alice: created=%d completed=%d",
+			repo.createdCount(), repo.completedCount())
+	}
+	created := repo.firstCreated()
+	if created.WorkerID != "w-alice" {
+		t.Errorf("created.WorkerID = %q, want w-alice (the chat target)", created.WorkerID)
+	}
+	if created.TranscriptStreamID != activation.StreamID("w-alice") {
+		t.Errorf("created.TranscriptStreamID = %q, want %q",
+			created.TranscriptStreamID, activation.StreamID("w-alice"))
+	}
 }
