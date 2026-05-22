@@ -1,9 +1,57 @@
-package helixclient
+package helix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// SessionClient is the small slice of the chat-session API
+// EnsureAndSend depends on. Lifted out of helixclient.Client during
+// H1.3a so sessions.go lives in canonical without importing the
+// legacy helixclient package. helixclient.Client satisfies this
+// interface; the H1.3c rewrite will replace the helixclient adapter
+// with a direct controller adapter.
+type SessionClient interface {
+	StartChatWithStatus(ctx context.Context, req StartChatRequest) (Session, bool, error)
+	ServerStatus(ctx context.Context) (ServerStatus, error)
+}
+
+// sendToSession is the in-package equivalent of
+// helixclient.SendToSession: try to push a message to an existing
+// session via /sessions/chat with SessionID set. Returns an error if
+// the session is no longer running (Helix reports streamHadErr=true).
+func sendToSession(ctx context.Context, client SessionClient, req StartChatRequest) (Session, error) {
+	if req.SessionID == "" {
+		return Session{}, errors.New("sendToSession: SessionID required")
+	}
+	session, streamHadErr, err := client.StartChatWithStatus(ctx, req)
+	if err != nil {
+		return Session{}, err
+	}
+	if streamHadErr {
+		return Session{}, errors.New("session no longer running on the server")
+	}
+	return session, nil
+}
+
+// checkDesktopQuota is the in-package equivalent of
+// helixclient.CheckDesktopQuota.
+func checkDesktopQuota(ctx context.Context, client SessionClient) error {
+	status, err := client.ServerStatus(ctx)
+	if err != nil {
+		// Server-status read failed — log via the caller and proceed.
+		// Failing here would block every activation on a transient
+		// upstream blip; the desktop quota is a pre-flight gate, not
+		// a hard authorisation check.
+		return nil
+	}
+	if !status.HasDesktopRoom() {
+		return fmt.Errorf("helix: desktop quota reached (%d/%d) — try again later",
+			status.ActiveConcurrentDesktops, status.MaxConcurrentDesktops)
+	}
+	return nil
+}
 
 // SendPromptParams configures one EnsureAndSend call. Every Helix
 // chat-style operation in helix-org — owner-chat sends, worker
@@ -64,7 +112,7 @@ type SendPromptParams struct {
 // path, so neither is special-cased in Helix.
 const exploratoryRole = "exploratory"
 
-func EnsureAndSend(ctx context.Context, client Client, params SendPromptParams) (sessionID string, fresh bool, err error) {
+func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptParams) (sessionID string, fresh bool, err error) {
 	if params.Prompt == "" {
 		return "", false, fmt.Errorf("EnsureAndSend: Prompt is required")
 	}
@@ -88,7 +136,7 @@ func EnsureAndSend(ctx context.Context, client Client, params SendPromptParams) 
 			ExternalAgentConfig: &ExternalAgentConfig{},
 			Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
 		}
-		if _, sendErr := SendToSession(ctx, client, resumeReq); sendErr == nil {
+		if _, sendErr := sendToSession(ctx, client, resumeReq); sendErr == nil {
 			if params.OnSessionID != nil {
 				params.OnSessionID(params.SessionID)
 			}
@@ -99,7 +147,7 @@ func EnsureAndSend(ctx context.Context, client Client, params SendPromptParams) 
 	}
 
 	// Step 2 — pre-flight quota.
-	if err := CheckDesktopQuota(ctx, client); err != nil {
+	if err := checkDesktopQuota(ctx, client); err != nil {
 		return "", false, err
 	}
 

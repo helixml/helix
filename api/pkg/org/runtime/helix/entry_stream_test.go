@@ -1,4 +1,4 @@
-package helixclient
+package helix
 
 import "testing"
 

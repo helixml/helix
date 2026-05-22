@@ -30,6 +30,34 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 )
 
+
+// Type aliases — the canonical definitions live in
+// api/pkg/org/runtime/helix. helixclient transitionally re-exports
+// them as aliases so existing call sites keep compiling during the
+// H1.3 sequence. H1.4 deletes this package entirely.
+type (
+	SendMessageOptions  = runtimehelix.SendMessageOptions
+	SendMessageResponse = runtimehelix.SendMessageResponse
+	ServerStatus        = runtimehelix.ServerStatus
+	StartChatRequest    = runtimehelix.StartChatRequest
+	ExternalAgentConfig = runtimehelix.ExternalAgentConfig
+	SessionChatMessage  = runtimehelix.SessionChatMessage
+	MessageContent      = runtimehelix.MessageContent
+	Output              = runtimehelix.Output
+	SessionUpdate       = runtimehelix.SessionUpdate
+	EntryPatch          = runtimehelix.EntryPatch
+	Session             = runtimehelix.Session
+	Interaction         = runtimehelix.Interaction
+	OpenAIToolCall      = runtimehelix.OpenAIToolCall
+	OpenAIFunctionCall  = runtimehelix.OpenAIFunctionCall
+)
+
+// NewTextMessage re-exports the canonical helper.
+func NewTextMessage(role, text string) SessionChatMessage {
+	return runtimehelix.NewTextMessage(role, text)
+}
+
+
 // Default per-call timeout for REST calls. The WebSocket has no
 // timeout — the caller controls its lifetime via context.
 const defaultRESTTimeout = 30 * time.Second
@@ -132,45 +160,6 @@ type Client interface {
 	GetOutput(ctx context.Context, sessionID string) (Output, error)
 	SubscribeUpdates(ctx context.Context, sessionID string) (<-chan SessionUpdate, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
-}
-
-// SendMessageOptions are the optional knobs on SendSessionMessage.
-// Interrupt mirrors the frontend RobustPromptInput's interrupt flag —
-// set true to cancel any in-flight generation before queueing this
-// message. NotifyUserID populates Helix's commenter mappings so
-// response notifications route to a third party (used by the
-// design-review path; helix-org leaves it empty).
-type SendMessageOptions struct {
-	Interrupt    bool
-	NotifyUserID string
-}
-
-// SendMessageResponse mirrors Helix's POST /sessions/{id}/messages
-// response body. Both IDs are returned so the caller can correlate
-// notifications even if the message was queued (no WS) at the time
-// of the call.
-type SendMessageResponse struct {
-	RequestID     string `json:"request_id"`
-	InteractionID string `json:"interaction_id"`
-}
-
-// ServerStatus mirrors the slice of /api/v1/config helix-org reads.
-// Today only the desktop-quota fields are consumed, surfaced as a
-// pre-flight gate before opening a new zed_external session.
-type ServerStatus struct {
-	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
-	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
-}
-
-// HasDesktopRoom reports whether at least one desktop slot is free
-// against the operator-configured cap. Returns true if the server has
-// no quota configured (Max == 0) — Helix uses 0 to mean "unlimited"
-// at the server level.
-func (s ServerStatus) HasDesktopRoom() bool {
-	if s.MaxConcurrentDesktops <= 0 {
-		return true
-	}
-	return s.ActiveConcurrentDesktops < s.MaxConcurrentDesktops
 }
 
 // Model is one entry from /v1/models. Helix ships an OpenAI-compatible
@@ -317,160 +306,18 @@ type PutFileRequest struct {
 	Content string
 }
 
-// StartChatRequest is the helix-org → Helix payload that opens a new
-// chat session (or continues one when SessionID is set). Mirrors
-// `types.SessionChatRequest`.
-type StartChatRequest struct {
-	ProjectID           string               `json:"project_id"`
-	OrganizationID      string               `json:"organization_id,omitempty"`
-	SessionID           string               `json:"session_id,omitempty"`
-	SessionRole         string               `json:"session_role,omitempty"`
-	AgentType           string               `json:"agent_type,omitempty"`
-	AppID               string               `json:"app_id,omitempty"`
-	AssistantID         string               `json:"assistant_id,omitempty"`
-	Type                string               `json:"type,omitempty"`
-	ExternalAgentConfig *ExternalAgentConfig `json:"external_agent_config,omitempty"`
-	SystemPrompt        string               `json:"system,omitempty"`
-	Messages            []SessionChatMessage `json:"messages"`
-	Stream              bool                 `json:"stream,omitempty"`
-	Provider            string               `json:"provider,omitempty"`
-	Model               string               `json:"model,omitempty"`
-	CallbackURL         string               `json:"callback_url,omitempty"`
 
-	// OnSessionID, if set, is invoked as soon as the SSE stream emits
-	// the session ID chunk — before the agent has produced a reply.
-	// Callers use this to attach a WS subscriber early so they don't
-	// miss the response while the SSE loop keeps reading (looking for
-	// later error chunks). Not serialised.
-	OnSessionID func(sessionID string) `json:"-"`
-}
 
-// ExternalAgentConfig must be sent as a non-nil object whenever
-// AgentType=zed_external — Helix uses presence-of-object to wire up
-// a runner.
-type ExternalAgentConfig struct {
-	Resolution    string `json:"resolution,omitempty"`
-	DisplayWidth  int    `json:"display_width,omitempty"`
-	DisplayHeight int    `json:"display_height,omitempty"`
-	DesktopType   string `json:"desktop_type,omitempty"`
-}
 
-// SessionChatMessage is one entry in a SessionChatRequest.Messages
-// array. Helix's Message struct is OpenAI-style multipart; we only
-// ever send a single text part.
-type SessionChatMessage struct {
-	Role    string         `json:"role"`
-	Content MessageContent `json:"content"`
-}
 
-// MessageContent is the multipart body. helix-org only ever sends a
-// single text part. We omit content_type to match the wire shape the
-// Helix UI sends ({"parts":[...]}); Helix infers text from the part
-// type.
-type MessageContent struct {
-	Parts []any `json:"parts"`
-}
 
-// NewTextMessage builds a single user text message — the only shape
-// helix-org ever sends.
-func NewTextMessage(role, text string) SessionChatMessage {
-	return SessionChatMessage{
-		Role:    role,
-		Content: MessageContent{Parts: []any{text}},
-	}
-}
 
-// Output is the polling result for a session. Mirrors
-// `types.SessionOutputResponse`. Status: "waiting" | "complete" | "error".
-type Output struct {
-	SessionID  string `json:"session_id"`
-	Status     string `json:"status"`
-	Output     string `json:"output"`
-	DurationMs int64  `json:"duration_ms"`
-}
 
-// IsTerminal reports whether o.Status indicates the session is done.
-func (o Output) IsTerminal() bool {
-	return o.Status == "complete" || o.Status == "error"
-}
 
-// SessionUpdate is one frame from `/api/v1/ws/user`. Mirrors
-// `types.WebsocketEvent`. The streaming payload helix-org consumes
-// is `interaction_patch` carrying `EntryPatches[]` — the per-entry
-// typed deltas Helix uses for response-entries streaming.
-//
-// session_update / interaction_update frames are still observed
-// (final-state snapshots), but EntryPatches are the source of truth
-// for assistant text + tool calls during a turn.
-type SessionUpdate struct {
-	Type          string       `json:"type"`
-	SessionID     string       `json:"session_id"`
-	InteractionID string       `json:"interaction_id"`
-	Owner         string       `json:"owner"`
-	Session       *Session     `json:"session,omitempty"`
-	Interaction   *Interaction `json:"interaction,omitempty"`
-	EntryCount    int          `json:"entry_count,omitempty"`
-	EntryPatches  []EntryPatch `json:"entry_patches,omitempty"`
-}
 
-// EntryPatch is one per-entry delta. Mirrors `types.EntryPatch`.
-//
-//   - Index identifies the entry within the interaction.
-//   - MessageID is the entry's identity — re-using a message ID
-//     means "extend this entry"; a new ID means "this is a new
-//     entry at the same Index" (e.g. a tool_call following text).
-//   - Patch is the text delta to splice in at PatchOffset (UTF-16).
-//   - Type is "text" or "tool_call".
-//   - For tool_call entries, ToolName/ToolStatus carry metadata.
-type EntryPatch struct {
-	Index       int    `json:"index"`
-	MessageID   string `json:"message_id"`
-	Type        string `json:"type"`
-	Patch       string `json:"patch,omitempty"`
-	PatchOffset int    `json:"patch_offset,omitempty"`
-	TotalLength int    `json:"total_length,omitempty"`
-	ToolName    string `json:"tool_name,omitempty"`
-	ToolStatus  string `json:"tool_status,omitempty"`
-}
 
-// Session is the subset of Helix's Session struct we read.
-type Session struct {
-	ID            string         `json:"id"`
-	Name          string         `json:"name"`
-	ProjectID     string         `json:"project_id"`
-	ParentApp     string         `json:"parent_app,omitempty"`
-	DefaultRepoID string         `json:"default_repo_id,omitempty"`
-	Interactions  []*Interaction `json:"interactions,omitempty"`
-}
 
-// Interaction collects what an assistant produced in one turn.
-// PromptMessage carries the user input that opened the turn (Helix
-// stores it on the same row as the response). The chat UI uses both
-// fields to reconstruct history on refresh.
-type Interaction struct {
-	ID              string           `json:"id"`
-	GenerationID    int              `json:"generation_id"`
-	State           string           `json:"state"`
-	Status          string           `json:"status"`
-	Error           string           `json:"error"`
-	PromptMessage   string           `json:"prompt_message,omitempty"`
-	ResponseMessage string           `json:"response_message,omitempty"`
-	ToolCalls       []OpenAIToolCall `json:"tool_calls,omitempty"`
-	ResponseEntries json.RawMessage  `json:"response_entries,omitempty"`
-}
 
-// OpenAIToolCall mirrors the openai.ToolCall shape.
-type OpenAIToolCall struct {
-	ID       string             `json:"id,omitempty"`
-	Type     string             `json:"type,omitempty"`
-	Function OpenAIFunctionCall `json:"function"`
-}
-
-// OpenAIFunctionCall is the "function" payload of a ToolCall.
-type OpenAIFunctionCall struct {
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-}
 
 // Config configures a real HTTP+WS Client.
 type Config struct {

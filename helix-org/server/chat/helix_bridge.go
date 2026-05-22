@@ -435,7 +435,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 }
 
 // send dispatches one user message to the owner Worker's chat
-// session via the shared helixclient.EnsureAndSend primitive —
+// session via the shared runtimehelix.EnsureAndSend primitive —
 // exactly the same primitive worker activations (Spawner) use, so
 // owner-chat and worker activations have one code path. Both produce
 // session_role="exploratory" sessions, so both show up in Helix's
@@ -507,7 +507,7 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		b.logger.Info("chat helix session opened", "sid", newSID, "project", projectID, "app", agentAppID)
 	}
 
-	activeSID, fresh, err := helixclient.EnsureAndSend(ctx, b.client, helixclient.SendPromptParams{
+	activeSID, fresh, err := runtimehelix.EnsureAndSend(ctx, b.client, runtimehelix.SendPromptParams{
 		SessionID:      sid,
 		ProjectID:      projectID,
 		OrganizationID: orgID,
@@ -690,7 +690,7 @@ func (b *HelixBridge) attachSession(sid string) {
 // or returns inline.
 func (b *HelixBridge) runWebsocket(ctx context.Context, sid string) {
 	defer b.wsWG.Done()
-	stream := helixclient.NewEntryStream(func(e helixclient.Event) {
+	stream := runtimehelix.NewEntryStream(func(e runtimehelix.Event) {
 		b.broadcast(b.renderEvent(e))
 		// Also publish transcript fragments to the owner's activation
 		// stream so /ui/streams shows the same shape every AI Worker's
@@ -727,17 +727,17 @@ func (b *HelixBridge) runWebsocket(ctx context.Context, sid string) {
 // renderEvent maps one EntryStream event to the HTML fragment the
 // chat SSE bridge serves. Same render functions the legacy claude
 // bridge uses, so both backends are visually indistinguishable.
-func (b *HelixBridge) renderEvent(e helixclient.Event) string {
+func (b *HelixBridge) renderEvent(e runtimehelix.Event) string {
 	switch e.Kind {
-	case helixclient.EventAssistant:
+	case runtimehelix.EventAssistant:
 		return renderAssistantText(e.Text)
-	case helixclient.EventToolUse:
+	case runtimehelix.EventToolUse:
 		return renderToolUse(e.ToolName, e.Text)
-	case helixclient.EventToolResult:
+	case runtimehelix.EventToolResult:
 		return renderToolResult(e.Text, false)
-	case helixclient.EventToolResultError:
+	case runtimehelix.EventToolResultError:
 		return renderToolResult(e.Text, true)
-	case helixclient.EventError:
+	case runtimehelix.EventError:
 		// Suppress the warmup-race error chip — it only fires while
 		// the desktop's Zed agent is still booting, and warmupAndRetry
 		// re-sends the prompt automatically. Showing it would leak a

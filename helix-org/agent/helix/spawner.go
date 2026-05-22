@@ -299,7 +299,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, pr
 	// new session is discoverable from Helix's per-project UI. Without
 	// one shared primitive the two paths drift apart and develop
 	// independent stale-session bugs.
-	sid, fresh, err := helixclient.EnsureAndSend(ctx, c.Client, helixclient.SendPromptParams{
+	sid, fresh, err := runtimehelix.EnsureAndSend(ctx, c.Client, runtimehelix.SendPromptParams{
 		SessionID: state.SessionID,
 		ProjectID: state.ProjectID,
 		AppID:     state.AgentAppID,
@@ -357,12 +357,12 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
 	publish func(body string)
-	stream  *helixclient.EntryStream
+	stream  *runtimehelix.EntryStream
 }
 
 func newBridge(publish func(body string)) *bridge {
 	b := &bridge{publish: publish}
-	b.stream = helixclient.NewEntryStream(b.onEvent)
+	b.stream = runtimehelix.NewEntryStream(b.onEvent)
 	return b
 }
 
@@ -371,7 +371,7 @@ func newBridge(publish func(body string)) *bridge {
 // same shape so observers don't have to discriminate. The owner-chat
 // bridge in server/chat uses the same TranscriptBody helper to
 // publish identical lines to s-activations-w-owner.
-func (b *bridge) onEvent(e helixclient.Event) {
+func (b *bridge) onEvent(e runtimehelix.Event) {
 	if body := TranscriptBody(e); body != "" {
 		b.publish(body)
 	}
@@ -383,17 +383,17 @@ func (b *bridge) onEvent(e helixclient.Event) {
 // server/chat can produce identical lines for s-activations-w-owner
 // without duplicating the rendering. Empty string for kinds that
 // shouldn't appear on the transcript.
-func TranscriptBody(e helixclient.Event) string {
+func TranscriptBody(e runtimehelix.Event) string {
 	switch e.Kind {
-	case helixclient.EventAssistant:
+	case runtimehelix.EventAssistant:
 		return "assistant: " + agent.OneLine(e.Text, 500)
-	case helixclient.EventToolUse:
+	case runtimehelix.EventToolUse:
 		return fmt.Sprintf("tool_use %s: %s", e.ToolName, agent.OneLine(e.Text, 500))
-	case helixclient.EventToolResult:
+	case runtimehelix.EventToolResult:
 		return "tool_result: " + agent.OneLine(e.Text, 500)
-	case helixclient.EventToolResultError:
+	case runtimehelix.EventToolResultError:
 		return "tool_result-error: " + agent.OneLine(e.Text, 500)
-	case helixclient.EventError:
+	case runtimehelix.EventError:
 		return "error: " + agent.OneLine(e.Text, 500)
 	}
 	return ""

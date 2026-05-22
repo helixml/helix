@@ -1,4 +1,4 @@
-package helixclient
+package helix
 
 // EntryStream is a per-session translator from Helix's response-entry
 // patch wire format into stable, "settled" transcript events.
