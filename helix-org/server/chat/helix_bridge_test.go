@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
@@ -55,6 +57,13 @@ func (f *fakeChatClient) StartChat(_ context.Context, req helixclient.StartChatR
 	if f.startSessionID == "" {
 		f.startSessionID = "ses_test_1"
 	}
+	// Mirror the real client's behaviour: invoke OnSessionID the
+	// moment the session ID is known. Without this, the bridge's
+	// attachSession is never wired and follow-up sends can't see the
+	// persisted SessionID.
+	if req.OnSessionID != nil {
+		req.OnSessionID(f.startSessionID)
+	}
 	return helixclient.Session{ID: f.startSessionID}, nil
 }
 
@@ -86,6 +95,11 @@ func (f *fakeChatClient) SubscribeUpdates(ctx context.Context, _ string) (<-chan
 	return ch, nil
 }
 
+func (f *fakeChatClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
+func (f *fakeChatClient) GetSession(_ context.Context, _ string) (helixclient.Session, error) {
+	return helixclient.Session{}, nil
+}
+
 func newTestHelixBridge(t *testing.T, fc *fakeChatClient) *HelixBridge {
 	t.Helper()
 	b, err := NewHelix(HelixConfig{
@@ -103,8 +117,11 @@ func newTestHelixBridge(t *testing.T, fc *fakeChatClient) *HelixBridge {
 }
 
 // TestHelixBridgeStartsThenFollowsUp verifies the core invariant: the
-// first Send opens a fresh Helix session via /sessions/chat, subsequent
-// Sends queue messages on the same session via SendSessionMessage.
+// first Send opens a fresh Helix session via /sessions/chat (no
+// SessionID in request), subsequent Sends resume that same session
+// (SessionID set in request). EnsureAndSend's behaviour: both fresh
+// and resume go through StartChatWithStatus; the SessionID field on
+// the request distinguishes them.
 func TestHelixBridgeStartsThenFollowsUp(t *testing.T) {
 	t.Parallel()
 	fc := &fakeChatClient{startSessionID: "ses_42"}
@@ -129,24 +146,37 @@ func TestHelixBridgeStartsThenFollowsUp(t *testing.T) {
 	if !strings.Contains(string(body), "hello") {
 		t.Errorf("expected user-bubble echo, got %q", body)
 	}
-	if fc.startCalls != 1 || fc.lastStartReq.SessionID != "" {
-		t.Errorf("first turn: startCalls=%d sid=%q (want 1, empty)", fc.startCalls, fc.lastStartReq.SessionID)
+	// First turn: fresh open. The bridge runs sends on a detached
+	// goroutine, so spin until we observe the call.
+	if !waitFor(func() bool { return fc.startCalls >= 1 }) {
+		t.Fatalf("first turn never reached StartChat (got %d)", fc.startCalls)
+	}
+	if fc.lastStartReq.SessionID != "" {
+		t.Errorf("first turn SessionID = %q, want empty (fresh open)", fc.lastStartReq.SessionID)
 	}
 
 	resp2 := post("again")
 	resp2.Body.Close() //nolint:errcheck,gosec // test cleanup
-	if fc.startCalls != 1 {
-		t.Errorf("followup must NOT call StartChat: %d (want 1)", fc.startCalls)
+	// Second turn must resume — observe a second StartChatWithStatus
+	// call with SessionID = ses_42.
+	if !waitFor(func() bool { return fc.startCalls >= 2 && fc.lastStartReq.SessionID == "ses_42" }) {
+		t.Fatalf("followup did not resume: startCalls=%d lastSID=%q", fc.startCalls, fc.lastStartReq.SessionID)
 	}
-	if fc.sendCalls != 1 {
-		t.Errorf("followup SendSessionMessage calls: %d (want 1)", fc.sendCalls)
+}
+
+// waitFor polls predicate p for up to 1s. Returns true if p returns
+// true before the timeout. The chat bridge's sends run on a detached
+// goroutine, so tests need to wait for side-effects rather than
+// asserting synchronously after the HTTP request returns.
+func waitFor(p func() bool) bool {
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if p() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if fc.lastSendSID != "ses_42" {
-		t.Errorf("followup target session: %q (want ses_42)", fc.lastSendSID)
-	}
-	if fc.lastSendBody != "again" {
-		t.Errorf("followup body: %q (want again)", fc.lastSendBody)
-	}
+	return p()
 }
 
 // TestHelixBridgeNewResetsSession verifies that POST /ui/chat/new
@@ -188,5 +218,84 @@ func TestHelixBridgeRejectsMissingConfig(t *testing.T) {
 	}
 	if _, err := NewHelix(HelixConfig{Client: &fakeChatClient{}}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// TestHelixBridgeResumesPersistedSessionOnBoot verifies the
+// LoadSessionID hook: on the first send after process boot, the
+// bridge picks up the previously-persisted session pointer and
+// resumes (rather than opening a fresh container).
+func TestHelixBridgeResumesPersistedSessionOnBoot(t *testing.T) {
+	t.Parallel()
+	fc := &fakeChatClient{startSessionID: "ses_persisted"}
+	b, err := NewHelix(HelixConfig{
+		Client:      fc,
+		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
+		OwnerID:     "w-owner",
+		SessionRole: "owner-chat",
+		CWD:         t.TempDir(),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		LoadSessionID: func(_ context.Context, _ worker.ID) (string, error) {
+			return "ses_persisted", nil
+		},
+		SaveSessionID: func(_ context.Context, _ worker.ID, _ string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("NewHelix: %v", err)
+	}
+	srv := httptest.NewServer(b.SendHandler())
+	defer srv.Close()
+	r, _ := http.PostForm(srv.URL, url.Values{"message": {"hello"}})
+	if r != nil {
+		r.Body.Close() //nolint:errcheck,gosec // test cleanup
+	}
+	// First send after boot must resume the persisted session — the
+	// StartChatRequest carries SessionID = ses_persisted.
+	if !waitFor(func() bool { return fc.startCalls >= 1 && fc.lastStartReq.SessionID == "ses_persisted" }) {
+		t.Fatalf("first send did not resume persisted session: startCalls=%d sid=%q", fc.startCalls, fc.lastStartReq.SessionID)
+	}
+}
+
+// TestHelixBridgePersistsSessionIDOnFreshOpen verifies the
+// SaveSessionID hook fires on a fresh open: the bridge saves the new
+// pointer so a restart can pick it up.
+func TestHelixBridgePersistsSessionIDOnFreshOpen(t *testing.T) {
+	t.Parallel()
+	fc := &fakeChatClient{startSessionID: "ses_fresh"}
+	var (
+		savedMu sync.Mutex
+		saved   string
+	)
+	b, err := NewHelix(HelixConfig{
+		Client:      fc,
+		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
+		OwnerID:     "w-owner",
+		SessionRole: "owner-chat",
+		CWD:         t.TempDir(),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		SaveSessionID: func(_ context.Context, _ worker.ID, sid string) error {
+			savedMu.Lock()
+			saved = sid
+			savedMu.Unlock()
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewHelix: %v", err)
+	}
+	srv := httptest.NewServer(b.SendHandler())
+	defer srv.Close()
+	r, _ := http.PostForm(srv.URL, url.Values{"message": {"hello"}})
+	if r != nil {
+		r.Body.Close() //nolint:errcheck,gosec // test cleanup
+	}
+	if !waitFor(func() bool {
+		savedMu.Lock()
+		defer savedMu.Unlock()
+		return saved == "ses_fresh"
+	}) {
+		savedMu.Lock()
+		defer savedMu.Unlock()
+		t.Fatalf("SaveSessionID was not called with the fresh ID; got %q", saved)
 	}
 }
