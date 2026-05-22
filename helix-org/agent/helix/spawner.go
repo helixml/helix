@@ -27,8 +27,10 @@ import (
 // applied at hire time and persisted in the WorkerRuntimeState
 // sidecar under the "helix" backend.
 type SpawnerConfig struct {
-	Client      helixclient.Client
-	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
+	Client         helixclient.Client
+	ProjectService runtimehelix.ProjectService
+	ProjectGit     runtimehelix.ProjectGitWriter
+	HelixOrgURL    string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
 	// back to helix.Runtime. See ProjectApplier.Runtime for the
 	// embedded SaaS use case (`claude_code` + subscription credentials).
@@ -220,12 +222,21 @@ tells you how to be an agent at all), then role.md, then identity.md:
 After meaningful work, persist state on helix-specs:
   cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
 
-// ensureProject is a thin wrapper around ProjectApplier so the
-// activation flow reads naturally. The actual apply logic is shared
-// with the chat bridge — see project.go.
+// ensureProject is a thin wrapper around runtimehelix.ProjectApplier
+// so the activation flow reads naturally. The Service / Git fields
+// must be wired by the embedding host (api/pkg/server/helix_org.go).
 func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) error {
-	a := &ProjectApplier{
-		Client:        c.Client,
+	// Fallback: tests build SpawnerConfig with a fakeHelixClient and no
+	// explicit ProjectService — derive one from the Client via the
+	// helixclient adapter. Production wiring sets ProjectService /
+	// ProjectGit directly.
+	svc := c.ProjectService
+	if svc == nil && c.Client != nil {
+		svc = helixclient.AsProjectService(c.Client)
+	}
+	a := &runtimehelix.ProjectApplier{
+		Service:       svc,
+		Git:           c.ProjectGit,
 		Store:         c.Store,
 		HelixOrgURL:   c.HelixOrgURL,
 		OrgID:         c.OrgID,

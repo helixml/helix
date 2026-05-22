@@ -157,6 +157,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// used to make.
 	deps.HireHandler = &runtimehelix.HireRecorder{Store: st}
 
+	// Stash the production git servicer for buildHelixOrgProjectApplier
+	// to pick up. (See the comment on helixOrgProjectGitRef.) The git
+	// servicer also satisfies ProjectGitWriter — it has CreateBranch +
+	// CreateOrUpdateFileContents.
+	helixOrgProjectGitRef = cfg.GitRepositoryService.(runtimehelix.ProjectGitWriter)
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
@@ -345,7 +351,7 @@ func buildHelixOrgProjectApplier(
 	client helixclient.Client,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
-) (*agenthelix.ProjectApplier, error) {
+) (*runtimehelix.ProjectApplier, error) {
 	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
 	if apiKey == "" {
 		return nil, fmt.Errorf("helix.api_key not set")
@@ -356,8 +362,9 @@ func buildHelixOrgProjectApplier(
 	}
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
-	return &agenthelix.ProjectApplier{
-		Client:        client,
+	return &runtimehelix.ProjectApplier{
+		Service:       helixclient.AsProjectService(client),
+		Git:           projectGitFromHelixOrgConfig(),
 		Store:         orgStore,
 		HelixOrgURL:   helixOrgURL,
 		Runtime:       runtime,
@@ -367,6 +374,15 @@ func buildHelixOrgProjectApplier(
 		MCPAuthBearer: apiKey,
 		Logger:        logger,
 	}, nil
+}
+
+// helixOrgProjectGitRef is a holder set at init time so
+// buildHelixOrgProjectApplier (which has no access to the helixOrgConfig)
+// can pick up the production git servicer. Set by initHelixOrgHandler.
+var helixOrgProjectGitRef runtimehelix.ProjectGitWriter
+
+func projectGitFromHelixOrgConfig() runtimehelix.ProjectGitWriter {
+	return helixOrgProjectGitRef
 }
 
 // resolveWorkerAgentConfig reads the four `worker.*` knobs and normalises
