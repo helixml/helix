@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	helixorgconfig "github.com/helixml/helix/helix-org/config"
+	helixorgconfig "github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 

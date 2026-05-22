@@ -19,7 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/helix-org/bootstrap"
-	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/helix-org/dispatch"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"

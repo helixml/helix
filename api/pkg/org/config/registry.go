@@ -1,16 +1,19 @@
-// Package config holds the registry of operational-config keys and
-// the typed accessors subsystems use to read them at runtime.
+// Package config holds the registry of runtime-mutable operational
+// keys for the org-graph subsystem (Streams, Spawner, transports).
+// Distinct from the parent api/pkg/config — that one is static,
+// envconfig-driven, loaded once at boot. This registry is dynamic,
+// JSON-typed, and stored in the configs table so operators can
+// change it from /ui/settings at runtime without a deploy.
 //
-// Configuration is stored in the SQLite `configs` table and mutated
-// only through the helix-org config CLI — never via MCP. Each
-// subsystem (spawner, dispatcher, future transports, etc.) registers
+// Each subsystem (spawner, dispatcher, transports, …) registers
 // the keys it owns at startup, declaring schema, default, and which
-// JSON paths are secret. The CLI's set/get/list go through this
-// registry for validation and redaction; consumers go through it for
-// typed reads.
+// JSON paths are secret. /ui/settings goes through this registry
+// for validation and redaction; consumers go through it for typed
+// reads.
 //
-// See design/config.md for the full spec and the rationale behind
-// the org-graph-vs-ops split.
+// Canonical home, lifted from helix-org/config in H3. The package
+// name stays "config" because that's the role; the import path
+// (api/pkg/org/config) disambiguates from helix's static config.
 package config
 
 import (

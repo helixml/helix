@@ -14,7 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/helix-org/agent"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
-	"github.com/helixml/helix/helix-org/config"
+	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/server/chat"
 	orgstore "github.com/helixml/helix/helix-org/store"
