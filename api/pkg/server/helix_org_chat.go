@@ -256,21 +256,31 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 //   - finds an api_key owned by that user (mints one labelled
 //     "helix-org alpha (per-user)" on first hit so we don't depend on
 //     the user having created one manually)
-//   - injects the key as a per-request bearer via
-//     runtimehelix.WithBearerToken
+//   - stashes the resolved (UserID, OrganizationID, BearerToken) as a
+//     single typed runtimehelix.HelixIdentity on the request context
+//     (H6.1). Downstream code can read the typed identity directly via
+//     HelixIdentityFromContext, or fall through legacy accessors
+//     (BearerFromContext / UserIDFromContext / OrganizationIDFromContext)
+//     during the migration window.
 //
 // Anything helix-org's bridge or picker does downstream then runs as
-// the actual logged-in user. The auto-provisioned helix.api_key
-// remains as a fallback for callers that arrive without a session
-// (e.g. integration tests).
+// the actual logged-in user, in their helix.Organization. The
+// auto-provisioned helix.api_key remains as a fallback for callers
+// that arrive without a session (e.g. integration tests).
 func withHelixUserBearer(next http.Handler, st helixstore.Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := getRequestUser(r)
 		if hasUser(user) {
-			if key, err := resolveUserHelixAPIKey(r.Context(), st, user.ID); err == nil && key != "" {
-				r = r.WithContext(runtimehelix.WithBearerToken(r.Context(), key))
-			} else if err != nil {
+			key, err := resolveUserHelixAPIKey(r.Context(), st, user.ID)
+			if err != nil {
 				log.Warn().Err(err).Str("user_id", user.ID).Msg("helix-org: failed to resolve user api key; falling back to service key")
+			}
+			if user.ID != "" || user.OrganizationID != "" || key != "" {
+				r = r.WithContext(runtimehelix.WithHelixIdentity(r.Context(), runtimehelix.HelixIdentity{
+					UserID:         user.ID,
+					OrganizationID: user.OrganizationID,
+					BearerToken:    key,
+				}))
 			}
 		}
 		next.ServeHTTP(w, r)
