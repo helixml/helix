@@ -410,7 +410,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 			// stream shows the turn even if the send itself errors.
 			if b.publishActivation != nil {
 				b.publishActivation(ctx, b.ownerID, "=== activation: human chat ===")
-				b.publishActivation(ctx, b.ownerID, "user: "+bubble)
+				b.publishActivation(ctx, b.ownerID, activation.TranscriptSegment{Kind: activation.SegmentUser, Body: bubble}.Marker())
 			}
 			err := b.send(ctx, msg)
 			if err != nil {

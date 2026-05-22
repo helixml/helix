@@ -388,20 +388,35 @@ func (b *bridge) onEvent(e Event) {
 // server/chat can produce identical lines for s-activations-w-owner
 // without duplicating the rendering. Empty string for kinds that
 // shouldn't appear on the transcript.
+//
+// The wire shape is owned by activation.TranscriptSegment.Marker();
+// this function is just the Helix-Event → typed-segment adapter.
 func TranscriptBody(e Event) string {
+	seg, ok := transcriptSegmentFromEvent(e)
+	if !ok {
+		return ""
+	}
+	return seg.Marker()
+}
+
+// transcriptSegmentFromEvent maps the EntryStream Event variants to
+// the canonical TranscriptSegment kinds. Kinds with no transcript
+// representation (any future Event added without a Segment kind)
+// return (_, false).
+func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 	switch e.Kind {
 	case EventAssistant:
-		return "assistant: " + agent.OneLine(e.Text, 500)
+		return activation.TranscriptSegment{Kind: activation.SegmentAssistant, Body: e.Text}, true
 	case EventToolUse:
-		return fmt.Sprintf("tool_use %s: %s", e.ToolName, agent.OneLine(e.Text, 500))
+		return activation.TranscriptSegment{Kind: activation.SegmentToolUse, ToolName: e.ToolName, Body: e.Text}, true
 	case EventToolResult:
-		return "tool_result: " + agent.OneLine(e.Text, 500)
+		return activation.TranscriptSegment{Kind: activation.SegmentToolResult, Body: e.Text}, true
 	case EventToolResultError:
-		return "tool_result-error: " + agent.OneLine(e.Text, 500)
+		return activation.TranscriptSegment{Kind: activation.SegmentToolResultError, Body: e.Text}, true
 	case EventError:
-		return "error: " + agent.OneLine(e.Text, 500)
+		return activation.TranscriptSegment{Kind: activation.SegmentError, Body: e.Text}, true
 	}
-	return ""
+	return activation.TranscriptSegment{}, false
 }
 
 func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
