@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
@@ -169,12 +168,4 @@ func OneLine(s string, max int) string {
 		return s[:max] + "…"
 	}
 	return s
-}
-
-// ActivationStreamID returns the deterministic Stream ID where a
-// Worker's activation transcript is published. One Stream per Worker;
-// created at hire time by hire_worker, written to by the Spawner,
-// read by anyone with a subscription (typically the hiring Worker).
-func ActivationStreamID(workerID worker.ID) stream.ID {
-	return stream.ID("s-activations-" + string(workerID))
 }

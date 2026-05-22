@@ -9,13 +9,13 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/position"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 )
 
@@ -234,7 +234,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 // (s-activations-<workerID>) so the Spawner can find it without an
 // extra lookup.
 func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWorkerID worker.ID) error {
-	streamID := agent.ActivationStreamID(workerID)
+	streamID := activation.StreamID(workerID)
 	stream, err := domain.NewStream(
 		streamID,
 		"Activations: "+string(workerID),

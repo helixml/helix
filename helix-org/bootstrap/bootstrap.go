@@ -13,13 +13,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 	"github.com/helixml/helix/helix-org/tools"
@@ -152,7 +152,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	// subscription here so /ui/streams shows the owner alongside
 	// every other Worker. The owner-chat bridge publishes activation
 	// events to this stream via agent.PublishActivationEvent.
-	ownerActStreamID := agent.ActivationStreamID(owner.ID())
+	ownerActStreamID := activation.StreamID(owner.ID())
 	ownerActStream, err := domain.NewStream(
 		ownerActStreamID,
 		"Activations: "+string(owner.ID()),

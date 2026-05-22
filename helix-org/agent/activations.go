@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/message"
@@ -44,7 +45,7 @@ func PublishActivationEvent(
 	if st == nil || newID == nil || now == nil || strings.TrimSpace(body) == "" {
 		return "", nil
 	}
-	streamID := ActivationStreamID(workerID)
+	streamID := activation.StreamID(workerID)
 	event, err := domain.NewMessageEvent(
 		event.ID("e-"+newID()),
 		streamID,

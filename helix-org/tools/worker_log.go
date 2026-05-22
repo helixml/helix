@@ -9,11 +9,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 )
@@ -99,7 +99,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 			target, wkr.Kind())
 	}
 
-	streamID := agent.ActivationStreamID(target)
+	streamID := activation.StreamID(target)
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("activation stream for %q: %w", target, err)
 	}

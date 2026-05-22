@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/role"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store/sqlite"
 )
@@ -167,7 +167,7 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	streamID := agent.ActivationStreamID("w-alice")
+	streamID := activation.StreamID("w-alice")
 	if _, err := deps.Store.Streams.Get(ctx, streamID); err != nil {
 		t.Fatalf("activation stream missing: %v", err)
 	}

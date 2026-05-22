@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/store"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -441,7 +440,7 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 		t.Fatalf("spawn: %v", err)
 	}
 
-	events, err := s.Events.ListForStream(context.Background(), agent.ActivationStreamID(wid), 100)
+	events, err := s.Events.ListForStream(context.Background(), activation.StreamID(wid), 100)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}

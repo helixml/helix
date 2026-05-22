@@ -139,7 +139,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		}
 		defer func() { <-sem }()
 
-		streamID := agent.ActivationStreamID(workerID)
+		streamID := activation.StreamID(workerID)
 		publish := func(body string) {
 			if body == "" {
 				return

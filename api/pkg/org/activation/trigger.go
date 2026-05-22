@@ -1,10 +1,17 @@
 // Package activation owns the runtime-activation concept: the
-// per-turn context that wakes an AI Worker. Today this package only
-// carries Trigger and TriggerKind (lifted from helix-org/agent in
-// B3c); the full Activation aggregate (planned for B5) will land
-// here later — at which point the per-Worker queue, the transcript,
-// the lifecycle (Start/End/Outcome), and the audit-row mapping all
-// move into this package alongside Trigger.
+// per-turn context that wakes an AI Worker. Today this package
+// carries:
+//
+//   - Trigger / TriggerKind: why a Spawner was invoked (lifted from
+//     helix-org/agent in B3c).
+//   - StreamID(workerID): the canonical derivation of the per-Worker
+//     activation Stream ID (`s-activations-<workerID>`), lifted from
+//     helix-org/agent in B5.1.
+//
+// The full Activation aggregate (planned for the remainder of B5)
+// will land here next — at which point the per-Worker queue, the
+// transcript-segment VO, the lifecycle (Start/End/Outcome), and the
+// audit-row mapping all move into this package alongside Trigger.
 package activation
 
 import (
