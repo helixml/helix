@@ -335,44 +335,57 @@ These all still apply. Re-numbered for clarity; the work is the same.
 
 ### Recommended order
 
-The cheapest, highest-clarity order interleaves the two tracks:
+The cheapest, highest-clarity order interleaves the two tracks. ✓
+marks landed in the `refactor/helix-org-redesign` branch as of
+2026-05-22; bare numbers are still open.
 
-1. **B0** (terminology + ADR-0001) — pins names that affect every later PR.
+1. ✓ **B0** (terminology + ADR-0001) — pins names that affect every later PR.
 2. **B11** (doc sweep) — get `CLAUDE.md` aligned with the embedded reality.
    These are sub-day moves; do them now so the rest of the work has
-   accurate orientation.
-3. **B1** (Transport parsers out of `domain/`) — small move that paves
+   accurate orientation. (Partial: refreshed after each landed
+   migration; full re-sweep tracked here.)
+3. ✓ **B1** (Transport parsers out of `domain/`) — small move that paves
    the way for H4's clean schema migration.
-4. **B7** (Role.DefaultTools / DefaultStreams) — small win, closes
+4. ✓ **B7** (Role.DefaultTools / DefaultStreams) — small win, closes
    TODO.md item 1.
-5. **H7** (standalone CLI dev-only) — declarative move; mark the binary
+5. ✓ **H7** (standalone CLI dev-only) — declarative move; mark the binary
    as dev-only, remove production-config paths from it.
-6. **H2** (replace broadcast with helix pubsub) — smallest dissolution
+6. ✓ **H2** (replace broadcast with helix pubsub) — smallest dissolution
    move; validates the pattern.
-7. **B2** (Scheduler + Outbox split) — pairs with H2 (both rewire
+7. ✓ **B2** (Scheduler + Outbox split) — pairs with H2 (both rewire
    event-flow scaffolding).
-8. **B3** (Runtime port + registry) — pre-req for H1; also closes the
+8. ✓ **B3** (Runtime port + registry) — pre-req for H1; also closes the
    `serve.go` switch-ladder smell.
-9. **B4 + H1** (paired) — the headline. `tools/hire_worker.go` stops
+9. ✓ **B4 + H1** (paired) — the headline. `tools/hire_worker.go` stops
    importing `agenthelix`; the `WorkerHired` subscriber moves to
    direct helix controller calls. **helixclient's 1308 LOC drops to
    near-zero.**
-10. **B9** (consolidate claude invocations) — naturally lands after H1
+10. ✓ **B9** (consolidate claude invocations) — naturally lands after H1
     because the chat bridge no longer needs the helixclient adapter.
-11. **B5** (Activation aggregate) — done after the runtime port is
-    clean.
-12. **B6** (typed Message + Principal) — done in parallel with B5; both
-    are internal data-shape changes.
-13. **H3** (config registry merge) — done once helix-org's
-    `config.Registry` callers are stable.
-14. **H4** (storage migration to Postgres) — big, but unblocks running
-    on gcs/s3 deployments; do it once the schema has stabilised after
-    B5/B6.
+11. ✓ **B5** (Activation aggregate, B5.1–B5.12) — done after the runtime
+    port is clean. Includes the chat-bridge worker-agnostic refactor
+    (B5.12) that removed the hardcoded owner-chat shape so future
+    per-agent chat surfaces use the same code path.
+12. ✓ **B6** (typed Message + Principal, B6.1–B6.3) — Principal VO at
+    `api/pkg/org/principal/`; strict-parse fan-out boundary in the
+    dispatcher; read-side accessors on `Event.SourcePrincipal` and
+    `Message.FromPrincipal`. Field-type swap deferred (additive
+    enough to defer without blocking later work).
+13. ✓ **H3** (config registry merge) — `helix-org/config` lifted to
+    `api/pkg/org/config`.
+14. ✓ **H4** (storage migration to Postgres, H4.1–H4.4) — store lifted
+    to `api/pkg/org/store/`, dialect-agnostic `OpenWithDB`, Postgres
+    impl wired against `(*helixstore.PostgresStore).GormDB()`, and
+    the `FILESTORE_TYPE=fs` gate removed. Embedded alpha now boots
+    on gcs/s3 deployments.
 15. **H5 + H6** (multi-tenant + identity model) — depends on H4 (need
     Postgres for `(org_id, worker_id)` keys) and H1 (need direct
-    controller access for clean identity flow).
+    controller access for clean identity flow). **Next up.**
 16. **H8** (move packages into `api/pkg/orgs/`) — symbolic completion.
     Do this last; it's churn-heavy and risks merge pain if done early.
+    Most lifts already landed alongside their refactors (B5, H3, H4);
+    what remains under `helix-org/` is the dispatch/domain/tools/
+    transports/server tree that the next migrations touch.
 
 ### Two-sprint slice (replacing `08 §F`)
 
