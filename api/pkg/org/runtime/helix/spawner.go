@@ -173,13 +173,13 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// (activation.TriggerHire, or a activation.TriggerEvent before hire fully ran)
 		// applies one and persists the IDs.
 		if err := cfg.ensureProject(actCtx, workerID); err != nil {
-			publish(fmt.Sprintf("=== exit: error: %v ===", err))
+			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 
 		sessionID, err := cfg.ensureSession(actCtx, workerID, prompt, publish)
 		if err != nil {
-			publish(fmt.Sprintf("=== exit: error: %v ===", err))
+			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 
@@ -193,12 +193,8 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 
 		err = cfg.pollUntilDone(actCtx, sessionID, publish)
 		bridgeCancel()
-		if err != nil {
-			publish(fmt.Sprintf("=== exit: error: %v ===", err))
-			return err
-		}
-		publish("=== exit: ok ===")
-		return nil
+		publish(activation.OutcomeFromError(err).Marker())
+		return err
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"log/slog"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/types"
@@ -417,11 +418,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 				b.broadcast(renderTurnError(err.Error()))
 			}
 			if b.publishActivation != nil {
-				if err != nil {
-					b.publishActivation(ctx, b.ownerID, fmt.Sprintf("=== exit: error: %v ===", err))
-				} else {
-					b.publishActivation(ctx, b.ownerID, "=== exit: ok ===")
-				}
+				b.publishActivation(ctx, b.ownerID, activation.OutcomeFromError(err).Marker())
 			}
 		}()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
