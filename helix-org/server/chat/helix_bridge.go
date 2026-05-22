@@ -397,17 +397,17 @@ func (b *HelixBridge) SendHandler() http.Handler {
 		// the SSE stream regardless.
 		//
 		// Preserve the per-request bearer (set by the embedding host's
-		// auth middleware via helixclient.WithBearerToken) on the
+		// auth middleware via runtimehelix.WithBearerToken) on the
 		// detached context so the downstream client picks the right
 		// identity. Stripping it would push every owner-chat session
 		// onto the service api_key, which breaks per-user Claude
 		// subscription lookups and audit attribution.
-		bearer := helixclient.BearerFromContext(r.Context())
+		bearer := runtimehelix.BearerFromContext(r.Context())
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			if bearer != "" {
-				ctx = helixclient.WithBearerToken(ctx, bearer)
+				ctx = runtimehelix.WithBearerToken(ctx, bearer)
 			}
 			// Activation start marker — same shape the AI worker
 			// spawner publishes. Recorded BEFORE the send so the
@@ -781,12 +781,12 @@ func (b *HelixBridge) NewHandler() http.Handler {
 		// in-process pointer is already cleared, so a follow-up send
 		// will start fresh regardless.
 		if oldSID != "" {
-			bearer := helixclient.BearerFromContext(r.Context())
+			bearer := runtimehelix.BearerFromContext(r.Context())
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				if bearer != "" {
-					ctx = helixclient.WithBearerToken(ctx, bearer)
+					ctx = runtimehelix.WithBearerToken(ctx, bearer)
 				}
 				if err := b.client.StopExternalAgent(ctx, oldSID); err != nil {
 					b.logger.Warn("chat helix: stop external agent on new-chat", "sid", oldSID, "err", err)

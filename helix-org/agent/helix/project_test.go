@@ -386,7 +386,7 @@ func TestEnsureMCPAttachUsesBearerFromContext(t *testing.T) {
 	fc := newProjectFake()
 	a := newApplier(fc, st)
 
-	ctx := helixclient.WithBearerToken(context.Background(), "k_bob")
+	ctx := runtimehelix.WithBearerToken(context.Background(), "k_bob")
 	if _, _, _, err := a.Ensure(ctx, wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}

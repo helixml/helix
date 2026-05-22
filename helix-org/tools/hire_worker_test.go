@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
@@ -322,7 +321,7 @@ func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
 	deps.HireHandler = hook
 	tool := &HireWorker{deps: deps}
 
-	ctx := helixclient.WithUserID(context.Background(), "u-phil")
+	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
 		PositionID:      "p-root",
@@ -376,7 +375,7 @@ func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 	deps.HireHandler = hook
 	tool := &HireWorker{deps: deps}
 
-	ctx := helixclient.WithUserID(context.Background(), "u-phil")
+	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
 		PositionID:      "p-root",
@@ -406,7 +405,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	deps.HireHandler = &runtimehelix.HireRecorder{Store: deps.Store}
 	tool := &HireWorker{deps: deps}
 
-	ctx := helixclient.WithUserID(context.Background(), "u-phil")
+	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
 		PositionID:      "p-root",

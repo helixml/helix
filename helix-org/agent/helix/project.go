@@ -210,7 +210,7 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 		// carries the hiring user's bearer via BearerForUser. Falling
 		// back to the static MCPAuthBearer keeps the original
 		// service-key behaviour for standalone deploys.
-		bearer := helixclient.BearerFromContext(ctx)
+		bearer := runtimehelix.BearerFromContext(ctx)
 		if bearer == "" {
 			bearer = a.MCPAuthBearer
 		}

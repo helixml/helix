@@ -145,7 +145,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if cfg.BearerForUser != nil {
 			if state, err := runtimehelix.LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
 				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
-					actCtx = helixclient.WithBearerToken(actCtx, bearer)
+					actCtx = runtimehelix.WithBearerToken(actCtx, bearer)
 				} else if berr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: BearerForUser failed; falling back to service key", "worker", workerID, "user_id", state.HiringUserID, "err", berr.Error())
 				}

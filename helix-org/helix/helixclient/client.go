@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 )
 
 // Default per-call timeout for REST calls. The WebSocket has no
@@ -498,71 +500,17 @@ type realClient struct {
 	http   *http.Client
 }
 
-// bearerTokenKey is the context.Context key under which an embedding
-// host (e.g. helix-org running inside Helix) can stash a per-request
-// bearer token, overriding the static apiKey the Client was built
-// with. The handler chain reads the host's authenticated user, looks
-// up that user's own api key, and injects it here — so calls hit
-// Helix as the actual logged-in user rather than as a shared service
-// account. Stays nil-safe: when not set, the client falls back to
-// the constructor-supplied apiKey.
-type bearerTokenKey struct{}
-
-// WithBearerToken returns a context that carries the given token as
-// the bearer realClient uses on its next request. Empty token is a
-// no-op (returns the unchanged context). Intended for handler-side
-// code that knows the per-request identity; bridge / spawner code
-// elsewhere in helix-org keeps passing the raw context untouched.
-func WithBearerToken(ctx context.Context, token string) context.Context {
-	if token == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, bearerTokenKey{}, token)
-}
-
-// BearerFromContext returns the per-request bearer stashed by
-// WithBearerToken, or "" if none. Lets callers outside this package
-// (e.g. helix-org tools persisting the hiring user's identity onto
-// a Worker's runtime state) discover the live bearer without
-// dragging the bearerTokenKey type out.
-func BearerFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(bearerTokenKey{}).(string); ok {
-		return v
-	}
-	return ""
-}
-
-// userIDKey is the context key for the upstream caller's user
-// identifier (typically a Helix user_id). Stashed alongside the
-// bearer by the embedding host's HTTP handler so tools can persist
-// the identity onto domain state without holding the api_key itself.
-type userIDKey struct{}
-
-// WithUserID returns a context carrying userID for later retrieval
-// via UserIDFromContext. Empty userID is a no-op. The bearer and
-// user ID are independent: the bearer authenticates THIS request,
-// the user ID identifies who later activations should run as. A
-// host may set one without the other.
-func WithUserID(ctx context.Context, userID string) context.Context {
-	if userID == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, userIDKey{}, userID)
-}
-
-// UserIDFromContext returns the user identifier stashed by
-// WithUserID, or "" if none.
-func UserIDFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(userIDKey{}).(string); ok {
-		return v
-	}
-	return ""
-}
+// The bearer/userID context helpers moved to
+// api/pkg/org/runtime/helix in H1.0. realClient reads the per-request
+// bearer override from that package; everything else (chat bridge,
+// spawner, hire_worker) imports runtimehelix.WithBearerToken /
+// BearerFromContext / WithUserID / UserIDFromContext directly.
 
 // bearer returns the token realClient should send: the per-request
-// override if one is in ctx, otherwise the static apiKey.
+// override (stashed by runtimehelix.WithBearerToken) if any, else the
+// static apiKey.
 func (c *realClient) bearer(ctx context.Context) string {
-	if v, ok := ctx.Value(bearerTokenKey{}).(string); ok && v != "" {
+	if v := runtimehelix.BearerFromContext(ctx); v != "" {
 		return v
 	}
 	return c.apiKey

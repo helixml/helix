@@ -11,12 +11,12 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/position"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 
 // HireWorker brings a Worker into existence: a Worker row carrying the
@@ -216,7 +216,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	// Routes through the runtime.HireHandler port so non-helix runtimes
 	// (claude / dev / test) can no-op without hire_worker knowing
 	// anything about helix-runtime internals.
-	if uid := helixclient.UserIDFromContext(ctx); uid != "" && t.deps.HireHandler != nil {
+	if uid := runtimehelix.UserIDFromContext(ctx); uid != "" && t.deps.HireHandler != nil {
 		if err := t.deps.HireHandler.OnHire(ctx, id, uid); err != nil {
 			return nil, fmt.Errorf("hire handler: %w", err)
 		}

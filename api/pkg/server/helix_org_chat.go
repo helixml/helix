@@ -243,7 +243,7 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 //     "helix-org alpha (per-user)" on first hit so we don't depend on
 //     the user having created one manually)
 //   - injects the key as a per-request bearer via
-//     helixclient.WithBearerToken
+//     runtimehelix.WithBearerToken
 //
 // Anything helix-org's bridge or picker does downstream then runs as
 // the actual logged-in user. The auto-provisioned helix.api_key
@@ -254,7 +254,7 @@ func withHelixUserBearer(next http.Handler, st helixstore.Store) http.Handler {
 		user := getRequestUser(r)
 		if hasUser(user) {
 			if key, err := resolveUserHelixAPIKey(r.Context(), st, user.ID); err == nil && key != "" {
-				r = r.WithContext(helixclient.WithBearerToken(r.Context(), key))
+				r = r.WithContext(runtimehelix.WithBearerToken(r.Context(), key))
 			} else if err != nil {
 				log.Warn().Err(err).Str("user_id", user.ID).Msg("helix-org: failed to resolve user api key; falling back to service key")
 			}
