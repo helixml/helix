@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
@@ -27,12 +28,12 @@ import (
 	"github.com/helixml/helix/helix-org/server/chat"
 	helixorgui "github.com/helixml/helix/helix-org/server/ui"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
+	orgpostgres "github.com/helixml/helix/api/pkg/org/store/postgres"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
 	"github.com/helixml/helix/helix-org/tools"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	helixstore "github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgHandlers bundles the two HTTP surfaces helix-org exposes:
@@ -53,14 +54,21 @@ const alphaFeatureHelixOrg = "helix-org"
 
 // initHelixOrgHandler builds the in-process helix-org HTTP handler;
 // mounted at /api/v1/org/, gated per-user by the `helix-org` alpha
-// feature flag. The SQLite store lives at
-// $FILESTORE_LOCALFS_PATH/helix-org/helix-org.db so the file survives
-// container redeploys on the persistent volume.
+// feature flag.
 //
-// If the deployment is not configured with `FILESTORE_TYPE=fs` there
-// is no local path to put the SQLite file in — the handler is not
-// mounted, so self-hosted installs running gcs (etc.) never see the
-// feature. SaaS currently runs fs against a persistent volume.
+// Storage: the org-graph rows land in the same Postgres database
+// helix uses for its primary state (H4.4) — no separate connection
+// pool, no FILESTORE_TYPE=fs requirement, no per-deployment SQLite
+// file. When helixStore is something other than the production
+// Postgres impl (e.g. an in-memory test store) the call falls back
+// to a SQLite file under LocalFSPath if one is configured, or a
+// temp directory otherwise.
+//
+// Working directories: each Worker still has an envsDir entry for
+// the Spawner's cwd, but the directory's contents are placeholder
+// only — real per-Worker state lives in the Worker's Helix project
+// (a git repo + agent app). When LocalFSPath is empty the envsDir
+// goes under os.TempDir() so gcs/s3 deployments work too.
 //
 // Every gated user currently shares one owner Worker — see the design
 // doc (design/2026-05-17-helix-org-saas-alpha.md) for the multi-tenant
@@ -68,31 +76,32 @@ const alphaFeatureHelixOrg = "helix-org"
 // Returns nil (and logs) if the embedded org cannot be initialised for
 // this deployment — callers must treat that as "don't mount".
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
-	if cfg.FileStoreType != types.FileStoreTypeLocalFS {
-		// helix-org needs a real local path for its SQLite file. SaaS
-		// runs fs against a persistent volume; deployments that don't
-		// (e.g. gcs) just won't see the feature. Returning nil is the
-		// signal to skip the mount.
-		return nil, nil
+	// Working directory root. LocalFSPath = the SaaS persistent
+	// volume mount when fs is enabled; os.TempDir() when not.
+	// Container restarts wipe TempDir contents, but the per-Worker
+	// envs are placeholders only (per-Worker state lives in Helix
+	// projects), so a fresh directory after restart is acceptable.
+	root := cfg.LocalFSPath
+	if root == "" {
+		root = os.TempDir()
 	}
-	if cfg.LocalFSPath == "" {
-		return nil, fmt.Errorf("FILESTORE_LOCALFS_PATH is empty")
-	}
-
-	orgRoot := filepath.Join(cfg.LocalFSPath, "helix-org")
+	orgRoot := filepath.Join(root, "helix-org")
 	if err := os.MkdirAll(orgRoot, 0o750); err != nil {
 		return nil, fmt.Errorf("create helix-org dir %q: %w", orgRoot, err)
 	}
-	dbPath := filepath.Join(orgRoot, "helix-org.db")
 	envsDir := filepath.Join(orgRoot, "envs")
 	ownerEnvPath := filepath.Join(envsDir, "w-owner")
 	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
 		return nil, fmt.Errorf("create owner env %q: %w", ownerEnvPath, err)
 	}
 
-	st, err := sqlite.Open(dbPath)
+	// Open the org store against helix's existing connection when
+	// available (production Postgres). Tests and dev wirings that
+	// pass non-Postgres helixStore impls fall back to a sqlite file
+	// under orgRoot — keeps the test surface unchanged.
+	st, err := openOrgStore(helixStore, orgRoot)
 	if err != nil {
-		return nil, fmt.Errorf("open helix-org sqlite: %w", err)
+		return nil, err
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -106,7 +115,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			Str("env_path", result.EnvironmentPath).
 			Msg("helix-org bootstrap created owner")
 	case errors.Is(err, bootstrap.ErrAlreadyInitialised):
-		log.Info().Str("db", dbPath).Msg("helix-org bootstrap skipped: already initialised")
+		log.Info().Str("root", orgRoot).Msg("helix-org bootstrap skipped: already initialised")
 	default:
 		return nil, fmt.Errorf("helix-org bootstrap: %w", err)
 	}
@@ -244,7 +253,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Now:        deps.Now,
 		Settings: helixorgui.SettingsView{
 			Owner:   "w-owner",
-			DBPath:  dbPath,
+			DBPath:  orgRoot,
 			EnvsDir: envsDir,
 			Specs:   uiSpecs,
 		},
@@ -278,18 +287,20 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
 	log.Info().
-		Str("db", dbPath).
+		Str("root", orgRoot).
 		Str("envs", envsDir).
 		Bool("chat_enabled", chatBridge != nil).
 		Msg("helix-org mounted at /api/v1/org/ + /ui/")
 	return &helixOrgHandlers{api: orgServer.Handler(), ui: uiMux}, nil
 }
 
-// helixOrgConfig is just enough of the surrounding config to decide
-// whether and where to bring up the embedded org.
+// helixOrgConfig is just enough of the surrounding config to bring
+// up the embedded org. LocalFSPath is optional after H4.4 — the
+// org store goes through helix's Postgres connection; LocalFSPath
+// is only used to root the working-directory tree, falling back to
+// os.TempDir() when empty.
 type helixOrgConfig struct {
-	FileStoreType types.FileStoreType
-	LocalFSPath   string
+	LocalFSPath string
 	// GitRepositoryService is the production git-write surface
 	// helix-org's Workspace uses to mirror role.md / identity.md /
 	// canonical files onto each Worker's per-Worker repo. The H1.1
@@ -555,4 +566,33 @@ func lazyHelixOrgSpawner(
 		}
 		return current(ctx, workerID, envPath, triggers)
 	}
+}
+
+// openOrgStore binds the org-graph repos against helix's existing
+// connection when the helixStore exposes a *gorm.DB (production
+// Postgres, H4.3); falls back to a SQLite file under orgRoot for
+// test wirings that pass non-Postgres stores. Centralised here so
+// initHelixOrgHandler stays linear.
+//
+// The orgPostgresDB anonymous interface lets us pick up the
+// (*PostgresStore).GormDB() accessor without leaking a hard
+// dependency on the concrete type — a future store impl that
+// exposes the same method gets the Postgres path automatically.
+func openOrgStore(helixStore helixstore.Store, orgRoot string) (*helixorgstore.Store, error) {
+	type orgPostgresDB interface {
+		GormDB() *gorm.DB
+	}
+	if accessor, ok := helixStore.(orgPostgresDB); ok {
+		st, err := orgpostgres.Open(accessor.GormDB())
+		if err != nil {
+			return nil, fmt.Errorf("open helix-org postgres: %w", err)
+		}
+		return st, nil
+	}
+	dbPath := filepath.Join(orgRoot, "helix-org.db")
+	st, err := sqlite.Open(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open helix-org sqlite %q: %w", dbPath, err)
+	}
+	return st, nil
 }

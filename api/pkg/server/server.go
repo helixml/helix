@@ -781,7 +781,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// feature flag is the gate).
 	if apiServer.Cfg.HelixOrgEnabled {
 		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
-			FileStoreType:        apiServer.Cfg.FileStore.Type,
 			LocalFSPath:          apiServer.Cfg.FileStore.LocalFSPath,
 			GitRepositoryService: apiServer.gitRepositoryService,
 		}, apiServer.Store); err != nil {
