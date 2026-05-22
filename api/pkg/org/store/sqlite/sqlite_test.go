@@ -159,6 +159,42 @@ func TestWorkersHumanAndAI(t *testing.T) {
 
 }
 
+// TestWorkerOrganizationIDRoundTrip pins H5.1 at the storage seam:
+// a Worker stamped with OrgID via WithOrgID round-trips through
+// Create → Get with the OrgID preserved. Workers without OrgID
+// (today's single-tenant default) read back with empty OrgID.
+func TestWorkerOrganizationIDRoundTrip(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := context.Background()
+
+	scoped, err := domain.NewAIWorker("w-acme-bot", "p-eng", "# bot")
+	if err != nil {
+		t.Fatalf("NewAIWorker: %v", err)
+	}
+	if err := s.Workers.Create(ctx, scoped.WithOrgID("org-acme")); err != nil {
+		t.Fatalf("Create scoped: %v", err)
+	}
+	got, err := s.Workers.Get(ctx, "w-acme-bot")
+	if err != nil {
+		t.Fatalf("Get scoped: %v", err)
+	}
+	if got.OrganizationID() != "org-acme" {
+		t.Errorf("round-tripped OrgID = %q, want org-acme", got.OrganizationID())
+	}
+
+	// Sanity: a Worker created without WithOrgID reads back empty
+	// (single-tenant alpha — no migration of legacy rows needed).
+	unscoped, _ := domain.NewAIWorker("w-global", "p-eng", "# global")
+	if err := s.Workers.Create(ctx, unscoped); err != nil {
+		t.Fatalf("Create unscoped: %v", err)
+	}
+	g, _ := s.Workers.Get(ctx, "w-global")
+	if g.OrganizationID() != "" {
+		t.Errorf("unscoped OrgID = %q, want empty", g.OrganizationID())
+	}
+}
+
 func TestGrants(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)

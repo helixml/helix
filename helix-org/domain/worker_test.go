@@ -97,3 +97,63 @@ var (
 	_ Worker = (*HumanWorker)(nil)
 	_ Worker = (*AIWorker)(nil)
 )
+
+// TestWorkerOrganizationIDDefaultsEmpty pins H5.1: the OrganizationID
+// accessor returns the empty string by default. The alpha is
+// single-tenant — every Worker lives in the global graph — and the
+// constructors don't take OrgID so existing call sites stay
+// unchanged. H5.2+ flips lookups to (org_id, worker_id) once
+// bootstrap-per-org lands; until then OrgID is purely additive
+// scaffolding.
+func TestWorkerOrganizationIDDefaultsEmpty(t *testing.T) {
+	ai, err := NewAIWorker("w-bot", "p-eng", "# bot")
+	if err != nil {
+		t.Fatalf("NewAIWorker: %v", err)
+	}
+	if got := ai.OrganizationID(); got != "" {
+		t.Errorf("AIWorker.OrganizationID() = %q, want empty", got)
+	}
+
+	hu, err := NewHumanWorker("w-alice", "p-eng", "# alice")
+	if err != nil {
+		t.Fatalf("NewHumanWorker: %v", err)
+	}
+	if got := hu.OrganizationID(); got != "" {
+		t.Errorf("HumanWorker.OrganizationID() = %q, want empty", got)
+	}
+}
+
+// TestWorkerWithOrgIDReturnsScopedWorker pins the builder shape that
+// multi-tenant call sites use to stamp an OrgID onto a Worker without
+// disrupting the zero-arg constructors. The returned Worker preserves
+// every other field (ID, Position, Identity, Kind).
+func TestWorkerWithOrgIDReturnsScopedWorker(t *testing.T) {
+	ai, _ := NewAIWorker("w-bot", "p-eng", "# bot")
+	scoped := ai.WithOrgID("org-acme")
+	if scoped.OrganizationID() != "org-acme" {
+		t.Errorf("AIWorker.WithOrgID().OrganizationID() = %q, want org-acme", scoped.OrganizationID())
+	}
+	if scoped.ID() != ai.ID() {
+		t.Errorf("WithOrgID changed ID: %q vs %q", scoped.ID(), ai.ID())
+	}
+	if scoped.Position() != ai.Position() {
+		t.Errorf("WithOrgID changed Position: %q vs %q", scoped.Position(), ai.Position())
+	}
+	if scoped.IdentityContent() != ai.IdentityContent() {
+		t.Errorf("WithOrgID changed Identity: %q vs %q", scoped.IdentityContent(), ai.IdentityContent())
+	}
+	if scoped.Kind() != ai.Kind() {
+		t.Errorf("WithOrgID changed Kind: %q vs %q", scoped.Kind(), ai.Kind())
+	}
+
+	// Original is untouched — value semantics.
+	if ai.OrganizationID() != "" {
+		t.Errorf("WithOrgID mutated original: OrganizationID = %q", ai.OrganizationID())
+	}
+
+	// Human path works the same way.
+	hu, _ := NewHumanWorker("w-alice", "p-eng", "# alice")
+	if got := hu.WithOrgID("org-acme").OrganizationID(); got != "org-acme" {
+		t.Errorf("HumanWorker.WithOrgID().OrganizationID() = %q, want org-acme", got)
+	}
+}

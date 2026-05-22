@@ -20,8 +20,14 @@ type workerRow struct {
 	Kind            string `gorm:"not null"` // "human" or "ai"
 	Positions       string // JSON array of position ids
 	IdentityContent string // markdown body — domain-owned persona/profile, projected by the spawner
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// OrgID is the helix.Organization the Worker belongs to. Empty
+	// in single-tenant deployments (today's alpha). H5.2+ adds the
+	// composite (org_id, id) index and tenant-scoped query
+	// predicates; H5.1 lands the column as additive scaffolding so
+	// existing rows round-trip cleanly.
+	OrgID     string `gorm:"index"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (workerRow) TableName() string { return "workers" }
@@ -85,6 +91,7 @@ func (r *workersRepo) Update(ctx context.Context, worker domain.Worker) error {
 			"identity_content": row.IdentityContent,
 			"positions":        row.Positions,
 			"kind":             row.Kind,
+			"org_id":           row.OrgID,
 		})
 	if res.Error != nil {
 		return fmt.Errorf("update worker %q: %w", row.ID, res.Error)
@@ -110,6 +117,7 @@ func workerToRow(worker domain.Worker) (workerRow, error) {
 		Kind:            string(worker.Kind()),
 		Positions:       string(encoded),
 		IdentityContent: worker.IdentityContent(),
+		OrgID:           worker.OrganizationID(),
 	}, nil
 }
 
@@ -124,12 +132,25 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 	if len(positions) > 0 {
 		pos = positions[0]
 	}
+	var built domain.Worker
 	switch worker.Kind(row.Kind) {
 	case worker.KindHuman:
-		return domain.NewHumanWorker(worker.ID(row.ID), pos, row.IdentityContent)
+		w, err := domain.NewHumanWorker(worker.ID(row.ID), pos, row.IdentityContent)
+		if err != nil {
+			return nil, err
+		}
+		built = w
 	case worker.KindAI:
-		return domain.NewAIWorker(worker.ID(row.ID), pos, row.IdentityContent)
+		w, err := domain.NewAIWorker(worker.ID(row.ID), pos, row.IdentityContent)
+		if err != nil {
+			return nil, err
+		}
+		built = w
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
 	}
+	if row.OrgID != "" {
+		built = built.WithOrgID(row.OrgID)
+	}
+	return built, nil
 }
