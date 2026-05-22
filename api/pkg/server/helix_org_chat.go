@@ -154,6 +154,12 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 		PublishActivation: func(ctx context.Context, workerID worker.ID, body string) {
 			_, _ = agent.PublishActivationEvent(ctx, orgSt, bc, newID, now, logger, workerID, body)
 		},
+		// Persist an Activation row per owner-chat turn (B5.11). Same
+		// shape the Spawner writes in B5.6, so /ui/'s human chat sits
+		// in the audit surface alongside every AI Worker's activations.
+		Activations: orgSt.Activations,
+		NewID:       newID,
+		Now:         now,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build helix chat bridge: %w", err)

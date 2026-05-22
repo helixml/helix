@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/helixml/helix/api/pkg/org/activation"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
@@ -301,4 +302,125 @@ func TestHelixBridgePersistsSessionIDOnFreshOpen(t *testing.T) {
 		defer savedMu.Unlock()
 		t.Fatalf("SaveSessionID was not called with the fresh ID; got %q", saved)
 	}
+}
+
+// TestHelixBridgeRecordsActivationRow pins B5.11: every owner-chat
+// send persists an Activation row keyed to the owner Worker, with
+// the row Completed by the time the goroutine returns. Mirrors what
+// the AI-Worker Spawner does in B5.6 — the owner is just-another-
+// Worker, the audit surface must agree.
+func TestHelixBridgeRecordsActivationRow(t *testing.T) {
+	t.Parallel()
+	fc := &fakeChatClient{startSessionID: "ses_42"}
+
+	repo := &fakeActivationRepo{}
+	b, err := NewHelix(HelixConfig{
+		Client:      fc,
+		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
+		OwnerID:     "w-owner",
+		SessionRole: "owner-chat",
+		CWD:         t.TempDir(),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Activations: repo,
+		NewID:       func() string { return "id-1" },
+		Now:         func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatalf("NewHelix: %v", err)
+	}
+	srv := httptest.NewServer(b.SendHandler())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL, url.Values{"message": {"hello"}})
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,gosec // test cleanup
+
+	if !waitFor(func() bool { return repo.completedCount() == 1 }) {
+		t.Fatalf("activation row never completed; created=%d, completed=%d", repo.createdCount(), repo.completedCount())
+	}
+	if got := repo.createdCount(); got != 1 {
+		t.Fatalf("created rows = %d, want 1", got)
+	}
+	created := repo.firstCreated()
+	if created.ID != "a-id-1" {
+		t.Errorf("activation.ID = %q, want a-id-1", created.ID)
+	}
+	if created.WorkerID != "w-owner" {
+		t.Errorf("activation.WorkerID = %q, want w-owner", created.WorkerID)
+	}
+	if created.TranscriptStreamID != activation.StreamID("w-owner") {
+		t.Errorf("activation.TranscriptStreamID = %q, want %q", created.TranscriptStreamID, activation.StreamID("w-owner"))
+	}
+	if len(created.Triggers) == 0 {
+		t.Fatal("created row has no triggers")
+	}
+	completed := repo.firstCompleted()
+	if completed.id != "a-id-1" {
+		t.Errorf("completed.id = %q, want a-id-1", completed.id)
+	}
+	if completed.outcome.Status != activation.StatusOK {
+		t.Errorf("completed.Outcome.Status = %q, want ok", completed.outcome.Status)
+	}
+}
+
+// fakeActivationRepo records Create + Complete calls for owner-chat
+// tests. Implements activation.Repository.
+type fakeActivationRepo struct {
+	mu        sync.Mutex
+	created   []*activation.Activation
+	completed []fakeActivationComplete
+}
+
+type fakeActivationComplete struct {
+	id      activation.ID
+	outcome activation.Outcome
+	endedAt time.Time
+}
+
+func (r *fakeActivationRepo) Create(_ context.Context, a *activation.Activation) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.created = append(r.created, a)
+	return nil
+}
+
+func (r *fakeActivationRepo) Complete(_ context.Context, id activation.ID, outcome activation.Outcome, endedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.completed = append(r.completed, fakeActivationComplete{id: id, outcome: outcome, endedAt: endedAt})
+	return nil
+}
+
+func (r *fakeActivationRepo) Get(_ context.Context, _ activation.ID) (*activation.Activation, error) {
+	return nil, nil
+}
+
+func (r *fakeActivationRepo) ListForWorker(_ context.Context, _ worker.ID, _ int) ([]*activation.Activation, error) {
+	return nil, nil
+}
+
+func (r *fakeActivationRepo) createdCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.created)
+}
+
+func (r *fakeActivationRepo) completedCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.completed)
+}
+
+func (r *fakeActivationRepo) firstCreated() *activation.Activation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.created[0]
+}
+
+func (r *fakeActivationRepo) firstCompleted() fakeActivationComplete {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.completed[0]
 }

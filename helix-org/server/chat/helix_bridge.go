@@ -64,6 +64,14 @@ type HelixBridge struct {
 	// AI Worker's. nil disables publishing (tests, app-only mode).
 	publishActivation ActivationPublisher
 
+	// activations + newID + now persist one Activation row per send so
+	// the owner-chat audit surface matches the Spawner's (B5.6). All
+	// three nil = no row written; rows fire only when every field is
+	// wired.
+	activations activation.Repository
+	newID       func() string
+	now         func() time.Time
+
 	mu           sync.Mutex // guards sessionID, listeners, ws, freshFromBlank
 	sessionID    string     // current Helix session ID; "" means "next Send creates one"
 	listeners    map[chan string]struct{}
@@ -139,6 +147,16 @@ type HelixConfig struct {
 	// (tests, app-only mode). Wire it to agent.PublishActivationEvent
 	// with the embedding host's store / broadcaster / id / clock.
 	PublishActivation ActivationPublisher
+
+	// Activations + NewID + Now persist an Activation row per owner-chat
+	// turn so /ui/'s human chat sits in the same audit surface as every
+	// AI Worker's activations (the Spawner does the same in B5.6). All
+	// three are optional and travel as a group — leaving any nil
+	// disables the row, mirroring the legacy in-memory-only behaviour
+	// for tests and standalone deploys.
+	Activations activation.Repository
+	NewID       func() string
+	Now         func() time.Time
 }
 
 // NewHelix returns a HelixBridge bound to the supplied Helix client.
@@ -188,6 +206,9 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 		loadSessionID:     cfg.LoadSessionID,
 		saveSessionID:     cfg.SaveSessionID,
 		publishActivation: cfg.PublishActivation,
+		activations:       cfg.Activations,
+		newID:             cfg.NewID,
+		now:               cfg.Now,
 		listeners:         make(map[chan string]struct{}),
 		seen:              make(map[string]struct{}),
 		orgIDByProject:    make(map[string]string),
@@ -405,6 +426,11 @@ func (b *HelixBridge) SendHandler() http.Handler {
 			if bearer != "" {
 				ctx = runtimehelix.WithBearerToken(ctx, bearer)
 			}
+			// Persist the Activation row first — the audit surface
+			// (worker_log, replay) keys off it. The transcript stream
+			// markers below follow so observers see the turn even if
+			// the row write or send errors mid-flight.
+			actID := b.startActivation(ctx)
 			// Activation start marker — same shape the AI worker
 			// spawner publishes. Recorded BEFORE the send so the
 			// stream shows the turn even if the send itself errors.
@@ -420,6 +446,7 @@ func (b *HelixBridge) SendHandler() http.Handler {
 			if b.publishActivation != nil {
 				b.publishActivation(ctx, b.ownerID, activation.OutcomeFromError(err).Marker())
 			}
+			b.completeActivation(ctx, actID, err)
 		}()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprint(w, renderUserBubble(bubble))
@@ -934,3 +961,44 @@ func jsonField(raw json.RawMessage, key string) string {
 
 // keep compiler happy if jsonField becomes unused as we evolve renderHelixFrames
 var _ = jsonField
+
+// startActivation persists a fresh Activation row for one owner-chat
+// turn and returns its ID, or "" when the bridge isn't wired with an
+// Activations repo (tests, app-only mode, legacy deploys). The row
+// mirrors what the AI-Worker Spawner writes in B5.6 — same shape,
+// same per-Worker key — so audit consumers (worker_log, replay) see
+// one model regardless of whether the activation came from a human
+// or an AI Worker.
+//
+// Failures are logged and swallowed; the row is best-effort during
+// the B5 transition. The transcript-stream markers + the actual send
+// still proceed even if Create errors.
+func (b *HelixBridge) startActivation(ctx context.Context) activation.ID {
+	if b.activations == nil || b.newID == nil || b.now == nil {
+		return ""
+	}
+	id := activation.ID("a-" + b.newID())
+	act, err := activation.New(id, b.ownerID, []activation.Trigger{{Kind: activation.TriggerEvent}}, b.now())
+	if err != nil {
+		b.logger.Warn("chat helix: build activation row", "worker", b.ownerID, "err", err)
+		return ""
+	}
+	if err := b.activations.Create(ctx, act); err != nil {
+		b.logger.Warn("chat helix: persist activation row", "worker", b.ownerID, "activation", id, "err", err)
+		return ""
+	}
+	return id
+}
+
+// completeActivation marks an owner-chat Activation row finished.
+// No-op when startActivation returned "" (no row persisted) or the
+// bridge isn't fully wired. Failures are logged and swallowed for
+// the same reason startActivation's are.
+func (b *HelixBridge) completeActivation(ctx context.Context, id activation.ID, sendErr error) {
+	if id == "" || b.activations == nil || b.now == nil {
+		return
+	}
+	if err := b.activations.Complete(ctx, id, activation.OutcomeFromError(sendErr), b.now()); err != nil {
+		b.logger.Warn("chat helix: complete activation row", "worker", b.ownerID, "activation", id, "err", err)
+	}
+}
