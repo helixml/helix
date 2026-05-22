@@ -36,21 +36,7 @@
         </a>
     </nav>
 
-    <div class="mt-5 px-4 pb-1">
-        <div class="text-[11px] uppercase tracking-[0.16em] font-mono" style="color: var(--ink-muted);">Recents</div>
-    </div>
-    <div class="px-3 flex-1 overflow-y-auto pb-2">
-        {{ if .HasRecents }}
-            {{ range .Recents }}
-            <form method="POST" action="/ui/chat/switch" hx-post="/ui/chat/switch" hx-swap="none">
-                <input type="hidden" name="sid" value="{{ .SessionID }}" />
-                <button type="submit" class="recent-item w-full text-left {{ if .IsActive }}is-active{{ end }}" title="{{ .Title }}">{{ .Title }}</button>
-            </form>
-            {{ end }}
-        {{ else }}
-            <p class="px-1 text-[12px] mt-1" style="color: var(--ink-muted);">No saved chats yet.</p>
-        {{ end }}
-    </div>
+    <div class="flex-1"></div>
 
     <div class="border-t px-3 py-3 flex items-center gap-2" style="border-color: var(--line);">
         <span class="grid place-items-center w-7 h-7 rounded-full font-display text-[13px] font-medium" style="background: var(--accent); color: var(--accent-on);">{{ .Initial }}</span>

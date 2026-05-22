@@ -1,10 +1,12 @@
-// Package agent is the runtime layer that activates AI Workers — the
-// thing that takes "this Worker just got an event" and turns it into
-// an actual LLM-driven turn. Concrete runtimes live in sub-packages
-// (agent/claude, agent/helix). This package holds the runtime-shared
-// types: the Spawner contract and the WorkspaceSync interface, plus
-// the canonical agent-policy text every runtime feeds to the LLM.
-// Trigger / TriggerKind moved to api/pkg/org/activation in B3c.
+// Package agent holds the runtime-shared text every AI Worker runtime
+// feeds to the LLM at activation time — currently just the canonical
+// worker-policy.md. The only production runtime lives at
+// api/pkg/org/runtime/helix/; it embeds Policy and pushes it to
+// `.context/worker-policy.md` on the per-Worker repo's helix-specs
+// branch. The Spawner / WorkspaceSync ports moved to
+// api/pkg/org/runtime in B3d; Trigger / TriggerKind moved to
+// api/pkg/org/activation in B3c; the dev-only claude-subprocess
+// runtime was deleted in B9.
 package agent
 
 import _ "embed"
@@ -14,10 +16,9 @@ import _ "embed"
 // — it tells the Worker how to *be* an AI Worker in helix-org, not what
 // its job is. Roles cover the latter.
 //
-// Both runtimes embed this verbatim: the claude runtime writes it as
-// `worker-policy.md` in the Worker's env directory, the Helix runtime
-// pushes it to `.context/worker-policy.md` on the per-Worker repo's
-// helix-specs branch.
+// The Helix runtime pushes this to `.context/worker-policy.md` on the
+// per-Worker repo's helix-specs branch so every activation can `cat`
+// it before deciding what to do.
 //
 // Naming: see ADR-0001 §2 — "agent" is reserved for the LLM-client-
 // binary sense (Claude Code, external-agent runtime). The file used

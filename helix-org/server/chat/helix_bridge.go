@@ -12,8 +12,8 @@ import (
 
 	"log/slog"
 
-	"github.com/helixml/helix/api/pkg/org/worker"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"
@@ -26,23 +26,18 @@ import (
 type ActivationPublisher func(ctx context.Context, workerID worker.ID, body string)
 
 // HelixBridge drives the owner chat surface against a Helix chat
-// session instead of a local `claude` subprocess. Each Bridge owns
-// **one** Helix session at a time (the "current" session); New chat
-// or Switch reset the pointer and the next Send creates / resumes the
-// chosen session.
+// session. Each Bridge owns **one** Helix session at a time (the
+// "current" session); New chat or Switch reset the pointer and the
+// next Send creates / resumes the chosen session.
 //
 // Why one session per Bridge today: there is exactly one Owner chat
-// surface and the existing `*Bridge` shares its single subprocess
-// across every browser tab. Mirroring that keeps the UI's mental
-// model unchanged. When per-Worker chat surfaces arrive, swap the
-// "current session" field for a per-Worker map.
+// surface. When per-Worker chat surfaces arrive, swap the "current
+// session" field for a per-Worker map.
 //
-// SSE listeners are fanned out the same way the claude bridge does
-// it: one channel per subscriber, broadcast publishes drop on slow
-// listeners. Frame translation lives in renderHelixFrames below — it
-// converts Helix's WebsocketEvent payloads into the same HTML
-// fragment shape `chat.go::renderFragments` produces, so the UI
-// renders both backends identically.
+// SSE listeners: one channel per subscriber, broadcast publishes
+// drop on slow listeners. Frame translation lives in renderEvent
+// below — it converts Helix's WebsocketEvent payloads into the HTML
+// fragment shape the UI expects.
 type HelixBridge struct {
 	client      helixclient.Client
 	ensure      ProjectEnsurer                        // resolves the owner Worker's per-Worker project; nil in app-only mode
@@ -225,8 +220,7 @@ func (b *HelixBridge) Label() string {
 // the current Helix session's Interactions and rendering each turn's
 // user bubble + assistant text as HTML fragments. Returns nil when
 // there is no current session (fresh process / freshly cleared) or
-// when the load fails — the UI handler treats nil as "no history",
-// same as for the claude bridge.
+// when the load fails — the UI handler treats nil as "no history".
 //
 // Tool calls / multi-step ResponseEntries are intentionally rendered
 // as plain text only: the chat surface today shows just text bubbles,
@@ -293,8 +287,9 @@ func (b *HelixBridge) HistoryStartsFresh() bool {
 	return b.freshFromNew && b.sessionID == ""
 }
 
-// subscribe / unsubscribe / broadcast follow the same shape the
-// claude bridge uses, so SSE plumbing in StreamHandler is identical.
+// subscribe / unsubscribe / broadcast are the SSE plumbing for
+// StreamHandler — one channel per subscriber, broadcasts drop on
+// slow listeners.
 func (b *HelixBridge) subscribe() chan string {
 	ch := make(chan string, 64)
 	b.mu.Lock()
@@ -321,10 +316,10 @@ func (b *HelixBridge) broadcast(frag string) {
 	}
 }
 
-// StreamHandler serves /ui/chat/stream as SSE. It is identical to
-// the claude bridge's handler in shape — listeners are subscribed
-// here, the background WS goroutine started by Send broadcasts
-// frames, and the connection lives until the browser closes it.
+// StreamHandler serves /ui/chat/stream as SSE — listeners are
+// subscribed here, the background WS goroutine started by Send
+// broadcasts frames, and the connection lives until the browser
+// closes it.
 func (b *HelixBridge) StreamHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
@@ -834,9 +829,8 @@ func (b *HelixBridge) SwitchHandler() http.Handler {
 }
 
 // CommandsHandler renders the slash-command typeahead at
-// /ui/chat/commands. Identical to the claude bridge's behaviour;
-// reusing renderSlashSuggestion keeps both backends visually
-// indistinguishable.
+// /ui/chat/commands. Match candidates are filtered by prefix and
+// rendered via renderSlashSuggestion.
 func (b *HelixBridge) CommandsHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -868,9 +862,9 @@ func (b *HelixBridge) CommandsHandler() http.Handler {
 	})
 }
 
-// expandSlashCommand mirrors the claude bridge's behaviour. Slash
-// commands are resolved server-side by the prompt registry; the
-// rendered text replaces the user input before posting to Helix.
+// expandSlashCommand resolves a `/<name>` token server-side through
+// the prompt registry; the rendered prompt body replaces the user
+// input before posting to Helix.
 func (b *HelixBridge) expandSlashCommand(ctx context.Context, msg string) (string, bool) {
 	if b.prompts == nil || !strings.HasPrefix(msg, "/") {
 		return "", false

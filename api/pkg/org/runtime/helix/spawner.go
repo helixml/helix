@@ -96,8 +96,9 @@ type SpawnerConfig struct {
 // transcript WebSocket, then poll for completion. New transcript
 // segments arriving on the WebSocket are diffed against a per-call
 // dedup map and republished onto s-activations-<workerID> in the
-// same shape claude.Spawner emits, so observers see one transcript
-// format regardless of backend.
+// canonical transcript line shape (assistant: …, tool_use foo: …,
+// tool_result: …) so observers see one format regardless of which
+// Worker fired.
 func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if cfg.PollInitial == 0 {
 		cfg.PollInitial = 250 * time.Millisecond
@@ -375,11 +376,10 @@ func newBridge(publish func(body string)) *bridge {
 	return b
 }
 
-// onEvent renders one settled EntryStream event into the line shape
-// claude.Spawner has emitted historically. Both backends emit the
-// same shape so observers don't have to discriminate. The owner-chat
-// bridge in server/chat uses the same TranscriptBody helper to
-// publish identical lines to s-activations-w-owner.
+// onEvent renders one settled EntryStream event into the canonical
+// activation-transcript line shape. The owner-chat bridge in
+// server/chat uses the same TranscriptBody helper to publish
+// identical lines to s-activations-w-owner.
 func (b *bridge) onEvent(e Event) {
 	if body := TranscriptBody(e); body != "" {
 		b.publish(body)

@@ -32,16 +32,17 @@ type EntryStream struct {
 }
 
 // Event is one settled transcript event surfaced by EntryStream. The
-// text/tool_use/tool_result distinction matches the line shapes the
-// claude bridge has emitted historically; both helix-org's
-// activation stream and the chat HTML bridge consume the same set.
+// text/tool_use/tool_result distinction is the canonical line shape
+// for activation transcripts; both helix-org's activation stream and
+// the chat HTML bridge consume the same set.
 type Event struct {
 	Kind     string // "assistant" | "tool_use" | "tool_result" | "tool_result-error" | "error"
 	Text     string
 	ToolName string
 }
 
-// EventKind constants mirror the line tags the claude bridge emits.
+// EventKind constants are the canonical activation-transcript line
+// tags every consumer (s-activations stream, /ui/ chat) reads.
 const (
 	EventAssistant       = "assistant"
 	EventToolUse         = "tool_use"

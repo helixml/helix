@@ -11,13 +11,12 @@
 // takes a Spawner; the tools.Deps takes a WorkspaceSync) because the
 // helix-runtime constructors build them at different points with
 // different dependencies. A unified `Runtime` interface combining
-// both will land when H1 refactors the helix backend off the
-// helixclient loopback and onto direct controller calls — at that
+// both will land when H1.4 deletes the helixclient adapter — at that
 // point the two contracts can satisfy one struct.
 //
-// The two existing concrete runtimes (helix-org/agent/claude and
-// helix-org/agent/helix) keep their location for now. They will move
-// into api/pkg/org/runtime/{claude,helix}/ when H1 / H3 land.
+// The sole concrete runtime lives at api/pkg/org/runtime/helix/
+// (lifted in H1.0–H1.3d). The dev-only claude-subprocess runtime
+// (helix-org/agent/claude) was deleted in B9.
 package runtime
 
 import (
@@ -53,17 +52,15 @@ type Spawner func(ctx context.Context, workerID worker.ID, envPath string, trigg
 // without waiting for the spawner's projection step.
 //
 // `name` is a logical filename for this Worker — typically "role.md"
-// or "identity.md". Each backend maps the name to its own on-target
+// or "identity.md". The backend maps the name to its own on-target
 // layout; callers must NOT include backend-specific path prefixes
-// (no "workers/<id>/.context/...", no "job/..."). The mapping today:
+// (no "workers/<id>/.context/...", no "job/..."). The mapping today
+// (helix runtime, the sole concrete impl):
 //
-//   - claude: <envsDir>/<workerID>/<name>
-//     (matches the layout `projectEnv` writes at activation)
-//   - helix:  workers/<workerID>/.context/<name> on the helix-specs
-//     branch of the Worker's per-Worker repo
-//     (matches what `WorkerProject.republishWorkerFiles` writes
-//     and what the activation mandate tells the agent to `git
-//     pull` and `cat`)
+//   - workers/<workerID>/.context/<name> on the helix-specs branch
+//     of the Worker's per-Worker repo (matches what
+//     `WorkerProject.republishWorkerFiles` writes and what the
+//     activation mandate tells the agent to `git pull` and `cat`)
 //
 // `name` must be a clean, single-segment-or-relative filename — no
 // leading slash, no "..", no escape from the Worker's namespace.

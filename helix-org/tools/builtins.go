@@ -71,11 +71,11 @@ type Deps struct {
 // left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
 	return Deps{
-		Store:       s,
-		Now:         func() time.Time { return time.Now().UTC() },
-		NewID:       uuid.NewString,
-		Workspace:   runtime.NoopWorkspaceSync{},
-		HireHook: runtime.NoopHireHook{},
+		Store:     s,
+		Now:       func() time.Time { return time.Now().UTC() },
+		NewID:     uuid.NewString,
+		Workspace: runtime.NoopWorkspaceSync{},
+		HireHook:  runtime.NoopHireHook{},
 	}
 }
 

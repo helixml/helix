@@ -1,7 +1,6 @@
 package helixclient
 
 import (
-	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/gorilla/websocket"
 

@@ -2,7 +2,6 @@ package chat
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
@@ -27,131 +26,6 @@ func renderMarkdown(src string) string {
 		return html.EscapeString(src)
 	}
 	return buf.String()
-}
-
-// streamEvent captures the parts of claude's stream-json format the
-// chat surface needs to render. The shape is shared between the
-// live SSE bridge (chat.go) and the historical-replay reader
-// (sessions.go) — both parse the same events out of either claude's
-// stdout or its on-disk session jsonl.
-type streamEvent struct {
-	Type    string          `json:"type"`
-	Subtype string          `json:"subtype,omitempty"`
-	Message json.RawMessage `json:"message,omitempty"`
-	Result  string          `json:"result,omitempty"`
-	IsError bool            `json:"is_error,omitempty"`
-}
-
-// messagePayload mirrors the message envelope inside both stream-json
-// (live) and session-jsonl (history) lines. content can be a string
-// (raw user prompt) or an array of contentSegment (everything else).
-type messagePayload struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
-}
-
-type contentSegment struct {
-	Type    string          `json:"type"`
-	Text    string          `json:"text,omitempty"`
-	Name    string          `json:"name,omitempty"`
-	Input   json.RawMessage `json:"input,omitempty"`
-	Content json.RawMessage `json:"content,omitempty"`
-	IsError bool            `json:"is_error,omitempty"`
-}
-
-// renderFragments turns one parsed stream-json event into zero or
-// more HTML fragments, one per atomic visual unit (user bubble,
-// assistant text bubble, tool-use chip, tool-result chip, error
-// banner). Used by both the live SSE bridge and historical replay.
-//
-// Returns []string rather than a single string so the caller can
-// broadcast each fragment as its own SSE message and the browser can
-// stream them in one at a time.
-func renderFragments(ev streamEvent) []string {
-	switch ev.Type {
-	case "user":
-		return renderUserEvent(ev.Message)
-	case "assistant":
-		return renderAssistantEvent(ev.Message)
-	case "result":
-		if ev.IsError {
-			return []string{renderTurnError(ev.Result)}
-		}
-	}
-	return nil
-}
-
-// renderUserEvent decodes a user-event message and returns the HTML
-// fragments it produces. content is either a raw string (the user's
-// prompt) or an array of segments (where the only renderable segment
-// is tool_result — the live stream-json sometimes wraps tool results
-// in a user envelope). text segments inside an array body are also
-// surfaced so resumed-history user messages with multipart content
-// render correctly.
-//
-// CLI metadata blocks (<local-command-caveat>, <command-name>,
-// <system-reminder>) are silently dropped — those are scaffolding
-// claude wrote into the transcript, not actual user prompts, and
-// rendering them as bubbles would clutter the resumed view.
-func renderUserEvent(messageJSON json.RawMessage) []string {
-	var msg messagePayload
-	if err := json.Unmarshal(messageJSON, &msg); err != nil {
-		return nil
-	}
-	// Try string-shaped content first.
-	var asString string
-	if err := json.Unmarshal(msg.Content, &asString); err == nil {
-		if asString = strings.TrimSpace(asString); asString != "" && !isMetaPrompt(asString) {
-			return []string{renderUserBubble(asString)}
-		}
-		return nil
-	}
-	// Otherwise treat as array of segments.
-	var segs []contentSegment
-	if err := json.Unmarshal(msg.Content, &segs); err != nil {
-		return nil
-	}
-	var out []string
-	for _, seg := range segs {
-		switch seg.Type {
-		case "text":
-			t := strings.TrimSpace(seg.Text)
-			if t == "" || isMetaPrompt(t) {
-				continue
-			}
-			out = append(out, renderUserBubble(t))
-		case "tool_result":
-			out = append(out, renderToolResult(string(seg.Content), seg.IsError))
-		}
-	}
-	return out
-}
-
-// renderAssistantEvent decodes an assistant-event message and returns
-// the HTML fragments. text segments become assistant bubbles;
-// tool_use becomes a tool-use chip; thinking is silently dropped
-// (internal scratchpad — not for the chat surface).
-func renderAssistantEvent(messageJSON json.RawMessage) []string {
-	var msg messagePayload
-	if err := json.Unmarshal(messageJSON, &msg); err != nil {
-		return nil
-	}
-	var segs []contentSegment
-	if err := json.Unmarshal(msg.Content, &segs); err != nil {
-		return nil
-	}
-	var out []string
-	for _, seg := range segs {
-		switch seg.Type {
-		case "text":
-			if seg.Text != "" {
-				out = append(out, renderAssistantText(seg.Text))
-			}
-		case "tool_use":
-			out = append(out, renderToolUse(seg.Name, string(seg.Input)))
-		}
-	}
-	return out
 }
 
 // renderSlashSuggestion renders one row in the slash-command dropdown.

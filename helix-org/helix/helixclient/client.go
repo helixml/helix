@@ -52,8 +52,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-
-
 // Default per-call timeout for REST calls. The WebSocket has no
 // timeout — the caller controls its lifetime via context.
 const defaultRESTTimeout = 30 * time.Second
@@ -301,19 +299,6 @@ type PutFileRequest struct {
 	Email   string
 	Content string
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Config configures a real HTTP+WS Client.
 type Config struct {

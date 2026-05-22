@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"github.com/helixml/helix/api/pkg/types"
 	"context"
 	"io"
 	"log/slog"
@@ -13,8 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/worker"
+	"github.com/helixml/helix/api/pkg/types"
+
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
 

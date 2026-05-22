@@ -27,19 +27,16 @@ import (
 )
 
 // Deps is everything the UI surface needs from its host. The wiring
-// layer (cmd/helix-org/serve.go) builds this once at startup; the UI
-// package treats it as an immutable snapshot. SettingsView and the
-// store populate the org and settings pages; ChatCWD is the directory
-// where claude's per-cwd session jsonls live, read for chat history
-// and the Recents list in the sidebar; Configs lets the settings
-// page read and mutate operational config in place; Bridge exposes
-// chat-session state (e.g. "user just clicked New chat") so the
-// chat page can suppress stale history rendering.
+// layer builds this once at startup; the UI package treats it as an
+// immutable snapshot. SettingsView and the store populate the org
+// and settings pages; Configs lets the settings page read and mutate
+// operational config in place; Bridge exposes chat-session state
+// (e.g. "user just clicked New chat") and reconstructs chat history
+// from the active Helix session.
 type Deps struct {
 	Store      *store.Store
 	Configs    *config.Registry
 	Bridge     chat.Backend
-	ChatCWD    string
 	Settings   SettingsView
 	Hub        *broadcast.Hub
 	Dispatcher *dispatch.Dispatcher
@@ -101,25 +98,14 @@ type uiHandler struct {
 // becomes a per-request lookup.
 //
 // active is one of "chat", "org", "settings", "streams" — it drives
-// the highlighted nav item. activeSID is the session ID currently
-// being viewed (chat page only); when matched against a Recents
-// entry, that row is rendered active.
-func (u *uiHandler) ownerSidebar(active, activeSID string) Sidebar {
-	s := Sidebar{
+// the highlighted nav item.
+func (u *uiHandler) ownerSidebar(active string) Sidebar {
+	return Sidebar{
 		Active:      active,
 		Initial:     "O",
 		DisplayName: "Owner",
 		WorkerID:    u.deps.Settings.Owner,
 	}
-	for _, info := range chat.ListSessions(u.deps.ChatCWD) {
-		s.Recents = append(s.Recents, RecentRow{
-			SessionID: info.SessionID,
-			Title:     info.Title,
-			IsActive:  info.SessionID == activeSID,
-		})
-	}
-	s.HasRecents = len(s.Recents) > 0
-	return s
 }
 
 func (u *uiHandler) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -129,28 +115,22 @@ func (u *uiHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 		label = u.deps.Bridge.Label()
 	}
 	page := &ChatPage{
-		shell:        shell{Head: Head{Title: "Chat"}, Sidebar: u.ownerSidebar("chat", sid)},
+		shell:        shell{Head: Head{Title: "Chat"}, Sidebar: u.ownerSidebar("chat")},
 		Greeting:     "Owner",
 		BackendLabel: label,
 	}
 	// When the user just clicked "New chat" and no new turn has been
-	// written yet, the latest jsonl is the *previous* conversation —
-	// rendering it would make New chat look broken. Skip history in
-	// that window unless the request explicitly resumes a sid.
+	// written yet, the active Helix session is the *previous*
+	// conversation — rendering its history would make New chat look
+	// broken. Skip history in that window unless the request
+	// explicitly resumes a sid.
 	if sid != "" || u.deps.Bridge == nil || !u.deps.Bridge.HistoryStartsFresh() {
-		// Backends that own their own session store (HelixBridge)
-		// reconstruct history from there; the file-based jsonl reader
-		// is the fallback for the claude bridge. Bridges that have no
-		// backend history return nil so the file reader still runs.
 		var frags []string
 		if u.deps.Bridge != nil {
 			frags = u.deps.Bridge.History(r.Context())
 		}
-		if len(frags) == 0 {
-			frags = chat.ReadHistory(u.deps.ChatCWD, sid)
-		}
 		if len(frags) > 0 {
-			page.History = template.HTML(strings.Join(frags, "\n")) //nolint:gosec // fragments are produced by chat.renderFragments which html-escapes user content
+			page.History = template.HTML(strings.Join(frags, "\n")) //nolint:gosec // fragments are produced by the chat package's render helpers which html-escape user content
 		}
 	}
 	render(w, chatTpl, page)
@@ -179,7 +159,7 @@ func (u *uiHandler) handleOrg(w http.ResponseWriter, r *http.Request) {
 	flash := strings.TrimSpace(r.URL.Query().Get("flash"))
 	flashErr := strings.TrimSpace(r.URL.Query().Get("err"))
 	page := &OrgPage{
-		shell:      shell{Head: Head{Title: "Org"}, Sidebar: u.ownerSidebar("org", "")},
+		shell:      shell{Head: Head{Title: "Org"}, Sidebar: u.ownerSidebar("org")},
 		Flash:      flash,
 		FlashError: flashErr,
 		HasFlash:   flash != "" || flashErr != "",
@@ -398,7 +378,7 @@ func (u *uiHandler) handleStreams(w http.ResponseWriter, r *http.Request) {
 	flashErr := strings.TrimSpace(r.URL.Query().Get("err"))
 
 	page := &StreamsPage{
-		shell:      shell{Head: Head{Title: "Streams"}, Sidebar: u.ownerSidebar("streams", "")},
+		shell:      shell{Head: Head{Title: "Streams"}, Sidebar: u.ownerSidebar("streams")},
 		Owner:      u.deps.Settings.Owner,
 		Flash:      flash,
 		FlashError: flashErr,
@@ -769,7 +749,7 @@ func (u *uiHandler) handleSettings(w http.ResponseWriter, r *http.Request) {
 	flash := strings.TrimSpace(r.URL.Query().Get("flash"))
 	flashErr := strings.TrimSpace(r.URL.Query().Get("err"))
 	page := &SettingsPage{
-		shell:      shell{Head: Head{Title: "Settings"}, Sidebar: u.ownerSidebar("settings", "")},
+		shell:      shell{Head: Head{Title: "Settings"}, Sidebar: u.ownerSidebar("settings")},
 		Owner:      u.deps.Settings.Owner,
 		PublicURL:  u.deps.Settings.PublicURL,
 		DBPath:     u.deps.Settings.DBPath,

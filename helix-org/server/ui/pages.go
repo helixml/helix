@@ -49,23 +49,12 @@ func (Head) TemplateText() string { return headHTML }
 // Sidebar renders the left rail. Active is the slug of the current
 // page ("chat", "org", "settings") so the rail can highlight the
 // active item. Initial/DisplayName/WorkerID populate the identity
-// pill at the bottom. Recents is the list of past chat sessions
-// (most-recent first) — empty when no jsonls exist on disk yet.
+// pill at the bottom.
 type Sidebar struct {
 	Active      string
 	Initial     string
 	DisplayName string
 	WorkerID    string
-	Recents     []RecentRow
-	HasRecents  bool
-}
-
-// RecentRow is one entry in the Recents list — a clickable link that
-// switches the chat bridge to that session ID and reloads /ui/.
-type RecentRow struct {
-	SessionID string
-	Title     string
-	IsActive  bool
 }
 
 // TemplateText returns the sidebar partial body.

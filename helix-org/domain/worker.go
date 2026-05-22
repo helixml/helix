@@ -52,10 +52,10 @@ func NewHumanWorker(id worker.ID, pos position.ID, identityContent string) (*Hum
 	return &HumanWorker{id: id, position: pos, identityContent: identityContent}, nil
 }
 
-func (h *HumanWorker) ID() worker.ID            { return h.id }
-func (h *HumanWorker) Kind() worker.Kind        { return worker.KindHuman }
-func (h *HumanWorker) Position() position.ID    { return h.position }
-func (h *HumanWorker) IdentityContent() string  { return h.identityContent }
+func (h *HumanWorker) ID() worker.ID           { return h.id }
+func (h *HumanWorker) Kind() worker.Kind       { return worker.KindHuman }
+func (h *HumanWorker) Position() position.ID   { return h.position }
+func (h *HumanWorker) IdentityContent() string { return h.identityContent }
 func (h *HumanWorker) WithIdentityContent(content string) Worker {
 	return &HumanWorker{id: h.id, position: h.position, identityContent: content}
 }
@@ -76,10 +76,10 @@ func NewAIWorker(id worker.ID, pos position.ID, identityContent string) (*AIWork
 	return &AIWorker{id: id, position: pos, identityContent: identityContent}, nil
 }
 
-func (a *AIWorker) ID() worker.ID            { return a.id }
-func (a *AIWorker) Kind() worker.Kind        { return worker.KindAI }
-func (a *AIWorker) Position() position.ID    { return a.position }
-func (a *AIWorker) IdentityContent() string  { return a.identityContent }
+func (a *AIWorker) ID() worker.ID           { return a.id }
+func (a *AIWorker) Kind() worker.Kind       { return worker.KindAI }
+func (a *AIWorker) Position() position.ID   { return a.position }
+func (a *AIWorker) IdentityContent() string { return a.identityContent }
 func (a *AIWorker) WithIdentityContent(content string) Worker {
 	return &AIWorker{id: a.id, position: a.position, identityContent: content}
 }

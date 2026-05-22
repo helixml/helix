@@ -238,7 +238,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Store:      st,
 		Configs:    configReg,
 		Bridge:     chatBridge,
-		ChatCWD:    orgRoot,
 		Hub:        bc,
 		Dispatcher: dispatcher,
 		NewID:      deps.NewID,
