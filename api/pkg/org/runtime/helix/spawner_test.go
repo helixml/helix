@@ -506,3 +506,83 @@ func (f *staleSessionFake) StartChatWithStatus(_ context.Context, req StartChatR
 	hadErr := req.SessionID != "" // resume path → "session no longer running"
 	return types.Session{ID: f.startSessionID}, hadErr, f.startErr
 }
+
+// TestSpawnerRecordsActivationRowOnSuccess pins B5.6 — the Spawner
+// MUST create an activation row at start and complete it with
+// StatusOK at end, so the audit/replay surface stays in sync with
+// the transcript stream. The id derives from cfg.NewID with the
+// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptStreamID
+// is the canonical StreamID derivation; Outcome.Status reflects the
+// Spawner's return value.
+func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	rows, err := s.Activations.ListForWorker(context.Background(), wid, 10)
+	if err != nil {
+		t.Fatalf("list activations: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1 activation per spawn", len(rows))
+	}
+	a := rows[0]
+	if a.WorkerID != wid {
+		t.Errorf("row.WorkerID = %q, want %q", a.WorkerID, wid)
+	}
+	if a.ID != activation.ID("a-id") {
+		t.Errorf("row.ID = %q, want a-id (from NewID stub)", a.ID)
+	}
+	if a.TranscriptStreamID != activation.StreamID(wid) {
+		t.Errorf("row.TranscriptStreamID = %q, want %q", a.TranscriptStreamID, activation.StreamID(wid))
+	}
+	if !a.IsCompleted() {
+		t.Fatalf("row not marked completed; EndedAt = %v", a.EndedAt)
+	}
+	if a.Outcome.Status != activation.StatusOK {
+		t.Errorf("Outcome.Status = %q, want ok", a.Outcome.Status)
+	}
+	if a.Outcome.Error != "" {
+		t.Errorf("Outcome.Error = %q, want empty on success", a.Outcome.Error)
+	}
+}
+
+// TestSpawnerRecordsActivationRowOnError pins the failure path: a
+// Spawner error still records an activation row with StatusError
+// and the wrapped err.Error() text.
+func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startErr: errors.New("desktop quota exceeded"),
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.ActivationTimeout = time.Second
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
+		t.Fatal("spawn: nil error, want quota error")
+	}
+	rows, err := s.Activations.ListForWorker(context.Background(), wid, 10)
+	if err != nil {
+		t.Fatalf("list activations: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1 (failed activations still recorded)", len(rows))
+	}
+	a := rows[0]
+	if !a.IsCompleted() {
+		t.Fatal("row not completed on Spawner error")
+	}
+	if a.Outcome.Status != activation.StatusError {
+		t.Errorf("Outcome.Status = %q, want error", a.Outcome.Status)
+	}
+	if a.Outcome.Error == "" {
+		t.Error("Outcome.Error empty on error path")
+	}
+}

@@ -113,7 +113,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		cfg.MaxInflight = 8
 	}
 	sem := make(chan struct{}, cfg.MaxInflight)
-	return func(ctx context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
+	return func(ctx context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -138,6 +138,25 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			return ctx.Err()
 		}
 		defer func() { <-sem }()
+
+		// Record the audit row for this activation. Failures here are
+		// best-effort during the B5 transition — the transcript stream
+		// (next block) is still the primary record until callers depend
+		// on the row. Once B5.7 lands worker_log's activation_id filter,
+		// a Create failure becomes a hard error.
+		act := newActivationRecord(cfg, workerID, triggers)
+		if act != nil {
+			if err := cfg.Store.Activations.Create(ctx, act); err != nil {
+				if cfg.Logger != nil {
+					cfg.Logger.Warn("helix spawner: persist activation row", "worker", workerID, "activation", act.ID, "err", err)
+				}
+			}
+			defer func() {
+				if completeErr := cfg.Store.Activations.Complete(ctx, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
+					cfg.Logger.Warn("helix spawner: complete activation row", "worker", workerID, "activation", act.ID, "err", completeErr)
+				}
+			}()
+		}
 
 		streamID := activation.StreamID(workerID)
 		publish := func(body string) {
@@ -196,6 +215,26 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
+}
+
+// newActivationRecord builds a fresh activation.Activation for one
+// Spawner invocation. Returns nil when the caller hasn't wired
+// NewID / Now / the Activations repo — the legacy code path still
+// runs (transcript stream only) so older tests and dev wirings
+// keep working through the B5 transition. Once every caller wires
+// these, the nil branch becomes a hard error.
+func newActivationRecord(cfg SpawnerConfig, workerID worker.ID, triggers []activation.Trigger) *activation.Activation {
+	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
+		return nil
+	}
+	act, err := activation.New(activation.ID("a-"+cfg.NewID()), workerID, triggers, cfg.Now())
+	if err != nil {
+		if cfg.Logger != nil {
+			cfg.Logger.Warn("helix spawner: build activation record", "worker", workerID, "err", err)
+		}
+		return nil
+	}
+	return act
 }
 
 // DefaultHelixSpecsMandate points the agent at its role + identity
