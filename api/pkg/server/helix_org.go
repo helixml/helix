@@ -228,9 +228,18 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Chat backend: owner-chat opens against the owner Worker's
 	// per-Worker project via the shared WorkerProject. Same defaults,
 	// same MCP wiring, same desktop runtime as any AI Worker.
+	//
+	// H1-chat: the chat bridge now takes the in-proc ChatBridgeClient
+	// adapter (inProcClient) — same instance the spawner and project
+	// applier use. Falls back to nothing when inProcClient is nil
+	// (test wirings without an APIServer / no admin user); we
+	// intentionally don't fall back to the helixclient HTTP path here
+	// because the bridge contract is now "in-proc only" — keeping a
+	// second code path alive would defeat H1.4's coming deletion of
+	// helixclient.
 	var chatBridge chat.Backend
-	if projectApplier != nil && serviceClient != nil {
-		bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, serviceClient, logger, st, bc, deps.NewID, deps.Now)
+	if projectApplier != nil && inProcClient != nil {
+		bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, inProcClient, logger, st, bc, deps.NewID, deps.Now)
 		if err != nil {
 			log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
 		} else {

@@ -13,7 +13,6 @@ import (
 	"log/slog"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/helixclient"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
@@ -41,7 +40,7 @@ type ActivationPublisher func(ctx context.Context, workerID worker.ID, body stri
 // it converts Helix's WebsocketEvent payloads into the HTML
 // fragment shape the UI expects.
 type HelixBridge struct {
-	client      helixclient.Client
+	client      ChatBridgeClient
 	ensure      ProjectEnsurer                        // resolves the target Worker's per-Worker project; nil in app-only mode
 	appID       string                                // app-only mode: when set, skip project lifecycle and chat against this existing Helix app
 	appIDFunc   func(context.Context) (string, error) // app-only mode: dynamic lookup (re-read per send so config changes take effect without restart). Takes precedence over appID.
@@ -106,7 +105,7 @@ type ProjectEnsurer interface {
 // agent_type is fixed at runtimehelix.AgentType ("zed_external") — see
 // the constant for why. There is no `chat.agent_type` knob.
 type HelixConfig struct {
-	Client helixclient.Client
+	Client ChatBridgeClient
 	Ensure ProjectEnsurer
 	// WorkerID is the chat target — the Worker this bridge talks to.
 	// Today the alpha wires it to "w-owner"; future per-agent chat
@@ -598,7 +597,7 @@ func (b *HelixBridge) sendAppOnly(ctx context.Context, msg string) error {
 			Type:        "text",
 			Messages:    []runtimehelix.SessionChatMessage{runtimehelix.NewTextMessage("user", msg)},
 		}
-		session, err := helixclient.SendToSession(ctx, b.client, req)
+		session, err := SendToSession(ctx, b.client, req)
 		if err == nil {
 			b.broadcastInteractions(session.Interactions)
 			return nil

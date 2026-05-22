@@ -15,7 +15,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/agent"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/api/pkg/org/helixclient"
 	"github.com/helixml/helix/api/pkg/org/server/chat"
 	orgstore "github.com/helixml/helix/api/pkg/org/store"
 
@@ -105,7 +104,13 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // Returns nil + nil if helix.api_key isn't set yet (auto-provision
 // happens at startup; a fresh DB with no admin user is a legitimate
 // "not configured" state).
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client helixclient.Client, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Hub, newID func() string, now func() time.Time) (chat.Backend, error) {
+//
+// H1-chat: `client` is the in-process chat.ChatBridgeClient adapter
+// (api/pkg/server/helix_org_inproc.go::inProcHelixClient) — same
+// instance the spawner uses for SpawnerClient and the project
+// applier uses for ProjectService. No more loopback-HTTP indirection
+// through helixclient for owner-chat.
+func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *broadcast.Hub, newID func() string, now func() time.Time) (chat.Backend, error) {
 	if applier == nil {
 		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
 		return nil, nil
