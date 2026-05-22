@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
@@ -240,12 +242,14 @@ func TestBridgeRendersEntryPatchEvents(t *testing.T) {
 	}
 }
 
-// TestSpawnerFollowUpUsesSendSessionMessage verifies that a Worker
-// with a persisted Helix session ID skips StartChat entirely and
-// queues the activation prompt via SendSessionMessage. This is the
-// path that should land in seconds against a warm desktop with no
-// re-creation overhead.
-func TestSpawnerFollowUpUsesSendSessionMessage(t *testing.T) {
+// TestSpawnerFollowUpResumesPersistedSession verifies that a Worker
+// with a persisted Helix session ID resumes that session rather than
+// opening a fresh one — the activation prompt is sent against the
+// existing session_id so the warm desktop container is reused. This
+// is what makes follow-up activations land in seconds against a warm
+// desktop. Resume goes through StartChatWithStatus with SessionID
+// set (EnsureAndSend's resume path).
+func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	// Pre-seed an existing project + session for this worker.
@@ -256,22 +260,23 @@ func TestSpawnerFollowUpUsesSendSessionMessage(t *testing.T) {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &fakeHelixClient{
-		outputs: []helixclient.Output{{Status: "complete", Output: "ok"}},
+		startSessionID: "ses_existing",
+		outputs:        []helixclient.Output{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
 	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
-		t.Errorf("StartChat must not be called on follow-up; got %d", got)
-	}
-	if got := atomic.LoadInt32(&fc.sendCalls); got != 1 {
-		t.Errorf("SendSessionMessage calls: %d (want 1)", got)
-	}
+	// The first StartChatWithStatus call (resume) carries the existing
+	// SessionID. The session pointer in the store must remain unchanged.
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if fc.lastSendSID != "ses_existing" {
-		t.Errorf("targeted session: %q (want ses_existing)", fc.lastSendSID)
+	if fc.lastStartReq.SessionID != "ses_existing" {
+		t.Errorf("StartChatRequest.SessionID = %q (want ses_existing) — resume must target persisted session", fc.lastStartReq.SessionID)
+	}
+	state, _ := LoadState(context.Background(), s, wid)
+	if state.SessionID != "ses_existing" {
+		t.Errorf("session pointer changed to %q; resume must NOT open a fresh session", state.SessionID)
 	}
 }
 
@@ -313,9 +318,10 @@ func (f *quotaFullFakeClient) ServerStatus(_ context.Context) (helixclient.Serve
 }
 
 // TestSpawnerColdStartReQueues verifies that when StartChatWithStatus
-// reports hadWSError=true on a fresh session, the spawner immediately
-// re-queues the same prompt via SendSessionMessage so the durable
-// queue picks it up on agent reconnect.
+// reports hadStreamErr=true on the fresh open, EnsureAndSend re-issues
+// the same prompt against the same session ID (belt-and-braces — the
+// original race that made this critical was fixed in Helix; this
+// retry is the fallback).
 func TestSpawnerColdStartReQueues(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
@@ -332,16 +338,17 @@ func TestSpawnerColdStartReQueues(t *testing.T) {
 	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
-		t.Errorf("StartChat calls: %d (want 1)", got)
+	// Two StartChatWithStatus calls: the fresh open and the retry on
+	// the same session. (Cold-start retry replaced the older
+	// SendSessionMessage path in EnsureAndSend.)
+	if got := atomic.LoadInt32(&fc.startCalls); got < 2 {
+		t.Errorf("StartChat calls: %d (want >=2 — fresh open + cold-start retry)", got)
 	}
-	if got := atomic.LoadInt32(&fc.sendCalls); got != 1 {
-		t.Errorf("SendSessionMessage calls: %d (want 1, the cold-start re-queue)", got)
-	}
+	// Retry targets the freshly-opened session.
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if fc.lastSendSID != "ses_new" {
-		t.Errorf("re-queue session: %q (want ses_new)", fc.lastSendSID)
+	if fc.lastStartReq.SessionID != "ses_new" {
+		t.Errorf("retry SessionID = %q (want ses_new — retry on same session)", fc.lastStartReq.SessionID)
 	}
 }
 
@@ -494,4 +501,159 @@ func (c *concurrencyClient) GetApp(ctx context.Context, id string) (helixclient.
 }
 func (c *concurrencyClient) UpdateApp(ctx context.Context, id string, req helixclient.AppRequest) (helixclient.App, error) {
 	return c.inner.UpdateApp(ctx, id, req)
+}
+
+// TestSpawnerSubscribesAndReconnectsOnDisconnect verifies the bridge
+// reconnect loop: when the updates channel closes mid-activation, the
+// spawner re-calls SubscribeUpdates for the lifetime of the activation
+// context. H1.3b replaces this WebSocket subscription with a pubsub
+// one; this test pins the reconnect contract before that lift.
+//
+// The bridge's reconnect delay starts at 1s so we run an artificially
+// long activation (slow polls so pollUntilDone doesn't terminate) to
+// give reconnect at least one chance to fire.
+func TestSpawnerSubscribesAndReconnectsOnDisconnect(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+
+	var subCount int32
+	// Many waiting outputs so the activation lives long enough for
+	// the bridge's 1s reconnect backoff to fire at least once.
+	waiting := make([]helixclient.Output, 0, 8)
+	for i := 0; i < 7; i++ {
+		waiting = append(waiting, helixclient.Output{Status: "waiting"})
+	}
+	waiting = append(waiting, helixclient.Output{Status: "complete", Output: "ok"})
+	fc := &fakeHelixClient{
+		startSessionID: "ses_x",
+		outputs:        waiting,
+		updatesFactory: func() <-chan helixclient.SessionUpdate {
+			ch := make(chan helixclient.SessionUpdate)
+			// First subscription closes immediately so the bridge
+			// reconnects. Subsequent subscriptions stay open until
+			// activation completes.
+			if atomic.AddInt32(&subCount, 1) == 1 {
+				close(ch)
+			}
+			return ch
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.ActivationTimeout = 5 * time.Second
+	cfg.PollInitial = 200 * time.Millisecond
+	cfg.PollMax = 200 * time.Millisecond
+	sp := Spawner(cfg)
+	_ = sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+
+	if got := atomic.LoadInt32(&fc.subscribeCalls); got < 2 {
+		t.Errorf("SubscribeUpdates calls = %d, want >=2 (reconnect on disconnect)", got)
+	}
+}
+
+// TestSpawnerPublishesTranscriptViaEntryStream verifies the bridge
+// feeds session updates through EntryStream and republishes settled
+// events as activation Stream events.
+func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+
+	updates := make(chan helixclient.SessionUpdate, 4)
+	updates <- helixclient.SessionUpdate{EntryPatches: []helixclient.EntryPatch{
+		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi there"},
+	}}
+	updates <- helixclient.SessionUpdate{
+		Interaction: &helixclient.Interaction{State: "complete"},
+	}
+	close(updates)
+
+	fc := &fakeHelixClient{
+		startSessionID: "ses_y",
+		// Several waiting outputs so the bridge has time to consume
+		// the updates channel before pollUntilDone terminates.
+		outputs: []helixclient.Output{
+			{Status: "waiting"}, {Status: "waiting"}, {Status: "complete", Output: "ok"},
+		},
+		updatesFactory: func() <-chan helixclient.SessionUpdate { return updates },
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.PollInitial = 50 * time.Millisecond
+	cfg.ActivationTimeout = 2 * time.Second
+	// Unique IDs so each publishActivationEvent insert succeeds; the
+	// default fake helper hands back the same string each call and
+	// the duplicate-PK on Events.Append silently drops later events.
+	var idCounter int32
+	cfg.NewID = func() string { return fmt.Sprintf("e-%d", atomic.AddInt32(&idCounter, 1)) }
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	// Read events on the activation stream. We expect at least one
+	// "assistant: hi there" line from the EntryStream callback.
+	events, err := s.Events.ListForStream(context.Background(), agent.ActivationStreamID(wid), 100)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawAssistant bool
+	for _, e := range events {
+		msg, err := e.Message()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(msg.Body, "assistant: hi there") {
+			sawAssistant = true
+		}
+	}
+	if !sawAssistant {
+		t.Fatalf("activation stream missing transcript line; events: %+v", events)
+	}
+}
+
+// TestSpawnerOpensFreshOnStaleSession pins the resume-then-fallback
+// path: when the persisted session ID resume fails (Helix reports
+// hadStreamErr on a resume call), the spawner opens a fresh session
+// and persists the new ID. H1.3c rewrites EnsureAndSend; this test
+// ensures the fallback survives.
+func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, wid, "ses_stale"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &staleSessionFake{
+		fakeHelixClient: fakeHelixClient{
+			startSessionID: "ses_fresh",
+			outputs:        []helixclient.Output{{Status: "complete", Output: "ok"}},
+		},
+	}
+	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
+	cfg.Client = fc
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	state, _ := LoadState(context.Background(), s, wid)
+	if state.SessionID != "ses_fresh" {
+		t.Errorf("session pointer = %q, want ses_fresh (stale resume must fall through to fresh)", state.SessionID)
+	}
+}
+
+// staleSessionFake reports hadStreamErr=true when a resume call is
+// made (SessionID != "") — simulating Helix's "session no longer
+// running" signal. Fresh opens (SessionID empty) succeed normally.
+type staleSessionFake struct {
+	fakeHelixClient
+}
+
+func (f *staleSessionFake) StartChatWithStatus(ctx context.Context, req helixclient.StartChatRequest) (helixclient.Session, bool, error) {
+	s, err := f.StartChat(ctx, req)
+	if req.SessionID != "" {
+		// Resume path: report streamHadErr so SendToSession reports
+		// "session no longer running" and EnsureAndSend falls through.
+		return s, true, err
+	}
+	return s, false, err
 }
