@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
-	"github.com/helixml/helix/helix-org/bootstrap"
+	"github.com/helixml/helix/api/pkg/org/bootstrap"
 )
 
 // TestRunStampsOwnerWorkerWithOrganizationID pins H5.2: when the
