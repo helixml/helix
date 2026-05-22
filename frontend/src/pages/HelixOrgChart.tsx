@@ -10,11 +10,11 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useRouter from '../hooks/useRouter'
 import { ChartNode, useHelixOrgChart } from '../services/helixOrgService'
 
-// HelixOrgChart renders the position-tree the helix-org SSR exposed at
-// /ui/org/chart. Each Position card shows its role + assigned Worker
-// badges and recurses into children. Worker badges navigate to the
-// detail page so the org chart doubles as an entry point into the
-// worker editor.
+// HelixOrgChart renders the position-tree returned by GET
+// /api/v1/org/chart. Each Position card shows its role + assigned
+// Worker badges and recurses into children. Worker badges navigate to
+// the detail page so the org chart doubles as an entry point into
+// the worker editor.
 const PositionCard: FC<{ node: ChartNode }> = ({ node }) => {
   const router = useRouter()
   return (

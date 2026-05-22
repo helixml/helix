@@ -1,19 +1,16 @@
 // Package api exposes the org-graph state as JSON over the same
-// /api/v1/org/ surface the MCP / webhook routes already live on. It
-// sits alongside the htmx SSR in api/pkg/org/server/ui — Phase A of
-// the React migration stands the JSON up first; Phase C deletes the
-// SSR after the React pages cut over.
+// /api/v1/org/ surface the MCP / webhook routes already live on. The
+// React pages at /helix-org/* (Phase B of the UI migration) consume
+// these endpoints. Phase C deleted the htmx SSR that used to live
+// alongside this package; the JSON shape is now the sole UI surface.
 //
-// DTOs here are decoupled from the SSR's tmpl view-models (ui.OrgPage,
-// ui.OrgDetail, …): the SSR shapes are tuned for template predicates
-// (HasFlash, IsHint, …) which leak rendering concerns into the wire
-// format. The JSON DTOs carry only the data — predicates the React
-// client derives client-side.
+// DTOs carry only the data — predicates the React client derives
+// client-side.
 package api
 
 // ChartNode is one node in the org-chart tree returned by GET /chart.
-// Matches the layout the SSR's renderOrgChart walks: positions form
-// the tree, workers attach as leaves under their Position.
+// Positions form the tree; Workers attach as leaves under their
+// Position.
 type ChartNode struct {
 	PositionID string        `json:"position_id"`
 	RoleID     string        `json:"role_id"`
@@ -23,8 +20,8 @@ type ChartNode struct {
 }
 
 // WorkerBadge is a compact reference to a Worker as it appears inside
-// a Position's chart node — the badges the SSR draws across the
-// bottom of each rect.
+// a Position's chart node — rendered as a badge across the bottom of
+// each Position rect in the React chart view.
 type WorkerBadge struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
@@ -70,7 +67,7 @@ type WorkerDTO struct {
 // WorkerDetailDTO is the full GET /workers/{id} response — Worker
 // fields plus the surrounding context the UI's detail pane needs
 // (the role markdown of the Position the Worker fills, sibling worker
-// IDs at that position). Mirrors what ui.fillWorkerDetail builds.
+// IDs at that position).
 type WorkerDetailDTO struct {
 	Worker WorkerDTO `json:"worker"`
 	// Role of the Position this Worker fills (nil if the Worker is
@@ -88,8 +85,7 @@ type UpdateWorkerIdentityRequest struct {
 
 // UpdateWorkerRoleRequest is the body of POST /workers/{id}/role.
 // Content replaces the role.md of the Role the Worker's Position
-// references — mirrors the SSR's /ui/org/roles/set behaviour but
-// keyed by Worker for ergonomic React routing.
+// references — keyed by Worker for ergonomic React routing.
 type UpdateWorkerRoleRequest struct {
 	Content string `json:"content"`
 }
@@ -144,15 +140,14 @@ type StreamDTO struct {
 // StreamsResponse is the body of GET /streams.
 type StreamsResponse struct {
 	Streams []StreamDTO `json:"streams"`
-	// Recent is the unified firehose across every Stream (the SSR's
-	// "All streams" landing view). Capped at 50 newest-first.
+	// Recent is the unified firehose across every Stream rendered as
+	// the "All streams" landing view. Capped at 50 newest-first.
 	Recent []EventCard `json:"recent,omitempty"`
 }
 
-// EventCard is one entry in a stream's event feed. The shape mirrors
-// the SSR's EventCard but as plain JSON. HasMessage is true when the
-// raw Body parsed as canonical Message; the From/To/Subject/
-// MessageBody fields are populated only in that case.
+// EventCard is one entry in a stream's event feed. HasMessage is
+// true when the raw Body parsed as canonical Message; the From / To /
+// Subject / MessageBody fields are populated only in that case.
 type EventCard struct {
 	ID          string `json:"id"`
 	StreamID    string `json:"stream_id"`
@@ -166,8 +161,8 @@ type EventCard struct {
 	MessageBody string `json:"message_body,omitempty"`
 }
 
-// PublishRequest is the body of POST /streams/{id}/publish. Mirrors
-// the SSR form fields (body required; subject/to optional).
+// PublishRequest is the body of POST /streams/{id}/publish. Body is
+// required; subject and to are optional.
 type PublishRequest struct {
 	Body    string   `json:"body"`
 	Subject string   `json:"subject,omitempty"`

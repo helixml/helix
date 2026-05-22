@@ -11,7 +11,7 @@
 //     ("alice@example.com", "U0123ABCD", "+15551234567"); the Stream
 //     context plus the value shape disambiguates which transport.
 //   - KindHuman: an authenticated human reaching in without being a
-//     Worker. Reserved for the operator-typed /ui/ surface and any
+//     Worker. Reserved for the operator-typed chat surface and any
 //     future per-user sign-in path. The ID is whatever identifier
 //     the host hands the bridge (Helix user_id, audit handle, …).
 //
@@ -46,7 +46,7 @@ const (
 	KindTransport Kind = "transport"
 
 	// KindHuman — sender is an authenticated human reaching in
-	// without being a Worker (operator-typed /ui/ chat, future
+	// without being a Worker (operator-typed chat surface, future
 	// per-user sign-in).
 	KindHuman Kind = "human"
 )

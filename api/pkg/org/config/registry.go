@@ -3,13 +3,13 @@
 // Distinct from the parent api/pkg/config — that one is static,
 // envconfig-driven, loaded once at boot. This registry is dynamic,
 // JSON-typed, and stored in the configs table so operators can
-// change it from /ui/settings at runtime without a deploy.
+// change it from the settings page at runtime without a deploy.
 //
 // Each subsystem (spawner, dispatcher, transports, …) registers
 // the keys it owns at startup, declaring schema, default, and which
-// JSON paths are secret. /ui/settings goes through this registry
-// for validation and redaction; consumers go through it for typed
-// reads.
+// JSON paths are secret. The settings API (api/pkg/org/server/api)
+// goes through this registry for validation and redaction; consumers
+// go through it for typed reads.
 //
 // Canonical home, lifted from helix-org/config in H3. The package
 // name stays "config" because that's the role; the import path

@@ -926,8 +926,6 @@ github.com/tiktoken-go/tokenizer v0.6.2 h1:t0GN2DvcUZSFWT/62YOgoqb10y7gSXBGs0A+4
 github.com/tiktoken-go/tokenizer v0.6.2/go.mod h1:6UCYI/DtOallbmL7sSy30p6YQv60qNyU/4aVigPOx6w=
 github.com/tsawler/tabula v1.6.6 h1:B2W1Iindrg58/VTLp30LPA2NCzxgxAE6Ne6RG693GHY=
 github.com/tsawler/tabula v1.6.6/go.mod h1:CzvlQnJQLM2C6Cq0gRhP5z9kq9u9iM6s494QEHCmCbw=
-github.com/tylermmorton/tmpl v1.1.0 h1:IRdkWtoHnGDx/l69u9YbJoW3vt9/myAnDgS5qTe3yW0=
-github.com/tylermmorton/tmpl v1.1.0/go.mod h1:7E7f4TC2F+OCe7KG33X/MXRmfWG8tZm8wOBKmEmu2HE=
 github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=
 github.com/ugorji/go/codec v1.2.12/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
 github.com/unknwon/com v1.0.1 h1:3d1LTxD+Lnf3soQiD4Cp/0BRB+Rsa/+RTvz8GMMzIXs=

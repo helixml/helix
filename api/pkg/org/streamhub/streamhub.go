@@ -165,8 +165,8 @@ func (h *Hub) Unsubscribe(streamIDs []stream.ID, ch chan struct{}) {
 }
 
 // SubscribeAll registers a wake-up channel that fires on every Notify
-// regardless of stream ID. Used by the unified /ui/streams live view
-// (no specific stream selected) to refresh whenever any worker writes
+// regardless of stream ID. Used by the unified streams live view (no
+// specific stream selected) to refresh whenever any worker writes
 // anywhere. Caller MUST defer UnsubscribeAll.
 //
 // Backed by a NATS wildcard subscription (`helix-org.stream-updates.>`)

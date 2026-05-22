@@ -104,7 +104,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create root position: %w", err)
 	}
 
-	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /ui/org to " +
+	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /helix-org to " +
 		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
 	ownerWorker, err := domain.NewHumanWorker(worker.ID("w-owner"), rootPos.ID, ownerIdentity)
 	if err != nil {
@@ -166,8 +166,8 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	// (s-activations-<workerID>) where its turns are recorded. AI
 	// Workers get theirs via hire_worker; the owner is bootstrapped
 	// (not hired), so we mint here through the shared helper that
-	// hire_worker also uses. observer = owner.ID() because /ui/streams
-	// shows the owner subscribed to their own transcript.
+	// hire_worker also uses. observer = owner.ID() so the streams
+	// page shows the owner subscribed to their own transcript.
 	if err := tools.EnsureActivationStream(ctx, s, owner.ID(), owner.ID(), now); err != nil {
 		return Result{}, fmt.Errorf("owner activation stream: %w", err)
 	}

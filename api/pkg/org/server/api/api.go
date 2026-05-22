@@ -23,23 +23,22 @@ import (
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
 
-// Dispatcher mirrors the dispatcher port used by the SSR. Defined here
-// (rather than imported from server.go's sibling) to keep the import
-// edge one-directional — server/api is below server, not next to it.
+// Dispatcher is the dispatcher port the publish handler invokes when
+// a client posts an event into a stream. Defined here (rather than
+// imported from server.go's sibling) to keep the import edge
+// one-directional — server/api is below server, not next to it.
 type Dispatcher interface {
 	Dispatch(ctx context.Context, ev domain.Event)
 }
 
-// Deps is the JSON API's wiring. Mirrors the inputs the SSR Handler
-// needs minus the chat backend and template snapshot — those are
-// presentation concerns, not API ones.
+// Deps is the JSON API's wiring.
 //
-// Owner is the WorkerID the SSR hardcodes as "w-owner"; we plumb it
-// through so publish attribution stays consistent with the SSR form.
+// Owner is the WorkerID hardcoded as "w-owner"; plumbed through so
+// publish attribution stays consistent with the React publish form.
 //
-// PublicURL / DBPath / EnvsDir are the operational state the SSR
-// surfaces on /ui/settings (today they come from CLI flags; the SaaS
-// embedding leaves PublicURL empty).
+// PublicURL / DBPath / EnvsDir are the operational state the settings
+// page surfaces (today they come from CLI flags; the SaaS embedding
+// leaves PublicURL empty).
 type Deps struct {
 	Store      *store.Store
 	Configs    *config.Registry
@@ -52,7 +51,7 @@ type Deps struct {
 	EnvsDir   string
 
 	// NewID and Now are seams for tests. Production wiring passes
-	// system.GenerateID / time.Now (matches the SSR).
+	// system.GenerateID / time.Now.
 	NewID func() string
 	Now   func() time.Time
 }
@@ -133,9 +132,9 @@ func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildChart walks positions + workers into the tree the chart
-// renders. Lifted from ui.renderOrgChart's input-shaping so SSR and
-// JSON build the tree the same way; deliberately exported so a Phase B
-// React shim can call into this without going through HTTP.
+// renders. Exported so it can be reused by future in-process
+// consumers (e.g. an MCP tool surfacing the same shape) without going
+// through HTTP.
 func buildChart(positions []domain.Position, workers []domain.Worker) Chart {
 	byPos := make(map[position.ID][]domain.Worker)
 	for _, w := range workers {
@@ -147,9 +146,8 @@ func buildChart(positions []domain.Position, workers []domain.Worker) Chart {
 	for _, p := range positions {
 		idx[p.ID] = p
 	}
-	// Sort positions so the resulting tree is deterministic — the SSR
-	// happens to render in store-insertion order, but a stable sort
-	// is friendlier to React diffing.
+	// Sort positions so the resulting tree is deterministic and
+	// friendly to React diffing.
 	sorted := append([]domain.Position(nil), positions...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 
@@ -349,9 +347,9 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
-// updateWorkerIdentity rewrites a Worker's IdentityContent. Mirrors
-// the SSR's POST /ui/org/identity/set — the Spawner projects the new
-// content into the Worker's identity.md on the next activation.
+// updateWorkerIdentity rewrites a Worker's IdentityContent. The
+// Spawner projects the new content into the Worker's identity.md on
+// the next activation.
 //
 // @Summary Helix-org: update worker identity
 // @Tags HelixOrg
@@ -387,9 +385,9 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 }
 
 // updateWorkerRole rewrites the role.md of the Role the Worker's
-// Position references. Mirrors the SSR's /ui/org/roles/set but keyed
-// by Worker so the React client can `POST /workers/{id}/role` from
-// the worker-detail page without first resolving Position → Role.
+// Position references. Keyed by Worker so the React client can
+// `POST /workers/{id}/role` from the worker-detail page without first
+// resolving Position → Role.
 //
 // Returns 409 if the Worker has no Position (unassigned) — there is
 // no role to update.
@@ -473,7 +471,7 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // settingsSpecDTO resolves the current redacted value + the
-// "configured" bool the SSR computes per row. Lives outside the
+// "configured" bool surfaced on each settings row. Lives outside the
 // handler so a future "GET /settings/{key}" can reuse it.
 func settingsSpecDTO(ctx context.Context, reg *config.Registry, st *store.Store, sp config.Spec) SettingsSpecDTO {
 	row := SettingsSpecDTO{
@@ -483,7 +481,7 @@ func settingsSpecDTO(ctx context.Context, reg *config.Registry, st *store.Store,
 		Description: sp.Description,
 	}
 	// "Configured" means the configs row exists (not "has a value via
-	// default"). Matches ui.isConfigured.
+	// default").
 	if st != nil && st.Configs != nil {
 		if _, err := st.Configs.Get(ctx, sp.Key); err == nil {
 			row.Configured = true
@@ -634,12 +632,10 @@ func eventCard(ev domain.Event) EventCard {
 }
 
 // streamEventsSSE pushes EventCard JSON arrays on every Hub.Notify.
-// Replaces the SSR's text/html SSE payload — same wake mechanism,
-// different framing.
 //
 // Each SSE `data:` line is a JSON array of recent events (cap 50,
 // newest first). Frontends replace their event list on every message
-// — simpler than diffing partial updates, matches what the SSR did.
+// — simpler than diffing partial updates.
 //
 // @Summary Helix-org: SSE stream of events for one stream
 // @Tags HelixOrg
@@ -715,10 +711,9 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// publishToStream appends a Message event attributed to the owner.
-// Mirrors the SSR's /ui/streams/publish (same validation, same
-// dispatch fan-out) but consumes JSON and returns the new event's
-// ID.
+// publishToStream appends a Message event attributed to the owner
+// and fans it out to subscribers via the dispatcher. Consumes JSON
+// and returns the new event's ID.
 //
 // @Summary Helix-org: publish a message to a stream
 // @Tags HelixOrg

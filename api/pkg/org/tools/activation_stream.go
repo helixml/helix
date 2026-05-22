@@ -20,8 +20,8 @@ import (
 //   - tools/hire_worker (AI Workers): observer = hiring caller, so the
 //     hiring Worker watches the new hire's transcript.
 //   - bootstrap (the owner): observer = the owner themselves, so the
-//     owner's chat turns show up in /ui/streams alongside every AI
-//     Worker's.
+//     owner's chat turns show up on the streams page alongside every
+//     AI Worker's.
 //
 // The description text is generic enough to fit both cases — humans
 // produce chat turns, AI Workers produce assistant text + tool calls;

@@ -73,7 +73,6 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/tmc/langchaingo v0.1.12
-	github.com/tylermmorton/tmpl v1.1.0
 	github.com/xanzy/go-gitlab v0.115.0
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0

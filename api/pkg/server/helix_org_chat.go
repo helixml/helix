@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"time"
 
@@ -109,7 +108,7 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // (api/pkg/server/helix_org_inproc.go::inProcHelixClient) — same
 // instance the spawner uses for SpawnerClient and the project
 // applier uses for ProjectService. No loopback-HTTP indirection.
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *streamhub.Hub, newID func() string, now func() time.Time) (chat.Backend, error) {
+func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *streamhub.Hub, newID func() string, now func() time.Time) (*chat.HelixBridge, error) {
 	if applier == nil {
 		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
 		return nil, nil
@@ -152,12 +151,11 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 			return runtimehelix.SaveSession(ctx, applier.Store, workerID, sessionID)
 		},
 		// Publish chat turns to s-activations-<workerID> using the same
-		// helper every AI Worker activation uses. /ui/streams surfaces
-		// the target Worker's stream alongside every other Worker's —
-		// chat turns and dispatcher activations are the same shape from
-		// the audit surface's perspective; the only difference is *who
-		// triggers* the activation (human typing into the chat surface
-		// vs. dispatcher reacting to a stream event).
+		// helper every AI Worker activation uses. The streams page
+		// surfaces the target Worker's stream alongside every other
+		// Worker's — chat turns and dispatcher activations are the same
+		// shape from the audit surface's perspective; the only
+		// difference is *who triggers* the activation.
 		PublishActivation: func(ctx context.Context, workerID worker.ID, body string) {
 			_, _ = agent.PublishActivationEvent(ctx, orgSt, bc, newID, now, logger, workerID, body)
 		},
@@ -249,46 +247,6 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 		Str("owner_email", owner.Email).
 		Msg("helix-org auto-provisioned service api key")
 	return keyStr, nil
-}
-
-// withHelixUserBearer wraps an embedded helix-org handler so any
-// downstream Helix call inherits the logged-in user's identity.
-// The middleware:
-//
-//   - reads the user from the request context (set by Helix's
-//     extractMiddleware further out in the chain)
-//   - finds an api_key owned by that user (mints one labelled
-//     "helix-org alpha (per-user)" on first hit so we don't depend on
-//     the user having created one manually)
-//   - stashes the resolved (UserID, OrganizationID, BearerToken) as a
-//     single typed runtimehelix.HelixIdentity on the request context
-//     (H6.1). Downstream code can read the typed identity directly via
-//     HelixIdentityFromContext, or fall through legacy accessors
-//     (BearerFromContext / UserIDFromContext / OrganizationIDFromContext)
-//     during the migration window.
-//
-// Anything helix-org's bridge or picker does downstream then runs as
-// the actual logged-in user, in their helix.Organization. The
-// auto-provisioned helix.api_key remains as a fallback for callers
-// that arrive without a session (e.g. integration tests).
-func withHelixUserBearer(next http.Handler, st helixstore.Store) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user := getRequestUser(r)
-		if hasUser(user) {
-			key, err := resolveUserHelixAPIKey(r.Context(), st, user.ID)
-			if err != nil {
-				log.Warn().Err(err).Str("user_id", user.ID).Msg("helix-org: failed to resolve user api key; falling back to service key")
-			}
-			if user.ID != "" || user.OrganizationID != "" || key != "" {
-				r = r.WithContext(runtimehelix.WithHelixIdentity(r.Context(), runtimehelix.HelixIdentity{
-					UserID:         user.ID,
-					OrganizationID: user.OrganizationID,
-					BearerToken:    key,
-				}))
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // resolveUserHelixAPIKey returns an api_key owned by userID, minting

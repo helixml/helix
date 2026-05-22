@@ -42,7 +42,7 @@ type Event struct {
 }
 
 // EventKind constants are the canonical activation-transcript line
-// tags every consumer (s-activations stream, /ui/ chat) reads.
+// tags every consumer (s-activations stream, chat bridge) reads.
 const (
 	EventAssistant       = "assistant"
 	EventToolUse         = "tool_use"

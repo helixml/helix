@@ -215,8 +215,7 @@ func TestPutSetting_PersistsValue(t *testing.T) {
 
 // TestPostWorkerRole_UpdatesRoleAssignment seeds a position+role+
 // worker, POSTs new content to /workers/{id}/role, then GETs the
-// worker and asserts the role markdown updated. Mirrors the SSR's
-// /ui/org/roles/set semantics.
+// worker and asserts the role markdown updated.
 func TestPostWorkerRole_UpdatesRoleAssignment(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)

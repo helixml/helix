@@ -537,11 +537,11 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org React pages — the Phase B replacement for the SSR at /ui/*.
+  // helix-org React pages — the React replacement for the htmx SSR
+  // that used to live at /ui/* (deleted in Phase C of the UI migration).
   // Routes intentionally live at top-level /helix-org/* (not under
   // /orgs/:org_id/*) because helix-org is conceptually one shared
-  // owner-Worker today; multi-tenant scoping is a future track. Phase C
-  // deletes api/pkg/org/server/ui/ once these pages are exercised in CI.
+  // owner-Worker today; multi-tenant scoping is a future track.
   name: 'helix_org_root',
   path: '/helix-org',
   meta: { drawer: false, title: 'Helix Org' },

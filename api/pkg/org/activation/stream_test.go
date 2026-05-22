@@ -10,7 +10,7 @@ import (
 
 // TestStreamIDIsDeterministicFromWorkerID pins the wire-level shape
 // of the activation-Stream ID. Every consumer of a Worker's transcript
-// — worker_log, the owner-chat bridge, /ui/streams, hire_worker — uses
+// — worker_log, the owner-chat bridge, the streams page, hire_worker — uses
 // this constructor to find the same Stream the Spawner writes to.
 // Changing the shape silently is a data-loss bug; this test makes the
 // shape part of the public contract.

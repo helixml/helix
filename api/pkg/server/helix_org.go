@@ -25,8 +25,6 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/server/api"
-	"github.com/helixml/helix/api/pkg/org/server/chat"
-	helixorgui "github.com/helixml/helix/api/pkg/org/server/ui"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
 	orgpostgres "github.com/helixml/helix/api/pkg/org/store/postgres"
 	"github.com/helixml/helix/api/pkg/org/store/sqlite"
@@ -36,13 +34,13 @@ import (
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
-// helixOrgHandlers bundles the two HTTP surfaces helix-org exposes:
-// the JSON-RPC MCP / webhook endpoints (mounted under /api/v1/org/)
-// and the htmx-driven UI (mounted at the top-level /ui/ because its
-// templates use absolute /ui/... hrefs).
+// helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
+// the JSON-RPC MCP / webhook / org-graph / settings / streams endpoints
+// mounted under /api/v1/org/. The React UI at /helix-org/* consumes
+// those endpoints. (Phase C of the UI migration deleted the htmx SSR
+// that used to live at /ui/*.)
 type helixOrgHandlers struct {
 	api http.Handler
-	ui  http.Handler
 }
 
 // alphaFeatureHelixOrg is the alpha-feature flag that gates the
@@ -142,8 +140,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	deps.EnvsDir = envsDir
 
 	// Operational config registry — chat backend creds, model
-	// selection, etc. Backed by the same SQLite store so settings
-	// survive restarts. Surfaced via helix-org's /ui/settings page.
+	// selection, etc. Backed by the same Postgres rows so settings
+	// survive restarts. Surfaced via the React settings page at
+	// /helix-org/settings (backed by /api/v1/org/settings).
 	// Constructed before the spawner so the spawner can read
 	// chat.app_id / helix.url at activation time.
 	configReg := config.New(st.Configs)
@@ -197,8 +196,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// headers).
 	//
 	// The wrapper re-resolves `worker.*` and `helix.*` from the config
-	// registry on every Ensure call, so live changes via /ui/settings
-	// take effect on the next activation — no API restart needed.
+	// registry on every Ensure call, so live changes via the settings
+	// page take effect on the next activation — no API restart needed.
 	projectApplier := &dynamicProjectApplier{
 		cfg:        configReg,
 		projectSvc: inProcClient,
@@ -229,83 +228,24 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	// Chat backend: owner-chat opens against the owner Worker's
-	// per-Worker project via the shared WorkerProject. Same defaults,
-	// same MCP wiring, same desktop runtime as any AI Worker. The
-	// bridge drives the same in-proc adapter the spawner and project
-	// applier use — single source of truth for the Helix surface
-	// helix-org talks to.
-	var chatBridge chat.Backend
-	bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, inProcClient, logger, st, bc, deps.NewID, deps.Now)
-	if err != nil {
+	// Chat backend: the owner Worker's chat bridge is constructed even
+	// though Phase C of the UI migration removed the htmx SSR that
+	// mounted its HTTP handlers. The bridge's *HelixBridge struct,
+	// project-applier integration, and activation-publishing wiring stay
+	// so future per-agent chat surfaces can re-attach without rebuilding
+	// the wiring from scratch. WithPrompts attaches the slash-command
+	// registry for the same forward-looking reason.
+	if bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, inProcClient, logger, st, bc, deps.NewID, deps.Now); err != nil {
 		log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
-	} else {
-		chatBridge = bridge
+	} else if bridge != nil {
+		bridge.WithPrompts(promptReg)
 	}
-	if hb, ok := chatBridge.(*chat.HelixBridge); ok && hb != nil {
-		chatBridge = hb.WithPrompts(promptReg)
-	}
-
-	// Snapshot the registered specs for the settings page (the UI
-	// package doesn't import config).
-	specs := configReg.Specs()
-	uiSpecs := make([]helixorgui.SettingsSpec, 0, len(specs))
-	for _, sp := range specs {
-		uiSpecs = append(uiSpecs, helixorgui.SettingsSpec{
-			Key:         sp.Key,
-			Type:        string(sp.Type),
-			Required:    sp.Required,
-			Description: sp.Description,
-		})
-	}
-
-	baseUIHandler := helixorgui.Handler(helixorgui.Deps{
-		Store:      st,
-		Configs:    configReg,
-		Bridge:     chatBridge,
-		Hub:        bc,
-		Dispatcher: dispatcher,
-		NewID:      deps.NewID,
-		Now:        deps.Now,
-		Settings: helixorgui.SettingsView{
-			Owner:   "w-owner",
-			DBPath:  orgRoot,
-			EnvsDir: envsDir,
-			Specs:   uiSpecs,
-		},
-	})
-
-	// /ui/chat/* routes provided by the chat bridge live alongside
-	// the page handlers. Compose them into a single mux so the
-	// top-level /ui/ mount serves everything that begins with /ui/.
-	// When chat isn't configured, the /ui/chat/* POSTs simply 404 and
-	// the page renders without a working composer.
-	innerUIMux := http.NewServeMux()
-	if chatBridge != nil {
-		innerUIMux.Handle("GET /ui/chat/stream", chatBridge.StreamHandler())
-		innerUIMux.Handle("POST /ui/chat/send", chatBridge.SendHandler())
-		innerUIMux.Handle("POST /ui/chat/commands", chatBridge.CommandsHandler())
-		innerUIMux.Handle("POST /ui/chat/new", chatBridge.NewHandler())
-		innerUIMux.Handle("POST /ui/chat/switch", chatBridge.SwitchHandler())
-	}
-	innerUIMux.Handle("/", baseUIHandler)
-
-	// Wrap the whole UI surface with middleware that forwards the
-	// logged-in Helix user's identity onto runtimehelix's HelixIdentity
-	// context. Calls from the chat bridge / agent picker then hit
-	// Helix as the actual user chatting, not as the service-account
-	// fallback — sessions and permissions are attributed correctly.
-	// (shouldn't matter for /ui/ routes since they're gated by
-	// requireUser, but the fallback keeps tests honest).
-	uiMux := withHelixUserBearer(innerUIMux, helixStore)
 
 	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
-	// Phase A of the UI migration: JSON handlers stood up next to the
-	// SSR. The /api/v1/org/ surface picks them up automatically since
-	// they're passed as extras to the orgServer handler (which strips
-	// the /api/v1/org prefix at the host). The SSR routes under /ui/
-	// remain untouched and continue to render until Phase C.
+	// JSON handlers (Phase A of the UI migration) — consumed by the
+	// React pages at /helix-org/* (Phase B). They mount under
+	// /api/v1/org/ via the orgServer's extras list.
 	apiDeps := helixorgapi.Deps{
 		Store:      st,
 		Configs:    configReg,
@@ -326,10 +266,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	log.Info().
 		Str("root", orgRoot).
 		Str("envs", envsDir).
-		Bool("chat_enabled", chatBridge != nil).
 		Int("json_api_routes", len(extras)).
-		Msg("helix-org mounted at /api/v1/org/ + /ui/")
-	return &helixOrgHandlers{api: orgServer.Handler(extras...), ui: uiMux}, nil
+		Msg("helix-org mounted at /api/v1/org/")
+	return &helixOrgHandlers{api: orgServer.Handler(extras...)}, nil
 }
 
 // helixOrgConfig is just enough of the surrounding config to bring
@@ -358,7 +297,7 @@ type helixOrgConfig struct {
 // call. Building the underlying runtimehelix.WorkerProject at API
 // startup and reusing it freezes `worker.runtime`/`credentials`/
 // `provider`/`model` at boot time — operators changing those via
-// /ui/settings then had to restart the API container for the new
+// the settings page then had to restart the API container for the new
 // values to take effect. Resolving per-call removes that surprise.
 //
 // Store is exposed directly because helix_org_chat.go needs it to
@@ -570,7 +509,7 @@ func buildHelixOrgSpawnerConfig(
 // spawner's internal ensureProject then fast-paths against the project
 // our wrapper just touched, and the frozen fields are dead weight.
 // Net effect: changing worker.runtime / credentials / provider / model
-// via /ui/settings takes effect on the next activation, without
+// via the settings page takes effect on the next activation, without
 // disturbing the shared MaxInflight semaphore inside the cached
 // spawner.
 func lazyHelixOrgSpawner(
@@ -592,8 +531,8 @@ func lazyHelixOrgSpawner(
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating. Without this, the cached
 		// spawner's first activation bakes whatever worker.* values
-		// were live at boot into the project; later edits via
-		// /ui/settings never propagate.
+		// were live at boot into the project; later edits via the
+		// settings page never propagate.
 		if applier != nil {
 			if _, _, _, err := applier.Ensure(ctx, workerID); err != nil {
 				return fmt.Errorf("helix-org spawner: pre-apply project for %s: %w", workerID, err)
