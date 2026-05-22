@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/helix-org/prompts"
+	"github.com/helixml/helix/api/pkg/org/prompts"
 )
 
 // stubPrompt is a minimal Prompt for exercising registry behaviour

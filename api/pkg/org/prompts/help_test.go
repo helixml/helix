@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix/helix-org/prompts"
+	"github.com/helixml/helix/api/pkg/org/prompts"
 )
 
 // TestHelpListsRegisteredPrompts pins the core /help contract: every

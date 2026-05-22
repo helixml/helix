@@ -8,7 +8,7 @@ import (
 
 	"github.com/yuin/goldmark"
 
-	"github.com/helixml/helix/helix-org/prompts"
+	"github.com/helixml/helix/api/pkg/org/prompts"
 )
 
 // markdown is the shared parser/renderer for assistant text. Default
