@@ -2,8 +2,11 @@ package helix
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
 // SessionClient is the small slice of the chat-session API
@@ -191,4 +194,83 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		_, _, _ = client.StartChatWithStatus(ctx, retryReq)
 	}
 	return session.ID, true, nil
+}
+
+// SessionSnapshotter exposes the late-joiner catch-up snapshot the
+// HTTP-WS handler in api/pkg/server emits before any patches arrive.
+// In-process subscribers (Spawner bridge, chat bridge after H1.3d)
+// call Snapshot before subscribing so they see a baseline frame
+// equivalent to what the browser WS would receive.
+//
+// Empty snapshot ([]byte{}) is a valid "no streaming in progress"
+// response — no preamble frame is emitted.
+type SessionSnapshotter interface {
+	Snapshot(ctx context.Context, sessionID string) ([]byte, error)
+}
+
+// NoopSessionSnapshotter is a SessionSnapshotter that returns no
+// snapshot for any session. Useful in tests and when no streaming
+// context tracking is available.
+type NoopSessionSnapshotter struct{}
+
+// Snapshot returns no preamble frame.
+func (NoopSessionSnapshotter) Snapshot(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
+}
+
+// SubscribeSessionUpdates subscribes to the pubsub topic that mirrors
+// the per-session WebSocket Helix publishes to. Returns a channel of
+// decoded SessionUpdate frames. Mirrors the order the browser WS
+// handler uses (websocket_server_user.go:124-156):
+//
+//  1. Subscribe FIRST so no frames are missed.
+//  2. Request the late-joiner snapshot from the host (if any).
+//  3. Synthesise an initial SessionUpdate from the snapshot bytes and
+//     emit it on the channel before the live stream starts arriving.
+//
+// The buffer size matches the typical burst (per-token-emit). Raise
+// it if logs show drops.
+//
+// Topic format: pubsub.GetSessionQueue(ownerID, sessionID) — the
+// same topic websocket_server_user.go subscribes the browser WS to.
+func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter SessionSnapshotter, ownerID, sessionID string) (<-chan SessionUpdate, error) {
+	out := make(chan SessionUpdate, 64)
+	topic := pubsub.GetSessionQueue(ownerID, sessionID)
+	sub, err := ps.Subscribe(ctx, topic, func(payload []byte) error {
+		var u SessionUpdate
+		if err := json.Unmarshal(payload, &u); err != nil {
+			// Best-effort: drop malformed frames; the next frame is
+			// likely well-formed.
+			return nil
+		}
+		select {
+		case out <- u:
+		case <-ctx.Done():
+		}
+		return nil
+	})
+	if err != nil {
+		close(out)
+		return nil, err
+	}
+	// Snapshot AFTER subscribe so we never miss a frame published
+	// between snapshot and subscribe. Send the snapshot frame
+	// (if any) first so the consumer sees a baseline before deltas.
+	if snapshotter != nil {
+		if snap, err := snapshotter.Snapshot(ctx, sessionID); err == nil && len(snap) > 0 {
+			var u SessionUpdate
+			if jsonErr := json.Unmarshal(snap, &u); jsonErr == nil {
+				select {
+				case out <- u:
+				case <-ctx.Done():
+				}
+			}
+		}
+	}
+	go func() {
+		<-ctx.Done()
+		_ = sub.Unsubscribe()
+		close(out)
+	}()
+	return out, nil
 }
