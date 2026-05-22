@@ -11,11 +11,11 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/grant"
 	"github.com/helixml/helix/api/pkg/org/position"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/tool"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
-	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 )
@@ -214,7 +214,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	// with no HTTP auth, or any path that didn't stash a user — is a
 	// no-op; the Spawner then falls back to its static service api_key.
 	if uid := helixclient.UserIDFromContext(ctx); uid != "" {
-		if err := agenthelix.SaveHiringUser(ctx, t.deps.Store, id, uid); err != nil {
+		if err := runtimehelix.SaveHiringUser(ctx, t.deps.Store, id, uid); err != nil {
 			// Non-fatal: hire succeeds, the Worker just won't have
 			// per-user identity propagated to its sessions and the
 			// Spawner falls back to the service key. Log via the

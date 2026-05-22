@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
@@ -69,7 +70,7 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 	if err != nil {
 		return "", "", "", fmt.Errorf("get worker: %w", err)
 	}
-	state, err := LoadState(ctx, a.Store, workerID)
+	state, err := runtimehelix.LoadState(ctx, a.Store, workerID)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -98,7 +99,7 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 	if state.ProjectID != "" {
 		if _, err := a.Client.GetProject(ctx, state.ProjectID); err != nil {
 			if errors.Is(err, helixclient.ErrNotFound) {
-				if clearErr := ClearProject(ctx, a.Store, workerID); clearErr != nil {
+				if clearErr := runtimehelix.ClearProject(ctx, a.Store, workerID); clearErr != nil {
 					return "", "", "", fmt.Errorf("clear stale project state for %s: %w", workerID, clearErr)
 				}
 				if a.Logger != nil {
@@ -119,7 +120,7 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 	// to it in a follow-up step (UpdateApp can't be done in apply).
 	runtime := a.Runtime
 	if runtime == "" {
-		runtime = Runtime
+		runtime = runtimehelix.Runtime
 	}
 	resp, err := a.Client.ApplyProject(ctx, helixclient.ProjectApplyRequest{
 		OrganizationID: a.OrgID,
@@ -225,7 +226,7 @@ func (a *ProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projec
 			a.Logger.Info("helix mcp attached", "worker", workerID, "app", resp.AgentAppID, "mcp", mcpURL)
 		}
 	}
-	if err := SaveProject(ctx, a.Store, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
+	if err := runtimehelix.SaveProject(ctx, a.Store, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
 		return "", "", "", fmt.Errorf("persist helix project IDs: %w", err)
 	}
 	if a.Logger != nil {

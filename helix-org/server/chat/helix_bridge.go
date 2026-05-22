@@ -14,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"
 )
@@ -511,7 +512,7 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		ProjectID:      projectID,
 		OrganizationID: orgID,
 		AppID:          agentAppID,
-		AgentType:      agenthelix.AgentType,
+		AgentType:      runtimehelix.AgentType,
 		Provider:       b.provider,
 		Model:          b.model,
 		Prompt:         msg,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
@@ -44,7 +45,7 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
 	w, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona")
 	_ = s.Workers.Create(ctx, w)
 	if repoID != "" {
-		_ = SaveProject(ctx, s, w.ID(), "prj_x", "app_x", repoID)
+		_ = runtimehelix.SaveProject(ctx, s, w.ID(), "prj_x", "app_x", repoID)
 	}
 	return s, w.ID()
 }
@@ -125,7 +126,7 @@ func TestWorkspaceEmptyWorkerIDError(t *testing.T) {
 func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	if err := SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
+	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &fakeClient{}
@@ -133,7 +134,7 @@ func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 	if err := w.MirrorFile(context.Background(), wid, "role.md", "# Role v2", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
 	if state.SessionID != "" {
 		t.Errorf("session must be cleared after role edit; got %q", state.SessionID)
 	}
@@ -144,7 +145,7 @@ func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 func TestWorkspaceInvalidatesSessionOnIdentityEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	if err := SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
+	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &fakeClient{}
@@ -152,7 +153,7 @@ func TestWorkspaceInvalidatesSessionOnIdentityEdit(t *testing.T) {
 	if err := w.MirrorFile(context.Background(), wid, "identity.md", "# Identity v2", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
 	if state.SessionID != "" {
 		t.Errorf("session must be cleared after identity edit; got %q", state.SessionID)
 	}
@@ -164,7 +165,7 @@ func TestWorkspaceInvalidatesSessionOnIdentityEdit(t *testing.T) {
 func TestWorkspaceDoesNotInvalidateOnOtherFiles(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	if err := SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
+	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &fakeClient{}
@@ -172,7 +173,7 @@ func TestWorkspaceDoesNotInvalidateOnOtherFiles(t *testing.T) {
 	if err := w.MirrorFile(context.Background(), wid, "notes.md", "# Notes", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
 	if state.SessionID != "ses_warm" {
 		t.Errorf("warm session must be preserved for notes.md; got %q", state.SessionID)
 	}

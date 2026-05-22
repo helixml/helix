@@ -12,10 +12,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
-	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store/sqlite"
@@ -313,7 +313,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	if _, err := tool.Invoke(ctx, domain.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	state, err := agenthelix.LoadState(context.Background(), deps.Store, "w-alice")
+	state, err := runtimehelix.LoadState(context.Background(), deps.Store, "w-alice")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	state, err := agenthelix.LoadState(context.Background(), deps.Store, "w-alice")
+	state, err := runtimehelix.LoadState(context.Background(), deps.Store, "w-alice")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}

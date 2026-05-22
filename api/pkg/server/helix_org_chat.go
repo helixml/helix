@@ -13,7 +13,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/helix-org/agent"
-	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/server/chat"
@@ -130,14 +130,14 @@ func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier
 		// can pick up the warm Zed sandbox instead of booting a
 		// fresh one.
 		LoadSessionID: func(ctx context.Context, workerID worker.ID) (string, error) {
-			state, err := agenthelix.LoadState(ctx, applier.Store, workerID)
+			state, err := runtimehelix.LoadState(ctx, applier.Store, workerID)
 			if err != nil {
 				return "", err
 			}
 			return state.SessionID, nil
 		},
 		SaveSessionID: func(ctx context.Context, workerID worker.ID, sessionID string) error {
-			return agenthelix.SaveSession(ctx, applier.Store, workerID, sessionID)
+			return runtimehelix.SaveSession(ctx, applier.Store, workerID, sessionID)
 		},
 		// Publish owner-chat turns to s-activations-w-owner using the
 		// same helper every AI Worker activation uses. /ui/streams

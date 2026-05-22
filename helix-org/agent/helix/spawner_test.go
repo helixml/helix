@@ -15,8 +15,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
-	"github.com/helixml/helix/helix-org/agent"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
+	"github.com/helixml/helix/helix-org/agent"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
@@ -191,7 +192,7 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
 		t.Errorf("StartChat calls: %d", got)
 	}
-	state, err := LoadState(context.Background(), s, wid)
+	state, err := runtimehelix.LoadState(context.Background(), s, wid)
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -253,10 +254,10 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	// Pre-seed an existing project + session for this worker.
-	if err := SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
+	if err := runtimehelix.SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), s, wid, "ses_existing"); err != nil {
+	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_existing"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &fakeHelixClient{
@@ -274,7 +275,7 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	if fc.lastStartReq.SessionID != "ses_existing" {
 		t.Errorf("StartChatRequest.SessionID = %q (want ses_existing) — resume must target persisted session", fc.lastStartReq.SessionID)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
 	if state.SessionID != "ses_existing" {
 		t.Errorf("session pointer changed to %q; resume must NOT open a fresh session", state.SessionID)
 	}
@@ -617,10 +618,10 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
-	if err := SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
+	if err := runtimehelix.SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), s, wid, "ses_stale"); err != nil {
+	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_stale"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &staleSessionFake{
@@ -635,7 +636,7 @@ func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
 	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
 	if state.SessionID != "ses_fresh" {
 		t.Errorf("session pointer = %q, want ses_fresh (stale resume must fall through to fresh)", state.SessionID)
 	}

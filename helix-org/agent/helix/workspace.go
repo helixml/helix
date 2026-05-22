@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/org/runtime"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
@@ -68,7 +69,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 	if err := runtime.ValidateWorkspaceName(name); err != nil {
 		return fmt.Errorf("helix workspace: %w", err)
 	}
-	state, err := LoadState(ctx, w.store, workerID)
+	state, err := runtimehelix.LoadState(ctx, w.store, workerID)
 	if err != nil {
 		return fmt.Errorf("helix workspace: load state %q: %w", workerID, err)
 	}
@@ -107,7 +108,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 	// mandate tells the agent to re-read) — checkpoint pushes or other
 	// in-worker writes keep the session warm.
 	if name == "role.md" || name == "identity.md" {
-		if err := SaveSession(ctx, w.store, workerID, ""); err != nil {
+		if err := runtimehelix.SaveSession(ctx, w.store, workerID, ""); err != nil {
 			// Non-fatal: the next activation will still pull the new
 			// content; it just won't re-read it from a fresh context.
 			return nil

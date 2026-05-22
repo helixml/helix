@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/runtime"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
@@ -142,7 +143,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// user, not the service account. Empty / nil / error all
 		// degrade to "use the static client api_key".
 		if cfg.BearerForUser != nil {
-			if state, err := LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
+			if state, err := runtimehelix.LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
 				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
 					actCtx = helixclient.WithBearerToken(actCtx, bearer)
 				} else if berr != nil && cfg.Logger != nil {
@@ -264,7 +265,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) er
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
 func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, prompt string, _ func(string)) (string, error) {
-	state, err := LoadState(ctx, c.Store, workerID)
+	state, err := runtimehelix.LoadState(ctx, c.Store, workerID)
 	if err != nil {
 		return "", err
 	}
@@ -291,7 +292,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, pr
 		SessionID: state.SessionID,
 		ProjectID: state.ProjectID,
 		AppID:     state.AgentAppID,
-		AgentType: AgentType,
+		AgentType: runtimehelix.AgentType,
 		Prompt:    prompt,
 	})
 	if err != nil {
@@ -302,7 +303,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, pr
 			c.Logger.Info("spawner: persisted session unusable, opened fresh",
 				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
 		}
-		if err := SaveSession(ctx, c.Store, workerID, sid); err != nil {
+		if err := runtimehelix.SaveSession(ctx, c.Store, workerID, sid); err != nil {
 			return "", fmt.Errorf("persist session id: %w", err)
 		}
 	}

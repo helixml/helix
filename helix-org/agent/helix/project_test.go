@@ -13,6 +13,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
@@ -210,8 +211,8 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if fc.lastApplyReq.Spec.Agent == nil {
 		t.Fatalf("ApplyProject Agent spec is nil")
 	}
-	if fc.lastApplyReq.Spec.Agent.Runtime != Runtime {
-		t.Errorf("Agent runtime = %q, want %q", fc.lastApplyReq.Spec.Agent.Runtime, Runtime)
+	if fc.lastApplyReq.Spec.Agent.Runtime != runtimehelix.Runtime {
+		t.Errorf("Agent runtime = %q, want %q", fc.lastApplyReq.Spec.Agent.Runtime, runtimehelix.Runtime)
 	}
 	// Project secrets HELIX_ORG_URL + HELIX_WORKER_ID written.
 	if fc.putSecretLast["HELIX_ORG_URL"] != "http://helix-org:8081" {
@@ -242,7 +243,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 		t.Errorf("identity.md not pushed")
 	}
 	// Runtime state persisted.
-	state, err := LoadState(context.Background(), st, wid)
+	state, err := runtimehelix.LoadState(context.Background(), st, wid)
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -258,7 +259,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role v1")
-	if err := SaveProject(context.Background(), st, wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
+	if err := runtimehelix.SaveProject(context.Background(), st, wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
 	fc := newProjectFake()
@@ -294,10 +295,10 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
-	if err := SaveProject(context.Background(), st, wid, "prj_ghost", "app_ghost", "repo_ghost"); err != nil {
+	if err := runtimehelix.SaveProject(context.Background(), st, wid, "prj_ghost", "app_ghost", "repo_ghost"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), st, wid, "ses_ghost"); err != nil {
+	if err := runtimehelix.SaveSession(context.Background(), st, wid, "ses_ghost"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := newProjectFake()
@@ -310,7 +311,7 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	}
 	// State should have been cleared then re-applied: new project ID
 	// comes from ApplyProject's response.
-	state, err := LoadState(context.Background(), st, wid)
+	state, err := runtimehelix.LoadState(context.Background(), st, wid)
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -335,7 +336,7 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
-	if err := SaveProject(context.Background(), st, wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
+	if err := runtimehelix.SaveProject(context.Background(), st, wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
 	fc := newProjectFake()
