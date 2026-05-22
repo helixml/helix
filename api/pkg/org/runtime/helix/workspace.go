@@ -7,11 +7,21 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/org/runtime"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
 )
+
+// WorkspaceGitWriter is the small slice of the helix git-repository
+// servicer the helix-runtime workspace needs. *services.GitRepositoryService
+// satisfies it; the production wiring in api/pkg/server/helix_org.go
+// passes that concrete impl directly.
+//
+// We define a thin interface here rather than depending on
+// *services.GitRepositoryService so workspace tests don't have to
+// build a full GitRepositoryService — just a fake of one method.
+type WorkspaceGitWriter interface {
+	CreateOrUpdateFileContents(ctx context.Context, repoID, path, branch string, content []byte, commitMessage, authorName, authorEmail string) (string, error)
+}
 
 // Workspace is the runtime.WorkspaceSync implementation that pushes
 // canonical role / identity content to the helix-specs branch of a
@@ -26,7 +36,7 @@ import (
 // (RepoID == "") are no-ops; callers don't have to gate on activation
 // status.
 type Workspace struct {
-	client helixclient.Client
+	git    WorkspaceGitWriter
 	store  *store.Store
 	branch string
 	author string
@@ -35,8 +45,8 @@ type Workspace struct {
 	// repoLocks serialises pushes to the same repo. Helix's git write
 	// path is not concurrency-safe per repo (it pre-syncs, writes,
 	// post-pushes against a single working copy on the Helix host).
-	// Two simultaneous PutFile calls against the same repo race on
-	// the working copy.
+	// Two simultaneous CreateOrUpdateFileContents calls against the
+	// same repo race on the working copy.
 	mu        sync.Mutex
 	repoLocks map[string]*sync.Mutex
 }
@@ -44,9 +54,9 @@ type Workspace struct {
 // NewWorkspace constructs a Workspace that resolves repo IDs per
 // call from the runtime-state sidecar. branch is the target branch
 // (typically "helix-specs"); author/email are the commit metadata.
-func NewWorkspace(client helixclient.Client, st *store.Store, branch, author, email string) *Workspace {
+func NewWorkspace(git WorkspaceGitWriter, st *store.Store, branch, author, email string) *Workspace {
 	return &Workspace{
-		client:    client,
+		git:       git,
 		store:     st,
 		branch:    branch,
 		author:    author,
@@ -69,7 +79,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 	if err := runtime.ValidateWorkspaceName(name); err != nil {
 		return fmt.Errorf("helix workspace: %w", err)
 	}
-	state, err := runtimehelix.LoadState(ctx, w.store, workerID)
+	state, err := LoadState(ctx, w.store, workerID)
 	if err != nil {
 		return fmt.Errorf("helix workspace: load state %q: %w", workerID, err)
 	}
@@ -87,14 +97,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 	lock := w.lockFor(state.RepoID)
 	lock.Lock()
 	defer lock.Unlock()
-	if err := w.client.PutFile(ctx, state.RepoID, helixclient.PutFileRequest{
-		Path:    repoPath,
-		Branch:  w.branch,
-		Message: message,
-		Author:  w.author,
-		Email:   w.email,
-		Content: content,
-	}); err != nil {
+	if _, err := w.git.CreateOrUpdateFileContents(ctx, state.RepoID, repoPath, w.branch, []byte(content), message, w.author, w.email); err != nil {
 		return err
 	}
 	// Invalidate the Worker's warm Helix chat session so the next
@@ -108,7 +111,7 @@ func (w *Workspace) MirrorFile(ctx context.Context, workerID worker.ID, name, co
 	// mandate tells the agent to re-read) — checkpoint pushes or other
 	// in-worker writes keep the session warm.
 	if name == "role.md" || name == "identity.md" {
-		if err := runtimehelix.SaveSession(ctx, w.store, workerID, ""); err != nil {
+		if err := SaveSession(ctx, w.store, workerID, ""); err != nil {
 			// Non-fatal: the next activation will still pull the new
 			// content; it just won't re-read it from a fresh context.
 			return nil

@@ -10,25 +10,33 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/domain"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/store"
 	"github.com/helixml/helix/helix-org/store/sqlite"
 )
 
-type fakeClient struct {
-	helixclient.Client
+// fakeGitWriter is the minimum WorkspaceGitWriter fake — captures the
+// last write so tests can assert on path, branch, and content.
+type fakeGitWriter struct {
+	mu         sync.Mutex
 	lastRepoID string
-	lastReq    helixclient.PutFileRequest
+	lastPath   string
+	lastBranch string
+	lastBody   []byte
+	lastMsg    string
 	err        error
 }
 
-func (f *fakeClient) PutFile(_ context.Context, repoID string, req helixclient.PutFileRequest) error {
+func (f *fakeGitWriter) CreateOrUpdateFileContents(_ context.Context, repoID, path, branch string, content []byte, commitMessage, _, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.lastRepoID = repoID
-	f.lastReq = req
-	return f.err
+	f.lastPath = path
+	f.lastBranch = branch
+	f.lastBody = content
+	f.lastMsg = commitMessage
+	return "sha-test", f.err
 }
 
 func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
@@ -38,14 +46,14 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
 		t.Fatalf("open: %v", err)
 	}
 	ctx := context.Background()
-	role, _ := role.New("r-eng", "# Role", nil, nil, time.Now().UTC())
-	_ = s.Roles.Create(ctx, role)
+	r, _ := role.New("r-eng", "# Role", nil, nil, time.Now().UTC())
+	_ = s.Roles.Create(ctx, r)
 	pos, _ := domain.NewPosition("p-eng", "r-eng", nil)
 	_ = s.Positions.Create(ctx, pos)
 	w, _ := domain.NewAIWorker("w-eng", []position.ID{"p-eng"}, "# Persona")
 	_ = s.Workers.Create(ctx, w)
 	if repoID != "" {
-		_ = runtimehelix.SaveProject(ctx, s, w.ID(), "prj_x", "app_x", repoID)
+		_ = SaveProject(ctx, s, w.ID(), "prj_x", "app_x", repoID)
 	}
 	return s, w.ID()
 }
@@ -53,17 +61,18 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, worker.ID) {
 func TestWorkspaceWritesToWorkerRepo(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "helix-org", "ho@example.com")
 	if err := w.MirrorFile(context.Background(), wid, "role.md", "# Role", "update_role: r-eng"); err != nil {
-		t.Fatalf("publish: %v", err)
+		t.Fatalf("MirrorFile: %v", err)
 	}
 	if fc.lastRepoID != "repo-1" {
 		t.Errorf("repo: %q", fc.lastRepoID)
 	}
 	wantPath := "workers/" + string(wid) + "/.context/role.md"
-	if fc.lastReq.Branch != "helix-specs" || fc.lastReq.Path != wantPath || fc.lastReq.Content != "# Role" {
-		t.Errorf("req: %+v (want path=%q)", fc.lastReq, wantPath)
+	if fc.lastBranch != "helix-specs" || fc.lastPath != wantPath || string(fc.lastBody) != "# Role" {
+		t.Errorf("req: repo=%q path=%q branch=%q body=%q (want path=%q)",
+			fc.lastRepoID, fc.lastPath, fc.lastBranch, fc.lastBody, wantPath)
 	}
 }
 
@@ -71,20 +80,20 @@ func TestWorkspaceUnboundWorkerIsNoop(t *testing.T) {
 	t.Parallel()
 	// Worker without a Helix project — repoID empty.
 	s, wid := newSeededStore(t, "")
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	if err := w.MirrorFile(context.Background(), wid, "role.md", "# Role", ""); err != nil {
-		t.Fatalf("publish: %v", err)
+		t.Fatalf("MirrorFile: %v", err)
 	}
 	if fc.lastRepoID != "" {
-		t.Errorf("expected no PutFile when worker has no repo, got %q", fc.lastRepoID)
+		t.Errorf("expected no write when worker has no repo, got %q", fc.lastRepoID)
 	}
 }
 
 func TestWorkspaceSurfacesErrors(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	fc := &fakeClient{err: errors.New("boom")}
+	fc := &fakeGitWriter{err: errors.New("boom")}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	if err := w.MirrorFile(context.Background(), wid, "role.md", "x", ""); err == nil {
 		t.Fatal("expected error")
@@ -94,7 +103,7 @@ func TestWorkspaceSurfacesErrors(t *testing.T) {
 func TestWorkspaceRejectsBadName(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	for _, bad := range []string{"", "/role.md", "../role.md", "a/../b"} {
 		if err := w.MirrorFile(context.Background(), wid, bad, "x", ""); err == nil {
@@ -102,7 +111,7 @@ func TestWorkspaceRejectsBadName(t *testing.T) {
 		}
 	}
 	if fc.lastRepoID != "" {
-		t.Errorf("expected no PutFile on bad names, got %q", fc.lastRepoID)
+		t.Errorf("expected no write on bad names, got %q", fc.lastRepoID)
 	}
 }
 
@@ -110,7 +119,7 @@ func TestWorkspaceRejectsBadName(t *testing.T) {
 func TestWorkspaceEmptyWorkerIDError(t *testing.T) {
 	t.Parallel()
 	s, _ := newSeededStore(t, "repo-1")
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	if err := w.MirrorFile(context.Background(), "", "role.md", "x", ""); err == nil {
 		t.Fatal("expected error for empty workerID")
@@ -120,69 +129,63 @@ func TestWorkspaceEmptyWorkerIDError(t *testing.T) {
 // TestWorkspaceInvalidatesSessionOnRoleEdit verifies the warm-session
 // invalidation: editing role.md clears the persisted SessionID so the
 // next activation gets a fresh Claude context that re-reads role.md
-// from scratch. Critical — without this, update_role hot edits land
-// in the helix-specs branch but the agent keeps using its cached
-// in-memory version from the first activation.
+// from scratch.
 func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
+	if err := SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	if err := w.MirrorFile(context.Background(), wid, "role.md", "# Role v2", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
-	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
+	state, _ := LoadState(context.Background(), s, wid)
 	if state.SessionID != "" {
 		t.Errorf("session must be cleared after role edit; got %q", state.SessionID)
 	}
 }
 
-// TestWorkspaceInvalidatesSessionOnIdentityEdit — same as above for
-// identity.md.
+// TestWorkspaceInvalidatesSessionOnIdentityEdit — same for identity.md.
 func TestWorkspaceInvalidatesSessionOnIdentityEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
+	if err := SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	if err := w.MirrorFile(context.Background(), wid, "identity.md", "# Identity v2", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
-	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
+	state, _ := LoadState(context.Background(), s, wid)
 	if state.SessionID != "" {
 		t.Errorf("session must be cleared after identity edit; got %q", state.SessionID)
 	}
 }
 
-// TestWorkspaceDoesNotInvalidateOnOtherFiles checkpoint pushes /
-// arbitrary other files leave the warm session alone — only role.md
-// and identity.md trigger invalidation.
+// TestWorkspaceDoesNotInvalidateOnOtherFiles — checkpoint pushes leave
+// the warm session alone; only role.md and identity.md invalidate.
 func TestWorkspaceDoesNotInvalidateOnOtherFiles(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
-	if err := runtimehelix.SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
+	if err := SaveSession(context.Background(), s, wid, "ses_warm"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	fc := &fakeClient{}
+	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
 	if err := w.MirrorFile(context.Background(), wid, "notes.md", "# Notes", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
-	state, _ := runtimehelix.LoadState(context.Background(), s, wid)
+	state, _ := LoadState(context.Background(), s, wid)
 	if state.SessionID != "ses_warm" {
 		t.Errorf("warm session must be preserved for notes.md; got %q", state.SessionID)
 	}
 }
 
 // TestWorkspaceSerialisesPerRepo verifies the per-repo lock: two
-// concurrent MirrorFile calls against the same repo execute
-// serially — Helix's git write path is not concurrency-safe per repo.
-// We measure peak concurrency seen inside PutFile.
+// concurrent MirrorFile calls against the same repo execute serially.
 func TestWorkspaceSerialisesPerRepo(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
@@ -206,18 +209,17 @@ func TestWorkspaceSerialisesPerRepo(t *testing.T) {
 	close(gate)
 	wg.Wait()
 	if got := atomic.LoadInt32(&peak); got > 1 {
-		t.Errorf("peak concurrent PutFile calls per repo = %d, want 1", got)
+		t.Errorf("peak concurrent writes per repo = %d, want 1", got)
 	}
 }
 
 type serialisingFake struct {
-	helixclient.Client
 	gate     chan struct{}
 	inflight *int32
 	peak     *int32
 }
 
-func (f *serialisingFake) PutFile(_ context.Context, _ string, _ helixclient.PutFileRequest) error {
+func (f *serialisingFake) CreateOrUpdateFileContents(_ context.Context, _, _, _ string, _ []byte, _, _, _ string) (string, error) {
 	cur := atomic.AddInt32(f.inflight, 1)
 	defer atomic.AddInt32(f.inflight, -1)
 	for {
@@ -227,5 +229,5 @@ func (f *serialisingFake) PutFile(_ context.Context, _ string, _ helixclient.Put
 		}
 	}
 	<-f.gate
-	return nil
+	return "sha", nil
 }

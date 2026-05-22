@@ -147,8 +147,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Wire the helix-backed WorkspaceSync so update_role /
 	// update_identity re-push role.md / identity.md to each affected
 	// Worker's per-Worker repo on the helix-specs branch.
-	if serviceClient != nil {
-		deps.Workspace = agenthelix.NewWorkspace(serviceClient, st, "helix-specs", "helix-org", "helix-org@helix.local")
+	if cfg.GitRepositoryService != nil {
+		deps.Workspace = runtimehelix.NewWorkspace(cfg.GitRepositoryService, st, "helix-specs", "helix-org", "helix-org@helix.local")
 	}
 
 	// Wire the helix-runtime HireHandler so hire_worker persists the
@@ -288,6 +288,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 type helixOrgConfig struct {
 	FileStoreType types.FileStoreType
 	LocalFSPath   string
+	// GitRepositoryService is the production git-write surface
+	// helix-org's Workspace uses to mirror role.md / identity.md /
+	// canonical files onto each Worker's per-Worker repo. The H1.1
+	// lift replaced helixclient.PutFile (loopback HTTP) with this
+	// direct call into the same servicer the HTTP handlers use.
+	GitRepositoryService runtimehelix.WorkspaceGitWriter
 }
 
 // dynamicProjectApplier is a chat.ProjectEnsurer that re-reads
