@@ -18627,6 +18627,103 @@ const docTemplate = `{
                 "RuntimeVLLM"
             ]
         },
+        "github_com_mark3labs_mcp-go_mcp.Icon": {
+            "type": "object",
+            "properties": {
+                "mimeType": {
+                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
+                    "type": "string"
+                },
+                "sizes": {
+                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "src": {
+                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_mark3labs_mcp-go_mcp.Meta": {
+            "type": "object",
+            "properties": {
+                "additionalFields": {
+                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "progressToken": {
+                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
+                }
+            }
+        },
+        "github_com_mark3labs_mcp-go_mcp.Tool": {
+            "type": "object",
+            "properties": {
+                "_meta": {
+                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Meta"
+                        }
+                    ]
+                },
+                "annotations": {
+                    "description": "Optional properties describing tool behavior",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolAnnotation"
+                        }
+                    ]
+                },
+                "defer_loading": {
+                    "description": "Support for deferred loading",
+                    "type": "boolean"
+                },
+                "description": {
+                    "description": "A human-readable description of the tool.",
+                    "type": "string"
+                },
+                "execution": {
+                    "description": "Execution describes execution behavior for the tool",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolExecution"
+                        }
+                    ]
+                },
+                "icons": {
+                    "description": "Icons provides visual identifiers for the tool",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Icon"
+                    }
+                },
+                "inputSchema": {
+                    "description": "A JSON Schema object defining the expected parameters for the tool.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolInputSchema"
+                        }
+                    ]
+                },
+                "name": {
+                    "description": "The name of the tool.",
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "description": "A JSON Schema object defining the expected output returned by the tool .",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolOutputSchema"
+                        }
+                    ]
+                }
+            }
+        },
         "gorm.DeletedAt": {
             "type": "object",
             "properties": {
@@ -18812,39 +18909,6 @@ const docTemplate = `{
                 }
             }
         },
-        "mcp.Icon": {
-            "type": "object",
-            "properties": {
-                "mimeType": {
-                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
-                    "type": "string"
-                },
-                "sizes": {
-                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "src": {
-                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
-                    "type": "string"
-                }
-            }
-        },
-        "mcp.Meta": {
-            "type": "object",
-            "properties": {
-                "additionalFields": {
-                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "progressToken": {
-                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
-                }
-            }
-        },
         "mcp.TaskSupport": {
             "type": "string",
             "enum": [
@@ -18857,70 +18921,6 @@ const docTemplate = `{
                 "TaskSupportOptional",
                 "TaskSupportRequired"
             ]
-        },
-        "mcp.Tool": {
-            "type": "object",
-            "properties": {
-                "_meta": {
-                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.Meta"
-                        }
-                    ]
-                },
-                "annotations": {
-                    "description": "Optional properties describing tool behavior",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolAnnotation"
-                        }
-                    ]
-                },
-                "defer_loading": {
-                    "description": "Support for deferred loading",
-                    "type": "boolean"
-                },
-                "description": {
-                    "description": "A human-readable description of the tool.",
-                    "type": "string"
-                },
-                "execution": {
-                    "description": "Execution describes execution behavior for the tool",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolExecution"
-                        }
-                    ]
-                },
-                "icons": {
-                    "description": "Icons provides visual identifiers for the tool",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/mcp.Icon"
-                    }
-                },
-                "inputSchema": {
-                    "description": "A JSON Schema object defining the expected parameters for the tool.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolInputSchema"
-                        }
-                    ]
-                },
-                "name": {
-                    "description": "The name of the tool.",
-                    "type": "string"
-                },
-                "outputSchema": {
-                    "description": "A JSON Schema object defining the expected output returned by the tool .",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolOutputSchema"
-                        }
-                    ]
-                }
-            }
         },
         "mcp.ToolAnnotation": {
             "type": "object",
@@ -22569,7 +22569,7 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/mcp.Tool"
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Tool"
                     }
                 },
                 "transport": {
@@ -22706,6 +22706,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "snoozed_until": {
+                    "type": "string"
+                },
+                "spec_task_description": {
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -23576,14 +23579,16 @@ const docTemplate = `{
                 "qwen_code",
                 "claude_code",
                 "gemini_cli",
-                "codex_cli"
+                "codex_cli",
+                "goose_code"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
                 "CodeAgentRuntimeQwenCode",
                 "CodeAgentRuntimeClaudeCode",
                 "CodeAgentRuntimeGeminiCLI",
-                "CodeAgentRuntimeCodexCLI"
+                "CodeAgentRuntimeCodexCLI",
+                "CodeAgentRuntimeGooseCode"
             ]
         },
         "types.CommentQueueStatusResponse": {
@@ -32175,7 +32180,7 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/mcp.Tool"
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Tool"
                     }
                 },
                 "transport": {
@@ -32808,6 +32813,13 @@ const docTemplate = `{
                     "description": "if the ID of the user is contained in the env setting",
                     "type": "boolean"
                 },
+                "alpha_features": {
+                    "description": "AlphaFeatures lists the feature flags this user has been granted\naccess to. Server-enforced via requireFeature middleware — the\nfrontend uses it only to decide whether to render the entry\npoint. Granted per-user via SQL (no deploy).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "app_id": {
                     "description": "if the token is associated with an app",
                     "type": "string"
@@ -33015,6 +33027,12 @@ const docTemplate = `{
             "properties": {
                 "admin": {
                     "type": "boolean"
+                },
+                "alpha_features": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "email": {
                     "type": "string"

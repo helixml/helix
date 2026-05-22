@@ -92,6 +92,77 @@ definitions:
     - RuntimeDiffusers
     - RuntimeAxolotl
     - RuntimeVLLM
+  github_com_mark3labs_mcp-go_mcp.Icon:
+    properties:
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
+        type: string
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
+        type: string
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Icon'
+        type: array
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -218,37 +289,6 @@ definitions:
       size:
         type: integer
     type: object
-  mcp.Icon:
-    properties:
-      mimeType:
-        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
-        type: string
-      sizes:
-        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
-        items:
-          type: string
-        type: array
-      src:
-        description: URI pointing to the icon resource (HTTPS URL or data URI)
-        type: string
-    type: object
-  mcp.Meta:
-    properties:
-      additionalFields:
-        additionalProperties: {}
-        description: |-
-          AdditionalFields are any fields present in the Meta that are not
-          otherwise defined in the protocol.
-        type: object
-      progressToken:
-        description: |-
-          If specified, the caller is requesting out-of-band progress
-          notifications for this request (as represented by
-          notifications/progress). The value of this parameter is an
-          opaque token that will be attached to any subsequent
-          notifications. The receiver is not obligated to provide these
-          notifications.
-    type: object
   mcp.TaskSupport:
     enum:
     - forbidden
@@ -259,46 +299,6 @@ definitions:
     - TaskSupportForbidden
     - TaskSupportOptional
     - TaskSupportRequired
-  mcp.Tool:
-    properties:
-      _meta:
-        allOf:
-        - $ref: '#/definitions/mcp.Meta'
-        description: Meta is a metadata object that is reserved by MCP for storing
-          additional information.
-      annotations:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolAnnotation'
-        description: Optional properties describing tool behavior
-      defer_loading:
-        description: Support for deferred loading
-        type: boolean
-      description:
-        description: A human-readable description of the tool.
-        type: string
-      execution:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolExecution'
-        description: Execution describes execution behavior for the tool
-      icons:
-        description: Icons provides visual identifiers for the tool
-        items:
-          $ref: '#/definitions/mcp.Icon'
-        type: array
-      inputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolInputSchema'
-        description: A JSON Schema object defining the expected parameters for the
-          tool.
-      name:
-        description: The name of the tool.
-        type: string
-      outputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolOutputSchema'
-        description: A JSON Schema object defining the expected output returned by
-          the tool .
-    type: object
   mcp.ToolAnnotation:
     properties:
       destructiveHint:
@@ -2849,7 +2849,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: |-
@@ -2943,6 +2943,8 @@ definitions:
         description: Denormalized for display without joins
         type: string
       snoozed_until:
+        type: string
+      spec_task_description:
         type: string
       spec_task_id:
         type: string
@@ -3567,6 +3569,7 @@ definitions:
     - claude_code
     - gemini_cli
     - codex_cli
+    - goose_code
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
@@ -3574,6 +3577,7 @@ definitions:
     - CodeAgentRuntimeClaudeCode
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
+    - CodeAgentRuntimeGooseCode
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -9765,7 +9769,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
@@ -10199,6 +10203,15 @@ definitions:
       admin:
         description: if the ID of the user is contained in the env setting
         type: boolean
+      alpha_features:
+        description: |-
+          AlphaFeatures lists the feature flags this user has been granted
+          access to. Server-enforced via requireFeature middleware — the
+          frontend uses it only to decide whether to render the entry
+          point. Granted per-user via SQL (no deploy).
+        items:
+          type: string
+        type: array
       app_id:
         description: if the token is associated with an app
         type: string
@@ -10351,6 +10364,10 @@ definitions:
     properties:
       admin:
         type: boolean
+      alpha_features:
+        items:
+          type: string
+        type: array
       email:
         type: string
       id:

@@ -69,6 +69,53 @@ export enum GithubComHelixmlHelixApiPkgTypesRuntime {
   RuntimeVLLM = "vllm",
 }
 
+export interface GithubComMark3LabsMcpGoMcpIcon {
+  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
+  mimeType?: string;
+  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
+  sizes?: string[];
+  /** URI pointing to the icon resource (HTTPS URL or data URI) */
+  src?: string;
+}
+
+export interface GithubComMark3LabsMcpGoMcpMeta {
+  /**
+   * AdditionalFields are any fields present in the Meta that are not
+   * otherwise defined in the protocol.
+   */
+  additionalFields?: Record<string, any>;
+  /**
+   * If specified, the caller is requesting out-of-band progress
+   * notifications for this request (as represented by
+   * notifications/progress). The value of this parameter is an
+   * opaque token that will be attached to any subsequent
+   * notifications. The receiver is not obligated to provide these
+   * notifications.
+   */
+  progressToken?: any;
+}
+
+export interface GithubComMark3LabsMcpGoMcpTool {
+  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
+  _meta?: GithubComMark3LabsMcpGoMcpMeta;
+  /** Optional properties describing tool behavior */
+  annotations?: McpToolAnnotation;
+  /** Support for deferred loading */
+  defer_loading?: boolean;
+  /** A human-readable description of the tool. */
+  description?: string;
+  /** Execution describes execution behavior for the tool */
+  execution?: McpToolExecution;
+  /** Icons provides visual identifiers for the tool */
+  icons?: GithubComMark3LabsMcpGoMcpIcon[];
+  /** A JSON Schema object defining the expected parameters for the tool. */
+  inputSchema?: McpToolInputSchema;
+  /** The name of the tool. */
+  name?: string;
+  /** A JSON Schema object defining the expected output returned by the tool . */
+  outputSchema?: McpToolOutputSchema;
+}
+
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -141,57 +188,10 @@ export interface HydraSandboxFileEntry {
   size?: number;
 }
 
-export interface McpIcon {
-  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
-  mimeType?: string;
-  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
-  sizes?: string[];
-  /** URI pointing to the icon resource (HTTPS URL or data URI) */
-  src?: string;
-}
-
-export interface McpMeta {
-  /**
-   * AdditionalFields are any fields present in the Meta that are not
-   * otherwise defined in the protocol.
-   */
-  additionalFields?: Record<string, any>;
-  /**
-   * If specified, the caller is requesting out-of-band progress
-   * notifications for this request (as represented by
-   * notifications/progress). The value of this parameter is an
-   * opaque token that will be attached to any subsequent
-   * notifications. The receiver is not obligated to provide these
-   * notifications.
-   */
-  progressToken?: any;
-}
-
 export enum McpTaskSupport {
   TaskSupportForbidden = "forbidden",
   TaskSupportOptional = "optional",
   TaskSupportRequired = "required",
-}
-
-export interface McpTool {
-  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
-  _meta?: McpMeta;
-  /** Optional properties describing tool behavior */
-  annotations?: McpToolAnnotation;
-  /** Support for deferred loading */
-  defer_loading?: boolean;
-  /** A human-readable description of the tool. */
-  description?: string;
-  /** Execution describes execution behavior for the tool */
-  execution?: McpToolExecution;
-  /** Icons provides visual identifiers for the tool */
-  icons?: McpIcon[];
-  /** A JSON Schema object defining the expected parameters for the tool. */
-  inputSchema?: McpToolInputSchema;
-  /** The name of the tool. */
-  name?: string;
-  /** A JSON Schema object defining the expected output returned by the tool . */
-  outputSchema?: McpToolOutputSchema;
 }
 
 export interface McpToolAnnotation {
@@ -1768,7 +1768,7 @@ export interface TypesAssistantMCP {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
-  tools?: McpTool[];
+  tools?: GithubComMark3LabsMcpGoMcpTool[];
   /**
    * Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
    * For stdio transport, use Command/Args/Env fields instead of URL
@@ -1822,6 +1822,7 @@ export interface TypesAttentionEvent {
   /** Denormalized for display without joins */
   project_name?: string;
   snoozed_until?: string;
+  spec_task_description?: string;
   spec_task_id?: string;
   spec_task_name?: string;
   title?: string;
@@ -2193,6 +2194,7 @@ export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeClaudeCode = "claude_code",
   CodeAgentRuntimeGeminiCLI = "gemini_cli",
   CodeAgentRuntimeCodexCLI = "codex_cli",
+  CodeAgentRuntimeGooseCode = "goose_code",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -5944,7 +5946,7 @@ export interface TypesToolMCPClientConfig {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
-  tools?: McpTool[];
+  tools?: GithubComMark3LabsMcpGoMcpTool[];
   /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
   transport?: string;
   url?: string;
@@ -6207,6 +6209,13 @@ export interface TypesUsageModelTimeSeries {
 export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
+  /**
+   * AlphaFeatures lists the feature flags this user has been granted
+   * access to. Server-enforced via requireFeature middleware — the
+   * frontend uses it only to decide whether to render the entry
+   * point. Granted per-user via SQL (no deploy).
+   */
+  alpha_features?: string[];
   /** if the token is associated with an app */
   app_id?: string;
   auth_provider?: TypesAuthProvider;
@@ -6308,6 +6317,7 @@ export interface TypesUserModelUsage {
 
 export interface TypesUserResponse {
   admin?: boolean;
+  alpha_features?: string[];
   email?: string;
   id?: string;
   name?: string;
