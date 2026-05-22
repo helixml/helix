@@ -33,6 +33,15 @@ type PostgresStore struct {
 	pubsub pubsub.PubSub
 }
 
+// GormDB returns the underlying *gorm.DB so adjacent subsystems
+// (notably the embedded helix-org org-store, H4.3) can land their
+// own tables in the same Postgres database without opening a
+// second connection pool. The connection lifecycle stays owned by
+// PostgresStore; callers must not call (*sql.DB).Close on it.
+func (s *PostgresStore) GormDB() *gorm.DB {
+	return s.gdb
+}
+
 func NewPostgresStore(
 	cfg config.Store,
 	pubsub pubsub.PubSub,
