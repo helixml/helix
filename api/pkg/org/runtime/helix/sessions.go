@@ -37,6 +37,21 @@ type SessionClient interface {
 	ServerStatus(ctx context.Context) (ServerStatus, error)
 }
 
+// SpawnerClient is the chat-session surface the helix Spawner uses
+// during an activation. Superset of SessionClient:
+//
+//   - GetOutput: polled by the Spawner's pollUntilDone loop until the
+//     session reports a terminal status.
+//   - StopExternalAgent: used by the chat bridge's NewHandler.
+//
+// helixclient.Client transitionally satisfies SpawnerClient; the
+// future direct-controller adapter will too.
+type SpawnerClient interface {
+	SessionClient
+	GetOutput(ctx context.Context, sessionID string) (Output, error)
+	StopExternalAgent(ctx context.Context, sessionID string) error
+}
+
 // sendToSession is the in-package equivalent of
 // helixclient.SendToSession: try to push a message to an existing
 // session via /sessions/chat with SessionID set. Returns an error if

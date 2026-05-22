@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
-	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	"github.com/helixml/helix/helix-org/bootstrap"
 	"github.com/helixml/helix/helix-org/config"
 	"github.com/helixml/helix/helix-org/dispatch"
@@ -153,7 +152,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	// Wire the helix-runtime HireHandler so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
-	// Replaces the direct agenthelix.SaveHiringUser call hire_worker
+	// Replaces the direct runtimehelix.SaveHiringUser call hire_worker
 	// used to make.
 	deps.HireHandler = &runtimehelix.HireRecorder{Store: st}
 
@@ -304,7 +303,7 @@ type helixOrgConfig struct {
 
 // dynamicProjectApplier is a chat.ProjectEnsurer that re-reads
 // `worker.*` and `helix.*` from the config registry on every Ensure
-// call. Building the underlying agenthelix.ProjectApplier at API
+// call. Building the underlying runtimehelix.ProjectApplier at API
 // startup and reusing it freezes `worker.runtime`/`credentials`/
 // `provider`/`model` at boot time — operators changing those via
 // /ui/settings then had to restart the API container for the new
@@ -321,7 +320,7 @@ type dynamicProjectApplier struct {
 }
 
 // Ensure satisfies chat.ProjectEnsurer. Builds a fresh
-// agenthelix.ProjectApplier from the current registry state and
+// runtimehelix.ProjectApplier from the current registry state and
 // delegates. ProjectApplier.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
@@ -458,19 +457,19 @@ func buildHelixOrgSpawnerConfig(
 	logger *slog.Logger,
 	newID func() string,
 	now func() time.Time,
-) (agenthelix.SpawnerConfig, error) {
+) (runtimehelix.SpawnerConfig, error) {
 	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
 	if apiKey == "" {
-		return agenthelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
 	}
 	baseURL, err := cfg.GetString(ctx, "helix.url")
 	if err != nil {
-		return agenthelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
 	}
 
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
-	return agenthelix.SpawnerConfig{
+	return runtimehelix.SpawnerConfig{
 		Client:        client,
 		HelixOrgURL:   helixOrgURL,
 		Runtime:       runtime,
@@ -544,7 +543,7 @@ func lazyHelixOrgSpawner(
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}
-			built := agenthelix.Spawner(cfgVal)
+			built := runtimehelix.Spawner(cfgVal)
 			mu.Lock()
 			if spawner == nil {
 				spawner = built

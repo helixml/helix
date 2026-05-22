@@ -10,11 +10,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/activation"
 	"github.com/helixml/helix/api/pkg/org/broadcast"
 	"github.com/helixml/helix/api/pkg/org/runtime"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/helix-org/agent"
-	"github.com/helixml/helix/helix-org/helix/helixclient"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/helix-org/store"
 )
 
@@ -27,9 +26,13 @@ import (
 // applied at hire time and persisted in the WorkerRuntimeState
 // sidecar under the "helix" backend.
 type SpawnerConfig struct {
-	Client         helixclient.Client
-	ProjectService runtimehelix.ProjectService
-	ProjectGit     runtimehelix.ProjectGitWriter
+	Client         SpawnerClient
+	ProjectService ProjectService
+	ProjectGit     ProjectGitWriter
+	// PubSub + Snapshotter drive the in-process equivalent of
+	// helixclient.SubscribeUpdates — see SubscribeSessionUpdates.
+	PubSub      pubsub.PubSub
+	Snapshotter SessionSnapshotter
 	HelixOrgURL    string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
 	// back to helix.Runtime. See ProjectApplier.Runtime for the
@@ -145,9 +148,9 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// user, not the service account. Empty / nil / error all
 		// degrade to "use the static client api_key".
 		if cfg.BearerForUser != nil {
-			if state, err := runtimehelix.LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
+			if state, err := LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
 				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
-					actCtx = runtimehelix.WithBearerToken(actCtx, bearer)
+					actCtx = WithBearerToken(actCtx, bearer)
 				} else if berr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: BearerForUser failed; falling back to service key", "worker", workerID, "user_id", state.HiringUserID, "err", berr.Error())
 				}
@@ -222,20 +225,12 @@ tells you how to be an agent at all), then role.md, then identity.md:
 After meaningful work, persist state on helix-specs:
   cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
 
-// ensureProject is a thin wrapper around runtimehelix.ProjectApplier
+// ensureProject is a thin wrapper around ProjectApplier
 // so the activation flow reads naturally. The Service / Git fields
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
 func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) error {
-	// Fallback: tests build SpawnerConfig with a fakeHelixClient and no
-	// explicit ProjectService — derive one from the Client via the
-	// helixclient adapter. Production wiring sets ProjectService /
-	// ProjectGit directly.
-	svc := c.ProjectService
-	if svc == nil && c.Client != nil {
-		svc = helixclient.AsProjectService(c.Client)
-	}
-	a := &runtimehelix.ProjectApplier{
-		Service:       svc,
+	a := &ProjectApplier{
+		Service:       c.ProjectService,
 		Git:           c.ProjectGit,
 		Store:         c.Store,
 		HelixOrgURL:   c.HelixOrgURL,
@@ -276,7 +271,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) er
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
 func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, prompt string, _ func(string)) (string, error) {
-	state, err := runtimehelix.LoadState(ctx, c.Store, workerID)
+	state, err := LoadState(ctx, c.Store, workerID)
 	if err != nil {
 		return "", err
 	}
@@ -299,11 +294,11 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, pr
 	// new session is discoverable from Helix's per-project UI. Without
 	// one shared primitive the two paths drift apart and develop
 	// independent stale-session bugs.
-	sid, fresh, err := runtimehelix.EnsureAndSend(ctx, c.Client, runtimehelix.SendPromptParams{
+	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
 		SessionID: state.SessionID,
 		ProjectID: state.ProjectID,
 		AppID:     state.AgentAppID,
-		AgentType: runtimehelix.AgentType,
+		AgentType: AgentType,
 		Prompt:    prompt,
 	})
 	if err != nil {
@@ -314,7 +309,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, pr
 			c.Logger.Info("spawner: persisted session unusable, opened fresh",
 				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
 		}
-		if err := runtimehelix.SaveSession(ctx, c.Store, workerID, sid); err != nil {
+		if err := SaveSession(ctx, c.Store, workerID, sid); err != nil {
 			return "", fmt.Errorf("persist session id: %w", err)
 		}
 	}
@@ -357,12 +352,12 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
 	publish func(body string)
-	stream  *runtimehelix.EntryStream
+	stream  *EntryStream
 }
 
 func newBridge(publish func(body string)) *bridge {
 	b := &bridge{publish: publish}
-	b.stream = runtimehelix.NewEntryStream(b.onEvent)
+	b.stream = NewEntryStream(b.onEvent)
 	return b
 }
 
@@ -371,7 +366,7 @@ func newBridge(publish func(body string)) *bridge {
 // same shape so observers don't have to discriminate. The owner-chat
 // bridge in server/chat uses the same TranscriptBody helper to
 // publish identical lines to s-activations-w-owner.
-func (b *bridge) onEvent(e runtimehelix.Event) {
+func (b *bridge) onEvent(e Event) {
 	if body := TranscriptBody(e); body != "" {
 		b.publish(body)
 	}
@@ -383,17 +378,17 @@ func (b *bridge) onEvent(e runtimehelix.Event) {
 // server/chat can produce identical lines for s-activations-w-owner
 // without duplicating the rendering. Empty string for kinds that
 // shouldn't appear on the transcript.
-func TranscriptBody(e runtimehelix.Event) string {
+func TranscriptBody(e Event) string {
 	switch e.Kind {
-	case runtimehelix.EventAssistant:
+	case EventAssistant:
 		return "assistant: " + agent.OneLine(e.Text, 500)
-	case runtimehelix.EventToolUse:
+	case EventToolUse:
 		return fmt.Sprintf("tool_use %s: %s", e.ToolName, agent.OneLine(e.Text, 500))
-	case runtimehelix.EventToolResult:
+	case EventToolResult:
 		return "tool_result: " + agent.OneLine(e.Text, 500)
-	case runtimehelix.EventToolResultError:
+	case EventToolResultError:
 		return "tool_result-error: " + agent.OneLine(e.Text, 500)
-	case runtimehelix.EventError:
+	case EventError:
 		return "error: " + agent.OneLine(e.Text, 500)
 	}
 	return ""
@@ -402,7 +397,7 @@ func TranscriptBody(e runtimehelix.Event) string {
 func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
 	delay := time.Second
 	for {
-		ch, err := cfg.Client.SubscribeUpdates(ctx, sessionID)
+		ch, err := SubscribeSessionUpdates(ctx, cfg.PubSub, cfg.Snapshotter, "", sessionID)
 		if err != nil {
 			if cfg.Logger != nil {
 				cfg.Logger.Warn("helix subscribe", "session", sessionID, "err", err)

@@ -13,7 +13,6 @@ import (
 	"log/slog"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
-	agenthelix "github.com/helixml/helix/helix-org/agent/helix"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/helix-org/helix/helixclient"
 	"github.com/helixml/helix/helix-org/prompts"
@@ -98,7 +97,7 @@ type ProjectEnsurer interface {
 // project ID — each chat session opens against the owner Worker's
 // per-Worker project, looked up via Ensure on every send.
 //
-// agent_type is fixed at agenthelix.AgentType ("zed_external") — see
+// agent_type is fixed at runtimehelix.AgentType ("zed_external") — see
 // the constant for why. There is no `chat.agent_type` knob.
 type HelixConfig struct {
 	Client      helixclient.Client
@@ -697,7 +696,7 @@ func (b *HelixBridge) runWebsocket(ctx context.Context, sid string) {
 		// activation produces. Matches the helix Spawner's
 		// transcript-bridge output (helix/bridge.go).
 		if b.publishActivation != nil {
-			if body := agenthelix.TranscriptBody(e); body != "" {
+			if body := runtimehelix.TranscriptBody(e); body != "" {
 				b.publishActivation(ctx, b.ownerID, body)
 			}
 		}
