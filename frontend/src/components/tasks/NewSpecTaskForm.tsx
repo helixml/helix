@@ -1116,6 +1116,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     onSelectedRecipeNameChange={setSelectedRecipeName}
                     params={recipeParams}
                     onParamsChange={setRecipeParams}
+                    pendingAttachments={pendingAttachments}
                   />
                 )}
                 <Button

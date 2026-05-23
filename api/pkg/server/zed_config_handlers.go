@@ -292,7 +292,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			if specTask.HelixAppID != "" {
 				if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
 					codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
-					apiServer.applySpecTaskGooseRecipe(specTask, codeAgentConfig)
+					apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
 				}
 			}
 		}
@@ -795,7 +795,7 @@ func (apiServer *HelixAPIServer) resolveGooseRecipesIntoConfig(ctx context.Conte
 // No-op when the spec task has no recipe selected, when the agent isn't goose,
 // or when the named recipe isn't part of the agent's GooseRecipes (e.g. the
 // recipe was removed from the project YAML between task creation and now).
-func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(specTask *types.SpecTask, cfg *types.CodeAgentConfig) {
+func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, specTask *types.SpecTask, cfg *types.CodeAgentConfig) {
 	if specTask == nil || cfg == nil {
 		return
 	}
@@ -824,7 +824,18 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(specTask *types.SpecTa
 		return
 	}
 
-	baked, err := goose.Bake(content, specTask.GooseRecipeParams)
+	// Resolve file-typed parameters: the user supplied an attachment
+	// filename on the spec-task; we need to substitute the absolute path
+	// where that attachment lives inside the agent's workspace (committed
+	// to the helix-specs branch at /home/retro/work/helix-specs/design/
+	// tasks/<dir>/attachments/<filename>).
+	params, err := apiServer.resolveGooseRecipeFileParams(ctx, specTask, content)
+	if err != nil {
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to resolve file params for goose recipe; baking skipped")
+		return
+	}
+
+	baked, err := goose.Bake(content, params)
 	if err != nil {
 		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to bake goose recipe; falling back to unbaked")
 		return
@@ -834,6 +845,67 @@ func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(specTask *types.SpecTa
 		Name:    specTask.GooseRecipeName,
 		Content: baked,
 	}
+}
+
+// resolveGooseRecipeFileParams returns a copy of specTask.GooseRecipeParams
+// with values for file-typed parameters rewritten from "<filename>" to the
+// absolute path where the spec-task's attachment lives inside the agent's
+// workspace. Non-file parameters pass through unchanged. The recipe is
+// re-parsed (cheap, the file is already in memory) to discover which params
+// are file-typed — we deliberately don't trust the frontend to tell us.
+func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Context, specTask *types.SpecTask, recipeContent []byte) (map[string]string, error) {
+	out := make(map[string]string, len(specTask.GooseRecipeParams))
+	for k, v := range specTask.GooseRecipeParams {
+		out[k] = v
+	}
+
+	recipe, err := goose.Parse(recipeContent)
+	if err != nil {
+		// Caller will surface the same parse error from Bake; just pass the
+		// raw params through and let Bake fail with its own message.
+		return out, nil
+	}
+
+	var fileParamKeys []string
+	for _, p := range recipe.Parameters {
+		if p.InputType == "file" {
+			fileParamKeys = append(fileParamKeys, p.Key)
+		}
+	}
+	if len(fileParamKeys) == 0 {
+		return out, nil
+	}
+
+	attachments, err := apiServer.Store.ListSpecTaskAttachments(ctx, specTask.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list spec-task attachments: %w", err)
+	}
+	byName := make(map[string]*types.SpecTaskAttachment, len(attachments))
+	for _, a := range attachments {
+		byName[a.Filename] = a
+	}
+
+	// Mirror services.spec_task_prompts.go: DesignDocPath is the canonical
+	// task directory; ID is the legacy fallback for old tasks.
+	taskDirName := specTask.DesignDocPath
+	if taskDirName == "" {
+		taskDirName = specTask.ID
+	}
+
+	for _, key := range fileParamKeys {
+		filename := strings.TrimSpace(out[key])
+		if filename == "" {
+			// Optional file param, no value supplied — leave it for Bake's
+			// required-param validation to handle.
+			continue
+		}
+		if _, ok := byName[filename]; !ok {
+			return nil, fmt.Errorf("recipe file parameter %q references attachment %q which is not uploaded on this spec task", key, filename)
+		}
+		out[key] = fmt.Sprintf("/home/retro/work/helix-specs/design/tasks/%s/attachments/%s", taskDirName, filename)
+	}
+
+	return out, nil
 }
 
 // getProviderSnapshot returns a ProviderRef snapshot of every provider

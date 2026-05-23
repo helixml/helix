@@ -78,7 +78,7 @@ End-to-end story:
 | Frontend | `frontend/src/components/app/GooseRecipesEditor.tsx` | Project settings UI for managing the recipe list on the agent |
 | Frontend | `frontend/src/components/tasks/GooseRecipeSelector.tsx` | Spec-task form: recipe dropdown + dynamic parameter form |
 | Frontend | `frontend/src/components/tasks/NewSpecTaskForm.tsx` | Wires `GooseRecipeSelector` in when selected agent is `goose_code` |
-| Example | `examples/project_goose.yaml`, `examples/goose_recipes/triage.yaml` | Reference YAML + recipe |
+| Example | `examples/project_goose.yaml`, `examples/goose_recipes/triage.yaml`, `examples/goose_recipes/review-spec.yaml` | Reference YAML + recipes (string params + file param) |
 
 ## Design choices worth knowing
 
@@ -120,6 +120,21 @@ hand goose a recipe with no remaining `{{var}}` references.
 create request means no `GooseBakedRecipe` is attached and no extra
 slash command is registered. The user still sees the project-level
 slash commands declared on the agent.
+
+**File-typed recipe params reuse the spec-task attachment upload flow.**
+A recipe parameter declared with `input_type: file` is rendered by
+`GooseRecipeSelector` as a dropdown of files the user has staged in the
+form's Attachments section. The stored param value is the bare filename
+(what the dropdown actually shows); `applySpecTaskGooseRecipe`
+re-parses the recipe to find the file-typed keys, looks the filename up
+in `Store.ListSpecTaskAttachments`, and rewrites the value to the
+absolute path inside the agent's workspace
+(`/home/retro/work/helix-specs/design/tasks/<dir>/attachments/<name>`)
+before calling `goose.Bake`. The file substitutes as a path, never as
+inline content — Goose's tool-calls can `Read` it the same way the
+agent reads any other file. Re-parsing the recipe (rather than trusting
+the frontend's claim of which keys are file-typed) keeps the file
+resolution decision purely server-side.
 
 **XDG isolation.** Goose uses etcetera/XDG (no `GOOSE_CONFIG_PATH`),
 so each session gets `XDG_CONFIG_HOME=/home/retro/.config/helix-goose`

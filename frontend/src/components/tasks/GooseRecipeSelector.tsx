@@ -24,6 +24,11 @@ interface GooseRecipeSelectorProps {
   onSelectedRecipeNameChange: (name: string) => void;
   params: Record<string, string>;
   onParamsChange: (params: Record<string, string>) => void;
+  // Files the user has staged for upload alongside the spec task. The backend
+  // commits them to helix-specs and rewrites file-typed recipe params from
+  // filename → absolute sandbox path at bake time. We just need the filenames
+  // here to populate the file-picker dropdown.
+  pendingAttachments?: File[];
 }
 
 // GooseRecipeSelector renders a dropdown of recipes available on the
@@ -39,6 +44,7 @@ const GooseRecipeSelector: React.FC<GooseRecipeSelectorProps> = ({
   onSelectedRecipeNameChange,
   params,
   onParamsChange,
+  pendingAttachments = [],
 }) => {
   const api = useApi();
   const { data: recipes, isLoading, error } = useQuery({
@@ -136,6 +142,69 @@ const GooseRecipeSelector: React.FC<GooseRecipeSelectorProps> = ({
       {selectedRecipe?.parameters?.map((p) => {
         const isRequired = p.requirement === "required";
         const value = params[p.key ?? ""] ?? p.default ?? "";
+        if (p.input_type === "file") {
+          // File-typed param: pick from the spec task's staged attachments.
+          // The user uploads files via the form's attachment dropzone, then
+          // picks one here. The backend rewrites the value from filename to
+          // an absolute container path before handing it to Goose.
+          if (pendingAttachments.length === 0) {
+            return (
+              <Alert key={p.key} severity="info" variant="outlined">
+                <Typography variant="body2">
+                  <strong>{p.key}</strong> needs a file. Upload one in the
+                  Attachments section below, then select it here.
+                </Typography>
+                {p.description && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", mt: 0.5 }}
+                  >
+                    {p.description}
+                  </Typography>
+                )}
+              </Alert>
+            );
+          }
+          return (
+            <FormControl key={p.key} fullWidth size="small">
+              <InputLabel>
+                {p.key}
+                {isRequired ? " *" : ""}
+              </InputLabel>
+              <Select
+                label={`${p.key}${isRequired ? " *" : ""}`}
+                value={value}
+                onChange={(e) =>
+                  onParamsChange({
+                    ...params,
+                    [p.key ?? ""]: String(e.target.value),
+                  })
+                }
+              >
+                {!isRequired && (
+                  <MenuItem value="">
+                    <em>None</em>
+                  </MenuItem>
+                )}
+                {pendingAttachments.map((f) => (
+                  <MenuItem key={f.name} value={f.name}>
+                    {f.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              {p.description && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ mt: 0.5 }}
+                >
+                  {p.description}
+                </Typography>
+              )}
+            </FormControl>
+          );
+        }
         if (p.options && p.options.length > 0) {
           return (
             <FormControl key={p.key} fullWidth size="small">
