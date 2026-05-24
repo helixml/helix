@@ -315,48 +315,64 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 			continue
 		}
 
-		switch msg.Type() {
-		case gst.MessageEOS:
-			g.Stop()
+		// Explicitly free the message before returning or looping. Without this,
+		// the *Message sits on the GC heap until a finalizer eventually runs
+		// gst_message_unref — and if the pipeline has been torn down in the
+		// meantime, the C side aborts ("terminate called without an active
+		// exception") because the message references elements that are no
+		// longer in a valid state. Deterministic Unref keeps the C-side
+		// lifetimes tight.
+		g.handleBusMessage(msg)
+		msg.Unref()
+		if !g.running.Load() {
 			return
-		case gst.MessageError:
-			gerr := msg.ParseError()
-			if gerr != nil {
-				// Log error with full debug info - helps diagnose pipeline failures
-				errMsg := gerr.Error()
-				fmt.Printf("[GST_PIPELINE] Error: %s\n", errMsg)
-				if debugStr := gerr.DebugString(); debugStr != "" {
-					fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
-				}
-				// Log the element that produced the error
-				srcName := msg.Source()
-				if srcName != "" {
-					fmt.Printf("[GST_PIPELINE] Source: %s\n", srcName)
-				}
-
-				// Create a user-friendly error message for common failures
-				userErr := g.createUserFriendlyError(errMsg, srcName)
-				// Non-blocking send to error channel (only first error matters)
-				select {
-				case g.errorCh <- userErr:
-					fmt.Printf("[GST_PIPELINE] Error sent to error channel: %s\n", userErr.Error())
-				default:
-					// Channel full - first error already captured
-				}
-			}
-			g.Stop()
-			return
-		case gst.MessageWarning:
-			gwarn := msg.ParseWarning()
-			if gwarn != nil {
-				fmt.Printf("[GST_PIPELINE] Warning: %s\n", gwarn.Error())
-				if debugStr := gwarn.DebugString(); debugStr != "" {
-					fmt.Printf("[GST_PIPELINE] Warning Debug: %s\n", debugStr)
-				}
-			}
-		case gst.MessageStateChanged:
-			// Could log state changes if needed for debugging
 		}
+	}
+}
+
+// handleBusMessage processes a single bus message. Returns after Stop() if the
+// message is EOS or fatal Error; the caller is responsible for unref'ing the
+// message and observing g.running to break the loop.
+func (g *GstPipeline) handleBusMessage(msg *gst.Message) {
+	switch msg.Type() {
+	case gst.MessageEOS:
+		g.Stop()
+	case gst.MessageError:
+		gerr := msg.ParseError()
+		if gerr != nil {
+			// Log error with full debug info - helps diagnose pipeline failures
+			errMsg := gerr.Error()
+			fmt.Printf("[GST_PIPELINE] Error: %s\n", errMsg)
+			if debugStr := gerr.DebugString(); debugStr != "" {
+				fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
+			}
+			// Log the element that produced the error
+			srcName := msg.Source()
+			if srcName != "" {
+				fmt.Printf("[GST_PIPELINE] Source: %s\n", srcName)
+			}
+
+			// Create a user-friendly error message for common failures
+			userErr := g.createUserFriendlyError(errMsg, srcName)
+			// Non-blocking send to error channel (only first error matters)
+			select {
+			case g.errorCh <- userErr:
+				fmt.Printf("[GST_PIPELINE] Error sent to error channel: %s\n", userErr.Error())
+			default:
+				// Channel full - first error already captured
+			}
+		}
+		g.Stop()
+	case gst.MessageWarning:
+		gwarn := msg.ParseWarning()
+		if gwarn != nil {
+			fmt.Printf("[GST_PIPELINE] Warning: %s\n", gwarn.Error())
+			if debugStr := gwarn.DebugString(); debugStr != "" {
+				fmt.Printf("[GST_PIPELINE] Warning Debug: %s\n", debugStr)
+			}
+		}
+	case gst.MessageStateChanged:
+		// Could log state changes if needed for debugging
 	}
 }
 
