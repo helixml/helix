@@ -25,14 +25,19 @@ spec:
     model: claude-sonnet-4-6
     provider: anthropic
 
-    # Goose-specific configuration: attach a project-scoped recipe library
-    # that becomes slash commands inside the Goose thread.
+    # Goose-specific configuration: attach a project-scoped recipe library.
+    # Each entry becomes an option in the Goose Recipe dropdown on the
+    # spec-task creation form, with the recipe's declared parameters
+    # rendered as a structured input form (string fields, file pickers,
+    # select dropdowns). The same recipes are also available as slash
+    # commands inside the Goose thread for ad-hoc interactive use, but
+    # the spec-task UI is the primary surface.
     #
     # recipe_repo_url: optional — when set, must match an attached repo's
     #   URL above. When omitted, recipes resolve against the primary repo.
-    # recipes: each entry creates a slash command. `path` is repo-relative
-    #   to the resolved recipe repo's checkout. `.goose/recipes/` is just
-    #   convention — any path inside the repo works.
+    # recipes: each entry adds one option to the spec-task dropdown.
+    #   `path` is repo-relative to the resolved recipe repo's checkout.
+    #   `.goose/recipes/` is just convention — any path inside the repo works.
     goose:
       # recipe_repo_url: "https://github.com/org/goose-recipes"
       recipes:

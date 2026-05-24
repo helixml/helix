@@ -1,10 +1,14 @@
 # Goose recipe examples
 
 Reference recipes you can use with the Helix Goose code agent. Each
-file is a runnable Goose recipe — the spec-task form auto-renders
-the declared `parameters[]` into a form so authors fill in values up
-front, and the agent gets a baked recipe with no interactive prompts
-at session start.
+file is a runnable Goose recipe — the spec-task creation form turns
+each one into a structured UI: pick the recipe from the **Goose
+Recipe** dropdown, fill in the declared `parameters[]` (string
+fields, file pickers, select dropdowns), submit. The agent receives
+a fully baked recipe at session start with no interactive prompts.
+The same recipes are also reachable as slash commands inside the
+Goose thread for ad-hoc use, but the spec-task UI is the primary
+surface.
 
 ## Two ways to use these
 
