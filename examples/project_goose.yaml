@@ -13,7 +13,9 @@ spec:
       primary: true
     # Recipes can live in any attached repo. Here they share the primary;
     # to use a dedicated repo, attach it as a second entry and set
-    # spec.agent.goose.recipe_repo_url to its URL.
+    # spec.agent.goose.recipe_repo_url to its URL. You can also attach
+    # github.com/helixml/helix directly and reference the bundled
+    # examples by path (see the commented-out block below).
     # - url: "https://github.com/org/goose-recipes"
     #   branch: main
 
@@ -29,7 +31,8 @@ spec:
     # recipe_repo_url: optional — when set, must match an attached repo's
     #   URL above. When omitted, recipes resolve against the primary repo.
     # recipes: each entry creates a slash command. `path` is repo-relative
-    #   to the resolved recipe repo's checkout.
+    #   to the resolved recipe repo's checkout. `.goose/recipes/` is just
+    #   convention — any path inside the repo works.
     goose:
       # recipe_repo_url: "https://github.com/org/goose-recipes"
       recipes:
@@ -37,3 +40,32 @@ spec:
           path: .goose/recipes/triage.yaml
         - name: fix-flaky-test
           path: .goose/recipes/fix-flaky-test.yaml
+        - name: release-notes
+          path: .goose/recipes/release-notes.yaml
+        - name: review-spec
+          path: .goose/recipes/review-spec.yaml
+        - name: triage-error-log
+          path: .goose/recipes/triage-error-log.yaml
+        - name: implement-from-spec
+          path: .goose/recipes/implement-from-spec.yaml
+
+    # Alternative: attach helixml/helix as a dedicated recipe repo and
+    # reference the bundled examples by their actual paths inside the
+    # repo — no copying required. Uncomment this block (and the matching
+    # repository entry above) instead of the one above to try it.
+    #
+    # goose:
+    #   recipe_repo_url: "https://github.com/helixml/helix"
+    #   recipes:
+    #     - name: triage
+    #       path: examples/goose_recipes/triage.yaml
+    #     - name: fix-flaky-test
+    #       path: examples/goose_recipes/fix-flaky-test.yaml
+    #     - name: release-notes
+    #       path: examples/goose_recipes/release-notes.yaml
+    #     - name: review-spec
+    #       path: examples/goose_recipes/review-spec.yaml
+    #     - name: triage-error-log
+    #       path: examples/goose_recipes/triage-error-log.yaml
+    #     - name: implement-from-spec
+    #       path: examples/goose_recipes/implement-from-spec.yaml
