@@ -6797,6 +6797,23 @@
                 }
             }
         },
+        "/api/v1/invitations/{id}/info": {
+            "get": {
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up basic info for an invitation by id",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PublicInvitationInfo"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -7905,6 +7922,81 @@
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List pending invitations for users who haven't joined the org yet",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List pending organization invitations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrganizationInvitation"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Invite a user to the organization by email",
+                "parameters": [
+                    {
+                        "description": "Request body with user_reference (email) and role.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddOrganizationMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationInvitation"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a pending invitation by ID",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Revoke a pending organization invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -7912,7 +8004,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List members of an organization",
+                "description": "List members of an organization, including pending invitations as placeholder rows (user_id starts with \"inv_\").",
                 "tags": [
                     "organizations"
                 ],
@@ -7935,7 +8027,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Add a member to an organization",
+                "description": "Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).",
                 "tags": [
                     "organizations"
                 ],
@@ -7952,10 +8044,10 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "201": {
+                        "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/types.OrganizationMembership"
+                            "$ref": "#/definitions/types.AddOrganizationMemberResponse"
                         }
                     }
                 }
@@ -8211,6 +8303,37 @@
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.TeamMembership"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/users/lookup": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between \"send invitation\", \"add to org\", or \"add to project\" CTAs without revealing arbitrary user information.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up a user by email within the context of an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Email to look up",
+                        "name": "email",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgUserLookupResponse"
                         }
                     }
                 }
@@ -18623,6 +18746,103 @@
                 "RuntimeVLLM"
             ]
         },
+        "github_com_mark3labs_mcp-go_mcp.Icon": {
+            "type": "object",
+            "properties": {
+                "mimeType": {
+                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
+                    "type": "string"
+                },
+                "sizes": {
+                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "src": {
+                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_mark3labs_mcp-go_mcp.Meta": {
+            "type": "object",
+            "properties": {
+                "additionalFields": {
+                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "progressToken": {
+                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
+                }
+            }
+        },
+        "github_com_mark3labs_mcp-go_mcp.Tool": {
+            "type": "object",
+            "properties": {
+                "_meta": {
+                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Meta"
+                        }
+                    ]
+                },
+                "annotations": {
+                    "description": "Optional properties describing tool behavior",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolAnnotation"
+                        }
+                    ]
+                },
+                "defer_loading": {
+                    "description": "Support for deferred loading",
+                    "type": "boolean"
+                },
+                "description": {
+                    "description": "A human-readable description of the tool.",
+                    "type": "string"
+                },
+                "execution": {
+                    "description": "Execution describes execution behavior for the tool",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolExecution"
+                        }
+                    ]
+                },
+                "icons": {
+                    "description": "Icons provides visual identifiers for the tool",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Icon"
+                    }
+                },
+                "inputSchema": {
+                    "description": "A JSON Schema object defining the expected parameters for the tool.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolInputSchema"
+                        }
+                    ]
+                },
+                "name": {
+                    "description": "The name of the tool.",
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "description": "A JSON Schema object defining the expected output returned by the tool .",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolOutputSchema"
+                        }
+                    ]
+                }
+            }
+        },
         "gorm.DeletedAt": {
             "type": "object",
             "properties": {
@@ -18808,39 +19028,6 @@
                 }
             }
         },
-        "mcp.Icon": {
-            "type": "object",
-            "properties": {
-                "mimeType": {
-                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
-                    "type": "string"
-                },
-                "sizes": {
-                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "src": {
-                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
-                    "type": "string"
-                }
-            }
-        },
-        "mcp.Meta": {
-            "type": "object",
-            "properties": {
-                "additionalFields": {
-                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "progressToken": {
-                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
-                }
-            }
-        },
         "mcp.TaskSupport": {
             "type": "string",
             "enum": [
@@ -18853,70 +19040,6 @@
                 "TaskSupportOptional",
                 "TaskSupportRequired"
             ]
-        },
-        "mcp.Tool": {
-            "type": "object",
-            "properties": {
-                "_meta": {
-                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.Meta"
-                        }
-                    ]
-                },
-                "annotations": {
-                    "description": "Optional properties describing tool behavior",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolAnnotation"
-                        }
-                    ]
-                },
-                "defer_loading": {
-                    "description": "Support for deferred loading",
-                    "type": "boolean"
-                },
-                "description": {
-                    "description": "A human-readable description of the tool.",
-                    "type": "string"
-                },
-                "execution": {
-                    "description": "Execution describes execution behavior for the tool",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolExecution"
-                        }
-                    ]
-                },
-                "icons": {
-                    "description": "Icons provides visual identifiers for the tool",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/mcp.Icon"
-                    }
-                },
-                "inputSchema": {
-                    "description": "A JSON Schema object defining the expected parameters for the tool.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolInputSchema"
-                        }
-                    ]
-                },
-                "name": {
-                    "description": "The name of the tool.",
-                    "type": "string"
-                },
-                "outputSchema": {
-                    "description": "A JSON Schema object defining the expected output returned by the tool .",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolOutputSchema"
-                        }
-                    ]
-                }
-            }
         },
         "mcp.ToolAnnotation": {
             "type": "object",
@@ -21865,6 +21988,21 @@
                 }
             }
         },
+        "types.AddOrganizationMemberResponse": {
+            "type": "object",
+            "properties": {
+                "invitation": {
+                    "$ref": "#/definitions/types.OrganizationInvitation"
+                },
+                "invited": {
+                    "description": "Invited is true when no user exists yet and an invitation row was\ncreated instead of a membership.",
+                    "type": "boolean"
+                },
+                "membership": {
+                    "$ref": "#/definitions/types.OrganizationMembership"
+                }
+            }
+        },
         "types.AddTeamMemberRequest": {
             "type": "object",
             "properties": {
@@ -22565,7 +22703,7 @@
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/mcp.Tool"
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Tool"
                     }
                 },
                 "transport": {
@@ -22702,6 +22840,9 @@
                     "type": "string"
                 },
                 "snoozed_until": {
+                    "type": "string"
+                },
+                "spec_task_description": {
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -26880,6 +27021,35 @@
                 }
             }
         },
+        "types.OrgUserLookupResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "exists": {
+                    "description": "a Helix user account exists with this email",
+                    "type": "boolean"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "invitation_id": {
+                    "type": "string"
+                },
+                "is_invited": {
+                    "description": "IsInvited — a pending invitation exists for this email in the queried\norg. Used by the invite UI to disable the \"Send invitation\" button so\nadmins don't accidentally double-invite.",
+                    "type": "boolean"
+                },
+                "is_member": {
+                    "description": "user is also a member of the queried org",
+                    "type": "boolean"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Organization": {
             "type": "object",
             "properties": {
@@ -26950,6 +27120,34 @@
                     "items": {
                         "$ref": "#/definitions/types.Team"
                     }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationInvitation": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "description": "Normalised to lowercase",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invited_by": {
+                    "description": "User ID of the inviter",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
                 },
                 "updated_at": {
                     "type": "string"
@@ -28092,6 +28290,23 @@
                 "ProviderEndpointTypeOrg",
                 "ProviderEndpointTypeTeam"
             ]
+        },
+        "types.PublicInvitationInfo": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_display_name": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                }
+            }
         },
         "types.PullRequest": {
             "type": "object",
@@ -32171,7 +32386,7 @@
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/mcp.Tool"
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Tool"
                     }
                 },
                 "transport": {
@@ -32804,6 +33019,13 @@
                     "description": "if the ID of the user is contained in the env setting",
                     "type": "boolean"
                 },
+                "alpha_features": {
+                    "description": "AlphaFeatures lists the feature flags this user has been granted\naccess to. Server-enforced via requireFeature middleware — the\nfrontend uses it only to decide whether to render the entry\npoint. Granted per-user via SQL (no deploy).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "app_id": {
                     "description": "if the token is associated with an app",
                     "type": "string"
@@ -33011,6 +33233,12 @@
             "properties": {
                 "admin": {
                     "type": "boolean"
+                },
+                "alpha_features": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "email": {
                     "type": "string"

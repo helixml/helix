@@ -68,7 +68,7 @@ type Client interface {
 
 	// Organization Members
 	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*types.OrganizationMembership, error)
-	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.AddOrganizationMemberResponse, error)
 	UpdateOrganizationMember(ctx context.Context, organizationID, userID string, req *types.UpdateOrganizationMemberRequest) (*types.OrganizationMembership, error)
 	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
 

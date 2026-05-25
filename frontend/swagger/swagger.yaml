@@ -92,6 +92,77 @@ definitions:
     - RuntimeDiffusers
     - RuntimeAxolotl
     - RuntimeVLLM
+  github_com_mark3labs_mcp-go_mcp.Icon:
+    properties:
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
+        type: string
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
+        type: string
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Icon'
+        type: array
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -218,37 +289,6 @@ definitions:
       size:
         type: integer
     type: object
-  mcp.Icon:
-    properties:
-      mimeType:
-        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
-        type: string
-      sizes:
-        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
-        items:
-          type: string
-        type: array
-      src:
-        description: URI pointing to the icon resource (HTTPS URL or data URI)
-        type: string
-    type: object
-  mcp.Meta:
-    properties:
-      additionalFields:
-        additionalProperties: {}
-        description: |-
-          AdditionalFields are any fields present in the Meta that are not
-          otherwise defined in the protocol.
-        type: object
-      progressToken:
-        description: |-
-          If specified, the caller is requesting out-of-band progress
-          notifications for this request (as represented by
-          notifications/progress). The value of this parameter is an
-          opaque token that will be attached to any subsequent
-          notifications. The receiver is not obligated to provide these
-          notifications.
-    type: object
   mcp.TaskSupport:
     enum:
     - forbidden
@@ -259,46 +299,6 @@ definitions:
     - TaskSupportForbidden
     - TaskSupportOptional
     - TaskSupportRequired
-  mcp.Tool:
-    properties:
-      _meta:
-        allOf:
-        - $ref: '#/definitions/mcp.Meta'
-        description: Meta is a metadata object that is reserved by MCP for storing
-          additional information.
-      annotations:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolAnnotation'
-        description: Optional properties describing tool behavior
-      defer_loading:
-        description: Support for deferred loading
-        type: boolean
-      description:
-        description: A human-readable description of the tool.
-        type: string
-      execution:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolExecution'
-        description: Execution describes execution behavior for the tool
-      icons:
-        description: Icons provides visual identifiers for the tool
-        items:
-          $ref: '#/definitions/mcp.Icon'
-        type: array
-      inputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolInputSchema'
-        description: A JSON Schema object defining the expected parameters for the
-          tool.
-      name:
-        description: The name of the tool.
-        type: string
-      outputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolOutputSchema'
-        description: A JSON Schema object defining the expected output returned by
-          the tool .
-    type: object
   mcp.ToolAnnotation:
     properties:
       destructiveHint:
@@ -2333,6 +2333,18 @@ definitions:
         description: Either user ID or user email
         type: string
     type: object
+  types.AddOrganizationMemberResponse:
+    properties:
+      invitation:
+        $ref: '#/definitions/types.OrganizationInvitation'
+      invited:
+        description: |-
+          Invited is true when no user exists yet and an invitation row was
+          created instead of a membership.
+        type: boolean
+      membership:
+        $ref: '#/definitions/types.OrganizationMembership'
+    type: object
   types.AddTeamMemberRequest:
     properties:
       user_reference:
@@ -2849,7 +2861,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: |-
@@ -2943,6 +2955,8 @@ definitions:
         description: Denormalized for display without joins
         type: string
       snoozed_until:
+        type: string
+      spec_task_description:
         type: string
       spec_task_id:
         type: string
@@ -5907,6 +5921,29 @@ definitions:
       users_total:
         type: integer
     type: object
+  types.OrgUserLookupResponse:
+    properties:
+      email:
+        type: string
+      exists:
+        description: a Helix user account exists with this email
+        type: boolean
+      full_name:
+        type: string
+      invitation_id:
+        type: string
+      is_invited:
+        description: |-
+          IsInvited — a pending invitation exists for this email in the queried
+          org. Used by the invite UI to disable the "Send invitation" button so
+          admins don't accidentally double-invite.
+        type: boolean
+      is_member:
+        description: user is also a member of the queried org
+        type: boolean
+      user_id:
+        type: string
+    type: object
   types.Organization:
     properties:
       auto_join_domain:
@@ -5962,6 +5999,25 @@ definitions:
         items:
           $ref: '#/definitions/types.Team'
         type: array
+      updated_at:
+        type: string
+    type: object
+  types.OrganizationInvitation:
+    properties:
+      created_at:
+        type: string
+      email:
+        description: Normalised to lowercase
+        type: string
+      id:
+        type: string
+      invited_by:
+        description: User ID of the inviter
+        type: string
+      organization_id:
+        type: string
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
       updated_at:
         type: string
     type: object
@@ -6763,6 +6819,17 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.PublicInvitationInfo:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      organization_display_name:
+        type: string
+      organization_name:
+        type: string
+    type: object
   types.PullRequest:
     properties:
       author:
@@ -9765,7 +9832,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
@@ -10199,6 +10266,15 @@ definitions:
       admin:
         description: if the ID of the user is contained in the env setting
         type: boolean
+      alpha_features:
+        description: |-
+          AlphaFeatures lists the feature flags this user has been granted
+          access to. Server-enforced via requireFeature middleware — the
+          frontend uses it only to decide whether to render the entry
+          point. Granted per-user via SQL (no deploy).
+        items:
+          type: string
+        type: array
       app_id:
         description: if the token is associated with an app
         type: string
@@ -10351,6 +10427,10 @@ definitions:
     properties:
       admin:
         type: boolean
+      alpha_features:
+        items:
+          type: string
+        type: array
       email:
         type: string
       id:
@@ -14957,6 +15037,19 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/invitations/{id}/info:
+    get:
+      description: Unauthenticated. Returns the invited email and organization display
+        name so the registration page can pre-fill the form. The invitation ID itself
+        acts as the secret token (same threat model as password-reset tokens).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PublicInvitationInfo'
+      summary: Look up basic info for an invitation by id
+      tags:
+      - organizations
   /api/v1/knowledge:
     get:
       responses:
@@ -15649,9 +15742,56 @@ paths:
       summary: Get organization guidelines history
       tags:
       - Organizations
+  /api/v1/organizations/{id}/invitations:
+    get:
+      description: List pending invitations for users who haven't joined the org yet
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrganizationInvitation'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List pending organization invitations
+      tags:
+      - organizations
+    post:
+      description: Create a pending invitation for a non-Helix user. When they register
+        with this email they will automatically join the organization.
+      parameters:
+      - description: Request body with user_reference (email) and role.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddOrganizationMemberRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.OrganizationInvitation'
+      security:
+      - BearerAuth: []
+      summary: Invite a user to the organization by email
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/invitations/{invitation_id}:
+    delete:
+      description: Revoke a pending invitation by ID
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Revoke a pending organization invitation
+      tags:
+      - organizations
   /api/v1/organizations/{id}/members:
     get:
-      description: List members of an organization
+      description: List members of an organization, including pending invitations
+        as placeholder rows (user_id starts with "inv_").
       responses:
         "200":
           description: OK
@@ -15665,7 +15805,9 @@ paths:
       tags:
       - organizations
     post:
-      description: Add a member to an organization
+      description: Add a member to an organization. When the user_reference is an
+        email that doesn't match any existing user, a pending invitation is created
+        instead (and an invitation email sent if email is configured).
       parameters:
       - description: Request body with user email to add.
         in: body
@@ -15674,10 +15816,10 @@ paths:
         schema:
           $ref: '#/definitions/types.AddOrganizationMemberRequest'
       responses:
-        "200":
-          description: OK
+        "201":
+          description: Created
           schema:
-            $ref: '#/definitions/types.OrganizationMembership'
+            $ref: '#/definitions/types.AddOrganizationMemberResponse'
       security:
       - BearerAuth: []
       summary: Add an organization member
@@ -15841,6 +15983,28 @@ paths:
       security:
       - BearerAuth: []
       summary: Add a new member to a team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/users/lookup:
+    get:
+      description: Returns whether a user account exists for the given email, and
+        whether they are already a member of this organization. Used by the invite
+        UI to choose between "send invitation", "add to org", or "add to project"
+        CTAs without revealing arbitrary user information.
+      parameters:
+      - description: Email to look up
+        in: query
+        name: email
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrgUserLookupResponse'
+      security:
+      - BearerAuth: []
+      summary: Look up a user by email within the context of an organization
       tags:
       - organizations
   /api/v1/organizations/{org_id}/sandboxes:

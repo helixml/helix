@@ -69,6 +69,53 @@ export enum GithubComHelixmlHelixApiPkgTypesRuntime {
   RuntimeVLLM = "vllm",
 }
 
+export interface GithubComMark3LabsMcpGoMcpIcon {
+  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
+  mimeType?: string;
+  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
+  sizes?: string[];
+  /** URI pointing to the icon resource (HTTPS URL or data URI) */
+  src?: string;
+}
+
+export interface GithubComMark3LabsMcpGoMcpMeta {
+  /**
+   * AdditionalFields are any fields present in the Meta that are not
+   * otherwise defined in the protocol.
+   */
+  additionalFields?: Record<string, any>;
+  /**
+   * If specified, the caller is requesting out-of-band progress
+   * notifications for this request (as represented by
+   * notifications/progress). The value of this parameter is an
+   * opaque token that will be attached to any subsequent
+   * notifications. The receiver is not obligated to provide these
+   * notifications.
+   */
+  progressToken?: any;
+}
+
+export interface GithubComMark3LabsMcpGoMcpTool {
+  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
+  _meta?: GithubComMark3LabsMcpGoMcpMeta;
+  /** Optional properties describing tool behavior */
+  annotations?: McpToolAnnotation;
+  /** Support for deferred loading */
+  defer_loading?: boolean;
+  /** A human-readable description of the tool. */
+  description?: string;
+  /** Execution describes execution behavior for the tool */
+  execution?: McpToolExecution;
+  /** Icons provides visual identifiers for the tool */
+  icons?: GithubComMark3LabsMcpGoMcpIcon[];
+  /** A JSON Schema object defining the expected parameters for the tool. */
+  inputSchema?: McpToolInputSchema;
+  /** The name of the tool. */
+  name?: string;
+  /** A JSON Schema object defining the expected output returned by the tool . */
+  outputSchema?: McpToolOutputSchema;
+}
+
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -141,57 +188,10 @@ export interface HydraSandboxFileEntry {
   size?: number;
 }
 
-export interface McpIcon {
-  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
-  mimeType?: string;
-  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
-  sizes?: string[];
-  /** URI pointing to the icon resource (HTTPS URL or data URI) */
-  src?: string;
-}
-
-export interface McpMeta {
-  /**
-   * AdditionalFields are any fields present in the Meta that are not
-   * otherwise defined in the protocol.
-   */
-  additionalFields?: Record<string, any>;
-  /**
-   * If specified, the caller is requesting out-of-band progress
-   * notifications for this request (as represented by
-   * notifications/progress). The value of this parameter is an
-   * opaque token that will be attached to any subsequent
-   * notifications. The receiver is not obligated to provide these
-   * notifications.
-   */
-  progressToken?: any;
-}
-
 export enum McpTaskSupport {
   TaskSupportForbidden = "forbidden",
   TaskSupportOptional = "optional",
   TaskSupportRequired = "required",
-}
-
-export interface McpTool {
-  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
-  _meta?: McpMeta;
-  /** Optional properties describing tool behavior */
-  annotations?: McpToolAnnotation;
-  /** Support for deferred loading */
-  defer_loading?: boolean;
-  /** A human-readable description of the tool. */
-  description?: string;
-  /** Execution describes execution behavior for the tool */
-  execution?: McpToolExecution;
-  /** Icons provides visual identifiers for the tool */
-  icons?: McpIcon[];
-  /** A JSON Schema object defining the expected parameters for the tool. */
-  inputSchema?: McpToolInputSchema;
-  /** The name of the tool. */
-  name?: string;
-  /** A JSON Schema object defining the expected output returned by the tool . */
-  outputSchema?: McpToolOutputSchema;
 }
 
 export interface McpToolAnnotation {
@@ -1454,6 +1454,16 @@ export interface TypesAddOrganizationMemberRequest {
   user_reference?: string;
 }
 
+export interface TypesAddOrganizationMemberResponse {
+  invitation?: TypesOrganizationInvitation;
+  /**
+   * Invited is true when no user exists yet and an invitation row was
+   * created instead of a membership.
+   */
+  invited?: boolean;
+  membership?: TypesOrganizationMembership;
+}
+
 export interface TypesAddTeamMemberRequest {
   /** Either user ID or user email */
   user_reference?: string;
@@ -1768,7 +1778,7 @@ export interface TypesAssistantMCP {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
-  tools?: McpTool[];
+  tools?: GithubComMark3LabsMcpGoMcpTool[];
   /**
    * Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
    * For stdio transport, use Command/Args/Env fields instead of URL
@@ -1822,6 +1832,7 @@ export interface TypesAttentionEvent {
   /** Denormalized for display without joins */
   project_name?: string;
   snoozed_until?: string;
+  spec_task_description?: string;
   spec_task_id?: string;
   spec_task_name?: string;
   title?: string;
@@ -3593,6 +3604,23 @@ export interface TypesOrgUsageSummaryResponse {
   users_total?: number;
 }
 
+export interface TypesOrgUserLookupResponse {
+  email?: string;
+  /** a Helix user account exists with this email */
+  exists?: boolean;
+  full_name?: string;
+  invitation_id?: string;
+  /**
+   * IsInvited — a pending invitation exists for this email in the queried
+   * org. Used by the invite UI to disable the "Send invitation" button so
+   * admins don't accidentally double-invite.
+   */
+  is_invited?: boolean;
+  /** user is also a member of the queried org */
+  is_member?: boolean;
+  user_id?: string;
+}
+
 export interface TypesOrganization {
   /**
    * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
@@ -3625,6 +3653,18 @@ export interface TypesOrganization {
   roles?: TypesRole[];
   /** Teams in the organization */
   teams?: TypesTeam[];
+  updated_at?: string;
+}
+
+export interface TypesOrganizationInvitation {
+  created_at?: string;
+  /** Normalised to lowercase */
+  email?: string;
+  id?: string;
+  /** User ID of the inviter */
+  invited_by?: string;
+  organization_id?: string;
+  role?: TypesOrganizationRole;
   updated_at?: string;
 }
 
@@ -4122,6 +4162,13 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeUser = "user",
   ProviderEndpointTypeOrg = "org",
   ProviderEndpointTypeTeam = "team",
+}
+
+export interface TypesPublicInvitationInfo {
+  email?: string;
+  id?: string;
+  organization_display_name?: string;
+  organization_name?: string;
 }
 
 export interface TypesPullRequest {
@@ -5944,7 +5991,7 @@ export interface TypesToolMCPClientConfig {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
-  tools?: McpTool[];
+  tools?: GithubComMark3LabsMcpGoMcpTool[];
   /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
   transport?: string;
   url?: string;
@@ -6207,6 +6254,13 @@ export interface TypesUsageModelTimeSeries {
 export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
+  /**
+   * AlphaFeatures lists the feature flags this user has been granted
+   * access to. Server-enforced via requireFeature middleware — the
+   * frontend uses it only to decide whether to render the entry
+   * point. Granted per-user via SQL (no deploy).
+   */
+  alpha_features?: string[];
   /** if the token is associated with an app */
   app_id?: string;
   auth_provider?: TypesAuthProvider;
@@ -6308,6 +6362,7 @@ export interface TypesUserModelUsage {
 
 export interface TypesUserResponse {
   admin?: boolean;
+  alpha_features?: string[];
   email?: string;
   id?: string;
   name?: string;
@@ -9660,6 +9715,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).
+     *
+     * @tags organizations
+     * @name V1InvitationsInfoDetail
+     * @summary Look up basic info for an invitation by id
+     * @request GET:/api/v1/invitations/{id}/info
+     */
+    v1InvitationsInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesPublicInvitationInfo, any>({
+        path: `/api/v1/invitations/${id}/info`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -10277,7 +10347,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List members of an organization
+     * @description List pending invitations for users who haven't joined the org yet
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsDetail
+     * @summary List pending organization invitations
+     * @request GET:/api/v1/organizations/{id}/invitations
+     * @secure
+     */
+    v1OrganizationsInvitationsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesOrganizationInvitation[], any>({
+        path: `/api/v1/organizations/${id}/invitations`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsCreate
+     * @summary Invite a user to the organization by email
+     * @request POST:/api/v1/organizations/{id}/invitations
+     * @secure
+     */
+    v1OrganizationsInvitationsCreate: (
+      id: string,
+      request: TypesAddOrganizationMemberRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrganizationInvitation, any>({
+        path: `/api/v1/organizations/${id}/invitations`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Revoke a pending invitation by ID
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsDelete
+     * @summary Revoke a pending organization invitation
+     * @request DELETE:/api/v1/organizations/{id}/invitations/{invitation_id}
+     * @secure
+     */
+    v1OrganizationsInvitationsDelete: (id: string, invitationId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/invitations/${invitationId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List members of an organization, including pending invitations as placeholder rows (user_id starts with "inv_").
      *
      * @tags organizations
      * @name V1OrganizationsMembersDetail
@@ -10294,7 +10421,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Add a member to an organization
+     * @description Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).
      *
      * @tags organizations
      * @name V1OrganizationsMembersCreate
@@ -10307,7 +10434,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesAddOrganizationMemberRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesOrganizationMembership, any>({
+      this.request<TypesAddOrganizationMemberResponse, any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "POST",
         body: request,
@@ -10492,6 +10619,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between "send invitation", "add to org", or "add to project" CTAs without revealing arbitrary user information.
+     *
+     * @tags organizations
+     * @name V1OrganizationsUsersLookupDetail
+     * @summary Look up a user by email within the context of an organization
+     * @request GET:/api/v1/organizations/{id}/users/lookup
+     * @secure
+     */
+    v1OrganizationsUsersLookupDetail: (
+      id: string,
+      query: {
+        /** Email to look up */
+        email: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgUserLookupResponse, any>({
+        path: `/api/v1/organizations/${id}/users/lookup`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 

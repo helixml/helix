@@ -84,6 +84,62 @@ type AddOrganizationMemberRequest struct {
 	Role          OrganizationRole `json:"role"`
 }
 
+// OrganizationInvitation - pending invitation for someone who is not yet a
+// Helix user. The invitation is consumed at registration time, creating an
+// OrganizationMembership with the recorded role.
+type OrganizationInvitation struct {
+	ID             string           `json:"id" gorm:"primaryKey"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+	OrganizationID string           `json:"organization_id" gorm:"index;not null"`
+	Email          string           `json:"email" gorm:"index;not null"` // Normalised to lowercase
+	Role           OrganizationRole `json:"role"`
+	InvitedBy      string           `json:"invited_by"` // User ID of the inviter
+}
+
+// AddOrganizationMemberResponse covers both the immediate-membership and
+// invitation-created paths so the frontend can distinguish them.
+type AddOrganizationMemberResponse struct {
+	Membership *OrganizationMembership `json:"membership,omitempty"`
+	Invitation *OrganizationInvitation `json:"invitation,omitempty"`
+	// Invited is true when no user exists yet and an invitation row was
+	// created instead of a membership.
+	Invited bool `json:"invited"`
+}
+
+// PublicInvitationInfo is the minimal, unauthenticated payload the
+// invitation-accept page reads to pre-fill the registration form. We
+// expose just the email (which the recipient already knows since the
+// invitation arrived in their inbox) and the org's display name (used
+// for "Join {OrgName}" framing). The invitation ID functions as the
+// secret — same threat model as a password-reset token.
+type PublicInvitationInfo struct {
+	ID                      string `json:"id"`
+	Email                   string `json:"email"`
+	OrganizationName        string `json:"organization_name"`
+	OrganizationDisplayName string `json:"organization_display_name"`
+}
+
+// OrgUserLookupResponse — returned by GET /organizations/{id}/users/lookup.
+// Powers the invite UI so it can show the right call-to-action ("Send
+// invitation" vs "Add to org" vs "Add to project") without first calling
+// the membership endpoint and observing which branch the server took.
+// We deliberately return only the bare minimum (id + display name) when a
+// user exists, never the full User row, to avoid leaking PII to org owners
+// who happen to know any email address.
+type OrgUserLookupResponse struct {
+	Email    string `json:"email"`
+	Exists   bool   `json:"exists"`    // a Helix user account exists with this email
+	IsMember bool   `json:"is_member"` // user is also a member of the queried org
+	// IsInvited — a pending invitation exists for this email in the queried
+	// org. Used by the invite UI to disable the "Send invitation" button so
+	// admins don't accidentally double-invite.
+	IsInvited    bool   `json:"is_invited"`
+	InvitationID string `json:"invitation_id,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
+	FullName     string `json:"full_name,omitempty"`
+}
+
 type AddTeamMemberRequest struct {
 	UserReference string `json:"user_reference"` // Either user ID or user email
 }

@@ -358,6 +358,19 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			return nil, fmt.Errorf("failed to create user: %w", err)
 		}
 
+		// Auto-accept pending org invitations for this email. Best-effort.
+		// If any were accepted, skip the onboarding wizard — the user
+		// already has somewhere to go.
+		if consumed, invErr := c.store.ConsumePendingInvitations(ctx, user); invErr != nil {
+			log.Warn().Err(invErr).Str("user_id", user.ID).Msg("failed to consume pending invitations for OIDC user")
+		} else if len(consumed) > 0 {
+			user.OnboardingCompleted = true
+			user.OnboardingCompletedAt = time.Now()
+			if _, err := c.store.UpdateUser(ctx, user); err != nil {
+				log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to mark OIDC-invited user as onboarded")
+			}
+		}
+
 		if user.Waitlisted && c.eventHandler != nil {
 			c.eventHandler.OnNewUser(user)
 		}
