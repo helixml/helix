@@ -24,7 +24,7 @@ type workerRuntimeStateRow struct {
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
-func (workerRuntimeStateRow) TableName() string { return "worker_runtime_state" }
+func (workerRuntimeStateRow) TableName() string { return "org_worker_runtime_state" }
 
 type workerRuntimeStateRepo struct {
 	db *gorm.DB

@@ -21,7 +21,7 @@ type eventRow struct {
 	CreatedAt time.Time `gorm:"index"`
 }
 
-func (eventRow) TableName() string { return "events" }
+func (eventRow) TableName() string { return "org_events" }
 
 type eventsRepo struct {
 	db *gorm.DB
@@ -108,8 +108,8 @@ func (r *eventsRepo) ListForWorker(ctx context.Context, workerID worker.ID, limi
 	// Join events with subscriptions to return only events on streams the
 	// worker subscribes to, newest first.
 	query := r.db.WithContext(ctx).
-		Table("events AS e").
-		Joins("JOIN subscriptions AS s ON s.stream_id = e.stream_id").
+		Table("org_events AS e").
+		Joins("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id").
 		Where("s.worker_id = ?", string(workerID)).
 		Order("e.created_at DESC, e.id DESC").
 		Select("e.*")

@@ -21,7 +21,7 @@ type configRow struct {
 	UpdatedBy string `gorm:"type:text"`
 }
 
-func (configRow) TableName() string { return "configs" }
+func (configRow) TableName() string { return "org_configs" }
 
 type configsRepo struct {
 	db *gorm.DB

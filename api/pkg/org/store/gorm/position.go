@@ -22,7 +22,7 @@ type positionRow struct {
 	UpdatedAt time.Time
 }
 
-func (positionRow) TableName() string { return "positions" }
+func (positionRow) TableName() string { return "org_positions" }
 
 type positionsRepo struct {
 	db *gorm.DB

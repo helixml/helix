@@ -26,7 +26,7 @@ type streamRow struct {
 	TransportConfig string `gorm:"not null;default:''"`
 }
 
-func (streamRow) TableName() string { return "streams" }
+func (streamRow) TableName() string { return "org_streams" }
 
 type streamsRepo struct {
 	db *gorm.DB

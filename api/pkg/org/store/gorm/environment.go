@@ -20,7 +20,7 @@ type environmentRow struct {
 	UpdatedAt time.Time
 }
 
-func (environmentRow) TableName() string { return "environments" }
+func (environmentRow) TableName() string { return "org_environments" }
 
 type environmentsRepo struct {
 	db *gorm.DB

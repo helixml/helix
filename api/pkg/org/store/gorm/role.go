@@ -28,7 +28,7 @@ type roleRow struct {
 	UpdatedAt time.Time
 }
 
-func (roleRow) TableName() string { return "roles" }
+func (roleRow) TableName() string { return "org_roles" }
 
 type rolesRepo struct {
 	db *gorm.DB

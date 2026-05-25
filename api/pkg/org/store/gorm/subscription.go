@@ -20,7 +20,7 @@ type subscriptionRow struct {
 	CreatedAt time.Time
 }
 
-func (subscriptionRow) TableName() string { return "subscriptions" }
+func (subscriptionRow) TableName() string { return "org_subscriptions" }
 
 type subscriptionsRepo struct {
 	db *gorm.DB

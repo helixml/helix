@@ -38,10 +38,12 @@ var schemaCounter uint64
 // session's search_path is pinned to that schema via DSN options.
 // A single connection avoids the GORM/PG pool reissuing connections
 // whose search_path defaults to public — every query lands in the
-// per-test schema. The row types' TableName() returns unqualified
-// names ("roles", "workers", …), so the search_path is the only
-// thing that keeps the data isolated; setting TablePrefix would not
-// have worked because TableName() takes precedence.
+// per-test schema. The row types' TableName() returns names prefixed
+// with "org_" (e.g. "org_roles", "org_workers") to avoid colliding
+// with helix's own tables when both stores share the public schema in
+// production; the search_path is what keeps test data isolated.
+// TablePrefix would not have worked because TableName() takes
+// precedence.
 func GetOrgTestDB(t *testing.T) *store.Store {
 	t.Helper()
 

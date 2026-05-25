@@ -23,7 +23,7 @@ type grantRow struct {
 	UpdatedAt time.Time
 }
 
-func (grantRow) TableName() string { return "grants" }
+func (grantRow) TableName() string { return "org_grants" }
 
 type grantsRepo struct {
 	db *gorm.DB

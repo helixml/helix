@@ -30,7 +30,7 @@ type workerRow struct {
 	UpdatedAt time.Time
 }
 
-func (workerRow) TableName() string { return "workers" }
+func (workerRow) TableName() string { return "org_workers" }
 
 type workersRepo struct {
 	db *gorm.DB

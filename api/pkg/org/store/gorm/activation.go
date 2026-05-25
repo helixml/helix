@@ -23,8 +23,8 @@ import (
 // ordering without a table scan.
 type activationRow struct {
 	ID                 string    `gorm:"primaryKey;type:text"`
-	WorkerID           string    `gorm:"not null;index:idx_activations_worker_started"`
-	StartedAt          time.Time `gorm:"not null;index:idx_activations_worker_started,sort:desc"`
+	WorkerID           string    `gorm:"not null;index:idx_org_activations_worker_started"`
+	StartedAt          time.Time `gorm:"not null;index:idx_org_activations_worker_started,sort:desc"`
 	EndedAt            *time.Time
 	OutcomeStatus      string `gorm:"type:text"`
 	OutcomeError       string `gorm:"type:text"`
@@ -32,7 +32,7 @@ type activationRow struct {
 	TriggersJSON       string `gorm:"not null;type:text"`
 }
 
-func (activationRow) TableName() string { return "activations" }
+func (activationRow) TableName() string { return "org_activations" }
 
 type activationsRepo struct {
 	db *gorm.DB
