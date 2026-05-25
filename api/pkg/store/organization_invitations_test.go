@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -439,6 +440,87 @@ func (suite *OrganizationInvitationsTestSuite) TestListInvitations_FilterByAppID
 	suite.Require().NoError(err)
 	suite.Require().Len(scoped, 1)
 	suite.Equal("app1@example.com", scoped[0].Email)
+}
+
+func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_ConcurrentCallsLeaveConsistentState() {
+	// Two register-time flows can fire ConsumePendingInvitations for the
+	// same user in parallel (e.g. a refresh of the OIDC callback before the
+	// first invocation commits). Either each call succeeds (one as a no-op
+	// after the other deletes the row) or one returns a unique-constraint
+	// error — both are acceptable. What MUST hold is the post-state: exactly
+	// one membership, exactly one access grant, zero leftover invitations.
+	// This pins down the contract so we don't regress on accidental
+	// double-grants.
+	role, err := suite.db.CreateRole(suite.ctx, &types.Role{
+		ID:             system.GenerateRoleID(),
+		OrganizationID: suite.org.ID,
+		Name:           "app_user",
+	})
+	suite.Require().NoError(err)
+
+	email := "race@example.com"
+	user := &types.User{
+		ID:        system.GenerateUserID(),
+		Email:     email,
+		CreatedAt: time.Now(),
+	}
+	_, err = suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, user.ID)
+
+	appID := "app_race"
+	_, err = suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          email,
+		AppID:          appID,
+		GrantRoles:     []string{role.Name},
+	})
+	suite.Require().NoError(err)
+
+	const goroutines = 5
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = suite.db.ConsumePendingInvitations(suite.ctx, user)
+		}(i)
+	}
+	wg.Wait()
+
+	// At least one call must have succeeded. Others may legitimately error
+	// out on the unique-constraint race — that's a transient retry signal,
+	// not corruption.
+	var successes int
+	for _, e := range errs {
+		if e == nil {
+			successes++
+		}
+	}
+	suite.GreaterOrEqual(successes, 1, "at least one goroutine should succeed")
+
+	// Final state: one membership, one grant, no invitations.
+	m, err := suite.db.GetOrganizationMembership(suite.ctx, &GetOrganizationMembershipQuery{
+		OrganizationID: suite.org.ID,
+		UserID:         user.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(types.OrganizationRoleMember, m.Role)
+
+	grants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+		OrganizationID: suite.org.ID,
+		ResourceID:     appID,
+		UserID:         user.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Len(grants, 1, "exactly one access grant must exist regardless of how many goroutines ran")
+
+	remaining, err := suite.db.ListOrganizationInvitations(suite.ctx, &ListOrganizationInvitationsQuery{
+		Email: email,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(remaining, "all invitations must be consumed")
 }
 
 func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_CaseInsensitive() {
