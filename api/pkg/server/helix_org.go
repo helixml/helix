@@ -224,19 +224,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	// Chat backend: the owner Worker's chat bridge is constructed even
-	// though Phase C of the UI migration removed the htmx SSR that
-	// mounted its HTTP handlers. The bridge's *HelixBridge struct,
-	// project-applier integration, and activation-publishing wiring stay
-	// so future per-agent chat surfaces can re-attach without rebuilding
-	// the wiring from scratch. WithPrompts attaches the slash-command
-	// registry for the same forward-looking reason.
-	if bridge, err := buildEmbeddedChatBackend(context.Background(), configReg, projectApplier, inProcClient, logger, st, bc, deps.NewID, deps.Now); err != nil {
-		log.Warn().Err(err).Msg("helix-org chat backend failed to start — continuing without chat")
-	} else if bridge != nil {
-		bridge.WithPrompts(promptReg)
-	}
-
 	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
 	// JSON handlers (Phase A of the UI migration) — consumed by the

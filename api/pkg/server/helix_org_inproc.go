@@ -1,14 +1,14 @@
 // Package server: helix_org_inproc.go provides the in-process adapter
-// satisfying runtimehelix.ProjectService, runtimehelix.SpawnerClient,
-// and chat.ChatBridgeClient for the embedded helix-org module.
+// satisfying runtimehelix.ProjectService and runtimehelix.SpawnerClient
+// for the embedded helix-org module.
 //
-// All three ports share one struct (`inProcHelixClient`) so a single
+// Both ports share one struct (`inProcHelixClient`) so a single
 // instance can be wired into the WorkerProject.Service slot (project /
-// git / app surface), the Spawner.Client slot (chat session surface),
-// and the chat bridge. The struct routes each call to the matching
-// HelixAPIServer handler method by crafting an *http.Request,
-// attaching the caller's *types.User to the context, and invoking the
-// handler in-process — no HTTP loopback.
+// git / app surface) and the Spawner.Client slot (chat session
+// surface). The struct routes each call to the matching HelixAPIServer
+// handler method by crafting an *http.Request, attaching the caller's
+// *types.User to the context, and invoking the handler in-process —
+// no HTTP loopback.
 //
 // Caller identity is resolved per request from runtimehelix's context
 // stashes (HelixIdentity → UserIDFromContext / BearerFromContext); when
@@ -29,7 +29,6 @@ import (
 	"github.com/gorilla/mux"
 
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
-	"github.com/helixml/helix/api/pkg/org/server/chat"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -500,85 +499,10 @@ func (s *sseCapture) parseSSE() (sessionID string, hadWSError bool) {
 	return sessionID, hadWSError
 }
 
-// ---- chat.ChatBridgeClient (H1-chat) ----
-
-// GetSession returns the session by ID with its Interactions loaded.
-// Used by the owner-chat bridge's History() handler to reconstruct
-// the page-refreshed transcript. Mirrors what the public
-// /api/v1/sessions/{id} handler does: authorise the caller, load the
-// row, then load interactions and attach them. We skip the runtime external-agent status + ETag work
-// the public handler does — neither is consumed by History rendering.
-func (c *inProcHelixClient) GetSession(ctx context.Context, id string) (types.Session, error) {
-	if id == "" {
-		return types.Session{}, errors.New("GetSession: id required")
-	}
-	user, err := c.resolveUser(ctx)
-	if err != nil {
-		return types.Session{}, err
-	}
-	session, err := c.server.Store.GetSession(ctx, id)
-	if err != nil {
-		return types.Session{}, fmt.Errorf("get session %s: %w", id, err)
-	}
-	if session == nil {
-		return types.Session{}, fmt.Errorf("get session %s: not found", id)
-	}
-	if err := c.server.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
-		return types.Session{}, fmt.Errorf("authorize session %s: %w", id, err)
-	}
-	interactions, _, err := c.server.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    id,
-		GenerationID: session.GenerationID,
-		PerPage:      1000,
-	})
-	if err != nil {
-		return types.Session{}, fmt.Errorf("list interactions for %s: %w", id, err)
-	}
-	session.Interactions = interactions
-	return *session, nil
-}
-
-// SubscribeUpdates subscribes to the per-session pubsub topic Helix
-// publishes WebsocketEvent frames on, returning a channel that
-// emits decoded events for the life of ctx. Mirrors the browser-WS
-// handler's behaviour (websocket_server_user.go::startUserWebSocketServer):
-// the topic is keyed on the session's *owner* (not the caller), so a
-// reviewer with a different user ID still sees the right stream.
-//
-// TODO(H1.3d-followup): plumb a real SessionPreamble snapshotter so
-// late-joiner subscribers see the streaming-in-progress baseline the
-// browser WS handler also synthesises. NoopSessionPreamble is fine
-// for the chat bridge's current use case — it only attaches a
-// subscriber *after* StartChatWithStatus echoes the session ID, so
-// it's never a true late joiner. Address when in-proc subscribers
-// start tailing pre-existing sessions (e.g. reviewer chat surfaces).
-func (c *inProcHelixClient) SubscribeUpdates(ctx context.Context, sessionID string) (<-chan types.WebsocketEvent, error) {
-	if sessionID == "" {
-		return nil, errors.New("SubscribeUpdates: sessionID required")
-	}
-	// Resolve the session owner the same way the WS handler does so
-	// the topic matches the publisher's queue. Falls back to the
-	// resolved caller if the session row isn't readable (e.g. very
-	// fresh insert) — same fallback the WS handler uses.
-	ownerID := ""
-	if session, err := c.server.Store.GetSession(ctx, sessionID); err == nil && session != nil && session.Owner != "" {
-		ownerID = session.Owner
-	}
-	if ownerID == "" {
-		user, err := c.resolveUser(ctx)
-		if err != nil {
-			return nil, err
-		}
-		ownerID = user.ID
-	}
-	return runtimehelix.SubscribeSessionUpdates(ctx, c.server.pubsub, runtimehelix.NoopSessionPreamble{}, ownerID, sessionID)
-}
-
-// Compile-time interface assertions — three ports must be satisfied by
+// Compile-time interface assertions — both ports must be satisfied by
 // the same struct so a single instance can drive WorkerProject.Service
-// AND SpawnerConfig.Client AND the chat bridge's ChatBridgeClient.
+// AND SpawnerConfig.Client.
 var (
 	_ runtimehelix.ProjectService = (*inProcHelixClient)(nil)
 	_ runtimehelix.SpawnerClient  = (*inProcHelixClient)(nil)
-	_ chat.ChatBridgeClient       = (*inProcHelixClient)(nil)
 )

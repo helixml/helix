@@ -4,18 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"os"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/streamhub"
-	"github.com/helixml/helix/api/pkg/org/agent"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/api/pkg/org/server/chat"
-	orgstore "github.com/helixml/helix/api/pkg/org/store"
 
 	"github.com/helixml/helix/api/pkg/org/worker"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -86,91 +78,6 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 		Secrets:     []string{"token", "webhook_secret"},
 		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
 	})
-}
-
-// buildEmbeddedChatBackend constructs a HelixBridge bound to one
-// target Worker. Today the alpha wires it to "w-owner" (the only
-// hire that exists pre-onboarding); future per-agent chat surfaces
-// construct additional bridges with different WorkerIDs through the
-// same code path — the bridge itself is Worker-agnostic.
-//
-// The bridge runs WorkerProject.Ensure(workerID) per send to
-// materialise the target Worker's per-Worker Helix project
-// (idempotent — first call provisions, subsequent calls return the
-// same IDs), then opens / continues the chat session against the
-// project's auto-provisioned agent app.
-//
-// Returns nil + nil if helix.api_key isn't set yet (auto-provision
-// happens at startup; a fresh DB with no admin user is a legitimate
-// "not configured" state).
-//
-// `client` is the in-process chat.ChatBridgeClient adapter
-// (api/pkg/server/helix_org_inproc.go::inProcHelixClient) — same
-// instance the spawner uses for SpawnerClient and the project
-// applier uses for ProjectService. No loopback-HTTP indirection.
-func buildEmbeddedChatBackend(ctx context.Context, cfg *config.Registry, applier *dynamicProjectApplier, client chat.ChatBridgeClient, logger *slog.Logger, orgSt *orgstore.Store, bc *streamhub.Hub, newID func() string, now func() time.Time) (*chat.HelixBridge, error) {
-	if applier == nil {
-		log.Warn().Msg("helix-org chat backend not configured — project applier unavailable")
-		return nil, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
-	}
-
-	bridge, err := chat.NewHelix(chat.HelixConfig{
-		Client: client,
-		Ensure: applier,
-		// SessionRole=`exploratory` so Helix's per-project "Open Human
-		// Desktop" button finds and reuses the chat session instead of
-		// spawning a parallel sandbox. The chat IS the project's
-		// human-driven session in helix-org's model; labelling it
-		// `exploratory` makes that explicit to the rest of Helix
-		// (project_handlers.go::startExploratorySession matches on
-		// this role).
-		SessionRole: "exploratory",
-		// The alpha's only chat target today is the owner Worker. Once
-		// per-agent chat surfaces land this becomes a per-request
-		// target with one bridge per Worker.
-		WorkerID: "w-owner",
-		CWD:      cwd,
-		Logger:   logger,
-		// Persist the live chat session pointer on the same
-		// WorkerRuntimeState row the Spawner uses, so a process
-		// restart (or a parallel UI like Helix's own project page)
-		// can pick up the warm Zed sandbox instead of booting a fresh
-		// one.
-		LoadSessionID: func(ctx context.Context, workerID worker.ID) (string, error) {
-			state, err := runtimehelix.LoadState(ctx, applier.Store, workerID)
-			if err != nil {
-				return "", err
-			}
-			return state.SessionID, nil
-		},
-		SaveSessionID: func(ctx context.Context, workerID worker.ID, sessionID string) error {
-			return runtimehelix.SaveSession(ctx, applier.Store, workerID, sessionID)
-		},
-		// Publish chat turns to s-activations-<workerID> using the same
-		// helper every AI Worker activation uses. The streams page
-		// surfaces the target Worker's stream alongside every other
-		// Worker's — chat turns and dispatcher activations are the same
-		// shape from the audit surface's perspective; the only
-		// difference is *who triggers* the activation.
-		PublishActivation: func(ctx context.Context, workerID worker.ID, body string) {
-			_, _ = agent.PublishActivationEvent(ctx, orgSt, bc, newID, now, logger, workerID, body)
-		},
-		// Persist an Activation row per chat turn (B5.11). Same shape
-		// the Spawner writes in B5.6, so the chat audit surface sits
-		// alongside every AI Worker's activations.
-		Activations: orgSt.Activations,
-		NewID:       newID,
-		Now:         now,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("build helix chat bridge: %w", err)
-	}
-	log.Info().Str("worker_id", "w-owner").Msg("helix-org chat backend wired (project-applier mode)")
-	return bridge, nil
 }
 
 // ensureHelixOrgServiceAPIKey returns a valid Helix api_key for the
