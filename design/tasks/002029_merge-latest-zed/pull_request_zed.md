@@ -1,8 +1,13 @@
-# Merge upstream Zed (8bdd78e023..1399540715, 261 commits) into Helix fork
+# Merge upstream Zed (8bdd78e023..13e7c11768, 548 commits) into Helix fork
 
 ## Summary
 
-Brings the Helix fork up to date with upstream Zed `1399540715` (2026-05-21), 261 commits over 10 days since 001996's `8bdd78e023`. All 10 surviving Critical Fixes preserved, all PRs #50/#55/#56/#57 + the `fd26c1a113` Dockerfile.ci fix carried through. Critical Fix #10 (180s context-server timeout) is retired — `e60a1b2789` on fork main reverted it intentionally as a wrong diagnosis. Full E2E (17 phases × 2 agents) green.
+Brings the Helix fork up to date with upstream Zed `13e7c11768` (2026-05-24) in two stacked rounds on the same feature branch:
+
+- **Round 1 (2026-05-21)**: 261 commits, upstream HEAD `1399540715`. Six manual conflicts resolved.
+- **Round 2 (2026-05-25)**: a further 287 commits, upstream HEAD `13e7c11768`. Zero manual conflicts — auto-merged via `ort`. One signature-drift repair (`code_span_resolver` in `from_existing_thread`).
+
+All 10 surviving Critical Fixes preserved, all PRs #50/#55/#56/#57 + the `fd26c1a113` Dockerfile.ci fix carried through. Critical Fix #10 (180s context-server timeout) is retired — `e60a1b2789` on fork main reverted it intentionally as a wrong diagnosis. Full E2E (17 phases × 2 agents) green after each round.
 
 ## Changes
 
@@ -24,6 +29,12 @@ Brings the Helix fork up to date with upstream Zed `1399540715` (2026-05-21), 26
 - **Re-merge `8841edb2b1`-style** (actually `Merge made by 'ort'` after manual merge): merged `origin/main` once more after our work was done to pick up `e60a1b2789 revert(context_server): DEFAULT_REQUEST_TIMEOUT back to upstream 60s`. Critical Fix #10 retired in `portingguide.md` accordingly.
 
 - **Porting guide updated** (`5da4b2f5f0`, `8692f073b2`): new `## Merge 002029 (2026-05-21)` section with full conflict trail + Pre-existing Breakage Repaired subsections + commit-history extension + retirement of Critical Fix #10.
+
+- **Round 2 merge commit `b865afcd3e`** (2026-05-25): `git merge upstream/main` brought in a further 287 upstream commits (1399540715..13e7c11768). The `ort` strategy auto-resolved everything — no manual conflicts. Helix surface verified intact via grep (Critical Fix #11 entity guard, Fix 1b cfg-gated early return, PR #50 session_creation_chain, extensions_ui HELIX bypass markers, title_bar render_restricted_mode override, external_websocket_sync crate).
+
+- **Round 2 build fix `f226fe7604`**: upstream `cfd0461b5a` ("Prefix `read_file` tool output with line numbers") added a `code_span_resolver` field to `ConversationView` and made `ThreadView::new` take 25 args. Repair in `conversation_view.rs::from_existing_thread`: construct `AgentCodeSpanResolver::new(&project.downgrade(), cx)`, thread `.clone()` through the `ThreadView::new` call, populate the new field in the trailing `Self { ... }`. Three-line change mirroring the pattern at line 725.
+
+- **Round 2 porting guide entry `fb97e2cf95`**: new `## Merge 002029-extension (2026-05-25)` section in `portingguide.md` documenting the upstream commits absorbed, the signature-drift repair, ancillary notes on ACP logout (`91531fad6d`) and additional-directories (`dee596fa96`) trait-default additions composing cleanly with PR #50, and E2E validation.
 
 ## Validation
 

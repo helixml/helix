@@ -142,3 +142,21 @@
 - [x] Write `pull_request_helix.md` in this task directory
 - [x] Do NOT force-push `main` (Zed or Helix) without explicit user approval
 - [x] Do NOT open PRs from the agent — the Helix UI handles PR creation per task convention
+
+## Extension (2026-05-25): second upstream merge stacked onto the open PR
+
+After the original PR was approved but before it had been merged to fork main, the reviewer asked for another round of upstream merging on the same feature branch. Result: 287 more upstream commits absorbed, **zero manual conflicts**.
+
+- [x] `cd /home/retro/work/zed && git fetch upstream && git fetch origin` — confirm divergence (287 commits, upstream HEAD `13e7c11768`, branch HEAD `8692f073b2`)
+- [x] Pre-merge recon: `git log --oneline 1399540715..upstream/main -- <high-risk-files>` — touched files summary: `agent_panel.rs` (2 commits), `conversation_view.rs` (3), `agent_servers/acp.rs` (2), `agent/agent.rs` (1), `acp_thread/connection.rs` (2). No `external_websocket_sync` or `acp_thread.rs` touches.
+- [x] `git merge upstream/main` — auto-resolved via `ort` strategy, no manual conflicts (merge commit `b865afcd3e`)
+- [x] Silent-drift sweep — Critical Fix #11, Fix 1b cfg-gated early return, PR #50 `session_creation_chain`, extensions_ui HELIX bypass markers, title_bar render_restricted_mode, external_websocket_sync crate all verified intact
+- [x] `./stack build-zed dev` — surfaced one signature drift: `code_span_resolver` field added to `ConversationView` and `ThreadView::new` now 25 args (upstream `cfd0461b5a`)
+- [x] Build fix `f226fe7604`: three-line repair to `from_existing_thread` mirroring the pattern at `conversation_view.rs:725`
+- [x] `./stack build-zed dev` — green
+- [x] Copy fresh binary to `e2e-test/zed-binary`
+- [x] `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` — all 17 phases passed for both agents; store validation passed (28 interactions, 0 interrupted)
+- [x] Porting guide updated `fb97e2cf95`: new `## Merge 002029-extension (2026-05-25)` section with upstream-commits absorbed, Pre-existing Breakage Repaired subsection, ancillary notes on ACP logout/additional-directories defaults composing cleanly with PR #50
+- [x] Push extended zed branch: `git push origin feature/002029-merge-latest-zed`
+- [x] Bump `ZED_COMMIT` in `helix/sandbox-versions.txt` to `fb97e2cf952c467f9101867e5eedbd42ee5c44df` and push
+- [x] Update `pull_request_zed.md` and `pull_request_helix.md` in helix-specs to reflect both rounds
