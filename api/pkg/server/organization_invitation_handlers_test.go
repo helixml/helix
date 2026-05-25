@@ -162,6 +162,95 @@ func TestAddOrganizationMember_UnknownUserID_Returns404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rr.Code)
 }
 
+func TestAddOrganizationMember_UnknownEmail_PassesAppContextToInvitation(t *testing.T) {
+	// When the access-management dialog invites someone, it sends
+	// app_id + grant_roles in the request. The handler must forward
+	// those onto the invitation row so ConsumePendingInvitations later
+	// has the context it needs to create the access grant.
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := newTestServerNoNotifier(mockStore)
+
+	orgID := "org_invite_scoped"
+	ownerID := "user_owner"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	expectOrgOwner(mockStore, orgID, ownerID)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "scoped@example.com"}).
+		Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().CreateOrganizationInvitation(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error) {
+			require.Equal(t, "app_xyz", inv.AppID, "app_id must be persisted on the invitation")
+			require.Equal(t, []string{"app_user"}, []string(inv.GrantRoles), "grant_roles must be persisted")
+			inv.ID = "oin_scoped"
+			return inv, nil
+		})
+
+	body, _ := json.Marshal(types.AddOrganizationMemberRequest{
+		UserReference: "scoped@example.com",
+		AppID:         "app_xyz",
+		GrantRoles:    []string{"app_user"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID+"/members", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.addOrganizationMember(rr, req)
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var resp types.AddOrganizationMemberResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.True(t, resp.Invited)
+}
+
+func TestListOrganizationMembers_ExcludesAppScopedInvitations(t *testing.T) {
+	// The org-wide members table must not surface project-scoped
+	// invitations as placeholders — those belong to the project access
+	// list, fetched separately by AccessManagement.tsx. This test
+	// pins that contract.
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := newTestServerNoNotifier(mockStore)
+
+	orgID := "org_filter"
+	userID := "user_caller"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	mockStore.EXPECT().ListOrganizationMemberships(gomock.Any(), gomock.Any()).
+		Return([]*types.OrganizationMembership{}, nil)
+	mockStore.EXPECT().ListOrganizationInvitations(gomock.Any(), gomock.Any()).
+		Return([]*types.OrganizationInvitation{
+			{ID: "oin_orgwide", OrganizationID: orgID, Email: "orgwide@example.com"},
+			{ID: "oin_app", OrganizationID: orgID, Email: "scoped@example.com", AppID: "app_x"},
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgID+"/members", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+
+	rr := httptest.NewRecorder()
+	server.listOrganizationMembers(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var members []*types.OrganizationMembership
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &members))
+	require.Len(t, members, 1, "only the org-wide invitation should be surfaced as a placeholder")
+	require.Equal(t, "oin_orgwide", members[0].UserID)
+}
+
 func TestAddOrganizationMember_DuplicateInvitation_Idempotent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

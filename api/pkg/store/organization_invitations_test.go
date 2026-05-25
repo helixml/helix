@@ -315,6 +315,132 @@ func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_Nil
 	suite.Empty(memberships)
 }
 
+func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_CreatesAccessGrant() {
+	// When an invitation carries an AppID, consuming it should also
+	// materialise an AccessGrant on that app so the invitee shows up in
+	// the project's access list immediately. Role names are looked up in
+	// the org's role table — unknown names are silently skipped.
+	memberRole, err := suite.db.CreateRole(suite.ctx, &types.Role{
+		ID:             system.GenerateRoleID(),
+		OrganizationID: suite.org.ID,
+		Name:           "app_user",
+	})
+	suite.Require().NoError(err)
+
+	appID := "app_invited"
+	email := "with-grant@example.com"
+	_, err = suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          email,
+		AppID:          appID,
+		GrantRoles:     []string{memberRole.Name, "name-that-does-not-exist"},
+	})
+	suite.Require().NoError(err)
+
+	user := &types.User{
+		ID:        system.GenerateUserID(),
+		Email:     email,
+		CreatedAt: time.Now(),
+	}
+	_, err = suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, user.ID)
+
+	memberships, err := suite.db.ConsumePendingInvitations(suite.ctx, user)
+	suite.Require().NoError(err)
+	suite.Len(memberships, 1)
+
+	// Access grant should now exist for this resource + user.
+	grants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+		OrganizationID: suite.org.ID,
+		ResourceID:     appID,
+		UserID:         user.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(grants, 1, "exactly one access grant for the resource")
+	suite.Equal(user.ID, grants[0].UserID)
+	suite.Equal(appID, grants[0].ResourceID)
+}
+
+func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_AccessGrant_IdempotentOnExistingGrant() {
+	// If an access grant already exists for (resource, user), the
+	// consumer must not error out — the invitation should just be
+	// cleaned up. Re-running consumption (e.g. retry after partial
+	// failure) shouldn't double-grant.
+	role, err := suite.db.CreateRole(suite.ctx, &types.Role{
+		ID:             system.GenerateRoleID(),
+		OrganizationID: suite.org.ID,
+		Name:           "app_user",
+	})
+	suite.Require().NoError(err)
+
+	user := &types.User{
+		ID:        system.GenerateUserID(),
+		Email:     "dup-grant@example.com",
+		CreatedAt: time.Now(),
+	}
+	_, err = suite.db.CreateUser(suite.ctx, user)
+	suite.Require().NoError(err)
+	defer suite.db.DeleteUser(suite.ctx, user.ID)
+
+	appID := "app_existing"
+	_, err = suite.db.CreateAccessGrant(suite.ctx, &types.AccessGrant{
+		OrganizationID: suite.org.ID,
+		ResourceID:     appID,
+		UserID:         user.ID,
+	}, []*types.Role{role})
+	suite.Require().NoError(err)
+
+	_, err = suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          user.Email,
+		AppID:          appID,
+		GrantRoles:     []string{role.Name},
+	})
+	suite.Require().NoError(err)
+
+	_, err = suite.db.ConsumePendingInvitations(suite.ctx, user)
+	suite.Require().NoError(err)
+
+	grants, err := suite.db.ListAccessGrants(suite.ctx, &ListAccessGrantsQuery{
+		OrganizationID: suite.org.ID,
+		ResourceID:     appID,
+		UserID:         user.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Len(grants, 1, "no duplicate grants should be created")
+}
+
+func (suite *OrganizationInvitationsTestSuite) TestListInvitations_FilterByAppID() {
+	// Project-scoped invitations should be retrievable independently
+	// from org-wide ones via the AppID filter.
+	_, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          "org-wide@example.com",
+	})
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          "app1@example.com",
+		AppID:          "app_one",
+	})
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{
+		OrganizationID: suite.org.ID,
+		Email:          "app2@example.com",
+		AppID:          "app_two",
+	})
+	suite.Require().NoError(err)
+
+	scoped, err := suite.db.ListOrganizationInvitations(suite.ctx, &ListOrganizationInvitationsQuery{
+		OrganizationID: suite.org.ID,
+		AppID:          "app_one",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(scoped, 1)
+	suite.Equal("app1@example.com", scoped[0].Email)
+}
+
 func (suite *OrganizationInvitationsTestSuite) TestConsumePendingInvitations_CaseInsensitive() {
 	// Invitations are stored lowercase; user.Email might be mixed-case.
 	_, err := suite.db.CreateOrganizationInvitation(suite.ctx, &types.OrganizationInvitation{

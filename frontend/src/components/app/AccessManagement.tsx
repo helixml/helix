@@ -131,16 +131,19 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     return new Set(accessGrants.map(g => g.user_id).filter(Boolean));
   }, [accessGrants]);
 
-  // Fetch pending invitations for this org. Defined outside the effect so
-  // we can call it from create/revoke handlers to refresh without waiting
-  // for a parent re-render.
+  // Fetch pending invitations scoped to THIS app. Org-wide invitations
+  // (sent from /orgs/{id}/people) are not surfaced here — they belong to
+  // the org members page, not a project's access list. The backend
+  // filters via the app_id query param.
   const loadInvitations = useCallback(async () => {
     if (!effectiveOrganizationId) {
       setInvitations([]);
       return;
     }
     try {
-      const response = await api.getApiClient().v1OrganizationsInvitationsDetail(effectiveOrganizationId);
+      const response = await api.getApiClient().v1OrganizationsInvitationsDetail(effectiveOrganizationId, {
+        app_id: appId,
+      } as any);
       setInvitations(response.data || []);
     } catch (error) {
       // Non-owners get 403 here, which is fine — they just don't see the
@@ -148,7 +151,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       console.error('Failed to load invitations:', error);
       setInvitations([]);
     }
-  }, [api.getApiClient, effectiveOrganizationId]);
+  }, [api.getApiClient, effectiveOrganizationId, appId]);
 
   useEffect(() => {
     loadInvitations();
@@ -373,9 +376,17 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       if (!effectiveOrganizationId) return;
 
       try {
+        // Pass app_id + grant_roles so that — if the backend creates an
+        // invitation (the email doesn't belong to an existing user) —
+        // accepting that invitation will also materialise the AccessGrant
+        // for this app with the same role the owner picked here. Without
+        // this, the invitee would join the org but show up nowhere on
+        // the project until someone manually granted access.
         const response = await api.getApiClient().v1OrganizationsMembersCreate(effectiveOrganizationId, {
           user_reference: userReference,
           role: TypesOrganizationRole.OrganizationRoleMember,
+          app_id: appId,
+          grant_roles: [selectedRole],
         });
         // Two outcomes:
         //  - Membership: the email matched an existing user, we can proceed
@@ -744,11 +755,29 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                             label="Invite sent"
                             size="small"
                             sx={{
+                              mr: 0.5,
+                              mb: 0.5,
                               backgroundColor: '#374151',
                               color: '#D1D5DB',
                               border: '1px dashed #6B7280'
                             }}
                           />
+                          {(invitation.grant_roles || []).map((roleName) => (
+                            <Chip
+                              key={roleName}
+                              label={getRoleDisplayName(roleName)}
+                              icon={getRoleIcon(roleName)}
+                              size="small"
+                              sx={{
+                                mr: 0.5,
+                                mb: 0.5,
+                                backgroundColor: roleName.toLowerCase() === 'admin' ? '#EF4444' : '#6366F1',
+                                color: 'white',
+                                opacity: 0.7,
+                                '& .MuiChip-icon': { color: 'white' }
+                              }}
+                            />
+                          ))}
                         </Box>
                         {!isReadOnly && (
                           <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>

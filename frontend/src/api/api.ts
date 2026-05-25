@@ -1449,6 +1449,16 @@ export enum TypesAction {
 }
 
 export interface TypesAddOrganizationMemberRequest {
+  /**
+   * AppID + GrantRoles are optional and only meaningful when the
+   * request creates an invitation (because the email doesn't match an
+   * existing user). They tell the server which app to attach the
+   * invitation to, so the access grant can be materialised when the
+   * invitee accepts. When set, the invitation will also be filtered
+   * to this app in the access-management list.
+   */
+  app_id?: string;
+  grant_roles?: string[];
   role?: TypesOrganizationRole;
   /** Either user ID or user email */
   user_reference?: string;
@@ -3657,9 +3667,19 @@ export interface TypesOrganization {
 }
 
 export interface TypesOrganizationInvitation {
+  /**
+   * AppID + GrantRoles record the optional access-grant context. When an
+   * invitation is sent from a project/app's access management dialog,
+   * we store the resource id and the role names the inviter chose, so
+   * that consuming the invitation at register time can also materialise
+   * the access grant — the invitee then shows up in the project access
+   * list immediately, exactly as if they had been added directly.
+   */
+  app_id?: string;
   created_at?: string;
   /** Normalised to lowercase */
   email?: string;
+  grant_roles?: string[];
   id?: string;
   /** User ID of the inviter */
   invited_by?: string;
@@ -10347,7 +10367,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List pending invitations for users who haven't joined the org yet
+     * @description List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.
      *
      * @tags organizations
      * @name V1OrganizationsInvitationsDetail
@@ -10355,10 +10375,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/organizations/{id}/invitations
      * @secure
      */
-    v1OrganizationsInvitationsDetail: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsInvitationsDetail: (
+      id: string,
+      query?: {
+        /** Filter invitations by the app/project they were sent from */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesOrganizationInvitation[], any>({
         path: `/api/v1/organizations/${id}/invitations`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

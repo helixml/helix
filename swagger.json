@@ -7929,11 +7929,19 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List pending invitations for users who haven't joined the org yet",
+                "description": "List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "List pending organization invitations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter invitations by the app/project they were sent from",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -21979,6 +21987,16 @@
         "types.AddOrganizationMemberRequest": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "AppID + GrantRoles are optional and only meaningful when the\nrequest creates an invitation (because the email doesn't match an\nexisting user). They tell the server which app to attach the\ninvitation to, so the access grant can be materialised when the\ninvitee accepts. When set, the invitation will also be filtered\nto this app in the access-management list.",
+                    "type": "string"
+                },
+                "grant_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "role": {
                     "$ref": "#/definitions/types.OrganizationRole"
                 },
@@ -27129,12 +27147,22 @@
         "types.OrganizationInvitation": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
                 "email": {
                     "description": "Normalised to lowercase",
                     "type": "string"
+                },
+                "grant_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "id": {
                     "type": "string"

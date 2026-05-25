@@ -82,11 +82,21 @@ type OrganizationMembership struct {
 type AddOrganizationMemberRequest struct {
 	UserReference string           `json:"user_reference"` // Either user ID or user email
 	Role          OrganizationRole `json:"role"`
+
+	// AppID + GrantRoles are optional and only meaningful when the
+	// request creates an invitation (because the email doesn't match an
+	// existing user). They tell the server which app to attach the
+	// invitation to, so the access grant can be materialised when the
+	// invitee accepts. When set, the invitation will also be filtered
+	// to this app in the access-management list.
+	AppID      string   `json:"app_id,omitempty"`
+	GrantRoles []string `json:"grant_roles,omitempty"`
 }
 
 // OrganizationInvitation - pending invitation for someone who is not yet a
 // Helix user. The invitation is consumed at registration time, creating an
-// OrganizationMembership with the recorded role.
+// OrganizationMembership with the recorded role and (optionally) an
+// AccessGrant on the resource the invitation was sent from.
 type OrganizationInvitation struct {
 	ID             string           `json:"id" gorm:"primaryKey"`
 	CreatedAt      time.Time        `json:"created_at"`
@@ -95,6 +105,15 @@ type OrganizationInvitation struct {
 	Email          string           `json:"email" gorm:"index;not null"` // Normalised to lowercase
 	Role           OrganizationRole `json:"role"`
 	InvitedBy      string           `json:"invited_by"` // User ID of the inviter
+
+	// AppID + GrantRoles record the optional access-grant context. When an
+	// invitation is sent from a project/app's access management dialog,
+	// we store the resource id and the role names the inviter chose, so
+	// that consuming the invitation at register time can also materialise
+	// the access grant — the invitee then shows up in the project access
+	// list immediately, exactly as if they had been added directly.
+	AppID      string         `json:"app_id,omitempty" gorm:"index"`
+	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
 }
 
 // AddOrganizationMemberResponse covers both the immediate-membership and

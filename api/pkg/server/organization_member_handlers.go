@@ -47,12 +47,17 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		return
 	}
 
-	// Surface pending invitations alongside real members so the same UI
-	// (AccessManagement, OrgPeople) can show them without a second endpoint.
+	// Surface pending invitations alongside real members so the OrgPeople
+	// UI can show them as placeholder rows without a second endpoint.
 	// We synthesise OrganizationMembership rows with user_id set to the
-	// invitation ID, the recorded role, and a User stub carrying just the
-	// invited email — the frontend keys off the "inv_" prefix to identify
+	// invitation ID — the frontend keys off the "oin_" prefix to identify
 	// these as placeholders and route revoke through DELETE /invitations.
+	//
+	// App-scoped invitations (AppID set) are excluded from the org-wide
+	// members list — they belong to a specific project's access list and
+	// are fetched separately by AccessManagement.tsx via
+	// /invitations?app_id=…. Showing them here would clutter the org
+	// people page with project-internal grants.
 	invitations, err := apiServer.Store.ListOrganizationInvitations(r.Context(), &store.ListOrganizationInvitationsQuery{
 		OrganizationID: orgID,
 	})
@@ -62,6 +67,9 @@ func (apiServer *HelixAPIServer) listOrganizationMembers(rw http.ResponseWriter,
 		return
 	}
 	for _, inv := range invitations {
+		if inv.AppID != "" {
+			continue
+		}
 		members = append(members, &types.OrganizationMembership{
 			OrganizationID: inv.OrganizationID,
 			UserID:         inv.ID, // placeholder id (oin_…) so frontend can detect
@@ -143,7 +151,7 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 			return
 		}
 
-		invitation, invErr := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, user)
+		invitation, invErr := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
 		if invErr != nil {
 			log.Err(invErr).Msg("error creating organization invitation")
 			http.Error(rw, invErr.Error(), http.StatusInternalServerError)
@@ -178,7 +186,12 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 // existing row is returned and the email is re-sent (idempotent "resend"
 // behaviour). Email failures are logged but do not abort the operation —
 // owners can still see the pending invitation in the UI.
-func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Context, orgID, email string, role types.OrganizationRole, inviter *types.User) (*types.OrganizationInvitation, error) {
+//
+// appID + grantRoles are optional and only meaningful when the invitation
+// is sent from a project/app access-management dialog — they're persisted
+// on the invitation so the access grant can be materialised at register
+// time without needing to keep the inviter's session alive.
+func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Context, orgID, email string, role types.OrganizationRole, appID string, grantRoles []string, inviter *types.User) (*types.OrganizationInvitation, error) {
 	inviterID := ""
 	if inviter != nil {
 		inviterID = inviter.ID
@@ -188,6 +201,8 @@ func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Contex
 		Email:          email,
 		Role:           role,
 		InvitedBy:      inviterID,
+		AppID:          appID,
+		GrantRoles:     grantRoles,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrInvitationAlreadyExists) && invitation != nil {
@@ -384,9 +399,10 @@ func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.R
 
 // listOrganizationInvitations godoc
 // @Summary List pending organization invitations
-// @Description List pending invitations for users who haven't joined the org yet
+// @Description List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.
 // @Tags    organizations
 // @Success 200 {array} types.OrganizationInvitation
+// @Param app_id query string false "Filter invitations by the app/project they were sent from"
 // @Router /api/v1/organizations/{id}/invitations [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrganizationInvitations(rw http.ResponseWriter, r *http.Request) {
@@ -405,6 +421,7 @@ func (apiServer *HelixAPIServer) listOrganizationInvitations(rw http.ResponseWri
 
 	invitations, err := apiServer.Store.ListOrganizationInvitations(r.Context(), &store.ListOrganizationInvitationsQuery{
 		OrganizationID: orgID,
+		AppID:          r.URL.Query().Get("app_id"),
 	})
 	if err != nil {
 		log.Err(err).Msg("error listing organization invitations")
@@ -452,7 +469,7 @@ func (apiServer *HelixAPIServer) createOrganizationInvitationHandler(rw http.Res
 		req.Role = types.OrganizationRoleMember
 	}
 
-	invitation, err := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, user)
+	invitation, err := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
 	if err != nil {
 		log.Err(err).Msg("error creating invitation")
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
