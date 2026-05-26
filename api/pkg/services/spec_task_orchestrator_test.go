@@ -599,6 +599,41 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.NotNil(s.T(), task.MergedAt)
 }
 
+// Production-realistic case: task has a BranchName set, all PRs error, so
+// the IsBranchMerged fallback runs. With active PR branches (commits not
+// in default), IsBranchMerged returns false and the task correctly stays
+// in pull_request. Important regression test because my primary fix only
+// addresses the allMerged-true path; the fallback path is a separate
+// transition site that could in principle wrongly transition on stale
+// repo state. This test pins the safe production-typical scenario.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrorsWithBranch_FallbackDoesNotTransition() {
+	ctx := context.Background()
+	task := makePullRequestTask(1)
+	task.BranchName = "feature/active-work"
+	task.ProjectID = "proj-1"
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(nil, fmt.Errorf("simulated gitlab 502"))
+	s.store.EXPECT().
+		GetProject(ctx, "proj-1").
+		Return(&types.Project{ID: "proj-1", DefaultRepoID: "repo-default"}, nil)
+	s.store.EXPECT().
+		GetGitRepository(ctx, "repo-default").
+		Return(&types.GitRepository{ID: "repo-default", DefaultBranch: "main"}, nil)
+	// Active PR branch: HEAD has commits not in default → not an ancestor.
+	s.gitService.EXPECT().
+		IsBranchMerged(ctx, "repo-default", "feature/active-work", "main").
+		Return(false, nil)
+
+	// No UpdateSpecTask — fallback found nothing, no state changed.
+	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
+	s.Require().NoError(err)
+
+	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status)
+	assert.False(s.T(), task.MergedToMain)
+}
+
 // Sanity: when one PR is merged but the other errors, we cannot conclude
 // "all merged" — task must stay in pull_request until we can re-confirm.
 // This is the case where the fix genuinely differs from the pre-fix bug.

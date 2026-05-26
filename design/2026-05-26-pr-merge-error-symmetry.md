@@ -65,11 +65,27 @@ Behaviour during a real Git-provider outage becomes "task stays in `pull_request
 
 The same file has three other sites that auto-transition tasks to `done`:
 
-- `processExternalPullRequestStatus` branch-merge fallback (line 863-906) — runs when no PRs are tracked or all are closed, checks `IsBranchMerged`. Has a separate edge case where a task branch with zero new commits trivially "merges" (head is its own ancestor). Not addressed here; should be a separate change.
+- `processExternalPullRequestStatus` branch-merge fallback (line 863-906) — runs when no PRs are tracked or all are closed/errored, checks `IsBranchMerged`. **Important**: with this fix in place, `allMerged=false` and `allClosed=false` after all-errors, so the loop falls through to the fallback. For Robert's reported symptom (active PR branches with commits not yet in default) `IsBranchMerged` correctly returns false → no transition. But the fallback retains edge cases that could still wrongly transition:
+  - Branch with zero new commits (HEAD == default HEAD → trivially "merged" because any commit is its own ancestor under `merge-base --is-ancestor`).
+  - `LastPushCommitHash` happens to be in default's history for unrelated reasons (e.g. that commit landed via a different PR).
+  - Local clone is stale and has an outdated view of default.
+
+  Not addressed here. Should be a separate change. The covered tests in this PR include `TestProcessExternalPullRequestStatus_AllErrorsWithBranch_FallbackDoesNotTransition` which pins the safe production-typical case.
+
 - `detectExternalPRActivity` external-merge detection (line 1125-1152) — operates only on `spec_review` / `implementation` status tasks, not `pull_request`. Not part of this incident.
-- `detectExternalPRActivity` branch-merge fallback (line 1170+) — same edge case as above.
+
+- `detectExternalPRActivity` branch-merge fallback (line 1170+) — same edge case as the first bullet.
 
 A broader rework that removes all four auto-transitions in favour of an explicit `mark_task_complete` path was started on a branch (commit `701447f2b`, "Backend: kill auto-transitions to done") but does not appear on any current branch. If that work resurfaces it supersedes this fix.
+
+## Residual risk summary
+
+This fix is **sufficient** for the customer-reported symptom (tasks moving from Pull Request to Merged after Helm upgrades / GitLab transient errors), confirmed by code-trace:
+
+1. Customer's tasks have active PR branches with commits not yet in default → `IsBranchMerged` returns false in the fallback path.
+2. The bug-trigger window (cold-pod transient errors against self-hosted GitLab) hits the `allMerged` path, which this fix closes.
+
+It is **not** a complete defence against all paths that could wrongly transition a task to Done. The branch-merge fallback has its own edge cases that should be addressed in a follow-up — ideally by deleting auto-transitions entirely in favour of an explicit completion path (the `701447f2b` direction).
 
 ## Testing
 
