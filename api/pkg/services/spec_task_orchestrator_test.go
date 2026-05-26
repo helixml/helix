@@ -22,6 +22,7 @@ type SpecTaskOrchestratorTestSuite struct {
 	ctrl         *gomock.Controller
 	store        *store.MockStore
 	executor     *MockContainerExecutor
+	gitService   *MockGitService
 	orchestrator *SpecTaskOrchestrator
 }
 
@@ -29,9 +30,11 @@ func (s *SpecTaskOrchestratorTestSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 	s.executor = NewMockContainerExecutor(s.ctrl)
+	s.gitService = NewMockGitService(s.ctrl)
 	s.orchestrator = &SpecTaskOrchestrator{
 		store:             s.store,
 		containerExecutor: s.executor,
+		gitService:        s.gitService,
 		testMode:          true,
 	}
 }
@@ -520,4 +523,104 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 	// The error should contain "not found" in a domain-specific way, not "record not found"
 	assert.Contains(s.T(), err.Error(), "default repository not set")
 	assert.False(s.T(), isDeletedProjectError(err))
+}
+
+// makePullRequestTask returns a task in pull_request status with the given
+// number of tracked PRs and no branch (so the branch-merge fallback path
+// inside processExternalPullRequestStatus early-exits without needing
+// store/repo mocks).
+func makePullRequestTask(prCount int) *types.SpecTask {
+	prs := make([]types.RepoPR, prCount)
+	for i := 0; i < prCount; i++ {
+		prs[i] = types.RepoPR{
+			RepositoryID: fmt.Sprintf("repo-%d", i+1),
+			PRID:         fmt.Sprintf("%d", i+1),
+			PRNumber:     i + 1,
+			PRState:      "open",
+		}
+	}
+	return &types.SpecTask{
+		ID:               "task-pr-1",
+		Status:           types.TaskStatusPullRequest,
+		BranchName:       "", // skips IsBranchMerged fallback
+		RepoPullRequests: prs,
+	}
+}
+
+// Regression test for the pod-restart-triggered "wrongly merged" bug.
+// Before the fix, if GetPullRequest returned an error for every tracked PR
+// in a single poll cycle, the `allMerged` flag stayed at its `true` default
+// and the task was incorrectly transitioned to TaskStatusDone with
+// MergedToMain=true. Customer-visible as tasks moving from the Pull Request
+// kanban column to Merged after Helm upgrades / GitLab transient errors.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrors_StaysInPullRequest() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+
+	gitErr := fmt.Errorf("simulated gitlab 502")
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(nil, gitErr)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(nil, gitErr)
+
+	// No UpdateSpecTask expectation — gomock will fail the test if the
+	// function tries to persist a transition.
+	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
+	s.Require().NoError(err)
+
+	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status,
+		"task must stay in pull_request when every GetPullRequest errors")
+	assert.False(s.T(), task.MergedToMain, "MergedToMain must not be set on error")
+	assert.Nil(s.T(), task.MergedAt, "MergedAt must not be set on error")
+}
+
+// Sanity: when every PR genuinely is merged, the task DOES transition to
+// done. Guards against an over-eager fix that breaks the happy path.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_TransitionsToDone() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
+	s.store.EXPECT().DismissAttentionEventsForTask(ctx, "task-pr-1").Return(int64(0), nil)
+
+	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
+	s.Require().NoError(err)
+
+	assert.Equal(s.T(), types.TaskStatusDone, task.Status)
+	assert.True(s.T(), task.MergedToMain)
+	assert.NotNil(s.T(), task.MergedAt)
+}
+
+// Sanity: when one PR is merged but the other errors, we cannot conclude
+// "all merged" — task must stay in pull_request until we can re-confirm.
+// This is the case where the fix genuinely differs from the pre-fix bug.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_MergedPlusError_StaysInPullRequest() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(nil, fmt.Errorf("simulated gitlab 502"))
+
+	// Persisted because one PR's state flipped from "open" to "merged"
+	// in task.RepoPullRequests. But task.Status must stay pull_request.
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
+
+	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
+	s.Require().NoError(err)
+
+	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status,
+		"task must stay in pull_request when at least one PR errors")
+	assert.False(s.T(), task.MergedToMain)
 }
