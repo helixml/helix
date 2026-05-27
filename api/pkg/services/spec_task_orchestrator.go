@@ -32,7 +32,7 @@ type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID
 
 type SpecTaskOrchestrator struct {
 	store                 store.Store
-	gitService            *GitRepositoryService
+	gitService            GitService
 	specTaskService       *SpecDrivenTaskService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
@@ -55,10 +55,22 @@ type ContainerExecutor interface {
 	GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error)
 }
 
+// GitService is the subset of GitRepositoryService that the orchestrator uses.
+// Extracted so PR-poll logic can be unit-tested with a mocked git backend.
+// *GitRepositoryService satisfies this interface in production.
+type GitService interface {
+	GetPullRequest(ctx context.Context, repoID, prID string) (*types.PullRequest, error)
+	GetCIStatus(ctx context.Context, repoID, prID, headSHA string) (*types.CIStatus, error)
+	ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error)
+	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
+	IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error)
+	IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error)
+}
+
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
 	store store.Store,
-	gitService *GitRepositoryService,
+	gitService GitService,
 	specTaskService *SpecDrivenTaskService,
 	containerExecutor ContainerExecutor, // Executor for external agent containers
 ) *SpecTaskOrchestrator {
@@ -773,7 +785,14 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
 				Msg("Failed to get pull request status, skipping")
-			allClosed = false // Can't confirm it's closed
+			// Can't confirm either state. Symmetric: must clear BOTH flags,
+			// otherwise a poll where every PR errors leaves allMerged at its
+			// `true` default and the task wrongly transitions to Done.
+			// Pod restarts (cold DNS/TLS/token caches) and transient GitLab
+			// 5xx/429/404s are realistic triggers for "all PRs error in one
+			// cycle". See design/2026-05-26-pr-merge-error-symmetry.md.
+			allMerged = false
+			allClosed = false
 			continue
 		}
 
