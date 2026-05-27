@@ -1,0 +1,42 @@
+# Example Goose recipe — drop a copy in your project repo at
+# .goose/recipes/triage.yaml and reference it from project.yaml under
+# spec.agent.goose.recipes.
+#
+# The slash command `/triage` will invoke this recipe inside the Goose
+# thread once the recipe has been registered by the daemon.
+#
+# Recipe parameters become Jinja-style {{var}} placeholders. For Phase 2a
+# project-level recipes the user fills in parameters interactively when
+# the slash command runs; for Phase 2b spec-task recipes the parameter
+# values are baked in at task-creation time.
+
+version: "1.0.0"
+title: "Triage failing CI"
+description: "Walk through a failing CI run and produce a triage note."
+
+instructions: |
+  You are helping diagnose a failing CI run. Stay focused on the run the
+  user pasted; do not wander into other branches or unrelated code.
+
+prompt: |
+  Investigate the failing CI run at {{ ci_url }} for the branch
+  {{ branch }}. Identify the failing step, root-cause the failure, and
+  produce a triage note covering:
+    - what failed
+    - the most likely cause
+    - the smallest plausible fix
+    - whether the failure looks flaky or deterministic
+
+parameters:
+  - key: ci_url
+    input_type: string
+    requirement: required
+    description: "URL of the failing CI run"
+  - key: branch
+    input_type: string
+    requirement: required
+    description: "Branch the run was for"
+
+settings:
+  goose_provider: anthropic
+  goose_model: claude-sonnet-4-6

@@ -28,13 +28,14 @@ export interface IAppsQuery {
 }
 
 // Code agent runtime options for zed_external agents
-export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code'
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code'
 
 // Display names for code agent runtimes (maintainable for future additions)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
   'claude_code': 'Claude Code',
+  'goose_code': 'Goose',
 }
 
 // Generate a nice display name from a model ID

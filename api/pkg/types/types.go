@@ -1494,6 +1494,16 @@ type AssistantConfig struct {
 	// "subscription": uses OAuth credentials directly (e.g., Claude subscription).
 	CodeAgentCredentialType CodeAgentCredentialType `json:"code_agent_credential_type,omitempty" yaml:"code_agent_credential_type,omitempty"`
 
+	// GooseRecipeRepoURL is the external git URL of the attached repository
+	// that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+	// Resolved against attached GitRepositories at sandbox-start time.
+	// Empty means recipes are looked up under the primary repository.
+	GooseRecipeRepoURL string `json:"goose_recipe_repo_url,omitempty" yaml:"goose_recipe_repo_url,omitempty"`
+
+	// GooseRecipes are the project-declared Goose recipes (slash-command name
+	// + repo-relative path to the recipe YAML).
+	GooseRecipes []AssistantGooseRecipe `json:"goose_recipes,omitempty" yaml:"goose_recipes,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
@@ -1565,6 +1575,14 @@ type AssistantConfig struct {
 type AssistantProjectManager struct {
 	Enabled   bool   `json:"enabled" yaml:"enabled"`
 	ProjectID string `json:"project_id" yaml:"project_id"`
+}
+
+// AssistantGooseRecipe is a project-declared Goose recipe persisted on the
+// agent app config. Path is repo-relative inside GooseRecipeRepoURL (or the
+// primary repo when GooseRecipeRepoURL is empty).
+type AssistantGooseRecipe struct {
+	Name string `json:"name" yaml:"name"`
+	Path string `json:"path" yaml:"path"`
 }
 
 type AssistantBrowser struct {
@@ -2217,6 +2235,37 @@ type CodeAgentConfig struct {
 	// MaxOutputTokens is the model's max completion tokens
 	// Looked up from model_info.json, 0 if not found
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+
+	// GooseRecipes lists project-declared Goose recipes with absolute paths
+	// resolved inside the desktop container. Only set when Runtime is
+	// goose_code; consumed by settings-sync-daemon to write the goose
+	// slash_commands config.
+	GooseRecipes []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
+	// GooseRecipeRootDir is the absolute container path to the root of the
+	// recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+	// resolve relative paths correctly).
+	GooseRecipeRootDir string `json:"goose_recipe_root_dir,omitempty"`
+	// GooseBakedRecipe, when set, holds a single recipe with parameters
+	// pre-substituted, used by Phase 2b spec-task automation. The daemon
+	// writes it to disk and registers a single slash_command so an initial
+	// "/<slug>" prompt fires the recipe.
+	GooseBakedRecipe *CodeAgentBakedRecipe `json:"goose_baked_recipe,omitempty"`
+}
+
+// CodeAgentGooseRecipe is the daemon-facing view of a project-declared
+// Goose recipe — Path has been resolved to an absolute container path.
+type CodeAgentGooseRecipe struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// CodeAgentBakedRecipe is a single Goose recipe with parameters
+// pre-substituted, ready for the daemon to write to disk.
+type CodeAgentBakedRecipe struct {
+	// Name is the slash-command slug (no leading slash).
+	Name string `json:"name"`
+	// Content is the substituted recipe YAML (full file content).
+	Content string `json:"content"`
 }
 
 type RunnerLLMInferenceRequest struct {

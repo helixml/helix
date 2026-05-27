@@ -1,0 +1,58 @@
+# Hunt down a flaky test: re-run it enough times to confirm intermittence,
+# then root-cause and propose the smallest possible fix.
+#
+# Drop a copy in your project repo at .goose/recipes/fix-flaky-test.yaml
+# and reference it from project.yaml under spec.agent.goose.recipes.
+
+version: "1.0.0"
+title: "Fix flaky test"
+description: "Reproduce, diagnose, and fix an intermittently-failing test."
+
+instructions: |
+  You are diagnosing a flaky test. Your job is to confirm the flake (the
+  test passes some runs and fails others), find the root cause, and
+  propose the smallest fix that makes the test deterministic.
+
+  - Do not "fix" the test by adding retries, sleeps, or by skipping it.
+  - Do not silence the symptom by widening tolerances unless that is
+    provably correct (e.g. floating-point comparison that always had
+    epsilon drift).
+  - Prefer fixes that remove the source of non-determinism (race, time
+    dependency, test ordering, shared fixture) over fixes that paper
+    over it.
+
+prompt: |
+  The test `{{ test_path }}` is flaky in the `{{ area }}` area of the
+  codebase.
+
+  1. Run the test {{ iterations }} times in a loop. Record each
+     pass/fail. If it never fails in that run, double the iteration
+     count and try again before concluding it's not flaky right now.
+  2. When it fails, capture the full failure output. Note any timing,
+     concurrency, or external-state differences between failed and
+     passed runs.
+  3. Read the test and the code-under-test. Form a hypothesis for the
+     non-determinism.
+  4. Implement the fix. Re-run {{ iterations }} times to confirm it
+     passes consistently.
+  5. Summarise the root cause and the fix in a short note suitable for
+     the PR description.
+
+parameters:
+  - key: test_path
+    input_type: string
+    requirement: required
+    description: "Path or test name (e.g. ./pkg/foo -run TestBar or src/foo.test.ts -t 'bar')"
+  - key: area
+    input_type: string
+    requirement: required
+    description: "Subsystem this test covers (helps Goose decide what to read)"
+  - key: iterations
+    input_type: string
+    requirement: optional
+    default: "20"
+    description: "How many times to re-run the test per attempt"
+
+settings:
+  goose_provider: anthropic
+  goose_model: claude-sonnet-4-6

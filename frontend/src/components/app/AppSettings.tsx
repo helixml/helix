@@ -38,6 +38,7 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
+import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
@@ -242,7 +243,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -603,7 +604,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code';
                     setCodeAgentRuntime(newRuntime);
                     onUpdate({ code_agent_runtime: newRuntime });
                   }}
@@ -611,6 +612,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   renderValue={(value) => {
                     if (value === 'claude_code') return 'Claude Code'
                     if (value === 'qwen_code') return 'Qwen Code'
+                    if (value === 'goose_code') return 'Goose'
                     return 'Zed Agent'
                   }}
                 >
@@ -635,6 +637,14 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <Typography variant="body2">Claude Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Anthropic's coding agent
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="goose_code">
+                    <Box>
+                      <Typography variant="body2">Goose</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Open-source ACP agent (AAIF)
                       </Typography>
                     </Box>
                   </MenuItem>
@@ -747,6 +757,22 @@ const AppSettings: FC<AppSettingsProps> = ({
                   }}
                   currentType="text"
                   displayMode="short"
+                />
+              </Box>
+            )}
+
+            {code_agent_runtime === 'goose_code' && (
+              <Box>
+                <GooseRecipesEditor
+                  recipeRepoURL={app.goose_recipe_repo_url || ''}
+                  recipes={app.goose_recipes || []}
+                  disabled={readOnly}
+                  onChange={(next) => {
+                    onUpdate({
+                      goose_recipe_repo_url: next.recipeRepoURL,
+                      goose_recipes: next.recipes,
+                    })
+                  }}
                 />
               </Box>
             )}

@@ -92,6 +92,94 @@ definitions:
     - RuntimeDiffusers
     - RuntimeAxolotl
     - RuntimeVLLM
+  github_com_mark3labs_mcp-go_mcp.Icon:
+    properties:
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
+        type: string
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
+        type: string
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Icon'
+        type: array
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
+    type: object
+  goose.RecipeParameter:
+    properties:
+      default:
+        type: string
+      description:
+        type: string
+      input_type:
+        type: string
+      key:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      requirement:
+        type: string
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -218,37 +306,6 @@ definitions:
       size:
         type: integer
     type: object
-  mcp.Icon:
-    properties:
-      mimeType:
-        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
-        type: string
-      sizes:
-        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
-        items:
-          type: string
-        type: array
-      src:
-        description: URI pointing to the icon resource (HTTPS URL or data URI)
-        type: string
-    type: object
-  mcp.Meta:
-    properties:
-      additionalFields:
-        additionalProperties: {}
-        description: |-
-          AdditionalFields are any fields present in the Meta that are not
-          otherwise defined in the protocol.
-        type: object
-      progressToken:
-        description: |-
-          If specified, the caller is requesting out-of-band progress
-          notifications for this request (as represented by
-          notifications/progress). The value of this parameter is an
-          opaque token that will be attached to any subsequent
-          notifications. The receiver is not obligated to provide these
-          notifications.
-    type: object
   mcp.TaskSupport:
     enum:
     - forbidden
@@ -259,46 +316,6 @@ definitions:
     - TaskSupportForbidden
     - TaskSupportOptional
     - TaskSupportRequired
-  mcp.Tool:
-    properties:
-      _meta:
-        allOf:
-        - $ref: '#/definitions/mcp.Meta'
-        description: Meta is a metadata object that is reserved by MCP for storing
-          additional information.
-      annotations:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolAnnotation'
-        description: Optional properties describing tool behavior
-      defer_loading:
-        description: Support for deferred loading
-        type: boolean
-      description:
-        description: A human-readable description of the tool.
-        type: string
-      execution:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolExecution'
-        description: Execution describes execution behavior for the tool
-      icons:
-        description: Icons provides visual identifiers for the tool
-        items:
-          $ref: '#/definitions/mcp.Icon'
-        type: array
-      inputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolInputSchema'
-        description: A JSON Schema object defining the expected parameters for the
-          tool.
-      name:
-        description: The name of the tool.
-        type: string
-      outputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolOutputSchema'
-        description: A JSON Schema object defining the expected output returned by
-          the tool .
-    type: object
   mcp.ToolAnnotation:
     properties:
       destructiveHint:
@@ -1799,6 +1816,27 @@ definitions:
           type: string
         type: array
     type: object
+  server.ProjectGooseRecipe:
+    properties:
+      description:
+        type: string
+      error:
+        description: |-
+          Error, when non-empty, indicates that the recipe was declared on the
+          agent but couldn't be loaded — repo not cloned yet, file missing,
+          YAML malformed, etc. The UI surfaces this so the user can fix the
+          project YAML before creating a task that would silently fall back to
+          vanilla goose.
+        type: string
+      name:
+        type: string
+      parameters:
+        items:
+          $ref: '#/definitions/goose.RecipeParameter'
+        type: array
+      title:
+        type: string
+    type: object
   server.PromptPinRequest:
     properties:
       pinned:
@@ -2668,6 +2706,20 @@ definitions:
         type: string
       generation_model_provider:
         type: string
+      goose_recipe_repo_url:
+        description: |-
+          GooseRecipeRepoURL is the external git URL of the attached repository
+          that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+          Resolved against attached GitRepositories at sandbox-start time.
+          Empty means recipes are looked up under the primary repository.
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes are the project-declared Goose recipes (slash-command name
+          + repo-relative path to the recipe YAML).
+        items:
+          $ref: '#/definitions/types.AssistantGooseRecipe'
+        type: array
       id:
         type: string
       image:
@@ -2778,6 +2830,13 @@ definitions:
       template_example:
         type: string
     type: object
+  types.AssistantGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.AssistantKnowledge:
     properties:
       description:
@@ -2849,7 +2908,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: |-
@@ -2943,6 +3002,8 @@ definitions:
         description: Denormalized for display without joins
         type: string
       snoozed_until:
+        type: string
+      spec_task_description:
         type: string
       spec_task_id:
         type: string
@@ -3515,6 +3576,15 @@ definitions:
       task_id:
         type: string
     type: object
+  types.CodeAgentBakedRecipe:
+    properties:
+      content:
+        description: Content is the substituted recipe YAML (full file content).
+        type: string
+      name:
+        description: Name is the slash-command slug (no leading slash).
+        type: string
+    type: object
   types.CodeAgentConfig:
     properties:
       agent_name:
@@ -3528,6 +3598,29 @@ definitions:
       base_url:
         description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
         type: string
+      goose_baked_recipe:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentBakedRecipe'
+        description: |-
+          GooseBakedRecipe, when set, holds a single recipe with parameters
+          pre-substituted, used by Phase 2b spec-task automation. The daemon
+          writes it to disk and registers a single slash_command so an initial
+          "/<slug>" prompt fires the recipe.
+      goose_recipe_root_dir:
+        description: |-
+          GooseRecipeRootDir is the absolute container path to the root of the
+          recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+          resolve relative paths correctly).
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes lists project-declared Goose recipes with absolute paths
+          resolved inside the desktop container. Only set when Runtime is
+          goose_code; consumed by settings-sync-daemon to write the goose
+          slash_commands config.
+        items:
+          $ref: '#/definitions/types.CodeAgentGooseRecipe'
+        type: array
       max_output_tokens:
         description: |-
           MaxOutputTokens is the model's max completion tokens
@@ -3560,6 +3653,13 @@ definitions:
     x-enum-varnames:
     - CodeAgentCredentialTypeAPIKey
     - CodeAgentCredentialTypeSubscription
+  types.CodeAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.CodeAgentRuntime:
     enum:
     - zed_agent
@@ -3567,6 +3667,7 @@ definitions:
     - claude_code
     - gemini_cli
     - codex_cli
+    - goose_code
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
@@ -3574,6 +3675,7 @@ definitions:
     - CodeAgentRuntimeClaudeCode
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
+    - CodeAgentRuntimeGooseCode
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3845,6 +3947,18 @@ definitions:
         items:
           type: string
         type: array
+      goose_recipe_name:
+        description: |-
+          Goose recipe selection (only meaningful when the chosen agent's runtime
+          is goose_code). GooseRecipeName must match one of the agent's declared
+          recipes; GooseRecipeParams are substituted into the recipe at session
+          start. Recipes declared on the agent but not selected here are still
+          available as runtime slash-commands inside the desktop.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
@@ -6262,12 +6376,30 @@ definitions:
         description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
         type: string
     type: object
+  types.ProjectAgentGoose:
+    properties:
+      recipe_repo_url:
+        type: string
+      recipes:
+        items:
+          $ref: '#/definitions/types.ProjectAgentGooseRecipe'
+        type: array
+    type: object
+  types.ProjectAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.ProjectAgentSpec:
     properties:
       credentials:
         type: string
       display:
         $ref: '#/definitions/types.ProjectAgentDisplay'
+      goose:
+        $ref: '#/definitions/types.ProjectAgentGoose'
       model:
         type: string
       name:
@@ -8441,6 +8573,20 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -9017,6 +9163,20 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -9765,7 +9925,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
@@ -10199,6 +10359,15 @@ definitions:
       admin:
         description: if the ID of the user is contained in the env setting
         type: boolean
+      alpha_features:
+        description: |-
+          AlphaFeatures lists the feature flags this user has been granted
+          access to. Server-enforced via requireFeature middleware — the
+          frontend uses it only to decide whether to render the entry
+          point. Granted per-user via SQL (no deploy).
+        items:
+          type: string
+        type: array
       app_id:
         description: if the token is associated with an app
         type: string
@@ -10351,6 +10520,10 @@ definitions:
     properties:
       admin:
         type: boolean
+      alpha_features:
+        items:
+          type: string
+        type: array
       email:
         type: string
       id:
@@ -16882,6 +17055,46 @@ paths:
       security:
       - BearerAuth: []
       summary: Start project exploratory session
+      tags:
+      - Projects
+  /api/v1/projects/{id}/goose-recipes:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        Returns the parsed Goose recipes declared on the project's
+        default agent, including each recipe's parameter schema so
+        the spec-task creation form can render dynamic inputs.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ProjectGooseRecipe'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List Goose recipes available to a project
       tags:
       - Projects
   /api/v1/projects/{id}/guidelines-history:
