@@ -1491,7 +1491,9 @@ export default function Onboarding() {
                         fontSize: "0.7rem",
                       }}
                     >
-                      Connect your Claude Pro or Max account to use Helix with your existing subscription, no Helix credits needed.
+                      {serverConfig?.billing_enabled
+                        ? "Connect your Claude Pro or Max account to use Helix with your existing subscription, no Helix credits needed."
+                        : "Connect your Claude Pro or Max account to use Helix with your existing Claude subscription."}
                     </Typography>
                   </Box>
                   {createdOrg && (
