@@ -38,14 +38,15 @@ func (w *Wallet) IsSubscriptionActive() bool {
 }
 
 type TransactionMetadata struct {
-	InteractionID         string          `json:"interaction_id"`
-	LLMCallID             string          `json:"llm_call_id"`
-	SandboxID             string          `json:"sandbox_id"`
-	SandboxRuntime        SandboxRuntime  `json:"sandbox_runtime"`
-	SandboxPricingType    string          `json:"sandbox_pricing_type"`
-	TopUpID               string          `json:"top_up_id"`
-	StripePaymentIntentID string          `json:"stripe_payment_intent_id"`
-	TransactionType       TransactionType `json:"transaction_type"`
+	InteractionID           string          `json:"interaction_id"`
+	LLMCallID               string          `json:"llm_call_id"`
+	SandboxID               string          `json:"sandbox_id"`
+	SandboxRuntime          SandboxRuntime  `json:"sandbox_runtime"`
+	SandboxPricingType      string          `json:"sandbox_pricing_type"`
+	TopUpID                 string          `json:"top_up_id"`
+	StripePaymentIntentID   string          `json:"stripe_payment_intent_id"`
+	StripeCheckoutSessionID string          `json:"stripe_checkout_session_id"`
+	TransactionType         TransactionType `json:"transaction_type"`
 }
 
 type TransactionType string
@@ -79,12 +80,13 @@ type Transaction struct {
 }
 
 type TopUp struct {
-	ID                    string    `json:"id" gorm:"primaryKey"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
-	StripePaymentIntentID string    `json:"stripe_payment_intent_id"`
-	WalletID              string    `json:"wallet_id" gorm:"index"`
-	Amount                float64   `json:"amount"`
+	ID                      string    `json:"id" gorm:"primaryKey"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
+	StripePaymentIntentID   string    `json:"stripe_payment_intent_id" gorm:"index"`
+	StripeCheckoutSessionID string    `json:"stripe_checkout_session_id" gorm:"index"`
+	WalletID                string    `json:"wallet_id" gorm:"index"`
+	Amount                  float64   `json:"amount"`
 }
 
 type PaymentIntent struct {
