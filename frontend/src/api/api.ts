@@ -2781,19 +2781,6 @@ export interface TypesForkedRepository {
   repo?: string;
 }
 
-export interface TypesFrontendLicenseInfo {
-  features?: {
-    users?: boolean;
-  };
-  limits?: {
-    machines?: number;
-    users?: number;
-  };
-  organization?: string;
-  valid?: boolean;
-  valid_until?: string;
-}
-
 export interface TypesGPUStatus {
   /** canonical arch from gpuarch (e.g. "hopper") */
   architecture?: string;
@@ -4750,7 +4737,6 @@ export interface TypesSecret {
 }
 
 export interface TypesServerConfigForFrontend {
-  active_concurrent_desktops?: number;
   apps_enabled?: boolean;
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
@@ -4765,13 +4751,11 @@ export interface TypesServerConfigForFrontend {
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
   edition?: string;
-  eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
   /** Whether any global AI provider with enabled chat models exists */
   has_providers?: boolean;
   latest_version?: string;
-  license?: TypesFrontendLicenseInfo;
   /**
    * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
    * organisation when the session has an org, per user otherwise.

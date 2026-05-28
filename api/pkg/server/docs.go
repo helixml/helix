@@ -24939,39 +24939,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.FrontendLicenseInfo": {
-            "type": "object",
-            "properties": {
-                "features": {
-                    "type": "object",
-                    "properties": {
-                        "users": {
-                            "type": "boolean"
-                        }
-                    }
-                },
-                "limits": {
-                    "type": "object",
-                    "properties": {
-                        "machines": {
-                            "type": "integer"
-                        },
-                        "users": {
-                            "type": "integer"
-                        }
-                    }
-                },
-                "organization": {
-                    "type": "string"
-                },
-                "valid": {
-                    "type": "boolean"
-                },
-                "valid_until": {
-                    "type": "string"
-                }
-            }
-        },
         "types.GPUStatus": {
             "type": "object",
             "properties": {
@@ -29421,9 +29388,6 @@ const docTemplate = `{
         "types.ServerConfigForFrontend": {
             "type": "object",
             "properties": {
-                "active_concurrent_desktops": {
-                    "type": "integer"
-                },
                 "apps_enabled": {
                     "type": "boolean"
                 },
@@ -29448,9 +29412,6 @@ const docTemplate = `{
                     "description": "\"mac-desktop\", \"server\", \"cloud\", etc.",
                     "type": "string"
                 },
-                "eval_user_id": {
-                    "type": "string"
-                },
                 "filestore_prefix": {
                     "type": "string"
                 },
@@ -29463,9 +29424,6 @@ const docTemplate = `{
                 },
                 "latest_version": {
                     "type": "string"
-                },
-                "license": {
-                    "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
                 "max_concurrent_desktops": {
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",

@@ -4497,27 +4497,6 @@ definitions:
       repo:
         type: string
     type: object
-  types.FrontendLicenseInfo:
-    properties:
-      features:
-        properties:
-          users:
-            type: boolean
-        type: object
-      limits:
-        properties:
-          machines:
-            type: integer
-          users:
-            type: integer
-        type: object
-      organization:
-        type: string
-      valid:
-        type: boolean
-      valid_until:
-        type: string
-    type: object
   types.GPUStatus:
     properties:
       architecture:
@@ -7740,8 +7719,6 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
-      active_concurrent_desktops:
-        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -7762,8 +7739,6 @@ definitions:
       edition:
         description: '"mac-desktop", "server", "cloud", etc.'
         type: string
-      eval_user_id:
-        type: string
       filestore_prefix:
         type: string
       google_analytics_frontend:
@@ -7773,8 +7748,6 @@ definitions:
         type: boolean
       latest_version:
         type: string
-      license:
-        $ref: '#/definitions/types.FrontendLicenseInfo'
       max_concurrent_desktops:
         description: |-
           MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
