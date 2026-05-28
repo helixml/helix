@@ -871,10 +871,11 @@ type StripeUser struct {
 
 // this is given to the frontend as user context
 type UserStatus struct {
-	Admin  bool       `json:"admin"`
-	User   string     `json:"user"`
-	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
-	Config UserConfig `json:"config"`
+	Admin   bool                 `json:"admin"`
+	User    string               `json:"user"`
+	Slug    string               `json:"slug"` // User slug for GitHub-style URLs
+	Config  UserConfig           `json:"config"`
+	License *FrontendLicenseInfo `json:"license,omitempty"`
 }
 
 // a single envelope that is broadcast to users
@@ -1049,7 +1050,6 @@ type ServerConfigForFrontend struct {
 	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
-	EvalUserID                             string               `json:"eval_user_id"`
 	ToolsEnabled                           bool                 `json:"tools_enabled"`
 	AppsEnabled                            bool                 `json:"apps_enabled"`
 	RudderStackWriteKey                    string               `json:"rudderstack_write_key"`
@@ -1058,7 +1058,6 @@ type ServerConfigForFrontend struct {
 	Version                                string               `json:"version"`
 	LatestVersion                          string               `json:"latest_version"`
 	DeploymentID                           string               `json:"deployment_id"`
-	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
@@ -1066,8 +1065,7 @@ type ServerConfigForFrontend struct {
 	// organisation when the session has an org, per user otherwise.
 	// -1 = unlimited. Note: /config is unauthenticated, so this is the
 	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
-	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
-	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
+	MaxConcurrentDesktops int                  `json:"max_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to

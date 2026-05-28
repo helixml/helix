@@ -16845,6 +16845,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per-user status: credits, admin flag, slug, user config, plus the\nlicence payload (moved here from /api/v1/config so it is not\ndisclosed unauthenticated).",
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get user status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserStatus"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/subscription/manage": {
             "post": {
                 "security": [
@@ -29421,9 +29443,6 @@ const docTemplate = `{
         "types.ServerConfigForFrontend": {
             "type": "object",
             "properties": {
-                "active_concurrent_desktops": {
-                    "type": "integer"
-                },
                 "apps_enabled": {
                     "type": "boolean"
                 },
@@ -29448,9 +29467,6 @@ const docTemplate = `{
                     "description": "\"mac-desktop\", \"server\", \"cloud\", etc.",
                     "type": "string"
                 },
-                "eval_user_id": {
-                    "type": "string"
-                },
                 "filestore_prefix": {
                     "type": "string"
                 },
@@ -29463,9 +29479,6 @@ const docTemplate = `{
                 },
                 "latest_version": {
                     "type": "string"
-                },
-                "license": {
-                    "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
                 "max_concurrent_desktops": {
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
@@ -33198,6 +33211,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UserConfig": {
+            "type": "object",
+            "properties": {
+                "color_scheme": {
+                    "description": "ColorScheme is the user's preferred UI color scheme: \"light\" or \"dark\".\nEmpty string means follow OS preference. Propagated to the GNOME desktop\n(gsettings color-scheme) and Zed editor inside spec-task sessions owned\nby this user.",
+                    "type": "string"
+                },
+                "pinned_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "stripe_customer_id": {
+                    "type": "string"
+                },
+                "stripe_subscription_active": {
+                    "type": "boolean"
+                },
+                "stripe_subscription_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.UserGuidelinesResponse": {
             "type": "object",
             "properties": {
@@ -33325,6 +33362,27 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.UserStatus": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
+                "config": {
+                    "$ref": "#/definitions/types.UserConfig"
+                },
+                "license": {
+                    "$ref": "#/definitions/types.FrontendLicenseInfo"
+                },
+                "slug": {
+                    "description": "User slug for GitHub-style URLs",
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
                 }
             }
         },

@@ -7740,8 +7740,6 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
-      active_concurrent_desktops:
-        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -7762,8 +7760,6 @@ definitions:
       edition:
         description: '"mac-desktop", "server", "cloud", etc.'
         type: string
-      eval_user_id:
-        type: string
       filestore_prefix:
         type: string
       google_analytics_frontend:
@@ -7773,8 +7769,6 @@ definitions:
         type: boolean
       latest_version:
         type: string
-      license:
-        $ref: '#/definitions/types.FrontendLicenseInfo'
       max_concurrent_desktops:
         description: |-
           MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
@@ -10480,6 +10474,26 @@ definitions:
       top_p:
         type: number
     type: object
+  types.UserConfig:
+    properties:
+      color_scheme:
+        description: |-
+          ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+          Empty string means follow OS preference. Propagated to the GNOME desktop
+          (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+          by this user.
+        type: string
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
+      stripe_customer_id:
+        type: string
+      stripe_subscription_active:
+        type: boolean
+      stripe_subscription_id:
+        type: string
+    type: object
   types.UserGuidelinesResponse:
     properties:
       guidelines:
@@ -10564,6 +10578,20 @@ definitions:
         type: integer
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.UserStatus:
+    properties:
+      admin:
+        type: boolean
+      config:
+        $ref: '#/definitions/types.UserConfig'
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      slug:
+        description: User slug for GitHub-style URLs
+        type: string
+      user:
+        type: string
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -21581,6 +21609,22 @@ paths:
       summary: Get sample repository types
       tags:
       - specs
+  /api/v1/status:
+    get:
+      description: |-
+        Per-user status: credits, admin flag, slug, user config, plus the
+        licence payload (moved here from /api/v1/config so it is not
+        disclosed unauthenticated).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatus'
+      security:
+      - BearerAuth: []
+      summary: Get user status
+      tags:
+      - config
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription

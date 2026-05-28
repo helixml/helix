@@ -61,7 +61,6 @@ vi.mock('../services/userService', () => ({
       stripe_enabled: false,
       sentry_dsn_frontend: '',
       google_analytics_frontend: '',
-      eval_user_id: '',
       tools_enabled: true,
       apps_enabled: true,
     },
@@ -138,8 +137,7 @@ function setupDefaultApiResponses() {
         stripe_enabled: false,
         sentry_dsn_frontend: '',
         google_analytics_frontend: '',
-        eval_user_id: '',
-        tools_enabled: true,
+          tools_enabled: true,
         apps_enabled: true,
       })
     }
