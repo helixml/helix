@@ -1145,6 +1145,20 @@ definitions:
       url:
         type: string
     type: object
+  server.GrantCreditsRequest:
+    properties:
+      credits:
+        type: number
+    type: object
+  server.GrantCreditsResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
+    type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
       organization_id:
@@ -10394,6 +10408,14 @@ definitions:
       organization_id:
         description: Organization this API key is scoped to (ephemeral keys)
         type: string
+      pending_admin_credits_on_first_org:
+        description: |-
+          PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+          /admin/users/{id}/credits endpoint when the user has no owned org yet.
+          Consumed by consumeUserAdminCredits on first owned org, then cleared.
+          Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+          without entangling the grant with trial-state UI or revocation flows.
+        type: number
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -11313,6 +11335,37 @@ paths:
       security:
       - BearerAuth: []
       summary: Approve a user (Admin only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/credits:
+    post:
+      consumes:
+      - application/json
+      description: Adds credits to the wallet of the user's oldest owned org, or stashes
+        the grant on the user for application at first org creation. Works regardless
+        of subscription state, unlike adminActivateTrial.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Credits to grant (must be > 0)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.GrantCreditsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.GrantCreditsResponse'
+      security:
+      - BearerAuth: []
+      summary: Grant credits to a user (Admin, cloud only)
       tags:
       - users
   /api/v1/admin/users/{id}/password:
