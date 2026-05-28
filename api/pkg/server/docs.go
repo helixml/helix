@@ -16845,6 +16845,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per-user status: credits, admin flag, slug, user config, plus the\nlicence payload (moved here from /api/v1/config so it is not\ndisclosed unauthenticated).",
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get user status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserStatus"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/subscription/manage": {
             "post": {
                 "security": [
@@ -24935,6 +24957,39 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "repo": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.FrontendLicenseInfo": {
+            "type": "object",
+            "properties": {
+                "features": {
+                    "type": "object",
+                    "properties": {
+                        "users": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "limits": {
+                    "type": "object",
+                    "properties": {
+                        "machines": {
+                            "type": "integer"
+                        },
+                        "users": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "organization": {
+                    "type": "string"
+                },
+                "valid": {
+                    "type": "boolean"
+                },
+                "valid_until": {
                     "type": "string"
                 }
             }
@@ -33156,6 +33211,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UserConfig": {
+            "type": "object",
+            "properties": {
+                "color_scheme": {
+                    "description": "ColorScheme is the user's preferred UI color scheme: \"light\" or \"dark\".\nEmpty string means follow OS preference. Propagated to the GNOME desktop\n(gsettings color-scheme) and Zed editor inside spec-task sessions owned\nby this user.",
+                    "type": "string"
+                },
+                "pinned_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "stripe_customer_id": {
+                    "type": "string"
+                },
+                "stripe_subscription_active": {
+                    "type": "boolean"
+                },
+                "stripe_subscription_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.UserGuidelinesResponse": {
             "type": "object",
             "properties": {
@@ -33283,6 +33362,27 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.UserStatus": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
+                "config": {
+                    "$ref": "#/definitions/types.UserConfig"
+                },
+                "license": {
+                    "$ref": "#/definitions/types.FrontendLicenseInfo"
+                },
+                "slug": {
+                    "description": "User slug for GitHub-style URLs",
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
                 }
             }
         },

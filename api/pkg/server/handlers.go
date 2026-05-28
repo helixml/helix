@@ -118,6 +118,15 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 }
 
 
+// status godoc
+// @Summary Get user status
+// @Description Per-user status: credits, admin flag, slug, user config, plus the
+// @Description licence payload (moved here from /api/v1/config so it is not
+// @Description disclosed unauthenticated).
+// @Tags    config
+// @Success 200 {object} types.UserStatus
+// @Router /api/v1/status [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()

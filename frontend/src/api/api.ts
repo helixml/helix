@@ -2781,6 +2781,19 @@ export interface TypesForkedRepository {
   repo?: string;
 }
 
+export interface TypesFrontendLicenseInfo {
+  features?: {
+    users?: boolean;
+  };
+  limits?: {
+    machines?: number;
+    users?: number;
+  };
+  organization?: string;
+  valid?: boolean;
+  valid_until?: string;
+}
+
 export interface TypesGPUStatus {
   /** canonical arch from gpuarch (e.g. "hopper") */
   architecture?: string;
@@ -6393,6 +6406,20 @@ export interface TypesUserChatSettings {
   top_p?: number;
 }
 
+export interface TypesUserConfig {
+  /**
+   * ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+   * Empty string means follow OS preference. Propagated to the GNOME desktop
+   * (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+   * by this user.
+   */
+  color_scheme?: string;
+  pinned_project_ids?: string[];
+  stripe_customer_id?: string;
+  stripe_subscription_active?: boolean;
+  stripe_subscription_id?: string;
+}
+
 export interface TypesUserGuidelinesResponse {
   guidelines?: string;
   guidelines_updated_at?: string;
@@ -6438,6 +6465,15 @@ export interface TypesUserStatsResponse {
   projects_count?: number;
   spec_tasks_count?: number;
   user?: TypesUser;
+}
+
+export interface TypesUserStatus {
+  admin?: boolean;
+  config?: TypesUserConfig;
+  license?: TypesFrontendLicenseInfo;
+  /** User slug for GitHub-style URLs */
+  slug?: string;
+  user?: string;
 }
 
 export interface TypesUserTokenUsageResponse {
@@ -14245,6 +14281,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Per-user status: credits, admin flag, slug, user config, plus the licence payload (moved here from /api/v1/config so it is not disclosed unauthenticated).
+     *
+     * @tags config
+     * @name V1StatusList
+     * @summary Get user status
+     * @request GET:/api/v1/status
+     * @secure
+     */
+    v1StatusList: (params: RequestParams = {}) =>
+      this.request<TypesUserStatus, any>({
+        path: `/api/v1/status`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
