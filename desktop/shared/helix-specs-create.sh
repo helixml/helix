@@ -132,6 +132,37 @@ create_helix_specs_branch() {
         echo "  Repository is empty (no commits yet)"
     fi
 
+    # Determine the default-branch name we want the upstream to settle on.
+    # For empty repos we will push this branch FIRST, so the upstream picks
+    # it up as the default before we push helix-specs.
+    local RETURN_BRANCH="${CURRENT_BRANCH:-$REPO_DEFAULT_BRANCH}"
+
+    # For empty upstream repos, push the default branch BEFORE creating
+    # helix-specs. GitHub (and most providers) auto-promote the first pushed
+    # branch to default. If we push helix-specs first the upstream ends up
+    # with helix-specs as its default, which then breaks the worktree-add
+    # step in helix-workspace-setup.sh (you cannot `git worktree add` a
+    # branch that is already checked out in the primary repo). Pushing
+    # $RETURN_BRANCH first means the orphan we push next lands as a
+    # secondary branch and the upstream default is something sensible like
+    # main or master.
+    if [ "$REPO_IS_EMPTY" = true ]; then
+        echo "  Empty repo: seeding default branch $RETURN_BRANCH before helix-specs..."
+        if ! git -C "$REPO_PATH" show-ref --verify "refs/heads/$RETURN_BRANCH" >/dev/null 2>&1; then
+            git -C "$REPO_PATH" checkout --orphan "$RETURN_BRANCH" 2>&1 || true
+            git -C "$REPO_PATH" commit --allow-empty -m "Initial commit" 2>&1 || true
+            if git -C "$REPO_PATH" push -u origin "$RETURN_BRANCH" 2>&1; then
+                echo "  Seeded $RETURN_BRANCH on upstream as default"
+            else
+                echo "  Warning: failed to seed $RETURN_BRANCH on upstream"
+                echo "  helix-specs may end up as the upstream default branch,"
+                echo "  which will block the design-docs worktree on subsequent runs."
+            fi
+        else
+            git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1 || true
+        fi
+    fi
+
     # 1. Create orphan branch (no parent, no files)
     # 2. Remove any staged files (only if not empty repo)
     # 3. Commit empty state
@@ -157,22 +188,15 @@ create_helix_specs_branch() {
         fi
     fi
 
-    # Return to original state
-    # Determine which branch to return to (prefer CURRENT_BRANCH, fallback to REPO_DEFAULT_BRANCH)
-    local RETURN_BRANCH="${CURRENT_BRANCH:-$REPO_DEFAULT_BRANCH}"
+    # Return to original state. RETURN_BRANCH was set earlier (before the
+    # empty-repo seed step) so it is already in scope.
 
     if [ "$CREATE_SUCCESS" = true ]; then
         if [ "$REPO_IS_EMPTY" = true ]; then
-            # For empty repos, create the default branch with an initial commit
-            # so we have somewhere to return to
-            if ! git -C "$REPO_PATH" show-ref --verify "refs/heads/$RETURN_BRANCH" >/dev/null 2>&1; then
-                echo "  Creating initial $RETURN_BRANCH branch..."
-                git -C "$REPO_PATH" checkout --orphan "$RETURN_BRANCH" 2>&1 || true
-                git -C "$REPO_PATH" commit --allow-empty -m "Initial commit" 2>&1 || true
-                git -C "$REPO_PATH" push -u origin "$RETURN_BRANCH" 2>&1 || true
-            else
-                git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1 || true
-            fi
+            # For empty repos we already seeded $RETURN_BRANCH on the upstream
+            # before pushing helix-specs (see above), so it definitely exists
+            # now. Just check it out.
+            git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1 || true
         elif [ -n "$DETACHED_HEAD" ]; then
             # Return to detached HEAD state
             echo "  Returning to detached HEAD at $DETACHED_HEAD..."

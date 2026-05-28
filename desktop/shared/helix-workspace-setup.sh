@@ -510,7 +510,15 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
 
             if [ ! -d "$WORKTREE_PATH" ]; then
                 echo "  Creating design docs worktree at $WORKTREE_PATH..."
-                if git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-specs 2>&1; then
+                # Capture stderr separately so the actual git error survives into
+                # the failure path. Without this the message ("helix-specs is
+                # already checked out at ...", "fatal: invalid reference", etc.)
+                # was lost when the worktree add failed, and the agent had no
+                # way to know why setup broke.
+                WORKTREE_OUTPUT=$(git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-specs 2>&1)
+                WORKTREE_RC=$?
+                echo "$WORKTREE_OUTPUT"
+                if [ $WORKTREE_RC -eq 0 ]; then
                     echo "  Design docs worktree ready at ~/work/helix-specs"
                     CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current)
                     echo "  Current branch: $CURRENT_BRANCH"
@@ -522,7 +530,27 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                         echo "  Created task directory: design/tasks/$HELIX_SPEC_DIR_NAME"
                     fi
                 else
-                    echo "  Warning: Failed to create worktree"
+                    # Hard fail. The previous behaviour swallowed this with a
+                    # "Warning" and let the script exit zero, leaving the agent
+                    # with no helix-specs/ directory. The agent then improvised
+                    # by running `git init` somewhere, committing design docs
+                    # to a remoteless repo, and confabulating reasons it could
+                    # not push. Exiting non-zero lets the May 2026 cold-start
+                    # surfacing path (writes ~/.helix-setup-failed, read by the
+                    # API via hydra ReadSandboxFile) show the real error in the
+                    # UI instead of the generic "agent never connected" banner.
+                    echo ""
+                    echo "  ========================================="
+                    echo "  FATAL: Failed to create helix-specs worktree"
+                    echo "  ========================================="
+                    echo ""
+                    echo "  Common cause: helix-specs is the default branch on the upstream"
+                    echo "  repository, so it is already checked out in the primary repo at"
+                    echo "  $PRIMARY_REPO_PATH and git worktree refuses to check the same"
+                    echo "  branch out twice. Configure a non-helix-specs default branch"
+                    echo "  (main/master) on the upstream repo and restart this spec task."
+                    echo ""
+                    exit 1
                 fi
             else
                 echo "  Design docs worktree already exists"
