@@ -347,7 +347,7 @@ type Stripe struct {
 	RequireActiveSubscription bool `envconfig:"STRIPE_BILLING_REQUIRE_ACTIVE_SUBSCRIPTION" default:"false" description:"Whether require an active subscription before allowing to use the product"` //
 
 	MinimumInferenceBalance float64 `envconfig:"STRIPE_MINIMUM_INFERENCE_BALANCE" default:"0.01" description:"Minimum balance required for an inference call."`
-	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"0" description:"The initial balance seeded into a newly created wallet. Defaults to 0 so new signups arrive with an empty wallet; on-prem deployments that want to hand out free trial credits can set this to a positive value."`
 
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
