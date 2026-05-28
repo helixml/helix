@@ -367,11 +367,23 @@ export default function Onboarding() {
     if (!serverConfig?.billing_enabled) {
       steps = steps.filter((step) => step.type !== "subscription");
     }
-    if (serverConfig?.has_providers) {
+    // Skip the provider step when admin-configured global providers already
+    // cover the user's needs (typical on self-hosted). On cloud we keep it
+    // visible regardless so new signups still see the BYO Claude prompt at
+    // the top of the step, even though SaaS has env-baked Anthropic/OpenAI
+    // keys that would otherwise satisfy has_providers.
+    if (
+      serverConfig?.has_providers &&
+      serverConfig?.edition !== "cloud"
+    ) {
       steps = steps.filter((step) => step.type !== "provider");
     }
     return steps;
-  }, [serverConfig?.billing_enabled, serverConfig?.has_providers]);
+  }, [
+    serverConfig?.billing_enabled,
+    serverConfig?.has_providers,
+    serverConfig?.edition,
+  ]);
 
   // Helper to get step index by type (in the visible steps array)
   const getStepIndexByType = useCallback(
@@ -1491,7 +1503,7 @@ export default function Onboarding() {
                         fontSize: "0.7rem",
                       }}
                     >
-                      {serverConfig?.billing_enabled
+                      {serverConfig?.edition === "cloud"
                         ? "Connect your Claude Pro or Max account to use Helix with your existing subscription, no Helix credits needed."
                         : "Connect your Claude Pro or Max account to use Helix with your existing Claude subscription."}
                     </Typography>
