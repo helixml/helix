@@ -55,6 +55,10 @@ const (
 	TransactionTypeUsage        TransactionType = "usage"
 	TransactionTypeTopUp        TransactionType = "top_up"
 	TransactionTypeSubscription TransactionType = "subscription"
+	// TransactionTypeAdminGrant marks a balance change written by an admin
+	// outside of any Stripe flow (e.g. comping a customer with credits when
+	// they already have an active subscription). Carries no Stripe ids.
+	TransactionTypeAdminGrant TransactionType = "admin_grant"
 )
 
 // Transaction is a record of a transaction on a wallet.

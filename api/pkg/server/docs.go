@@ -850,6 +850,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/credits": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds credits to the wallet of the user's oldest owned org, or stashes the grant on the user for application at first org creation. Works regardless of subscription state, unlike adminActivateTrial.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Grant credits to a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Credits to grant (must be \u003e 0)",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.GrantCreditsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.GrantCreditsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}/password": {
             "put": {
                 "security": [
@@ -20174,6 +20220,28 @@ const docTemplate = `{
                 }
             }
         },
+        "server.GrantCreditsRequest": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                }
+            }
+        },
+        "server.GrantCreditsResponse": {
+            "type": "object",
+            "properties": {
+                "org_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
+                }
+            }
+        },
         "server.InitializeSampleRepositoriesRequest": {
             "type": "object",
             "properties": {
@@ -33106,6 +33174,10 @@ const docTemplate = `{
                 "organization_id": {
                     "description": "Organization this API key is scoped to (ephemeral keys)",
                     "type": "string"
+                },
+                "pending_admin_credits_on_first_org": {
+                    "description": "PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the\n/admin/users/{id}/credits endpoint when the user has no owned org yet.\nConsumed by consumeUserAdminCredits on first owned org, then cleared.\nKept separate from TrialCreditsOnFirstOrg so admins can comp credits\nwithout entangling the grant with trial-state UI or revocation flows.",
+                    "type": "number"
                 },
                 "project_id": {
                     "description": "When running in Helix Code sandbox",

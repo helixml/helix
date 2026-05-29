@@ -178,6 +178,13 @@ type User struct {
 	TrialDaysOnFirstOrg    *int     `json:"trial_days_on_first_org,omitempty"`
 	TrialCreditsOnFirstOrg *float64 `json:"trial_credits_on_first_org,omitempty"`
 
+	// PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+	// /admin/users/{id}/credits endpoint when the user has no owned org yet.
+	// Consumed by consumeUserAdminCredits on first owned org, then cleared.
+	// Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+	// without entangling the grant with trial-state UI or revocation flows.
+	PendingAdminCreditsOnFirstOrg *float64 `json:"pending_admin_credits_on_first_org,omitempty"`
+
 	// Transient trial-display fields populated by the admin users list when
 	// ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
 	// explicitly populated (json:"...,omitempty").

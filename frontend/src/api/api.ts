@@ -740,6 +740,16 @@ export interface ServerExposedPort {
   url?: string;
 }
 
+export interface ServerGrantCreditsRequest {
+  credits?: number;
+}
+
+export interface ServerGrantCreditsResponse {
+  org_id?: string;
+  status?: string;
+  user?: TypesUser;
+}
+
 export interface ServerInitializeSampleRepositoriesRequest {
   organization_id?: string;
   owner_id?: string;
@@ -6348,6 +6358,14 @@ export interface TypesUser {
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
+  /**
+   * PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+   * /admin/users/{id}/credits endpoint when the user has no owned org yet.
+   * Consumed by consumeUserAdminCredits on first owned org, then cleared.
+   * Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+   * without entangling the grant with trial-state UI or revocation flows.
+   */
+  pending_admin_credits_on_first_org?: number;
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -7074,6 +7092,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/admin/users/${id}/approve`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Adds credits to the wallet of the user's oldest owned org, or stashes the grant on the user for application at first org creation. Works regardless of subscription state, unlike adminActivateTrial.
+     *
+     * @tags users
+     * @name V1AdminUsersCreditsCreate
+     * @summary Grant credits to a user (Admin, cloud only)
+     * @request POST:/api/v1/admin/users/{id}/credits
+     * @secure
+     */
+    v1AdminUsersCreditsCreate: (id: string, request: ServerGrantCreditsRequest, params: RequestParams = {}) =>
+      this.request<ServerGrantCreditsResponse, any>({
+        path: `/api/v1/admin/users/${id}/credits`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
