@@ -1,0 +1,262 @@
+# Design: Re-enable Auto-Scroll When User Scrolls Back to Bottom
+
+## Summary
+
+Extend `handleScroll` in `EmbeddedSessionView.tsx` (~line 144) so that
+when auto-scroll is OFF and the user *actively scrolls downward* into
+the near-bottom zone, the `autoScroll` preference flips back to ON.
+Distinguish user-initiated scroll-down from content reflow by comparing
+the current `scrollTop` against the previous `scrollTop` observed in
+`handleScroll` — a user scrolling toward the bottom strictly increases
+`scrollTop`; content shrinking below the viewport does not.
+
+This is a **~15-line change in a single file**.
+
+## Where The Change Lives
+
+| File | Change |
+|---|---|
+| `frontend/src/components/session/EmbeddedSessionView.tsx` | Add `lastScrollTopRef`, extend `handleScroll`, and update `scrollToBottom` to keep `lastScrollTopRef` in sync after programmatic writes |
+
+No other file is touched. `useAutoScrollPreference.ts` is unchanged —
+the existing setter already handles persistence and cross-tab
+broadcast.
+
+## Approach
+
+### The new ref
+
+Track the last `scrollTop` value observed in `handleScroll`:
+
+```ts
+// Last scrollTop observed in handleScroll. Used to distinguish
+// "user actively scrolled toward the bottom" (delta > 0) from
+// "content shrank and the viewport happens to be near the bottom now"
+// (delta == 0). Initialised lazily on the first scroll event.
+const lastScrollTopRef = useRef(0);
+```
+
+Reset alongside the other scroll refs in the session-change effect
+(lines ~248-273):
+
+```ts
+lastScrollTopRef.current = 0;
+```
+
+### The extended handler
+
+```ts
+const handleScroll = useCallback(() => {
+  const container = containerRef.current;
+  if (!container) return;
+
+  const prevScrollTop = lastScrollTopRef.current;
+  const currScrollTop = container.scrollTop;
+  lastScrollTopRef.current = currScrollTop;
+
+  // When auto-scroll is already ON, nothing to compute — but keep the
+  // ref in sync so a subsequent disable+re-enable cycle starts from a
+  // correct baseline.
+  if (autoScrollRef.current) return;
+
+  if (!isNearBottom()) return;
+
+  // We're now in the near-bottom zone with auto-scroll OFF.
+  // Always clear the pill (existing behaviour).
+  setHasNewBelow(false);
+
+  // Re-enable auto-scroll only if the user actively scrolled DOWN to
+  // get here. Content shrinking above or below the viewport can drift
+  // us into the near-bottom zone without scrollTop increasing — that
+  // is not a user signal and must not re-engage auto-scroll.
+  if (currScrollTop > prevScrollTop) {
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    // Reset the upward-gesture accumulator so the next wheel/touch
+    // gesture starts clean.
+    upwardAccumRef.current = 0;
+  }
+}, [isNearBottom, setAutoScroll]);
+```
+
+### Keeping `lastScrollTopRef` honest after programmatic writes
+
+`scrollToBottom` writes `container.scrollTop = container.scrollHeight`
+directly. The `onScroll` event that follows would otherwise show
+`currScrollTop > prevScrollTop` and falsely re-enable auto-scroll on
+the initial-mount path (AC-4).
+
+Fix by pre-recording the post-write `scrollTop` so `handleScroll` sees
+no delta:
+
+```ts
+const scrollToBottom = useCallback(
+  (force = false) => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!force && !autoScrollRef.current) return;
+    if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
+    container.scrollTop = container.scrollHeight;
+    lastScrolledHeightRef.current = container.scrollHeight;
+    lastScrollTopRef.current = container.scrollHeight;  // <-- NEW
+    setHasNewBelow(false);
+    onScrollToBottom?.();
+  },
+  [onScrollToBottom],
+);
+```
+
+Also do the same in the ResizeObserver's auto-scroll-on-growth branch
+(lines ~315-317):
+
+```ts
+if (autoScrollRef.current) {
+  container.scrollTop = container.scrollHeight;
+  lastScrolledHeightRef.current = container.scrollHeight;
+  lastScrollTopRef.current = container.scrollHeight;  // <-- NEW
+  setHasNewBelow(false);
+}
+```
+
+And in the pagination viewport-preserve write (lines ~462-463):
+
+```ts
+containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
+lastScrollTopRef.current = containerRef.current.scrollTop;  // <-- NEW
+```
+
+This last one is critical for AC-5: prepending older content bumps
+`scrollTop` upward by the height of the new content, which is a
+programmatic increase, not user intent. Recording the post-write value
+means the next `onScroll` (from any subsequent user wheel) compares
+against the new baseline correctly.
+
+## Why Not Listen Inside `handleWheel` / `handleTouchMove` Instead?
+
+Two reasons:
+
+1. **`handleScroll` covers all input modalities for free.** Scrollbar
+   drag, keyboard (Page Down, End, arrow keys), and iOS momentum
+   scrolling all fire `onScroll` but NOT `onWheel` or `onTouchMove`.
+   Putting the re-enable logic in `handleScroll` makes AC-1 and AC-2
+   pass with one code path.
+
+2. **`onWheel` fires before the browser scrolls.** Inside `handleWheel`,
+   `isNearBottom()` reflects the *pre*-scroll position, so we'd have to
+   speculatively project the new position from `e.deltaY` — fragile and
+   doesn't account for momentum or `scroll-snap-type`.
+
+The cost: we don't know the input device in `handleScroll`. We
+compensate by checking `currScrollTop > prevScrollTop` to filter out
+content reflow.
+
+## Why `currScrollTop > prevScrollTop` Is The Right Filter
+
+| Scenario | scrollTop change | isNearBottom | Re-enable? | Correct per AC |
+|---|---|---|---|---|
+| User wheels/touches/keys down to bottom | increases | true | yes | AC-1 ✓ |
+| User drags scrollbar handle down to bottom | increases | true | yes | AC-1 ✓ |
+| Initial mount `scrollToBottom(true)` with autoScroll=off | unchanged (we pre-record) | true | no | AC-4 ✓ |
+| ResizeObserver branch firing while autoScroll=ON | unchanged (we pre-record) | true | no-op (autoScrollRef already on) | n/a ✓ |
+| Pagination prepends older content | increases (programmatic) | false (we're up top) | no (not near bottom) | AC-5 ✓ |
+| Content below viewport shrinks (tool-call collapses) | unchanged | maybe true | no | AC-3 ✓ |
+| Content above viewport reflows (image loads) | may shift (browser anchors above), no user input | varies | no (delta is 0 or negative) | AC-3 ✓ |
+| Pill click `handleJumpToLatest` | becomes scrollHeight (we pre-record) | true | already explicitly enabled by the click handler — no-op | n/a ✓ |
+
+## State / Ref Inventory After This Change
+
+```
+autoScrollRef          — mirror of autoScroll preference (existing)
+upwardAccumRef         — cumulative upward gesture px (existing)
+lastWheelTsRef         — gesture timeout tracking (existing)
+touchStartYRef         — touch state (existing)
+lastTouchYRef          — touch state (existing)
+lastScrolledHeightRef  — short-circuits redundant scrollToBottom (existing)
+lastContentHeightRef   — ResizeObserver baseline (existing)
+hasInitiallyScrolled   — first-mount guard (existing)
+lastScrollTopRef       — NEW: prior scrollTop for direction detection
+```
+
+All refs reset together on session change. The set is internally
+consistent — no ref is left to drift across the boundary.
+
+## Testing Plan
+
+End-to-end in the inner Helix at `http://localhost:8080` (per
+project policy in `CLAUDE.md` — "PREFER end-to-end testing in the inner
+Helix over every other form of verification"). The relevant surface is
+any session detail page that mounts `EmbeddedSessionView` — easiest
+reproducer is a spec-task review chat with enough comments to scroll.
+
+Manual test matrix (mirrors the AC table above):
+
+1. **Wheel down to bottom re-enables.** Pause auto-scroll via toggle.
+   Wheel up to disengage / confirm OFF. Wheel down until viewport
+   reaches bottom. Verify toggle goes filled-primary and pill
+   disappears. Verify `localStorage.helix.autoScroll === "true"` in
+   DevTools.
+
+2. **Scrollbar drag to bottom re-enables.** Same as (1) but drag the
+   scrollbar handle to the bottom instead of using the wheel.
+
+3. **Keyboard End re-enables.** Same as (1) but focus the chat
+   container (click into it) and press `End`.
+
+4. **iOS momentum re-enables.** On a touch device or DevTools touch
+   emulation: pause auto-scroll, flick the chat down hard so momentum
+   carries to the bottom. Verify re-enable on the final settle.
+
+5. **Initial mount with off-preference stays off.** Set
+   `localStorage.helix.autoScroll = "false"` in DevTools, reload the
+   session page. Confirm we land at the bottom (existing initial-scroll
+   behaviour) but auto-scroll preference stays OFF (toggle stays
+   outlined-ghost). New agent output should land below the viewport
+   and the pill should appear.
+
+6. **Mid-conversation content collapse does not re-enable.** Pause
+   auto-scroll. Scroll up to mid-conversation. Collapse a tool-call
+   block (or wait for one to collapse). Confirm auto-scroll stays OFF.
+
+7. **Pagination preserves OFF.** Pause auto-scroll. Click "Show N older
+   messages". Confirm auto-scroll stays OFF and viewport stays at the
+   original message.
+
+8. **Upward unlock still works after a re-enable cycle.** Trigger AC-1
+   to re-enable. Immediately wheel up >= 100px. Confirm auto-scroll
+   flips OFF cleanly (no stuck `upwardAccumRef`).
+
+## Risks
+
+- **Touch-momentum overshoot.** If iOS rubber-bands past the bottom,
+  `scrollTop + clientHeight` can briefly exceed `scrollHeight` (negative
+  effective distance from bottom). `isNearBottom()` already handles
+  this because the comparison `scrollTop + clientHeight >= scrollHeight
+  - 80` evaluates true in both regular near-bottom and overshoot. No
+  extra handling needed.
+
+- **Scroll-anchoring browsers shifting `scrollTop` upward on content
+  reflow above the viewport.** Modern Chromium / WebKit / Firefox all
+  do scroll anchoring by default. This shifts `scrollTop` to keep
+  visible content stable when off-screen content changes — meaning
+  `scrollTop` typically goes UP (the page grows above us, scrollTop
+  increases) or stays the same. If it increases due to anchoring,
+  could it ever cross into near-bottom? Only if the user was already
+  within 80px and anchoring pushed them past the threshold — but
+  anchoring doesn't fire `onScroll` (it's compensatory, by design).
+  Verified via the CSSWG spec; no behaviour change needed.
+
+- **Subscribers in other open tabs.** `useAutoScrollPreference`
+  broadcasts via `storage` event. A second tab will receive the
+  re-enable. This matches the existing behaviour of the toggle button
+  and pill click — consistent.
+
+## Notes for Future Work
+
+If we ever want to differentiate "scrolled to bottom via fling" vs
+"scrolled to bottom and held there", we'd want a debounce / settle
+window — e.g., require the viewport to be near-bottom for 250ms before
+re-enabling. Not needed now; users want immediate re-engagement.
+
+If we add a "Snap to bottom" gesture (e.g., swipe-up at the bottom of
+the chat to lock-in following), it would integrate naturally with the
+existing toggle setter — no architectural change required.
