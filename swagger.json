@@ -2097,6 +2097,61 @@
                 }
             }
         },
+        "/api/v1/apps/{id}/goose-recipes/candidates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same as the project-keyed variant, but reachable from the\napp-edit UI where the parent project id isn't always in\nscope. Resolves the parent project by finding one whose\ndefault_helix_app_id matches this app — apps in Helix are\ncreated 1:1 with a project's default agent, so this is\nunambiguous in practice.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Apps"
+                ],
+                "summary": "List YAML files in an app's recipe repository (by app id)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.GooseRecipeCandidatesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/interactions": {
             "get": {
                 "security": [
@@ -9977,6 +10032,61 @@
                             "items": {
                                 "$ref": "#/definitions/server.ProjectGooseRecipe"
                             }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/goose-recipes/candidates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Walks the recipe repo's local clone and returns every\n*.yaml / *.yml file the user could pick as a Goose recipe.\nSkips noisy directories (node_modules, vendor, .git) and\ncaps at 200 entries. Used by the project-settings file\npicker so users don't have to type recipe paths by hand.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List YAML files in the project's recipe repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.GooseRecipeCandidatesResponse"
                         }
                     },
                     "401": {
@@ -20145,6 +20255,37 @@
                 },
                 "url": {
                     "type": "string"
+                }
+            }
+        },
+        "server.GooseRecipeCandidate": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.GooseRecipeCandidatesResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.GooseRecipeCandidate"
+                    }
+                },
+                "truncated": {
+                    "type": "boolean"
                 }
             }
         },

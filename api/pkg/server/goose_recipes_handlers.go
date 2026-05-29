@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/goose"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -123,6 +125,81 @@ func (s *HelixAPIServer) listProjectGooseRecipes(_ http.ResponseWriter, r *http.
 	return out, nil
 }
 
+// GooseRecipeCandidate is one YAML file found under the recipe-repo root
+// that the user could plausibly use as a recipe. The frontend renders
+// these as picker entries — `Path` is what gets persisted onto the
+// agent's GooseRecipes, `Name` is the derived slash-command name shown
+// next to the path, and `Title` (best-effort) is shown for context.
+type GooseRecipeCandidate struct {
+	Path  string `json:"path"`
+	Name  string `json:"name"`
+	Title string `json:"title,omitempty"`
+}
+
+// GooseRecipeCandidatesResponse wraps the file list so the response is
+// extensible (truncation flag, error message) without an API break.
+type GooseRecipeCandidatesResponse struct {
+	Files     []GooseRecipeCandidate `json:"files"`
+	Truncated bool                   `json:"truncated,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
+// listProjectGooseRecipeCandidates godoc
+// @Summary List YAML files in the project's recipe repository
+// @Description Walks the recipe repo's local clone and returns every
+// @Description *.yaml / *.yml file the user could pick as a Goose recipe.
+// @Description Skips noisy directories (node_modules, vendor, .git) and
+// @Description caps at 200 entries. Used by the project-settings file
+// @Description picker so users don't have to type recipe paths by hand.
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} GooseRecipeCandidatesResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/goose-recipes/candidates [get]
+func (s *HelixAPIServer) listProjectGooseRecipeCandidates(_ http.ResponseWriter, r *http.Request) (*GooseRecipeCandidatesResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+	if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if project.DefaultHelixAppID == "" {
+		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}}, nil
+	}
+	app, err := s.Store.GetApp(ctx, project.DefaultHelixAppID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project agent not found")
+	}
+
+	var assistant *types.AssistantConfig
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			assistant = &app.Config.Helix.Assistants[i]
+			break
+		}
+	}
+	if assistant == nil {
+		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}}, nil
+	}
+
+	rootDir, repoErr := s.resolveGooseRecipeRoot(ctx, app, assistant, project)
+	if repoErr != "" {
+		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}, Error: repoErr}, nil
+	}
+	return walkRecipeCandidates(rootDir)
+}
+
 // resolveGooseRecipeRoot returns the absolute container-side directory
 // containing the agent's recipe files. Returns ("", "human reason") when
 // the repo can't be located so the API can render a friendly UI message.
@@ -154,4 +231,144 @@ func (s *HelixAPIServer) resolveGooseRecipeRoot(ctx context.Context, app *types.
 		return "", "recipe repository has not been cloned yet"
 	}
 	return repo.LocalPath, ""
+}
+
+// listAppGooseRecipeCandidates godoc
+// @Summary List YAML files in an app's recipe repository (by app id)
+// @Description Same as the project-keyed variant, but reachable from the
+// @Description app-edit UI where the parent project id isn't always in
+// @Description scope. Resolves the parent project by finding one whose
+// @Description default_helix_app_id matches this app — apps in Helix are
+// @Description created 1:1 with a project's default agent, so this is
+// @Description unambiguous in practice.
+// @Tags Apps
+// @Accept json
+// @Produce json
+// @Param id path string true "App ID"
+// @Success 200 {object} GooseRecipeCandidatesResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/apps/{id}/goose-recipes/candidates [get]
+func (s *HelixAPIServer) listAppGooseRecipeCandidates(_ http.ResponseWriter, r *http.Request) (*GooseRecipeCandidatesResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	// Apps router uses {app_id} in its path pattern, not {id}.
+	appID := mux.Vars(r)["app_id"]
+	if appID == "" {
+		appID = getID(r)
+	}
+
+	app, err := s.Store.GetApp(ctx, appID)
+	if err != nil {
+		return nil, system.NewHTTPError404("app not found")
+	}
+	// Authorize via the app itself — same access semantics as editing the app.
+	if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	var assistant *types.AssistantConfig
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			assistant = &app.Config.Helix.Assistants[i]
+			break
+		}
+	}
+	if assistant == nil {
+		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}}, nil
+	}
+
+	// Find the project that uses this app as its default agent so we can
+	// fall back to its primary repo when GooseRecipeRepoURL is empty. We
+	// don't have a dedicated DB index for this lookup; org-scoped
+	// ListProjects + in-memory filter is fine — agent apps are 1:1 with
+	// projects in practice and the list stays small.
+	project, projErr := s.findProjectByDefaultAppID(ctx, app.OrganizationID, appID)
+	if projErr != nil {
+		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}, Error: projErr.Error()}, nil
+	}
+
+	rootDir, repoErr := s.resolveGooseRecipeRoot(ctx, app, assistant, project)
+	if repoErr != "" {
+		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}, Error: repoErr}, nil
+	}
+	return walkRecipeCandidates(rootDir)
+}
+
+// findProjectByDefaultAppID returns the project that uses appID as its
+// default helix app within the given org. Errors with a human-friendly
+// reason when no such project exists.
+func (s *HelixAPIServer) findProjectByDefaultAppID(ctx context.Context, orgID, appID string) (*types.Project, error) {
+	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{OrganizationID: orgID})
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	for _, p := range projects {
+		if p.DefaultHelixAppID == appID {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("no project uses this app as its default agent")
+}
+
+// walkRecipeCandidates is the on-disk walk shared by the project- and
+// app-keyed candidate handlers. Extracted to keep the two handlers'
+// auth/lookup logic distinct without duplicating the walker.
+func walkRecipeCandidates(rootDir string) (*GooseRecipeCandidatesResponse, *system.HTTPError) {
+	const maxEntries = 200
+	skipDirs := map[string]bool{
+		"node_modules": true,
+		"vendor":       true,
+		".git":         true,
+	}
+
+	files := make([]GooseRecipeCandidate, 0, 32)
+	truncated := false
+	walkErr := filepath.Walk(rootDir, func(absPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Warn().Err(err).Str("path", absPath).Msg("goose recipe candidate walk: skipping unreadable entry")
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			if skipDirs[info.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		lower := strings.ToLower(info.Name())
+		if !strings.HasSuffix(lower, ".yaml") && !strings.HasSuffix(lower, ".yml") {
+			return nil
+		}
+		if len(files) >= maxEntries {
+			truncated = true
+			return filepath.SkipAll
+		}
+		rel, relErr := filepath.Rel(rootDir, absPath)
+		if relErr != nil {
+			return nil
+		}
+		entry := GooseRecipeCandidate{
+			Path: filepath.ToSlash(rel),
+			Name: goose.DefaultName(rel),
+		}
+		if info.Size() < 64*1024 {
+			content, readErr := os.ReadFile(absPath)
+			if readErr == nil {
+				if recipe, parseErr := goose.Parse(content); parseErr == nil {
+					entry.Title = recipe.Title
+				}
+			}
+		}
+		files = append(files, entry)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("walk recipe repo: %v", walkErr))
+	}
+	return &GooseRecipeCandidatesResponse{Files: files, Truncated: truncated}, nil
 }

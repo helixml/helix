@@ -740,6 +740,18 @@ export interface ServerExposedPort {
   url?: string;
 }
 
+export interface ServerGooseRecipeCandidate {
+  name?: string;
+  path?: string;
+  title?: string;
+}
+
+export interface ServerGooseRecipeCandidatesResponse {
+  error?: string;
+  files?: ServerGooseRecipeCandidate[];
+  truncated?: boolean;
+}
+
 export interface ServerInitializeSampleRepositoriesRequest {
   organization_id?: string;
   owner_id?: string;
@@ -7620,6 +7632,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Same as the project-keyed variant, but reachable from the app-edit UI where the parent project id isn't always in scope. Resolves the parent project by finding one whose default_helix_app_id matches this app — apps in Helix are created 1:1 with a project's default agent, so this is unambiguous in practice.
+     *
+     * @tags Apps
+     * @name V1AppsGooseRecipesCandidatesDetail
+     * @summary List YAML files in an app's recipe repository (by app id)
+     * @request GET:/api/v1/apps/{id}/goose-recipes/candidates
+     * @secure
+     */
+    v1AppsGooseRecipesCandidatesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerGooseRecipeCandidatesResponse, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/goose-recipes/candidates`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List interactions with pagination and optional session filtering for a specific app
      *
      * @tags interactions
@@ -11355,6 +11386,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1ProjectsGooseRecipesDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerProjectGooseRecipe[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/goose-recipes`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Walks the recipe repo's local clone and returns every *.yaml / *.yml file the user could pick as a Goose recipe. Skips noisy directories (node_modules, vendor, .git) and caps at 200 entries. Used by the project-settings file picker so users don't have to type recipe paths by hand.
+     *
+     * @tags Projects
+     * @name V1ProjectsGooseRecipesCandidatesDetail
+     * @summary List YAML files in the project's recipe repository
+     * @request GET:/api/v1/projects/{id}/goose-recipes/candidates
+     * @secure
+     */
+    v1ProjectsGooseRecipesCandidatesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerGooseRecipeCandidatesResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/goose-recipes/candidates`,
         method: "GET",
         secure: true,
         type: ContentType.Json,

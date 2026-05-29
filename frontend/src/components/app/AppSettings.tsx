@@ -764,6 +764,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             {code_agent_runtime === 'goose_code' && (
               <Box>
                 <GooseRecipesEditor
+                  appId={id}
                   recipeRepoURL={app.goose_recipe_repo_url || ''}
                   recipes={app.goose_recipes || []}
                   disabled={readOnly}

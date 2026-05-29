@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/agent/optimus"
+	goose_pkg "github.com/helixml/helix/api/pkg/goose"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -2783,7 +2784,11 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			assistant.GooseRecipeRepoURL = agentSpec.Goose.RecipeRepoURL
 			assistant.GooseRecipes = make([]types.AssistantGooseRecipe, len(agentSpec.Goose.Recipes))
 			for i, r := range agentSpec.Goose.Recipes {
-				assistant.GooseRecipes[i] = types.AssistantGooseRecipe{Name: r.Name, Path: r.Path}
+				name := r.Name
+				if name == "" {
+					name = goose_pkg.DefaultName(r.Path)
+				}
+				assistant.GooseRecipes[i] = types.AssistantGooseRecipe{Name: name, Path: r.Path}
 			}
 		}
 		// zed_external runs as an agent (IsAgentMode), and the Apps UI
@@ -2942,26 +2947,53 @@ func validateGooseAgentSpec(ctx context.Context, st store.Store, orgID string, r
 	}
 
 	seen := make(map[string]bool, len(goose.Recipes))
-	for _, recipe := range goose.Recipes {
-		if recipe.Name == "" {
-			return system.NewHTTPError400("agent.goose.recipes: each recipe needs a non-empty name")
-		}
+	for i, recipe := range goose.Recipes {
 		if recipe.Path == "" {
-			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes[%s]: path is required", recipe.Name))
+			label := recipe.Name
+			if label == "" {
+				label = fmt.Sprintf("#%d", i)
+			}
+			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes[%s]: path is required", label))
 		}
-		if seen[recipe.Name] {
-			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes: duplicate recipe name %q", recipe.Name))
-		}
-		seen[recipe.Name] = true
 
 		// Containment check — paths are repo-relative, must stay inside.
 		cleaned := filepath.Clean(recipe.Path)
 		if strings.HasPrefix(cleaned, "..") || strings.HasPrefix(cleaned, "/") || cleaned == "." {
+			label := recipe.Name
+			if label == "" {
+				label = recipe.Path
+			}
 			return system.NewHTTPError400(fmt.Sprintf(
 				"agent.goose.recipes[%s]: path %q must be a relative path inside the recipe repo (no leading / or ..)",
-				recipe.Name, recipe.Path,
+				label, recipe.Path,
 			))
 		}
+
+		// Auto-derive the slash-command name from the filename when the
+		// user didn't supply one explicitly. The derived name is used for
+		// uniqueness checking, persistence, and downstream slug
+		// generation — downstream consumers (zed_config, daemon) don't
+		// need to re-derive.
+		effectiveName := recipe.Name
+		if effectiveName == "" {
+			effectiveName = goose_pkg.DefaultName(cleaned)
+		}
+		if effectiveName == "" {
+			return system.NewHTTPError400(fmt.Sprintf(
+				"agent.goose.recipes[%s]: could not derive a slash-command name from path; set name explicitly",
+				recipe.Path,
+			))
+		}
+		if !goose_pkg.SlashCommandPattern.MatchString(effectiveName) {
+			return system.NewHTTPError400(fmt.Sprintf(
+				"agent.goose.recipes[%s]: %q is not a valid slash-command name (lowercase letters, digits, dash, underscore)",
+				recipe.Path, effectiveName,
+			))
+		}
+		if seen[effectiveName] {
+			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes: duplicate recipe name %q", effectiveName))
+		}
+		seen[effectiveName] = true
 	}
 	return nil
 }

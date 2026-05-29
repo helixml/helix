@@ -2518,6 +2518,73 @@
                 }
             }
         },
+        "/api/v1/apps/{id}/goose-recipes/candidates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same as the project-keyed variant, but reachable from the\napp-edit UI where the parent project id isn't always in\nscope. Resolves the parent project by finding one whose\ndefault_helix_app_id matches this app — apps in Helix are\ncreated 1:1 with a project's default agent, so this is\nunambiguous in practice.",
+                "tags": [
+                    "Apps"
+                ],
+                "summary": "List YAML files in an app's recipe repository (by app id)",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.GooseRecipeCandidatesResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/interactions": {
             "get": {
                 "security": [
@@ -12032,6 +12099,73 @@
                                     "items": {
                                         "$ref": "#/components/schemas/server.ProjectGooseRecipe"
                                     }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/goose-recipes/candidates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Walks the recipe repo's local clone and returns every\n*.yaml / *.yml file the user could pick as a Goose recipe.\nSkips noisy directories (node_modules, vendor, .git) and\ncaps at 200 entries. Used by the project-settings file\npicker so users don't have to type recipe paths by hand.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List YAML files in the project's recipe repository",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.GooseRecipeCandidatesResponse"
                                 }
                             }
                         }
@@ -24069,6 +24203,37 @@
                     },
                     "url": {
                         "type": "string"
+                    }
+                }
+            },
+            "server.GooseRecipeCandidate": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.GooseRecipeCandidatesResponse": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    },
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.GooseRecipeCandidate"
+                        }
+                    },
+                    "truncated": {
+                        "type": "boolean"
                     }
                 }
             },

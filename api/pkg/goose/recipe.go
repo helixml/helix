@@ -18,11 +18,35 @@ package goose
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultName derives a slash-command name from a recipe file path:
+// basename minus the .yaml / .yml extension. Empty input → empty output;
+// callers decide whether that's an error. The result is intentionally
+// not validated against SlashCommandPattern — callers that need a
+// shell-safe name should still run it through the pattern check.
+func DefaultName(filePath string) string {
+	base := path.Base(strings.TrimSpace(filePath))
+	if base == "" || base == "." || base == "/" {
+		return ""
+	}
+	for _, ext := range []string{".yaml", ".yml"} {
+		if strings.HasSuffix(strings.ToLower(base), ext) {
+			return base[:len(base)-len(ext)]
+		}
+	}
+	return base
+}
+
+// SlashCommandPattern matches valid Goose slash-command names: lowercase
+// alphanumerics, dashes, and underscores; must start with an alphanumeric.
+// Mirrors the frontend's pattern in GooseRecipesEditor.tsx — keep in sync.
+var SlashCommandPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // RecipeParameter is a single declared parameter on a Goose recipe.
 // We only care about the fields needed to drive the spec-task UI.
