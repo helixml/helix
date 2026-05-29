@@ -1,0 +1,54 @@
+# Triage an attached error log: identify the failure, locate the
+# offending code, and propose a fix. Demonstrates a file param + a
+# select param in the same recipe.
+#
+# Drop a copy in your project repo at .goose/recipes/triage-error-log.yaml
+# and reference it from project.yaml under spec.agent.goose.recipes.
+
+version: "1.0.0"
+title: "Triage error log"
+description: "Read an uploaded error log, root-cause it against the codebase, and propose a fix."
+
+instructions: |
+  You are triaging an error log. Read it end-to-end first so you
+  understand the full failure shape (stack trace, surrounding context,
+  recurrence). Then locate the offending code in the repo and form a
+  fix.
+
+  - Always cite specific log lines or stack frames when claiming a
+    root cause — vague "looks like a race" is not acceptable.
+  - Don't propose speculative fixes. If the log doesn't pin down the
+    cause, say so, and list the additional information you'd need.
+  - If `severity` is `paging`, lead with the smallest revert / safest
+    workaround that stops the bleed, and put the proper fix as a
+    follow-up.
+
+prompt: |
+  Triage the error log at {{ log_file }} (severity: **{{ severity }}**).
+
+  Produce:
+    1. **One-line summary** of what failed.
+    2. **Citation**: the specific log lines that pin the failure.
+    3. **Root cause**: where in the codebase the bug lives, with file
+       paths and line numbers.
+    4. **Proposed fix**: the smallest change that addresses the root
+       cause, written as a diff or step list.
+    5. **Confidence**: high / medium / low, with a one-sentence reason.
+
+parameters:
+  - key: log_file
+    input_type: file
+    requirement: required
+    description: "Error log to triage (upload via task Attachments, then pick from dropdown)"
+  - key: severity
+    requirement: required
+    description: "How urgent the triage is — affects whether to recommend a quick revert vs proper fix"
+    options:
+      - paging
+      - urgent
+      - normal
+      - backlog
+
+settings:
+  goose_provider: anthropic
+  goose_model: claude-sonnet-4-6

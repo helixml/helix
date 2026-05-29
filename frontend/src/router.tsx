@@ -4,6 +4,7 @@ import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
 
 import Session from './pages/Session'
+import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
 import Apps from './pages/Apps'
 import Providers from './pages/Providers'
 import Orgs from './pages/Orgs'
@@ -13,6 +14,7 @@ import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
 import OrgApiKeys from './pages/OrgApiKeys'
 import OrgBilling from './components/orgs/OrgBilling'
+import OrgUsage from './components/orgs/OrgUsage'
 import App from './pages/App'
 import Create from './pages/Create'
 import Home from './pages/Home'
@@ -347,14 +349,36 @@ const routes: IApplicationRoute[] = [
     <Orgs />
   ),
 }, {
-  name: 'org_settings',
-  path: '/orgs/:org_id/settings',
+  name: 'org_general',
+  path: '/orgs/:org_id/general',
   meta: {
     drawer: true,
     menu: 'orgs',
   },
   render: () => (
     <OrgSettings />
+  ),
+}, {
+  // Backward compat: redirect /settings to /general
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_general', { org_id: params.org_id })
+    }, [])
+    return null
+  },
+}, {
+  name: 'org_usage',
+  path: '/orgs/:org_id/usage',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgUsage />
   ),
 }, {
   name: 'org_people',
@@ -494,6 +518,19 @@ const routes: IApplicationRoute[] = [
     title: 'Login',
   },
   render: () => <Login />,
+}, {
+  // Standalone live-tail of one Runner's hydra-aggregated logs. Opened from
+  // the admin "Runner Logs" card via target="_blank". No drawer / no nav,
+  // so the viewer takes the full viewport. Admin auth still applies via
+  // the standard cookie session.
+  name: 'admin_runner_logs',
+  path: '/admin/runner-logs/:runner_id',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Runner Logs',
+  },
+  render: () => <AdminRunnerLogsPage />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

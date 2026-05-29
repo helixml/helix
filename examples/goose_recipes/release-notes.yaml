@@ -1,0 +1,57 @@
+# Generate release notes from a git commit range, tuned for a specific
+# audience. The `audience` parameter is a dropdown (input_type omitted
+# but options[] is set) — the spec-task UI renders it as a Select.
+#
+# Drop a copy in your project repo at .goose/recipes/release-notes.yaml
+# and reference it from project.yaml under spec.agent.goose.recipes.
+
+version: "1.0.0"
+title: "Generate release notes"
+description: "Summarise a commit range as release notes for a given audience."
+
+instructions: |
+  You are writing release notes. Read the commits between the two refs
+  the user supplied and group them by theme. Filter by audience: an
+  engineering note should be precise about modules, file paths, and
+  semantics; a customer note should describe user-visible outcomes; a
+  marketing note should lead with the headline change.
+
+  - Never invent changes that aren't in the commit range.
+  - Skip commits whose subject says "WIP", "fixup", "Merge branch", or
+    "Revert", unless the revert is itself the headline.
+  - When the same change is fixed-up across multiple commits, treat it
+    as one item — name it by the final state.
+
+prompt: |
+  Generate release notes for commits in the range
+  `{{ base_ref }}..{{ head_ref }}`, written for the **{{ audience }}**
+  audience.
+
+  Group by theme (features, fixes, breaking changes, internal). Inside
+  each group, lead with the most impactful items. For breaking changes,
+  call out what callers must change to migrate.
+
+  Output as markdown ready to paste into a CHANGELOG entry or release
+  announcement.
+
+parameters:
+  - key: base_ref
+    input_type: string
+    requirement: required
+    description: "Ref to compare from (e.g. v1.4.0, last release tag, main~50)"
+  - key: head_ref
+    input_type: string
+    requirement: optional
+    default: "HEAD"
+    description: "Ref to compare to (default: HEAD)"
+  - key: audience
+    requirement: required
+    description: "Who will read these notes"
+    options:
+      - engineering
+      - customer
+      - marketing
+
+settings:
+  goose_provider: anthropic
+  goose_model: claude-sonnet-4-6

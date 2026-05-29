@@ -24,7 +24,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -861,6 +860,20 @@ func (m *MockStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) er
 func (mr *MockStoreMockRecorder) CreateSpecTask(ctx, task any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSpecTask", reflect.TypeOf((*MockStore)(nil).CreateSpecTask), ctx, task)
+}
+
+// CreateSpecTaskAttachment mocks base method.
+func (m *MockStore) CreateSpecTaskAttachment(ctx context.Context, attachment *types.SpecTaskAttachment) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSpecTaskAttachment", ctx, attachment)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSpecTaskAttachment indicates an expected call of CreateSpecTaskAttachment.
+func (mr *MockStoreMockRecorder) CreateSpecTaskAttachment(ctx, attachment any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSpecTaskAttachment", reflect.TypeOf((*MockStore)(nil).CreateSpecTaskAttachment), ctx, attachment)
 }
 
 // CreateSpecTaskDesignReview mocks base method.
@@ -1742,6 +1755,34 @@ func (m *MockStore) DeleteSpecTask(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteSpecTask(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSpecTask", reflect.TypeOf((*MockStore)(nil).DeleteSpecTask), ctx, id)
+}
+
+// DeleteSpecTaskAttachment mocks base method.
+func (m *MockStore) DeleteSpecTaskAttachment(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSpecTaskAttachment", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSpecTaskAttachment indicates an expected call of DeleteSpecTaskAttachment.
+func (mr *MockStoreMockRecorder) DeleteSpecTaskAttachment(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSpecTaskAttachment", reflect.TypeOf((*MockStore)(nil).DeleteSpecTaskAttachment), ctx, id)
+}
+
+// DeleteSpecTaskAttachmentsByTaskID mocks base method.
+func (m *MockStore) DeleteSpecTaskAttachmentsByTaskID(ctx context.Context, specTaskID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSpecTaskAttachmentsByTaskID", ctx, specTaskID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSpecTaskAttachmentsByTaskID indicates an expected call of DeleteSpecTaskAttachmentsByTaskID.
+func (mr *MockStoreMockRecorder) DeleteSpecTaskAttachmentsByTaskID(ctx, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSpecTaskAttachmentsByTaskID", reflect.TypeOf((*MockStore)(nil).DeleteSpecTaskAttachmentsByTaskID), ctx, specTaskID)
 }
 
 // DeleteSpecTaskDesignReview mocks base method.
@@ -2776,6 +2817,21 @@ func (mr *MockStoreMockRecorder) GetOrCreateAgentRunner(ctx, runnerID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAgentRunner", reflect.TypeOf((*MockStore)(nil).GetOrCreateAgentRunner), ctx, runnerID)
 }
 
+// GetOrgUsageSummary mocks base method.
+func (m *MockStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgUsageSummary", ctx, q)
+	ret0, _ := ret[0].(*types.OrgUsageSummaryResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrgUsageSummary indicates an expected call of GetOrgUsageSummary.
+func (mr *MockStoreMockRecorder) GetOrgUsageSummary(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgUsageSummary", reflect.TypeOf((*MockStore)(nil).GetOrgUsageSummary), ctx, q)
+}
+
 // GetOrganization mocks base method.
 func (m *MockStore) GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error) {
 	m.ctrl.T.Helper()
@@ -3269,6 +3325,21 @@ func (m *MockStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask
 func (mr *MockStoreMockRecorder) GetSpecTask(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTask", reflect.TypeOf((*MockStore)(nil).GetSpecTask), ctx, id)
+}
+
+// GetSpecTaskAttachment mocks base method.
+func (m *MockStore) GetSpecTaskAttachment(ctx context.Context, id string) (*types.SpecTaskAttachment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskAttachment", ctx, id)
+	ret0, _ := ret[0].(*types.SpecTaskAttachment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskAttachment indicates an expected call of GetSpecTaskAttachment.
+func (mr *MockStoreMockRecorder) GetSpecTaskAttachment(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskAttachment", reflect.TypeOf((*MockStore)(nil).GetSpecTaskAttachment), ctx, id)
 }
 
 // GetSpecTaskByExternalNotionPageID mocks base method.
@@ -4728,6 +4799,21 @@ func (mr *MockStoreMockRecorder) ListSessionsBySandbox(ctx, sandboxID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsBySandbox", reflect.TypeOf((*MockStore)(nil).ListSessionsBySandbox), ctx, sandboxID)
 }
 
+// ListSpecTaskAttachments mocks base method.
+func (m *MockStore) ListSpecTaskAttachments(ctx context.Context, specTaskID string) ([]*types.SpecTaskAttachment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSpecTaskAttachments", ctx, specTaskID)
+	ret0, _ := ret[0].([]*types.SpecTaskAttachment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSpecTaskAttachments indicates an expected call of ListSpecTaskAttachments.
+func (mr *MockStoreMockRecorder) ListSpecTaskAttachments(ctx, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSpecTaskAttachments", reflect.TypeOf((*MockStore)(nil).ListSpecTaskAttachments), ctx, specTaskID)
+}
+
 // ListSpecTaskDesignReviewCommentReplies mocks base method.
 func (m *MockStore) ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error) {
 	m.ctrl.T.Helper()
@@ -5143,6 +5229,21 @@ func (m *MockStore) MarkPromptAsSent(ctx context.Context, promptID string) error
 func (mr *MockStoreMockRecorder) MarkPromptAsSent(ctx, promptID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsSent", reflect.TypeOf((*MockStore)(nil).MarkPromptAsSent), ctx, promptID)
+}
+
+// MarkSandboxInstanceOfflineIfStale mocks base method.
+func (m *MockStore) MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkSandboxInstanceOfflineIfStale", ctx, id, staleBefore)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkSandboxInstanceOfflineIfStale indicates an expected call of MarkSandboxInstanceOfflineIfStale.
+func (mr *MockStoreMockRecorder) MarkSandboxInstanceOfflineIfStale(ctx, id, staleBefore any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSandboxInstanceOfflineIfStale", reflect.TypeOf((*MockStore)(nil).MarkSandboxInstanceOfflineIfStale), ctx, id, staleBefore)
 }
 
 // ParseAndCreateImplementationTasks mocks base method.
@@ -6161,6 +6262,20 @@ func (m *MockStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask) er
 func (mr *MockStoreMockRecorder) UpdateSpecTask(ctx, task any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTask", reflect.TypeOf((*MockStore)(nil).UpdateSpecTask), ctx, task)
+}
+
+// UpdateSpecTaskAttachment mocks base method.
+func (m *MockStore) UpdateSpecTaskAttachment(ctx context.Context, attachment *types.SpecTaskAttachment) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSpecTaskAttachment", ctx, attachment)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSpecTaskAttachment indicates an expected call of UpdateSpecTaskAttachment.
+func (mr *MockStoreMockRecorder) UpdateSpecTaskAttachment(ctx, attachment any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTaskAttachment", reflect.TypeOf((*MockStore)(nil).UpdateSpecTaskAttachment), ctx, attachment)
 }
 
 // UpdateSpecTaskDesignReview mocks base method.

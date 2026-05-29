@@ -87,6 +87,19 @@ func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *t
 	return membership, nil
 }
 
+func (apiServer *HelixAPIServer) resolveOrgID(ctx context.Context, orgRef string) (string, error) {
+	if orgRef == "" {
+		return "", fmt.Errorf("organization ID is required")
+	}
+
+	org, err := apiServer.lookupOrg(ctx, orgRef)
+	if err != nil {
+		return "", err
+	}
+
+	return org.ID, nil
+}
+
 // authorizeUserToAppAccessGrants checks if the user is a member of the organization or the app owner
 // and has the necessary permissions to perform the action on the access grant
 func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
@@ -285,7 +298,7 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 		for _, projectRepository := range projectRepositories {
 			if projectRepository.RepositoryID == repository.ID {
 				// Repo is attached to this project — check if user has access to the project
-				if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err == nil {
+				if err := apiServer.authorizeUserToProject(ctx, user, project, action); err == nil {
 					return nil
 				}
 			}

@@ -586,6 +586,37 @@ while true; do
 
             # Settings sync daemon only needs to start once
             /usr/local/bin/start-settings-sync-daemon.sh &
+
+            # Chrome auto-relaunch: if Chrome was running at the end of the
+            # previous session (marker touched by the heartbeat loop below),
+            # bring it back up so the user's tabs are visible immediately.
+            # Stale marker (> 5 min old) means Chrome was deliberately closed,
+            # so don't relaunch. Profile persistence is set up by
+            # helix-workspace-setup.sh; restore-on-startup policy lives in
+            # the Dockerfile.
+            CHROME_MARKER="/home/retro/work/.chrome-state/.was-running"
+            if [ -f "$CHROME_MARKER" ] && [ $(($(date +%s) - $(stat -c %Y "$CHROME_MARKER"))) -lt 300 ]; then
+                # Hard container kill can leave singleton locks behind.
+                rm -f /home/retro/work/.chrome-state/Singleton* 2>/dev/null || true
+                echo "[sway-session] Auto-launching Chrome (was running at end of previous session)"
+                WAYLAND_DISPLAY=wayland-1 google-chrome-stable >/dev/null 2>&1 &
+            fi
+
+            # Heartbeat: while Chrome is running, refresh the marker; when it
+            # stops, remove it. Loop runs once per session (gated by
+            # SERVICES_STARTED) and is detached from any individual Sway run.
+            (
+                while true; do
+                    if pgrep -x chrome >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1; then
+                        mkdir -p /home/retro/work/.chrome-state
+                        touch "$CHROME_MARKER"
+                    else
+                        rm -f "$CHROME_MARKER" 2>/dev/null || true
+                    fi
+                    sleep 30
+                done
+            ) >/dev/null 2>&1 &
+
             SERVICES_STARTED=true
         fi
 

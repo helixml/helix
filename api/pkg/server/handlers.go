@@ -51,35 +51,13 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	if apiServer.pingService != nil {
 		latestVersion = apiServer.pingService.GetLatestVersion()
 		deploymentID = apiServer.pingService.GetDeploymentID()
-	}
-
-	// Add license information
-	var licenseInfo *types.FrontendLicenseInfo
-	if apiServer.pingService != nil {
-		decodedLicense, err := apiServer.pingService.GetLicenseInfo(ctx)
-		if err == nil && decodedLicense != nil {
-			licenseInfo = &types.FrontendLicenseInfo{
-				Valid:        decodedLicense.Valid && !decodedLicense.Expired(),
-				Organization: decodedLicense.Organization,
-				ValidUntil:   decodedLicense.ValidUntil,
-				Features: struct {
-					Users bool `json:"users"`
-				}{
-					Users: decodedLicense.Features.Users,
-				},
-				Limits: struct {
-					Users    int64 `json:"users"`
-					Machines int64 `json:"machines"`
-				}{
-					Users:    decodedLicense.Limits.Users,
-					Machines: decodedLicense.Limits.Machines,
-				},
-			}
-		} else {
-			// if license is not valid, allow user to upload a new one
+		// If we cannot decode the license, signal that to the frontend via
+		// deployment_id="unknown" (same wire contract as before). The full
+		// license payload now lives behind auth on /status.
+		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err != nil || decoded == nil {
 			log.Warn().
 				Err(err).
-				Bool("license_nil", decodedLicense == nil).
+				Bool("license_nil", decoded == nil).
 				Msg("license check failed - setting deployment_id to unknown")
 			deploymentID = "unknown"
 		}
@@ -94,7 +72,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,
 		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
 		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
@@ -103,7 +80,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		Version:                                currentVersion,
 		LatestVersion:                          latestVersion,
 		DeploymentID:                           deploymentID,
-		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
 		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
@@ -113,14 +89,15 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	if err != nil {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
-	// Override the config with the system settings
 	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
-	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
 
-	// If system settings doesn't have a max, fall back to the free tier config
-	if config.MaxConcurrentDesktops == 0 {
-		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
-	}
+	// /config is unauthenticated (registered on insecureRouter), so we don't
+	// know which user is calling and can't ask the quota manager for their
+	// resolved cap. Return the Free-tier env value as the floor. Real
+	// enforcement still happens server-side in StartDesktop via the quota
+	// manager, which picks the correct Free or Pro tier per wallet. -1 in
+	// the env means unlimited.
+	config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
 
 	// Check if any global AI providers are configured on this deployment
 	globalProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
@@ -133,11 +110,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		config.HasProviders = len(globalProviders) > 0
 	}
 
-	// Active session count (from in-memory session tracker)
-	if apiServer.externalAgentExecutor != nil {
-		config.ActiveConcurrentDesktops = len(apiServer.externalAgentExecutor.ListSessions())
-	}
-
 	return config, nil
 }
 
@@ -146,11 +118,50 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 }
 
 
+// status godoc
+// @Summary Get user status
+// @Description Per-user status: credits, admin flag, slug, user config, plus the
+// @Description licence payload (moved here from /api/v1/config so it is not
+// @Description disclosed unauthenticated).
+// @Tags    config
+// @Success 200 {object} types.UserStatus
+// @Router /api/v1/status [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
-	return apiServer.Controller.GetStatus(ctx, user)
+	status, err := apiServer.Controller.GetStatus(ctx, user)
+	if err != nil {
+		return status, err
+	}
+
+	// License info moved here from /config so it is not disclosed
+	// unauthenticated. Self-hosted deployments would otherwise leak the
+	// licence org / expiry / seat limits to anyone hitting /api/v1/config.
+	if apiServer.pingService != nil {
+		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err == nil && decoded != nil {
+			status.License = &types.FrontendLicenseInfo{
+				Valid:        decoded.Valid && !decoded.Expired(),
+				Organization: decoded.Organization,
+				ValidUntil:   decoded.ValidUntil,
+				Features: struct {
+					Users bool `json:"users"`
+				}{
+					Users: decoded.Features.Users,
+				},
+				Limits: struct {
+					Users    int64 `json:"users"`
+					Machines int64 `json:"machines"`
+				}{
+					Users:    decoded.Limits.Users,
+					Machines: decoded.Limits.Machines,
+				},
+			}
+		}
+	}
+
+	return status, nil
 }
 
 // filestoreConfig godoc

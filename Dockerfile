@@ -20,11 +20,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Uses kodit's download-model tool (Go binary that embeds the Python conversion script).
 FROM api-base AS embedding-model
 COPY --from=ghcr.io/astral-sh/uv:debian-slim /usr/local/bin/uv /usr/local/bin/uv
+# Cache the uv wheel downloads (~2GB of torch/transformers/cuda-* wheels) and
+# the HuggingFace model snapshot so re-running these stages on the same builder
+# doesn't re-download from PyPI / HF Hub each time.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/huggingface \
     go run github.com/helixml/kodit/cmd/download-model /build/models/flax-sentence-embeddings_st-codesearch-distilroberta-base
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/huggingface \
     go run github.com/helixml/kodit/cmd/download-siglip2 /build/models/google_siglip2-base-patch16-512
 
 ### Tokenizers library ###
@@ -53,6 +60,7 @@ ENV ORT_LIB_DIR=/usr/lib
 COPY --from=embedding-model /build/models/ /kodit-models/
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
+COPY helix-org /app/helix-org
 WORKDIR /app/api
 # - Run a build to make the initial air build faster
 # Cache Go modules and build artifacts for offline builds
@@ -73,6 +81,7 @@ COPY .git /app/.git
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
 COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 COPY api /app/api
+COPY helix-org /app/helix-org
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"

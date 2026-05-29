@@ -72,28 +72,36 @@ import { TypesProviderEndpointType } from "../api/api";
 
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
-// Dark-mode defaults (used when isLight is false). Light-mode overrides are
-// produced by getOnboardingPalette() below.
-const BG_DARK = "#0d0d1a";
-const CARD_BG_DARK = "#0f0f1e";
-const CARD_BG_ACTIVE_DARK = "#101024";
-const CARD_BORDER_DARK = "rgba(255,255,255,0.04)";
 const CARD_BORDER_ACTIVE = "rgba(0, 232, 145, 0.25)";
 
 function getOnboardingPalette(isLight: boolean) {
-  // Cards always stay dark — the inner step content has thousands of inline
-  // hardcoded rgba(255,255,255,…) text colors that would each need touching
-  // to be theme-aware. Using dark cards on a light page is a common pattern
-  // and keeps existing styling correct.
   return {
-    BG: isLight ? "#f5f5f7" : BG_DARK,
-    CARD_BG: CARD_BG_DARK,
-    CARD_BG_ACTIVE: CARD_BG_ACTIVE_DARK,
-    CARD_BORDER: isLight ? "rgba(0,0,0,0.08)" : CARD_BORDER_DARK,
+    BG: isLight ? "#f5f5f7" : "#0d0d1a",
+    CARD_BG: isLight ? "#ffffff" : "#0f0f1e",
+    CARD_BG_ACTIVE: isLight ? "#fafafa" : "#101024",
+    CARD_BORDER: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.04)",
+
+    MENU_BG: isLight ? "#ffffff" : "#1a1a2e",
+    MENU_TEXT: isLight ? "#1a1a2e" : "#fff",
+
+    STEP_INACTIVE: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.15)",
+
     TEXT_PRIMARY: isLight ? "#1a1a2e" : "#fff",
     TEXT_SECONDARY: isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.6)",
+    TEXT_MUTED: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.5)",
     TEXT_FADED: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.4)",
-    TEXT_DIM: isLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.25)",
+    TEXT_DIM: isLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.3)",
+
+    BORDER_SUBTLE: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
+    BORDER_HOVER: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.15)",
+    INPUT_BORDER: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.1)",
+    INPUT_BORDER_HOVER: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.2)",
+
+    OVERLAY_FAINT: isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)",
+    OVERLAY_DIM: isLight ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)",
+
+    RADIO_UNCHECKED: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.3)",
+
     inputSx: {
       color: isLight ? "#1a1a2e" : "#fff",
       fontSize: "0.82rem",
@@ -103,25 +111,16 @@ function getOnboardingPalette(isLight: boolean) {
     },
     labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.4)", fontSize: "0.82rem" },
     helperSx: { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.25)", fontSize: "0.72rem" },
+    selectSx: {
+      color: isLight ? "#1a1a2e" : "#fff",
+      fontSize: "0.82rem",
+      "& fieldset": { borderColor: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.1)" },
+      "&:hover fieldset": { borderColor: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.2)" },
+      "&.Mui-focused fieldset": { borderColor: ACCENT },
+      "& .MuiSvgIcon-root": { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.4)" },
+    },
   };
 }
-
-// Backwards-compat aliases used at module scope (e.g. by `btnSx` below).
-// These default to dark-mode values; the component's render path uses the
-// theme-aware palette returned by getOnboardingPalette() instead.
-const BG = BG_DARK;
-const CARD_BG = CARD_BG_DARK;
-const CARD_BG_ACTIVE = CARD_BG_ACTIVE_DARK;
-const CARD_BORDER = CARD_BORDER_DARK;
-const inputSx = {
-  color: "#fff",
-  fontSize: "0.82rem",
-  "& fieldset": { borderColor: "rgba(255,255,255,0.1)" },
-  "&:hover fieldset": { borderColor: "rgba(255,255,255,0.2)" },
-  "&.Mui-focused fieldset": { borderColor: ACCENT },
-};
-const labelSx = { color: "rgba(255,255,255,0.4)", fontSize: "0.82rem" };
-const helperSx = { color: "rgba(255,255,255,0.25)", fontSize: "0.72rem" };
 
 const formatUnixTimestamp = (unixTs?: number) => {
   if (!unixTs || unixTs <= 0) return "—";
@@ -368,11 +367,23 @@ export default function Onboarding() {
     if (!serverConfig?.billing_enabled) {
       steps = steps.filter((step) => step.type !== "subscription");
     }
-    if (serverConfig?.has_providers) {
+    // Skip the provider step when admin-configured global providers already
+    // cover the user's needs (typical on self-hosted). On cloud we keep it
+    // visible regardless so new signups still see the BYO Claude prompt at
+    // the top of the step, even though SaaS has env-baked Anthropic/OpenAI
+    // keys that would otherwise satisfy has_providers.
+    if (
+      serverConfig?.has_providers &&
+      serverConfig?.edition !== "cloud"
+    ) {
       steps = steps.filter((step) => step.type !== "provider");
     }
     return steps;
-  }, [serverConfig?.billing_enabled, serverConfig?.has_providers]);
+  }, [
+    serverConfig?.billing_enabled,
+    serverConfig?.has_providers,
+    serverConfig?.edition,
+  ]);
 
   // Helper to get step index by type (in the visible steps array)
   const getStepIndexByType = useCallback(
@@ -1051,7 +1062,7 @@ export default function Onboarding() {
       <RadioButtonUncheckedIcon
         sx={{
           fontSize: 24,
-          color: isStepActive(step) ? ACCENT : "rgba(255,255,255,0.15)",
+          color: isStepActive(step) ? ACCENT : palette.STEP_INACTIVE,
         }}
       />
     );
@@ -1074,12 +1085,12 @@ export default function Onboarding() {
                       flex: 1,
                       p: 1.5,
                       borderRadius: 1.5,
-                      border: `1px solid ${orgMode === "select" ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                      border: `1px solid ${orgMode === "select" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                       bgcolor:
                         orgMode === "select" ? ACCENT_DIM : "transparent",
                       cursor: "pointer",
                       transition: "all 0.2s",
-                      "&:hover": { borderColor: "rgba(255,255,255,0.15)" },
+                      "&:hover": { borderColor: palette.BORDER_HOVER },
                     }}
                   >
                     <Box
@@ -1096,12 +1107,12 @@ export default function Onboarding() {
                           color:
                             orgMode === "select"
                               ? ACCENT
-                              : "rgba(255,255,255,0.4)",
+                              : palette.TEXT_FADED,
                         }}
                       />
                       <Typography
                         sx={{
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
                           fontSize: "0.78rem",
                         }}
@@ -1111,7 +1122,7 @@ export default function Onboarding() {
                     </Box>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.7rem",
                       }}
                     >
@@ -1124,12 +1135,12 @@ export default function Onboarding() {
                       flex: 1,
                       p: 1.5,
                       borderRadius: 1.5,
-                      border: `1px solid ${orgMode === "create" ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                      border: `1px solid ${orgMode === "create" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                       bgcolor:
                         orgMode === "create" ? ACCENT_DIM : "transparent",
                       cursor: "pointer",
                       transition: "all 0.2s",
-                      "&:hover": { borderColor: "rgba(255,255,255,0.15)" },
+                      "&:hover": { borderColor: palette.BORDER_HOVER },
                     }}
                   >
                     <Box
@@ -1146,12 +1157,12 @@ export default function Onboarding() {
                           color:
                             orgMode === "create"
                               ? ACCENT
-                              : "rgba(255,255,255,0.4)",
+                              : palette.TEXT_FADED,
                         }}
                       />
                       <Typography
                         sx={{
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
                           fontSize: "0.78rem",
                         }}
@@ -1161,7 +1172,7 @@ export default function Onboarding() {
                     </Box>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.7rem",
                       }}
                     >
@@ -1176,7 +1187,7 @@ export default function Onboarding() {
                   <FormControl fullWidth size="small" sx={{ mb: 2.5 }}>
                     <InputLabel
                       sx={{
-                        color: "rgba(255,255,255,0.4)",
+                        color: palette.TEXT_FADED,
                         fontSize: "0.82rem",
                         "&.Mui-focused": { color: ACCENT },
                       }}
@@ -1188,22 +1199,22 @@ export default function Onboarding() {
                       onChange={(e) => setSelectedOrgId(e.target.value)}
                       label="Organization"
                       sx={{
-                        color: "#fff",
+                        color: palette.TEXT_PRIMARY,
                         fontSize: "0.82rem",
-                        "& fieldset": { borderColor: "rgba(255,255,255,0.1)" },
+                        "& fieldset": { borderColor: palette.INPUT_BORDER },
                         "&:hover fieldset": {
-                          borderColor: "rgba(255,255,255,0.2)",
+                          borderColor: palette.INPUT_BORDER_HOVER,
                         },
                         "&.Mui-focused fieldset": { borderColor: ACCENT },
                         "& .MuiSvgIcon-root": {
-                          color: "rgba(255,255,255,0.4)",
+                          color: palette.TEXT_FADED,
                         },
                       }}
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#1a1a2e",
-                            color: "#fff",
+                            bgcolor: palette.MENU_BG,
+                            color: palette.MENU_TEXT,
                             maxHeight: 280,
                           },
                         },
@@ -1241,8 +1252,8 @@ export default function Onboarding() {
                     onChange={(e) => setOrgDisplayName(e.target.value)}
                     variant="outlined"
                     sx={{ mb: 2.5 }}
-                    InputProps={{ sx: inputSx }}
-                    InputLabelProps={{ sx: labelSx }}
+                    InputProps={{ sx: palette.inputSx }}
+                    InputLabelProps={{ sx: palette.labelSx }}
                   />
                   <Button
                     variant="contained"
@@ -1284,7 +1295,7 @@ export default function Onboarding() {
               >
                 <Typography
                   sx={{
-                    color: "#fff",
+                    color: palette.TEXT_PRIMARY,
                     fontWeight: 600,
                     fontSize: "0.9rem",
                     mb: 1,
@@ -1294,7 +1305,7 @@ export default function Onboarding() {
                 </Typography>
                 <Typography
                   sx={{
-                    color: "rgba(255,255,255,0.5)",
+                    color: palette.TEXT_MUTED,
                     fontSize: "0.8rem",
                     mb: 1.5,
                   }}
@@ -1309,7 +1320,7 @@ export default function Onboarding() {
                   <Box sx={{ mb: 2 }}>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.75rem",
                         mb: 0.5,
                       }}
@@ -1318,7 +1329,7 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.75rem",
                         mb: 0.5,
                       }}
@@ -1328,7 +1339,7 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.75rem",
                         mb: 0.5,
                       }}
@@ -1340,7 +1351,7 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.75rem",
                         mb: 0.5,
                       }}
@@ -1352,7 +1363,7 @@ export default function Onboarding() {
                     </Typography>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.75rem",
                       }}
                     >
@@ -1396,10 +1407,10 @@ export default function Onboarding() {
                   onClick={() => refetchWallet()}
                   disabled={isFetchingWallet}
                   sx={{
-                    color: "rgba(255,255,255,0.3)",
+                    color: palette.TEXT_DIM,
                     textTransform: "none",
                     fontSize: "0.78rem",
-                    "&:hover": { color: "rgba(255,255,255,0.6)" },
+                    "&:hover": { color: palette.TEXT_SECONDARY },
                   }}
                 >
                   {isFetchingWallet ? "Refreshing..." : "Refresh status"}
@@ -1427,7 +1438,7 @@ export default function Onboarding() {
                     gridColumn: "1 / -1",
                     p: 1.5,
                     borderRadius: 1.5,
-                    border: `1px solid ${hasClaudeSubscription ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    border: `1px solid ${hasClaudeSubscription ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                     bgcolor: hasClaudeSubscription ? ACCENT_DIM : "transparent",
                     display: "flex",
                     alignItems: "center",
@@ -1442,28 +1453,59 @@ export default function Onboarding() {
                       alignItems: "center",
                       justifyContent: "center",
                       flexShrink: 0,
-                      color: "#fff",
+                      color: palette.TEXT_PRIMARY,
                     }}
                   >
                     <AnthropicLogo style={{ width: 24, height: 24 }} />
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography
+                    <Box
                       sx={{
-                        color: "#fff",
-                        fontWeight: 500,
-                        fontSize: "0.78rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
                       }}
                     >
-                      Claude Subscription
-                    </Typography>
+                      <Typography
+                        sx={{
+                          color: palette.TEXT_PRIMARY,
+                          fontWeight: 500,
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        Claude Subscription
+                      </Typography>
+                      {!hasClaudeSubscription && (
+                        <Box
+                          component="span"
+                          sx={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            fontSize: "0.62rem",
+                            fontWeight: 600,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            color: ACCENT,
+                            bgcolor: ACCENT_DIM,
+                            border: `1px solid ${ACCENT}`,
+                            borderRadius: 999,
+                            px: 0.75,
+                            py: 0.1,
+                          }}
+                        >
+                          Recommended
+                        </Box>
+                      )}
+                    </Box>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.4)",
+                        color: palette.TEXT_FADED,
                         fontSize: "0.7rem",
                       }}
                     >
-                      Use your Claude account with Claude Code in desktop agents
+                      {serverConfig?.edition === "cloud"
+                        ? "Connect your Claude Pro or Max account to use Helix with your existing subscription, no Helix credits needed."
+                        : "Connect your Claude Pro or Max account to use Helix with your existing Claude subscription."}
                     </Typography>
                   </Box>
                   {createdOrg && (
@@ -1475,22 +1517,22 @@ export default function Onboarding() {
                           setClaudeSubOrgId(val === "personal" ? "" : val);
                         }}
                         sx={{
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                           fontSize: "0.72rem",
                           "& fieldset": {
-                            borderColor: "rgba(255,255,255,0.1)",
+                            borderColor: palette.INPUT_BORDER,
                           },
                           "&:hover fieldset": {
-                            borderColor: "rgba(255,255,255,0.2)",
+                            borderColor: palette.INPUT_BORDER_HOVER,
                           },
                           "&.Mui-focused fieldset": { borderColor: ACCENT },
                           "& .MuiSvgIcon-root": {
-                            color: "rgba(255,255,255,0.4)",
+                            color: palette.TEXT_FADED,
                           },
                         }}
                         MenuProps={{
                           PaperProps: {
-                            sx: { bgcolor: "#1a1a2e", color: "#fff" },
+                            sx: { bgcolor: palette.MENU_BG, color: palette.MENU_TEXT },
                           },
                         }}
                       >
@@ -1515,14 +1557,14 @@ export default function Onboarding() {
                 <Divider
                   sx={{
                     gridColumn: "1 / -1",
-                    borderColor: "rgba(255,255,255,0.06)",
+                    borderColor: palette.BORDER_SUBTLE,
                     my: 0.5,
                   }}
                 />
                 <Typography
                   sx={{
                     gridColumn: "1 / -1",
-                    color: "rgba(255,255,255,0.3)",
+                    color: palette.TEXT_DIM,
                     fontSize: "0.72rem",
                   }}
                 >
@@ -1542,13 +1584,13 @@ export default function Onboarding() {
                       sx={{
                         p: 1.5,
                         borderRadius: 1.5,
-                        border: `1px solid ${isConnected ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                        border: `1px solid ${isConnected ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                         bgcolor: isConnected ? ACCENT_DIM : "transparent",
                         cursor: "pointer",
                         transition: "all 0.2s",
                         "&:hover": {
-                          borderColor: "rgba(255,255,255,0.15)",
-                          bgcolor: "rgba(255,255,255,0.02)",
+                          borderColor: palette.BORDER_HOVER,
+                          bgcolor: palette.OVERLAY_FAINT,
                         },
                         display: "flex",
                         alignItems: "center",
@@ -1563,7 +1605,7 @@ export default function Onboarding() {
                           alignItems: "center",
                           justifyContent: "center",
                           flexShrink: 0,
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                         }}
                       >
                         {typeof Logo === "string" ? (
@@ -1584,7 +1626,7 @@ export default function Onboarding() {
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography
                           sx={{
-                            color: "#fff",
+                            color: palette.TEXT_PRIMARY,
                             fontWeight: 500,
                             fontSize: "0.78rem",
                           }}
@@ -1605,14 +1647,14 @@ export default function Onboarding() {
                     <Divider
                       sx={{
                         gridColumn: "1 / -1",
-                        borderColor: "rgba(255,255,255,0.06)",
+                        borderColor: palette.BORDER_SUBTLE,
                         my: 0.5,
                       }}
                     />
                     <Typography
                       sx={{
                         gridColumn: "1 / -1",
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.72rem",
                       }}
                     >
@@ -1648,7 +1690,7 @@ export default function Onboarding() {
                               alignItems: "center",
                               justifyContent: "center",
                               flexShrink: 0,
-                              color: "#fff",
+                              color: palette.TEXT_PRIMARY,
                             }}
                           >
                             {Logo ? (
@@ -1673,7 +1715,7 @@ export default function Onboarding() {
                           <Box sx={{ flex: 1, minWidth: 0 }}>
                             <Typography
                               sx={{
-                                color: "#fff",
+                                color: palette.TEXT_PRIMARY,
                                 fontWeight: 500,
                                 fontSize: "0.78rem",
                               }}
@@ -1704,10 +1746,10 @@ export default function Onboarding() {
                   variant="text"
                   onClick={() => markStepCompleteByType("provider")}
                   sx={{
-                    color: "rgba(255,255,255,0.3)",
+                    color: palette.TEXT_DIM,
                     textTransform: "none",
                     fontSize: "0.78rem",
-                    "&:hover": { color: "rgba(255,255,255,0.6)" },
+                    "&:hover": { color: palette.TEXT_SECONDARY },
                   }}
                 >
                   I'll do this later
@@ -1730,8 +1772,8 @@ export default function Onboarding() {
                 onChange={(e) => setProjectName(e.target.value)}
                 variant="outlined"
                 sx={{ mb: 1.5 }}
-                InputProps={{ sx: inputSx }}
-                InputLabelProps={{ sx: labelSx }}
+                InputProps={{ sx: palette.inputSx }}
+                InputLabelProps={{ sx: palette.labelSx }}
               />
               <TextField
                 fullWidth
@@ -1744,13 +1786,13 @@ export default function Onboarding() {
                 multiline
                 rows={2}
                 sx={{ mb: 2 }}
-                InputProps={{ sx: inputSx }}
-                InputLabelProps={{ sx: labelSx }}
+                InputProps={{ sx: palette.inputSx }}
+                InputLabelProps={{ sx: palette.labelSx }}
               />
 
               <Typography
                 sx={{
-                  color: "rgba(255,255,255,0.4)",
+                  color: palette.TEXT_FADED,
                   fontSize: "0.75rem",
                   mb: 1,
                 }}
@@ -1764,11 +1806,11 @@ export default function Onboarding() {
                     flex: 1,
                     p: 1.5,
                     borderRadius: 1.5,
-                    border: `1px solid ${repoMode === "new" ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    border: `1px solid ${repoMode === "new" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                     bgcolor: repoMode === "new" ? ACCENT_DIM : "transparent",
                     cursor: "pointer",
                     transition: "all 0.2s",
-                    "&:hover": { borderColor: "rgba(255,255,255,0.15)" },
+                    "&:hover": { borderColor: palette.BORDER_HOVER },
                   }}
                 >
                   <Box
@@ -1783,12 +1825,12 @@ export default function Onboarding() {
                       sx={{
                         fontSize: 16,
                         color:
-                          repoMode === "new" ? ACCENT : "rgba(255,255,255,0.4)",
+                          repoMode === "new" ? ACCENT : palette.TEXT_FADED,
                       }}
                     />
                     <Typography
                       sx={{
-                        color: "#fff",
+                        color: palette.TEXT_PRIMARY,
                         fontWeight: 500,
                         fontSize: "0.78rem",
                       }}
@@ -1797,7 +1839,7 @@ export default function Onboarding() {
                     </Typography>
                   </Box>
                   <Typography
-                    sx={{ color: "rgba(255,255,255,0.3)", fontSize: "0.7rem" }}
+                    sx={{ color: palette.TEXT_DIM, fontSize: "0.7rem" }}
                   >
                     Start fresh with an empty repository
                   </Typography>
@@ -1811,12 +1853,12 @@ export default function Onboarding() {
                     flex: 1,
                     p: 1.5,
                     borderRadius: 1.5,
-                    border: `1px solid ${repoMode === "external" ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    border: `1px solid ${repoMode === "external" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                     bgcolor:
                       repoMode === "external" ? ACCENT_DIM : "transparent",
                     cursor: "pointer",
                     transition: "all 0.2s",
-                    "&:hover": { borderColor: "rgba(255,255,255,0.15)" },
+                    "&:hover": { borderColor: palette.BORDER_HOVER },
                   }}
                 >
                   <Box
@@ -1833,12 +1875,12 @@ export default function Onboarding() {
                         color:
                           repoMode === "external"
                             ? ACCENT
-                            : "rgba(255,255,255,0.4)",
+                            : palette.TEXT_FADED,
                       }}
                     />
                     <Typography
                       sx={{
-                        color: "#fff",
+                        color: palette.TEXT_PRIMARY,
                         fontWeight: 500,
                         fontSize: "0.78rem",
                       }}
@@ -1847,7 +1889,7 @@ export default function Onboarding() {
                     </Typography>
                   </Box>
                   <Typography
-                    sx={{ color: "rgba(255,255,255,0.3)", fontSize: "0.7rem" }}
+                    sx={{ color: palette.TEXT_DIM, fontSize: "0.7rem" }}
                   >
                     Connect a GitHub repository
                   </Typography>
@@ -1871,7 +1913,7 @@ export default function Onboarding() {
                     <Box>
                       <Typography
                         sx={{
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                           fontSize: "0.78rem",
                           fontWeight: 500,
                         }}
@@ -1881,7 +1923,7 @@ export default function Onboarding() {
                       </Typography>
                       <Typography
                         sx={{
-                          color: "rgba(255,255,255,0.3)",
+                          color: palette.TEXT_DIM,
                           fontSize: "0.7rem",
                         }}
                       >
@@ -1893,11 +1935,11 @@ export default function Onboarding() {
                       size="small"
                       onClick={() => setLinkRepoDialogOpen(true)}
                       sx={{
-                        color: "rgba(255,255,255,0.4)",
+                        color: palette.TEXT_FADED,
                         textTransform: "none",
                         fontSize: "0.72rem",
                         minWidth: "auto",
-                        "&:hover": { color: "#fff" },
+                        "&:hover": { color: palette.TEXT_PRIMARY },
                       }}
                     >
                       Change
@@ -1907,12 +1949,12 @@ export default function Onboarding() {
               )}
 
               <Divider
-                sx={{ borderColor: "rgba(255,255,255,0.06)", my: 1.5 }}
+                sx={{ borderColor: palette.BORDER_SUBTLE, my: 1.5 }}
               />
 
               <Typography
                 sx={{
-                  color: "rgba(255,255,255,0.4)",
+                  color: palette.TEXT_FADED,
                   fontSize: "0.75rem",
                   mb: 2,
                 }}
@@ -1928,12 +1970,12 @@ export default function Onboarding() {
                       flex: 1,
                       p: 1.5,
                       borderRadius: 1.5,
-                      border: `1px solid ${agentMode === "select" ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                      border: `1px solid ${agentMode === "select" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                       bgcolor:
                         agentMode === "select" ? ACCENT_DIM : "transparent",
                       cursor: "pointer",
                       transition: "all 0.2s",
-                      "&:hover": { borderColor: "rgba(255,255,255,0.15)" },
+                      "&:hover": { borderColor: palette.BORDER_HOVER },
                     }}
                   >
                     <Box
@@ -1950,12 +1992,12 @@ export default function Onboarding() {
                           color:
                             agentMode === "select"
                               ? ACCENT
-                              : "rgba(255,255,255,0.4)",
+                              : palette.TEXT_FADED,
                         }}
                       />
                       <Typography
                         sx={{
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
                           fontSize: "0.78rem",
                         }}
@@ -1965,7 +2007,7 @@ export default function Onboarding() {
                     </Box>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.7rem",
                       }}
                     >
@@ -1978,12 +2020,12 @@ export default function Onboarding() {
                       flex: 1,
                       p: 1.5,
                       borderRadius: 1.5,
-                      border: `1px solid ${agentMode === "create" ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                      border: `1px solid ${agentMode === "create" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                       bgcolor:
                         agentMode === "create" ? ACCENT_DIM : "transparent",
                       cursor: "pointer",
                       transition: "all 0.2s",
-                      "&:hover": { borderColor: "rgba(255,255,255,0.15)" },
+                      "&:hover": { borderColor: palette.BORDER_HOVER },
                     }}
                   >
                     <Box
@@ -2000,12 +2042,12 @@ export default function Onboarding() {
                           color:
                             agentMode === "create"
                               ? ACCENT
-                              : "rgba(255,255,255,0.4)",
+                              : palette.TEXT_FADED,
                         }}
                       />
                       <Typography
                         sx={{
-                          color: "#fff",
+                          color: palette.TEXT_PRIMARY,
                           fontWeight: 500,
                           fontSize: "0.78rem",
                         }}
@@ -2015,7 +2057,7 @@ export default function Onboarding() {
                     </Box>
                     <Typography
                       sx={{
-                        color: "rgba(255,255,255,0.3)",
+                        color: palette.TEXT_DIM,
                         fontSize: "0.7rem",
                       }}
                     >
@@ -2029,7 +2071,7 @@ export default function Onboarding() {
                 <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                   <InputLabel
                     sx={{
-                      color: "rgba(255,255,255,0.4)",
+                      color: palette.TEXT_FADED,
                       fontSize: "0.82rem",
                       "&.Mui-focused": { color: ACCENT },
                     }}
@@ -2041,14 +2083,14 @@ export default function Onboarding() {
                     onChange={(e) => setSelectedAgentId(e.target.value)}
                     label="Select Agent"
                     sx={{
-                      color: "#fff",
+                      color: palette.TEXT_PRIMARY,
                       fontSize: "0.82rem",
-                      "& fieldset": { borderColor: "rgba(255,255,255,0.1)" },
+                      "& fieldset": { borderColor: palette.INPUT_BORDER },
                       "&:hover fieldset": {
-                        borderColor: "rgba(255,255,255,0.2)",
+                        borderColor: palette.INPUT_BORDER_HOVER,
                       },
                       "&.Mui-focused fieldset": { borderColor: ACCENT },
-                      "& .MuiSvgIcon-root": { color: "rgba(255,255,255,0.4)" },
+                      "& .MuiSvgIcon-root": { color: palette.TEXT_FADED },
                     }}
                     renderValue={(value) => {
                       const app = zedExternalAgents.find(
@@ -2059,8 +2101,8 @@ export default function Onboarding() {
                     MenuProps={{
                       PaperProps: {
                         sx: {
-                          bgcolor: "#1a1a2e",
-                          color: "#fff",
+                          bgcolor: palette.MENU_BG,
+                          color: palette.MENU_TEXT,
                           maxHeight: 280,
                         },
                       },
@@ -2075,7 +2117,7 @@ export default function Onboarding() {
                         <Box
                           sx={{ display: "flex", alignItems: "center", gap: 1 }}
                         >
-                          <Bot size={16} color="rgba(255,255,255,0.4)" />
+                          <Bot size={16} color={palette.TEXT_FADED} />
                           <span>
                             {app.config?.helix?.name || "Unnamed Agent"}
                           </span>
@@ -2141,33 +2183,33 @@ export default function Onboarding() {
                     modelPickerDisplayMode="full"
                     modelPickerAutoSelectFirst={true}
                     showCreateButton={false}
-                    labelSx={labelSx}
-                    captionSx={helperSx}
+                    labelSx={palette.labelSx}
+                    captionSx={palette.helperSx}
                     selectSx={{
-                      color: "#fff",
+                      color: palette.TEXT_PRIMARY,
                       fontSize: "0.82rem",
-                      "& fieldset": { borderColor: "rgba(255,255,255,0.1)" },
+                      "& fieldset": { borderColor: palette.INPUT_BORDER },
                       "&:hover fieldset": {
-                        borderColor: "rgba(255,255,255,0.2)",
+                        borderColor: palette.INPUT_BORDER_HOVER,
                       },
                       "&.Mui-focused fieldset": { borderColor: ACCENT },
-                      "& .MuiSvgIcon-root": { color: "rgba(255,255,255,0.4)" },
+                      "& .MuiSvgIcon-root": { color: palette.TEXT_FADED },
                     }}
                     menuPaperSx={{
-                      bgcolor: "#1a1a2e",
-                      color: "#fff",
+                      bgcolor: palette.MENU_BG,
+                      color: palette.MENU_TEXT,
                     }}
-                    textFieldInputSx={inputSx}
-                    textFieldLabelSx={labelSx}
-                    textFieldHelperSx={helperSx}
+                    textFieldInputSx={palette.inputSx}
+                    textFieldLabelSx={palette.labelSx}
+                    textFieldHelperSx={palette.helperSx}
                     claudeCredentialsBoxSx={{
                       borderRadius: 1.5,
-                      border: "1px solid rgba(255,255,255,0.06)",
-                      bgcolor: "rgba(255,255,255,0.02)",
-                      color: "#fff",
+                      border: `1px solid ${palette.BORDER_SUBTLE}`,
+                      bgcolor: palette.OVERLAY_FAINT,
+                      color: palette.TEXT_PRIMARY,
                     }}
                     claudeRadioSx={{
-                      color: "rgba(255,255,255,0.3)",
+                      color: palette.TEXT_DIM,
                       "&.Mui-checked": { color: ACCENT },
                     }}
                     agentNameHelperText="Auto-generated from model and runtime"
@@ -2177,7 +2219,7 @@ export default function Onboarding() {
                   {/* Desktop Resolution */}
                   <Typography
                     sx={{
-                      color: "rgba(255,255,255,0.4)",
+                      color: palette.TEXT_FADED,
                       fontSize: "0.75rem",
                       mb: 1,
                       mt: 1,
@@ -2192,22 +2234,22 @@ export default function Onboarding() {
                         setDesktopResolution(e.target.value as "1080p" | "4k")
                       }
                       sx={{
-                        color: "#fff",
+                        color: palette.TEXT_PRIMARY,
                         fontSize: "0.82rem",
-                        "& fieldset": { borderColor: "rgba(255,255,255,0.1)" },
+                        "& fieldset": { borderColor: palette.INPUT_BORDER },
                         "&:hover fieldset": {
-                          borderColor: "rgba(255,255,255,0.2)",
+                          borderColor: palette.INPUT_BORDER_HOVER,
                         },
                         "&.Mui-focused fieldset": { borderColor: ACCENT },
                         "& .MuiSvgIcon-root": {
-                          color: "rgba(255,255,255,0.4)",
+                          color: palette.TEXT_FADED,
                         },
                       }}
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#1a1a2e",
-                            color: "#fff",
+                            bgcolor: palette.MENU_BG,
+                            color: palette.MENU_TEXT,
                           },
                         },
                       }}
@@ -2286,8 +2328,8 @@ export default function Onboarding() {
                 multiline
                 rows={3}
                 sx={{ mb: 2 }}
-                InputProps={{ sx: inputSx }}
-                InputLabelProps={{ sx: labelSx }}
+                InputProps={{ sx: palette.inputSx }}
+                InputLabelProps={{ sx: palette.labelSx }}
               />
 
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
@@ -2310,10 +2352,10 @@ export default function Onboarding() {
                   variant="text"
                   onClick={() => handleComplete()}
                   sx={{
-                    color: "rgba(255,255,255,0.3)",
+                    color: palette.TEXT_DIM,
                     textTransform: "none",
                     fontSize: "0.78rem",
-                    "&:hover": { color: "rgba(255,255,255,0.6)" },
+                    "&:hover": { color: palette.TEXT_SECONDARY },
                   }}
                 >
                   Skip this step
@@ -2351,8 +2393,8 @@ export default function Onboarding() {
           position: "fixed",
           top: 16,
           right: 16,
-          color: "rgba(255,255,255,0.3)",
-          "&:hover": { color: "rgba(255,255,255,0.6)" },
+          color: palette.TEXT_DIM,
+          "&:hover": { color: palette.TEXT_SECONDARY },
           zIndex: 1301,
         }}
       >
@@ -2436,11 +2478,9 @@ export default function Onboarding() {
                     <Box sx={{ flex: 1 }}>
                       <Typography
                         sx={{
-                          // Cards are dark in both modes (TEXT_PRIMARY=white on dark card),
-                          // inactive un-carded steps need theme-aware text on the page bg.
                           color:
                             completed || active
-                              ? "#fff"
+                              ? palette.TEXT_PRIMARY
                               : palette.TEXT_FADED,
                           fontWeight: 600,
                           fontSize: "0.88rem",
@@ -2450,7 +2490,7 @@ export default function Onboarding() {
                       </Typography>
                       <Typography
                         sx={{
-                          color: completed || active ? "rgba(255,255,255,0.6)" : palette.TEXT_DIM,
+                          color: completed || active ? palette.TEXT_SECONDARY : palette.TEXT_DIM,
                           fontSize: "0.76rem",
                           mt: 0.2,
                         }}

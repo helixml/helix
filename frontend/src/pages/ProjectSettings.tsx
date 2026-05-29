@@ -64,6 +64,7 @@ import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
+import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
 import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
@@ -87,6 +88,7 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
+import { isProjectAccessDeniedError } from "../services/projectService";
 
 interface ProjectSettingsProps {
   projectId: string;
@@ -102,7 +104,13 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const { apps, loadApps } = useContext(AppsContext);
 
   const { data: project, isLoading, error } = useGetProject(projectId);
-  const { data: repositories = [] } = useGetProjectRepositories(projectId);
+  const projectAccessDenied = isProjectAccessDeniedError(error);
+  const projectDependentQueriesEnabled =
+    !!projectId && !!project && !projectAccessDenied;
+  const { data: repositories = [] } = useGetProjectRepositories(
+    projectId,
+    projectDependentQueriesEnabled,
+  );
 
   const updateProjectMutation = useUpdateProject(projectId);
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId);
@@ -120,7 +128,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Exploratory session
   const { data: exploratorySessionData } =
-    useGetProjectExploratorySession(projectId);
+    useGetProjectExploratorySession(projectId, projectDependentQueriesEnabled);
   const startExploratorySessionMutation =
     useStartProjectExploratorySession(projectId);
   const stopExploratorySessionMutation =
@@ -183,7 +191,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   // Guidelines history
   const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(
     projectId,
-    guidelinesHistoryDialogOpen,
+    projectDependentQueriesEnabled && guidelinesHistoryDialogOpen,
   );
 
   // Per-sandbox golden cache state
@@ -203,12 +211,17 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       const response = await api.getApiClient().v1SessionsDetail(goldenBuildSessionId!);
       return response.data;
     },
-    enabled: !!goldenBuildSessionId && showGoldenBuildViewer,
+    enabled:
+      projectDependentQueriesEnabled &&
+      !!goldenBuildSessionId &&
+      showGoldenBuildViewer,
     refetchInterval: 5000,
   });
   const goldenBuildSandboxState = useSandboxState(
     goldenBuildSessionId || "",
-    !!goldenBuildSessionId && showGoldenBuildViewer,
+    projectDependentQueriesEnabled &&
+      !!goldenBuildSessionId &&
+      showGoldenBuildViewer,
   );
 
   // ZFS snapshot/clone tree
@@ -218,7 +231,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       const response = await api.getApiClient().v1ProjectsDockerCacheZfsTreeDetail(projectId);
       return response.data;
     },
-    enabled: !!projectId && (autoWarmDockerCache || sandboxEntries.length > 0),
+    enabled:
+      projectDependentQueriesEnabled &&
+      (autoWarmDockerCache || sandboxEntries.length > 0),
     refetchInterval: 30000,
   });
 
@@ -290,7 +305,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       const resp = await api.getApiClient().v1SandboxesContainersBlkioDetail(buildingSandboxId!, buildingSessionId!);
       return resp.data;
     },
-    enabled: !!buildingSandboxId && !!buildingSessionId && anyBuilding,
+    enabled:
+      projectDependentQueriesEnabled &&
+      !!buildingSandboxId &&
+      !!buildingSessionId &&
+      anyBuilding,
     refetchInterval: 5_000,
   });
 
@@ -347,7 +366,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         .v1ProjectsSecretsDetail(projectId);
       return response.data || [];
     },
-    enabled: !!projectId,
+    enabled: projectDependentQueriesEnabled,
   });
 
   // Create secret mutation
@@ -790,6 +809,15 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       >
         <CircularProgress />
       </Box>
+    );
+  }
+
+  if (projectAccessDenied) {
+    return (
+      <ProjectAccessDenied
+        projectId={projectId}
+        onBackToProjects={() => account.orgNavigate("projects")}
+      />
     );
   }
 
@@ -2020,6 +2048,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Dialog
         open={deleteDialogOpen}
         onClose={() => {
+          // Block dismissal (backdrop click / Escape) while the delete is
+          // in flight so the user can't navigate away mid-operation and
+          // land on a stale projects list.
+          if (deleteProjectMutation.isPending) return;
           setDeleteDialogOpen(false);
           setDeleteConfirmName("");
         }}
@@ -2063,6 +2095,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               setDeleteDialogOpen(false);
               setDeleteConfirmName("");
             }}
+            disabled={deleteProjectMutation.isPending}
           >
             Cancel
           </Button>

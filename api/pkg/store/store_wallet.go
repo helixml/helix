@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Wallet methods
@@ -181,16 +182,26 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 
 	var wallet types.Wallet
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// For deductions, check sufficient balance first
-		var currentBalance float64
-		if err := tx.Model(&types.Wallet{}).Where("id = ?", walletID).
-			Select("balance").Scan(&currentBalance).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", walletID).
+			First(&wallet).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNotFound
 			}
 			return err
 		}
 
+		if meta.TransactionType == types.TransactionTypeTopUp {
+			alreadyProcessed, err := topUpAlreadyProcessed(tx, meta)
+			if err != nil {
+				return err
+			}
+			if alreadyProcessed {
+				return nil
+			}
+		}
+
+		currentBalance := wallet.Balance
 		if currentBalance+amount < 0 {
 			return fmt.Errorf("insufficient balance: current balance %.2f, attempted to deduct %.2f",
 				currentBalance, -amount)
@@ -234,12 +245,13 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 		// If this is a top-up, create a top-up record (for tracking purposes)
 		if meta.TransactionType == types.TransactionTypeTopUp {
 			topUp := &types.TopUp{
-				ID:                    system.GenerateTopUpID(),
-				CreatedAt:             time.Now(),
-				UpdatedAt:             time.Now(),
-				WalletID:              walletID,
-				Amount:                amount,
-				StripePaymentIntentID: meta.StripePaymentIntentID,
+				ID:                      system.GenerateTopUpID(),
+				CreatedAt:               time.Now(),
+				UpdatedAt:               time.Now(),
+				WalletID:                walletID,
+				Amount:                  amount,
+				StripePaymentIntentID:   meta.StripePaymentIntentID,
+				StripeCheckoutSessionID: meta.StripeCheckoutSessionID,
 			}
 
 			if err := tx.Create(topUp).Error; err != nil {
@@ -260,6 +272,32 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	}
 
 	return &wallet, nil
+}
+
+func topUpAlreadyProcessed(tx *gorm.DB, meta types.TransactionMetadata) (bool, error) {
+	var topUp types.TopUp
+
+	if meta.StripeCheckoutSessionID != "" {
+		err := tx.Where("stripe_checkout_session_id = ?", meta.StripeCheckoutSessionID).First(&topUp).Error
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, err
+		}
+	}
+
+	if meta.StripePaymentIntentID != "" {
+		err := tx.Where("stripe_payment_intent_id = ?", meta.StripePaymentIntentID).First(&topUp).Error
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, err
+		}
+	}
+
+	return false, nil
 }
 
 type ListTransactionsQuery struct {

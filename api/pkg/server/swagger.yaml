@@ -92,6 +92,94 @@ definitions:
     - RuntimeDiffusers
     - RuntimeAxolotl
     - RuntimeVLLM
+  github_com_mark3labs_mcp-go_mcp.Icon:
+    properties:
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
+        type: string
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
+        type: string
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Icon'
+        type: array
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
+    type: object
+  goose.RecipeParameter:
+    properties:
+      default:
+        type: string
+      description:
+        type: string
+      input_type:
+        type: string
+      key:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      requirement:
+        type: string
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -135,27 +223,6 @@ definitions:
     - DevContainerTypeSway
     - DevContainerTypeUbuntu
     - DevContainerTypeHeadless
-  hydra.GPUInfo:
-    properties:
-      index:
-        type: integer
-      memory_free_bytes:
-        type: integer
-      memory_total_bytes:
-        type: integer
-      memory_used_bytes:
-        type: integer
-      name:
-        type: string
-      temperature_celsius:
-        type: integer
-      utilization_percent:
-        description: GPU core utilization
-        type: integer
-      vendor:
-        description: '"nvidia", "amd", "intel"'
-        type: string
-    type: object
   hydra.ListSandboxCommandsResponse:
     properties:
       commands:
@@ -218,37 +285,6 @@ definitions:
       size:
         type: integer
     type: object
-  mcp.Icon:
-    properties:
-      mimeType:
-        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
-        type: string
-      sizes:
-        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
-        items:
-          type: string
-        type: array
-      src:
-        description: URI pointing to the icon resource (HTTPS URL or data URI)
-        type: string
-    type: object
-  mcp.Meta:
-    properties:
-      additionalFields:
-        additionalProperties: {}
-        description: |-
-          AdditionalFields are any fields present in the Meta that are not
-          otherwise defined in the protocol.
-        type: object
-      progressToken:
-        description: |-
-          If specified, the caller is requesting out-of-band progress
-          notifications for this request (as represented by
-          notifications/progress). The value of this parameter is an
-          opaque token that will be attached to any subsequent
-          notifications. The receiver is not obligated to provide these
-          notifications.
-    type: object
   mcp.TaskSupport:
     enum:
     - forbidden
@@ -259,46 +295,6 @@ definitions:
     - TaskSupportForbidden
     - TaskSupportOptional
     - TaskSupportRequired
-  mcp.Tool:
-    properties:
-      _meta:
-        allOf:
-        - $ref: '#/definitions/mcp.Meta'
-        description: Meta is a metadata object that is reserved by MCP for storing
-          additional information.
-      annotations:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolAnnotation'
-        description: Optional properties describing tool behavior
-      defer_loading:
-        description: Support for deferred loading
-        type: boolean
-      description:
-        description: A human-readable description of the tool.
-        type: string
-      execution:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolExecution'
-        description: Execution describes execution behavior for the tool
-      icons:
-        description: Icons provides visual identifiers for the tool
-        items:
-          $ref: '#/definitions/mcp.Icon'
-        type: array
-      inputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolInputSchema'
-        description: A JSON Schema object defining the expected parameters for the
-          tool.
-      name:
-        description: The name of the tool.
-        type: string
-      outputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolOutputSchema'
-        description: A JSON Schema object defining the expected output returned by
-          the tool .
-    type: object
   mcp.ToolAnnotation:
     properties:
       destructiveHint:
@@ -894,7 +890,7 @@ definitions:
         type: array
       gpus:
         items:
-          $ref: '#/definitions/hydra.GPUInfo'
+          $ref: '#/definitions/server.GPUInfoWithSandbox'
         type: array
       message:
         type: string
@@ -1127,6 +1123,43 @@ definitions:
         type: string
       url:
         type: string
+    type: object
+  server.GPUInfoWithSandbox:
+    properties:
+      index:
+        type: integer
+      memory_free_bytes:
+        type: integer
+      memory_total_bytes:
+        type: integer
+      memory_used_bytes:
+        type: integer
+      name:
+        type: string
+      sandbox_id:
+        type: string
+      temperature_celsius:
+        type: integer
+      utilization_percent:
+        description: GPU core utilization
+        type: integer
+      vendor:
+        description: '"nvidia", "amd", "intel"'
+        type: string
+    type: object
+  server.GrantCreditsRequest:
+    properties:
+      credits:
+        type: number
+    type: object
+  server.GrantCreditsResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
@@ -1798,6 +1831,27 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  server.ProjectGooseRecipe:
+    properties:
+      description:
+        type: string
+      error:
+        description: |-
+          Error, when non-empty, indicates that the recipe was declared on the
+          agent but couldn't be loaded — repo not cloned yet, file missing,
+          YAML malformed, etc. The UI surfaces this so the user can fix the
+          project YAML before creating a task that would silently fall back to
+          vanilla goose.
+        type: string
+      name:
+        type: string
+      parameters:
+        items:
+          $ref: '#/definitions/goose.RecipeParameter'
+        type: array
+      title:
+        type: string
     type: object
   server.PromptPinRequest:
     properties:
@@ -2668,6 +2722,20 @@ definitions:
         type: string
       generation_model_provider:
         type: string
+      goose_recipe_repo_url:
+        description: |-
+          GooseRecipeRepoURL is the external git URL of the attached repository
+          that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+          Resolved against attached GitRepositories at sandbox-start time.
+          Empty means recipes are looked up under the primary repository.
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes are the project-declared Goose recipes (slash-command name
+          + repo-relative path to the recipe YAML).
+        items:
+          $ref: '#/definitions/types.AssistantGooseRecipe'
+        type: array
       id:
         type: string
       image:
@@ -2778,6 +2846,13 @@ definitions:
       template_example:
         type: string
     type: object
+  types.AssistantGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.AssistantKnowledge:
     properties:
       description:
@@ -2849,7 +2924,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: |-
@@ -2943,6 +3018,8 @@ definitions:
         description: Denormalized for display without joins
         type: string
       snoozed_until:
+        type: string
+      spec_task_description:
         type: string
       spec_task_id:
         type: string
@@ -3515,6 +3592,15 @@ definitions:
       task_id:
         type: string
     type: object
+  types.CodeAgentBakedRecipe:
+    properties:
+      content:
+        description: Content is the substituted recipe YAML (full file content).
+        type: string
+      name:
+        description: Name is the slash-command slug (no leading slash).
+        type: string
+    type: object
   types.CodeAgentConfig:
     properties:
       agent_name:
@@ -3528,6 +3614,29 @@ definitions:
       base_url:
         description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
         type: string
+      goose_baked_recipe:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentBakedRecipe'
+        description: |-
+          GooseBakedRecipe, when set, holds a single recipe with parameters
+          pre-substituted, used by Phase 2b spec-task automation. The daemon
+          writes it to disk and registers a single slash_command so an initial
+          "/<slug>" prompt fires the recipe.
+      goose_recipe_root_dir:
+        description: |-
+          GooseRecipeRootDir is the absolute container path to the root of the
+          recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+          resolve relative paths correctly).
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes lists project-declared Goose recipes with absolute paths
+          resolved inside the desktop container. Only set when Runtime is
+          goose_code; consumed by settings-sync-daemon to write the goose
+          slash_commands config.
+        items:
+          $ref: '#/definitions/types.CodeAgentGooseRecipe'
+        type: array
       max_output_tokens:
         description: |-
           MaxOutputTokens is the model's max completion tokens
@@ -3560,6 +3669,13 @@ definitions:
     x-enum-varnames:
     - CodeAgentCredentialTypeAPIKey
     - CodeAgentCredentialTypeSubscription
+  types.CodeAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.CodeAgentRuntime:
     enum:
     - zed_agent
@@ -3567,6 +3683,7 @@ definitions:
     - claude_code
     - gemini_cli
     - codex_cli
+    - goose_code
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
@@ -3574,6 +3691,7 @@ definitions:
     - CodeAgentRuntimeClaudeCode
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
+    - CodeAgentRuntimeGooseCode
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3845,6 +3963,18 @@ definitions:
         items:
           type: string
         type: array
+      goose_recipe_name:
+        description: |-
+          Goose recipe selection (only meaningful when the chosen agent's runtime
+          is goose_code). GooseRecipeName must match one of the agent's declared
+          recipes; GooseRecipeParams are substituted into the recipe at session
+          start. Recipes declared on the agent but not selected here are still
+          available as runtime slash-commands inside the desktop.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
@@ -5924,6 +6054,101 @@ definitions:
       wallet:
         $ref: '#/definitions/types.Wallet'
     type: object
+  types.OrgUsageSummaryResponse:
+    properties:
+      active_apps:
+        type: integer
+      active_projects:
+        type: integer
+      active_sessions:
+        type: integer
+      active_users:
+        type: integer
+      apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      filter_apps:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_models:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_projects:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_users:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      model_time_series:
+        items:
+          $ref: '#/definitions/types.UsageModelTimeSeries'
+        type: array
+      models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      project_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      projects_total:
+        type: integer
+      sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      sessions_total:
+        type: integer
+      tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      tasks_total:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      users_total:
+        type: integer
+    type: object
   types.Organization:
     properties:
       auto_join_domain:
@@ -6279,12 +6504,30 @@ definitions:
         description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
         type: string
     type: object
+  types.ProjectAgentGoose:
+    properties:
+      recipe_repo_url:
+        type: string
+      recipes:
+        items:
+          $ref: '#/definitions/types.ProjectAgentGooseRecipe'
+        type: array
+    type: object
+  types.ProjectAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.ProjectAgentSpec:
     properties:
       credentials:
         type: string
       display:
         $ref: '#/definitions/types.ProjectAgentDisplay'
+      goose:
+        $ref: '#/definitions/types.ProjectAgentGoose'
       model:
         type: string
       name:
@@ -6950,6 +7193,10 @@ definitions:
       active_headless_sandboxes:
         type: integer
       max_concurrent_desktops:
+        description: |-
+          MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+          organisation when the session has an org, per user otherwise.
+          -1 = unlimited.
         type: integer
       max_desktop_sandboxes:
         type: integer
@@ -7621,8 +7868,6 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
-      active_concurrent_desktops:
-        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -7643,8 +7888,6 @@ definitions:
       edition:
         description: '"mac-desktop", "server", "cloud", etc.'
         type: string
-      eval_user_id:
-        type: string
       filestore_prefix:
         type: string
       google_analytics_frontend:
@@ -7654,9 +7897,12 @@ definitions:
         type: boolean
       latest_version:
         type: string
-      license:
-        $ref: '#/definitions/types.FrontendLicenseInfo'
       max_concurrent_desktops:
+        description: |-
+          MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+          organisation when the session has an org, per user otherwise.
+          -1 = unlimited. Note: /config is unauthenticated, so this is the
+          Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
       organizations_create_enabled_for_non_admins:
         type: boolean
@@ -8458,6 +8704,20 @@ definitions:
           embed-block cleanup on completion / cancellation. The Payload is opaque
           to the spectask service — each source's own package owns the shape.
           See design/tasks/002021_investigate-notion/ "Generalisation".
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -8614,6 +8874,35 @@ definitions:
     properties:
       archived:
         type: boolean
+    type: object
+  types.SpecTaskAttachment:
+    properties:
+      caption:
+        description: optional user note
+        type: string
+      committed_sha:
+        description: helix-specs commit hash once staged
+        type: string
+      created_at:
+        type: string
+      filename:
+        description: original filename, sanitised
+        type: string
+      id:
+        description: att_01k...
+        type: string
+      mime_type:
+        type: string
+      project_id:
+        description: denormalised for fast authz
+        type: string
+      size_bytes:
+        type: integer
+      spec_task_id:
+        type: string
+      user_id:
+        description: who uploaded
+        type: string
     type: object
   types.SpecTaskDesignReview:
     properties:
@@ -8878,6 +9167,7 @@ definitions:
     - done
     - spec_failed
     - implementation_failed
+    - cancelled
     type: string
     x-enum-comments:
       TaskStatusBacklog: Initial state, waiting for spec generation
@@ -8911,6 +9201,7 @@ definitions:
     - TaskStatusDone
     - TaskStatusSpecFailed
     - TaskStatusImplementationFailed
+    - SpecTaskStatusCancelled
   types.SpecTaskUpdateRequest:
     properties:
       assignee_id:
@@ -9014,6 +9305,20 @@ definitions:
           embed-block cleanup on completion / cancellation. The Payload is opaque
           to the spectask service — each source's own package owns the shape.
           See design/tasks/002021_investigate-notion/ "Generalisation".
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -9381,8 +9686,6 @@ definitions:
         type: string
       max_concurrent_desktop_sandboxes:
         type: integer
-      max_concurrent_desktops:
-        type: integer
       max_concurrent_headless_sandboxes:
         type: integer
       optimus_generation_model:
@@ -9452,9 +9755,6 @@ definitions:
         description: Kodit vision embedding model configuration
         type: string
       max_concurrent_desktop_sandboxes:
-        type: integer
-      max_concurrent_desktops:
-        description: Per user
         type: integer
       max_concurrent_headless_sandboxes:
         type: integer
@@ -9767,7 +10067,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
@@ -10107,11 +10407,113 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.UsageBreakdownRow:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      email:
+        type: string
+      ended_at:
+        type: string
+      id:
+        type: string
+      interaction_id:
+        type: string
+      last_activity_at:
+        type: string
+      latency_ms:
+        type: number
+      model:
+        type: string
+      name:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      request_size_bytes:
+        type: integer
+      response_size_bytes:
+        type: integer
+      session_count:
+        type: integer
+      session_id:
+        type: string
+      started_at:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
+        type: integer
+      unique_apps:
+        type: integer
+      unique_projects:
+        type: integer
+      unique_sessions:
+        type: integer
+      unique_users:
+        type: integer
+      username:
+        type: string
+    type: object
+  types.UsageFilterOption:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      username:
+        type: string
+    type: object
+  types.UsageModelTimeSeries:
+    properties:
+      id:
+        type: string
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+    type: object
   types.User:
     properties:
       admin:
         description: if the ID of the user is contained in the env setting
         type: boolean
+      alpha_features:
+        description: |-
+          AlphaFeatures lists the feature flags this user has been granted
+          access to. Server-enforced via requireFeature middleware — the
+          frontend uses it only to decide whether to render the entry
+          point. Granted per-user via SQL (no deploy).
+        items:
+          type: string
+        type: array
       app_id:
         description: if the token is associated with an app
         type: string
@@ -10144,6 +10546,14 @@ definitions:
       organization_id:
         description: Organization this API key is scoped to (ephemeral keys)
         type: string
+      pending_admin_credits_on_first_org:
+        description: |-
+          PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+          /admin/users/{id}/credits endpoint when the user has no owned org yet.
+          Consumed by consumeUserAdminCredits on first owned org, then cleared.
+          Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+          without entangling the grant with trial-state UI or revocation flows.
+        type: number
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -10224,6 +10634,26 @@ definitions:
       top_p:
         type: number
     type: object
+  types.UserConfig:
+    properties:
+      color_scheme:
+        description: |-
+          ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+          Empty string means follow OS preference. Propagated to the GNOME desktop
+          (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+          by this user.
+        type: string
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
+      stripe_customer_id:
+        type: string
+      stripe_subscription_active:
+        type: boolean
+      stripe_subscription_id:
+        type: string
+    type: object
   types.UserGuidelinesResponse:
     properties:
       guidelines:
@@ -10264,6 +10694,10 @@ definitions:
     properties:
       admin:
         type: boolean
+      alpha_features:
+        items:
+          type: string
+        type: array
       email:
         type: string
       id:
@@ -10304,6 +10738,20 @@ definitions:
         type: integer
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.UserStatus:
+    properties:
+      admin:
+        type: boolean
+      config:
+        $ref: '#/definitions/types.UserConfig'
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      slug:
+        description: User slug for GitHub-style URLs
+        type: string
+      user:
+        type: string
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -11027,6 +11475,37 @@ paths:
       summary: Approve a user (Admin only)
       tags:
       - users
+  /api/v1/admin/users/{id}/credits:
+    post:
+      consumes:
+      - application/json
+      description: Adds credits to the wallet of the user's oldest owned org, or stashes
+        the grant on the user for application at first org creation. Works regardless
+        of subscription state, unlike adminActivateTrial.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Credits to grant (must be > 0)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.GrantCreditsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.GrantCreditsResponse'
+      security:
+      - BearerAuth: []
+      summary: Grant credits to a user (Admin, cloud only)
+      tags:
+      - users
   /api/v1/admin/users/{id}/password:
     put:
       consumes:
@@ -11094,9 +11573,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Stash a trial intent on the user, or immediately create a Stripe
-        trial subscription on the user''s oldest-owned org. Defaults: 90 days, $100
-        credits.'
+      description: Stash a trial intent on the user, or immediately create a Stripe
+        trial subscription on the user's oldest-owned org. Days defaults to 90; credits
+        are taken verbatim from the request (0 means no admin top-up beyond what Stripe's
+        subscription invoice contributes).
       parameters:
       - description: User ID
         in: path
@@ -16797,6 +17277,46 @@ paths:
       summary: Start project exploratory session
       tags:
       - Projects
+  /api/v1/projects/{id}/goose-recipes:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        Returns the parsed Goose recipes declared on the project's
+        default agent, including each recipe's parameter schema so
+        the spec-task creation form can render dynamic inputs.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ProjectGooseRecipe'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List Goose recipes available to a project
+      tags:
+      - Projects
   /api/v1/projects/{id}/guidelines-history:
     get:
       consumes:
@@ -20673,6 +21193,130 @@ paths:
       summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments:
+    get:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskAttachment'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List attachments for a spec task
+      tags:
+      - spec-driven-tasks
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one or more files (images, PDFs, text) to be made available
+        to the agent.
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Files to attach (multipart form data, field 'files')
+        in: formData
+        name: files
+        required: true
+        type: file
+      - description: Optional caption for the attachment (single file uploads only)
+        in: formData
+        name: caption
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskAttachment'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Upload attachments for a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments/{attId}:
+    delete:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete a spec task attachment
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments/{attId}/content:
+    get:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attId
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Stream the bytes of a spec task attachment
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/clone:
     post:
       consumes:
@@ -21157,6 +21801,22 @@ paths:
       summary: Get sample repository types
       tags:
       - specs
+  /api/v1/status:
+    get:
+      description: |-
+        Per-user status: credits, admin flag, slug, user config, plus the
+        licence payload (moved here from /api/v1/config so it is not
+        disclosed unauthenticated).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatus'
+      security:
+      - BearerAuth: []
+      summary: Get user status
+      tags:
+      - config
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription
@@ -21492,6 +22152,114 @@ paths:
       security:
       - BearerAuth: []
       summary: Get daily usage
+      tags:
+      - usage
+  /api/v1/usage/org-summary:
+    get:
+      consumes:
+      - application/json
+      description: Get organization usage summary with breakdowns by user, project,
+        app, session, task/model, and model/provider
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: User ID
+        in: query
+        name: user_id
+        type: string
+      - description: Project ID
+        in: query
+        name: project_id
+        type: string
+      - description: App ID
+        in: query
+        name: app_id
+        type: string
+      - description: Session ID
+        in: query
+        name: session_id
+        type: string
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      - description: Model
+        in: query
+        name: model
+        type: string
+      - description: User search
+        in: query
+        name: user_search
+        type: string
+      - description: User page size
+        in: query
+        name: user_limit
+        type: integer
+      - description: User page offset
+        in: query
+        name: user_offset
+        type: integer
+      - description: Project page size
+        in: query
+        name: project_limit
+        type: integer
+      - description: Project page offset
+        in: query
+        name: project_offset
+        type: integer
+      - description: Task page size
+        in: query
+        name: task_limit
+        type: integer
+      - description: Task page offset
+        in: query
+        name: task_offset
+        type: integer
+      - description: Session page size
+        in: query
+        name: session_limit
+        type: integer
+      - description: Session page offset
+        in: query
+        name: session_offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrgUsageSummaryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization usage summary
       tags:
       - usage
   /api/v1/users:

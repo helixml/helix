@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -561,4 +562,101 @@ func TestResilientProxy_ServerToClientFlow(t *testing.T) {
 	cancel()
 	proxy.Close()
 	close(serverSendCh)
+}
+
+// TestResilientProxy_CloseClientWithCode verifies that we emit a well-formed
+// unmasked WebSocket Close frame (RFC 6455 §5.5.1) on the client connection
+// with the given status code and reason. This is what lets the browser
+// distinguish "the server intentionally replaced your connection" from "the
+// network died" — see design/2026-05-21-stream-reconnect-storm-root-cause.md.
+func TestResilientProxy_CloseClientWithCode(t *testing.T) {
+	server := newTestServer(t, true)
+	defer server.close()
+
+	clientConn, proxyClientConn := net.Pipe()
+	defer clientConn.Close()
+	defer proxyClientConn.Close()
+
+	serverConn, err := net.Dial("tcp", server.addr)
+	if err != nil {
+		t.Fatalf("Failed to dial server: %v", err)
+	}
+	if _, err := server.waitForConn(time.Second); err != nil {
+		t.Fatalf("Server didn't accept: %v", err)
+	}
+
+	p := NewResilientProxy(ResilientProxyConfig{
+		SessionID:  "test-supersede",
+		ClientConn: proxyClientConn,
+		ServerConn: serverConn,
+		DialFunc: func(ctx context.Context) (net.Conn, error) {
+			return net.Dial("tcp", server.addr)
+		},
+		UpgradeFunc: nil,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = p.Run(ctx) }()
+
+	// Read the close frame off the client side
+	got := make(chan []byte, 1)
+	go func() {
+		buf := make([]byte, 64)
+		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, err := clientConn.Read(buf)
+		if err != nil {
+			got <- nil
+			return
+		}
+		got <- buf[:n]
+	}()
+
+	if err := p.CloseClientWithCode(4000, "superseded"); err != nil {
+		t.Fatalf("CloseClientWithCode: %v", err)
+	}
+
+	select {
+	case frame := <-got:
+		if frame == nil {
+			t.Fatal("client read failed")
+		}
+		// Expected: 0x88, 0x0C, 0x0F, 0xA0, 's','u','p','e','r','s','e','d','e','d'
+		want := []byte{0x88, 0x0C, 0x0F, 0xA0, 's', 'u', 'p', 'e', 'r', 's', 'e', 'd', 'e', 'd'}
+		if len(frame) != len(want) {
+			t.Fatalf("frame length mismatch: got %d want %d (frame=%x)", len(frame), len(want), frame)
+		}
+		for i := range want {
+			if frame[i] != want[i] {
+				t.Fatalf("frame byte %d: got 0x%02x want 0x%02x (frame=%x)", i, frame[i], want[i], frame)
+			}
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for close frame")
+	}
+
+	cancel()
+	p.Close()
+}
+
+// TestResilientProxy_CloseClientWithCode_RejectsOversizeReason verifies the
+// short-form payload guard rejects reasons that would exceed 125 bytes (the
+// max for a short-form WebSocket frame payload).
+func TestResilientProxy_CloseClientWithCode_RejectsOversizeReason(t *testing.T) {
+	clientConn, proxyClientConn := net.Pipe()
+	defer clientConn.Close()
+	defer proxyClientConn.Close()
+
+	p := NewResilientProxy(ResilientProxyConfig{
+		SessionID:   "test-oversize",
+		ClientConn:  proxyClientConn,
+		ServerConn:  &net.TCPConn{}, // unused
+		DialFunc:    func(ctx context.Context) (net.Conn, error) { return nil, nil },
+		UpgradeFunc: nil,
+	})
+
+	oversized := strings.Repeat("x", 124) // 124 + 2-byte code = 126 > 125
+	if err := p.CloseClientWithCode(4000, oversized); err == nil {
+		t.Fatal("expected error for oversized reason, got nil")
+	}
 }

@@ -26,6 +26,7 @@ import {
   FileQuestionMark,
   MessageCircle,
   Kanban,
+  Sparkles,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -443,14 +444,25 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       })
     }
 
-    // Add org settings button when we have an org context
+    // Add org settings button when we have an org context.
+    // Highlights for any of the grouped admin pages (general, members,
+    // cost, access), and lands on General by default since that's the
+    // canonical "settings" leaf.
     if (currentOrgSlug) {
       baseButtons.push(
         {
           icon: <Settings size={NAV_BUTTON_SIZE} />,
           tooltip: "Organization settings",
-          isActive: isActive('org_people'),
-          onClick: () => orgNavigateTo('org_people', { org_id: currentOrgSlug }),
+          isActive: isActive([
+            'org_general',
+            'org_settings',
+            'org_people',
+            'org_teams',
+            'org_billing',
+            'org_usage',
+            'org_api_keys',
+          ]),
+          onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
         }
       )
@@ -766,6 +778,56 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 }}
               >
                 Admin Panel
+              </Typography>
+            </Box>
+          )}
+
+          {/* helix-org alpha entry — only rendered for users granted
+              the 'helix-org' flag in alpha_features. Opens the
+              embedded helix-org UI (server-gated via requireFeature
+              middleware; this is just the cosmetic entry point). */}
+          {account.user?.alpha_features?.includes('helix-org') && (
+            <Box
+              onClick={(e) => {
+                e.stopPropagation()
+                window.open('/ui/', '_blank', 'noopener,noreferrer')
+                if (sidebarVisible && menuItemsExpanded) {
+                  setMenuItemsExpanded(false)
+                }
+                if (!sidebarVisible && compactExpanded) {
+                  setCompactExpanded(false)
+                }
+              }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                },
+              }}
+            >
+              <Sparkles
+                size={16}
+                style={{
+                  marginRight: '10px',
+                  color: lightTheme.textColorFaded,
+                }}
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: lightTheme.textColor,
+                  fontSize: '0.875rem',
+                  fontWeight: 400,
+                  lineHeight: 1.2,
+                }}
+              >
+                helix-org (alpha)
               </Typography>
             </Box>
           )}

@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	defaultTrialDays    = 90
-	defaultTrialCredits = 100.0
+	defaultTrialDays = 90
 )
 
 // ActivateTrialRequest is the body for POST /admin/users/{id}/trial-activate.
@@ -132,7 +131,7 @@ func (s *HelixAPIServer) consumeUserTrialIntent(ctx context.Context, user *types
 
 // adminActivateTrial godoc
 // @Summary Activate a trial for a user (Admin, cloud only)
-// @Description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.
+// @Description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
 // @Tags    users
 // @Accept  json
 // @Produce json
@@ -168,8 +167,13 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 	if body.Days <= 0 {
 		body.Days = defaultTrialDays
 	}
-	if body.Credits <= 0 {
-		body.Credits = defaultTrialCredits
+	// Credits intentionally not defaulted: the admin form value is the
+	// source of truth. Silent defaulting (previously 100) compounded with
+	// the Stripe trial-invoice webhook credit ($product.metadata.credits)
+	// produced surprise wallet balances that didn't match what the admin
+	// typed.
+	if body.Credits < 0 {
+		return nil, system.NewHTTPError400("credits must be zero or positive")
 	}
 
 	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})

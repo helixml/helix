@@ -43,6 +43,25 @@ type ServerConfig struct {
 	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
 	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
+	// SandboxReaperInterval is how often the sandbox-instance reaper scans
+	// the sandbox_instances table for stale rows and flips their status to
+	// offline. Used in conjunction with SandboxStaleThreshold and
+	// SandboxDispatchStaleThreshold.
+	SandboxReaperInterval time.Duration `envconfig:"HELIX_SANDBOX_REAPER_INTERVAL" default:"1m"`
+
+	// SandboxStaleThreshold is the inactivity threshold after which a
+	// sandbox row is flipped to status="offline" by the reaper. Should
+	// comfortably exceed the heartbeat cadence so transient lag doesn't
+	// reap a healthy Runner.
+	SandboxStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_STALE_THRESHOLD" default:"5m"`
+
+	// SandboxDispatchStaleThreshold is the tighter freshness filter
+	// applied by FindAvailableSandboxInstance when selecting a Runner
+	// for new work. Set lower than SandboxStaleThreshold so freshly-dead
+	// Runners are excluded from dispatch well before the reaper flips
+	// their DB row.
+	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
+
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
@@ -55,6 +74,14 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
+
+	// HelixOrgEnabled is the deployment-wide kill switch for the
+	// embedded helix-org alpha. When false (the default), none of
+	// the helix-org init runs and none of its HTTP surfaces
+	// (/api/v1/org/, /ui/, /api/v1/mcp/helix-org/) are mounted —
+	// the per-user alpha feature flag in the DB has no effect.
+	// Set HELIX_ORG_ENABLED=true to opt in.
+	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.
@@ -339,7 +366,7 @@ type Stripe struct {
 	RequireActiveSubscription bool `envconfig:"STRIPE_BILLING_REQUIRE_ACTIVE_SUBSCRIPTION" default:"false" description:"Whether require an active subscription before allowing to use the product"` //
 
 	MinimumInferenceBalance float64 `envconfig:"STRIPE_MINIMUM_INFERENCE_BALANCE" default:"0.01" description:"Minimum balance required for an inference call."`
-	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"0" description:"The initial balance seeded into a newly created wallet. Defaults to 0 so new signups arrive with an empty wallet; on-prem deployments that want to hand out free trial credits can set this to a positive value."`
 
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
@@ -362,6 +389,15 @@ type TextExtractor struct {
 // RAGProviderName is the string stamped into KnowledgeVersion records to
 // identify which backend indexed them. Kodit is the only RAG backend.
 const RAGProviderName = "kodit"
+
+// Sandbox reaper defaults. Use when ServerConfig values are zero (e.g.
+// the field was never explicitly configured and envconfig left it
+// unparsed). Keep in sync with the `default:` tags above.
+var (
+	DefaultSandboxReaperInterval         = time.Minute
+	DefaultSandboxStaleThreshold         = 5 * time.Minute
+	DefaultSandboxDispatchStaleThreshold = 90 * time.Second
+)
 
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
@@ -548,12 +584,18 @@ type SubscriptionQuotas struct {
 	Projects struct {
 		Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true" description:"Enable project quotas"`
 		Free    struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// without an active Stripe subscription. Enforced per organisation
+			// when the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
 			MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
 			MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
 			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
 		}
 		Pro struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// with an active Stripe subscription. Enforced per organisation when
+			// the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
 			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
 			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`

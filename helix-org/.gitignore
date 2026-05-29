@@ -1,0 +1,33 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local
+
+# Media
+*.mp4
+*.gif
+*.png
+
+# Notes
+TODO.md
+design/
+
+# Data
+*.db
+envs/

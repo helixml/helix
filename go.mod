@@ -28,6 +28,7 @@ require (
 	github.com/function61/holepunch-server v0.0.0-20210312073819-8f5e8775e813
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/getsentry/sentry-go v0.25.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
@@ -38,6 +39,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/google/go-github/v57 v57.0.0
 	github.com/google/go-github/v61 v61.0.0
+	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
@@ -52,6 +54,7 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
+	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/nats-io/nats-server/v2 v2.10.14
 	github.com/nats-io/nats.go v1.38.0
 	github.com/nikoksr/notify v0.41.0
@@ -70,12 +73,13 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/tmc/langchaingo v0.1.12
+	github.com/tylermmorton/tmpl v1.1.0
 	github.com/xanzy/go-gitlab v0.115.0
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0
 	golang.org/x/crypto v0.49.0
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
-	golang.org/x/oauth2 v0.32.0
+	golang.org/x/oauth2 v0.35.0
 	golang.org/x/term v0.41.0
 	google.golang.org/api v0.228.0
 	google.golang.org/genai v1.51.0
@@ -130,6 +134,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/go-git/v5 v5.17.2 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
@@ -147,7 +152,6 @@ require (
 	github.com/gomlx/onnx-gomlx v0.4.2-0.20260327164137-4e2832549fc1 // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/go-github/v75 v75.0.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/graarh/golang-socketio v0.0.0-20170510162725-2c44953b9b5f // indirect
 	github.com/grokify/mogo v0.64.12 // indirect
@@ -181,6 +185,9 @@ require (
 	github.com/otiai10/gosseract/v2 v2.4.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
@@ -206,6 +213,10 @@ require (
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
+	modernc.org/libc v1.22.5 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.5.0 // indirect
+	modernc.org/sqlite v1.23.1 // indirect
 )
 
 require (
@@ -309,7 +320,7 @@ require (
 	github.com/ysmood/got v0.40.0 // indirect
 	github.com/ysmood/gson v0.7.3 // indirect
 	github.com/ysmood/leakless v0.9.0 // indirect
-	github.com/yuin/goldmark v1.7.16
+	github.com/yuin/goldmark v1.8.2
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
@@ -326,7 +337,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/text v0.35.0
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect

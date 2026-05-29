@@ -1763,30 +1763,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 </Button>
               </Cell>
             </Row>
-            {account.serverConfig.eval_user_id && (
-              <Row sx={{ mt: 2 }}>
-                <Cell grow>
-                  <Typography>
-                    Clone the session into the evals account:
-                  </Typography>
-                </Cell>
-                <Cell sx={{ width: '300px', textAlign: 'right' }}>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disabled={loading}
-                    onClick={() => {
-                    // TODO: Implement clone all into evals account functionality
-                    setShowCloneAllWindow(false)
-                  }}
-                    sx={{ ml: 2, width: '200px' }}
-                    endIcon={<SendIcon />}
-                  >
-                    evals account
-                  </Button>
-                </Cell>
-              </Row>
-            )}
           </Box>
         </Window>
       )}

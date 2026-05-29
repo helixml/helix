@@ -871,10 +871,11 @@ type StripeUser struct {
 
 // this is given to the frontend as user context
 type UserStatus struct {
-	Admin  bool       `json:"admin"`
-	User   string     `json:"user"`
-	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
-	Config UserConfig `json:"config"`
+	Admin   bool                 `json:"admin"`
+	User    string               `json:"user"`
+	Slug    string               `json:"slug"` // User slug for GitHub-style URLs
+	Config  UserConfig           `json:"config"`
+	License *FrontendLicenseInfo `json:"license,omitempty"`
 }
 
 // a single envelope that is broadcast to users
@@ -1049,7 +1050,6 @@ type ServerConfigForFrontend struct {
 	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
-	EvalUserID                             string               `json:"eval_user_id"`
 	ToolsEnabled                           bool                 `json:"tools_enabled"`
 	AppsEnabled                            bool                 `json:"apps_enabled"`
 	RudderStackWriteKey                    string               `json:"rudderstack_write_key"`
@@ -1058,12 +1058,14 @@ type ServerConfigForFrontend struct {
 	Version                                string               `json:"version"`
 	LatestVersion                          string               `json:"latest_version"`
 	DeploymentID                           string               `json:"deployment_id"`
-	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
-	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
-	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
+	// MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+	// organisation when the session has an org, per user otherwise.
+	// -1 = unlimited. Note: /config is unauthenticated, so this is the
+	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
+	MaxConcurrentDesktops int                  `json:"max_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
@@ -1490,6 +1492,16 @@ type AssistantConfig struct {
 	// "subscription": uses OAuth credentials directly (e.g., Claude subscription).
 	CodeAgentCredentialType CodeAgentCredentialType `json:"code_agent_credential_type,omitempty" yaml:"code_agent_credential_type,omitempty"`
 
+	// GooseRecipeRepoURL is the external git URL of the attached repository
+	// that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+	// Resolved against attached GitRepositories at sandbox-start time.
+	// Empty means recipes are looked up under the primary repository.
+	GooseRecipeRepoURL string `json:"goose_recipe_repo_url,omitempty" yaml:"goose_recipe_repo_url,omitempty"`
+
+	// GooseRecipes are the project-declared Goose recipes (slash-command name
+	// + repo-relative path to the recipe YAML).
+	GooseRecipes []AssistantGooseRecipe `json:"goose_recipes,omitempty" yaml:"goose_recipes,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
@@ -1561,6 +1573,14 @@ type AssistantConfig struct {
 type AssistantProjectManager struct {
 	Enabled   bool   `json:"enabled" yaml:"enabled"`
 	ProjectID string `json:"project_id" yaml:"project_id"`
+}
+
+// AssistantGooseRecipe is a project-declared Goose recipe persisted on the
+// agent app config. Path is repo-relative inside GooseRecipeRepoURL (or the
+// primary repo when GooseRecipeRepoURL is empty).
+type AssistantGooseRecipe struct {
+	Name string `json:"name" yaml:"name"`
+	Path string `json:"path" yaml:"path"`
 }
 
 type AssistantBrowser struct {
@@ -2279,6 +2299,37 @@ type CodeAgentConfig struct {
 	// MaxOutputTokens is the model's max completion tokens
 	// Looked up from model_info.json, 0 if not found
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+
+	// GooseRecipes lists project-declared Goose recipes with absolute paths
+	// resolved inside the desktop container. Only set when Runtime is
+	// goose_code; consumed by settings-sync-daemon to write the goose
+	// slash_commands config.
+	GooseRecipes []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
+	// GooseRecipeRootDir is the absolute container path to the root of the
+	// recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+	// resolve relative paths correctly).
+	GooseRecipeRootDir string `json:"goose_recipe_root_dir,omitempty"`
+	// GooseBakedRecipe, when set, holds a single recipe with parameters
+	// pre-substituted, used by Phase 2b spec-task automation. The daemon
+	// writes it to disk and registers a single slash_command so an initial
+	// "/<slug>" prompt fires the recipe.
+	GooseBakedRecipe *CodeAgentBakedRecipe `json:"goose_baked_recipe,omitempty"`
+}
+
+// CodeAgentGooseRecipe is the daemon-facing view of a project-declared
+// Goose recipe — Path has been resolved to an absolute container path.
+type CodeAgentGooseRecipe struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// CodeAgentBakedRecipe is a single Goose recipe with parameters
+// pre-substituted, ready for the daemon to write to disk.
+type CodeAgentBakedRecipe struct {
+	// Name is the slash-command slug (no leading slash).
+	Name string `json:"name"`
+	// Content is the substituted recipe YAML (full file content).
+	Content string `json:"content"`
 }
 
 type RunnerLLMInferenceRequest struct {
@@ -2476,13 +2527,14 @@ type AdminResetPasswordRequest struct {
 }
 
 type UserResponse struct {
-	ID                  string `json:"id"`
-	Email               string `json:"email"`
-	Token               string `json:"token"`
-	Name                string `json:"name"`
-	Admin               bool   `json:"admin"`
-	OnboardingCompleted bool   `json:"onboarding_completed"`
-	Waitlisted          bool   `json:"waitlisted"`
+	ID                  string   `json:"id"`
+	Email               string   `json:"email"`
+	Token               string   `json:"token"`
+	Name                string   `json:"name"`
+	Admin               bool     `json:"admin"`
+	OnboardingCompleted bool     `json:"onboarding_completed"`
+	Waitlisted          bool     `json:"waitlisted"`
+	AlphaFeatures       []string `json:"alpha_features"`
 }
 
 type AuthenticatedResponse struct {
@@ -2508,14 +2560,14 @@ type ContextMenuAction struct {
 
 type UsageMetric struct {
 	ID                string    `json:"id" gorm:"primaryKey"`
-	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
+	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
 	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
-	OrganizationID    string    `json:"organization_id"`
-	InteractionID     string    `json:"interaction_id"`
+	OrganizationID    string    `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
+	InteractionID     string    `json:"interaction_id" gorm:"index"`
 	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
 	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	UserID            string    `json:"user_id"`
+	UserID            string    `json:"user_id" gorm:"index"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`
 	PromptTokens      int       `json:"prompt_tokens"`
@@ -2581,6 +2633,86 @@ type AggregatedUsageMetric struct {
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
 	TotalRequests     int     `json:"total_requests"`
+}
+
+type UsageBreakdownRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Email             string     `json:"email,omitempty"`
+	Username          string     `json:"username,omitempty"`
+	Provider          string     `json:"provider,omitempty"`
+	Model             string     `json:"model,omitempty"`
+	SessionID         string     `json:"session_id,omitempty"`
+	InteractionID     string     `json:"interaction_id,omitempty"`
+	PromptTokens      int        `json:"prompt_tokens"`
+	CompletionTokens  int        `json:"completion_tokens"`
+	TotalTokens       int        `json:"total_tokens"`
+	CacheReadTokens   int        `json:"cache_read_tokens"`
+	CacheWriteTokens  int        `json:"cache_write_tokens"`
+	PromptCost        float64    `json:"prompt_cost"`
+	CompletionCost    float64    `json:"completion_cost"`
+	CacheReadCost     float64    `json:"cache_read_cost"`
+	CacheWriteCost    float64    `json:"cache_write_cost"`
+	TotalCost         float64    `json:"total_cost"`
+	LatencyMs         float64    `json:"latency_ms"`
+	RequestSizeBytes  int        `json:"request_size_bytes"`
+	ResponseSizeBytes int        `json:"response_size_bytes"`
+	TotalRequests     int        `json:"total_requests"`
+	SessionCount      int        `json:"session_count"`
+	UniqueUsers       int        `json:"unique_users"`
+	UniqueSessions    int        `json:"unique_sessions"`
+	UniqueProjects    int        `json:"unique_projects"`
+	UniqueApps        int        `json:"unique_apps"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+}
+
+type UsageModelTimeSeries struct {
+	ID       string                  `json:"id"`
+	Name     string                  `json:"name"`
+	Provider string                  `json:"provider"`
+	Model    string                  `json:"model"`
+	Metrics  []AggregatedUsageMetric `json:"metrics"`
+}
+
+type UsageFilterOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email,omitempty"`
+	Username string `json:"username,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+type OrgUsageSummaryResponse struct {
+	Metrics         []*AggregatedUsageMetric `json:"metrics"`
+	Projects        []UsageBreakdownRow      `json:"projects"`
+	ProjectModels   []UsageBreakdownRow      `json:"project_models"`
+	Apps            []UsageBreakdownRow      `json:"apps"`
+	Tasks           []UsageBreakdownRow      `json:"tasks"`
+	Sessions        []UsageBreakdownRow      `json:"sessions"`
+	Models          []UsageBreakdownRow      `json:"models"`
+	ModelTimeSeries []UsageModelTimeSeries   `json:"model_time_series"`
+	Users           []UsageBreakdownRow      `json:"users"`
+	UsersTotal      int64                    `json:"users_total"`
+	ProjectsTotal   int64                    `json:"projects_total"`
+	TasksTotal      int64                    `json:"tasks_total"`
+	SessionsTotal   int64                    `json:"sessions_total"`
+	ActiveUsers     int                      `json:"active_users"`
+	ActiveSessions  int                      `json:"active_sessions"`
+	ActiveProjects  int                      `json:"active_projects"`
+	ActiveApps      int                      `json:"active_apps"`
+	FilterUsers     []UsageFilterOption      `json:"filter_users"`
+	FilterProjects  []UsageFilterOption      `json:"filter_projects"`
+	FilterApps      []UsageFilterOption      `json:"filter_apps"`
+	FilterModels    []UsageFilterOption      `json:"filter_models"`
+	ExportProjects  []UsageBreakdownRow      `json:"export_projects"`
+	ExportApps      []UsageBreakdownRow      `json:"export_apps"`
+	ExportTasks     []UsageBreakdownRow      `json:"export_tasks"`
+	ExportSessions  []UsageBreakdownRow      `json:"export_sessions"`
+	ExportModels    []UsageBreakdownRow      `json:"export_models"`
+	ExportUsers     []UsageBreakdownRow      `json:"export_users"`
 }
 
 // Response for the user access endpoint

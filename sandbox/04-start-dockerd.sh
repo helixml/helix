@@ -244,11 +244,31 @@ load_desktop_image() {
     fi
 }
 
-# Load desktop images (sway is required, others are optional)
-load_desktop_image "sway" "false"
-load_desktop_image "zorin" "false"
-load_desktop_image "ubuntu" "false"
-load_desktop_image "kde" "false"
+# Load desktop images.
+#
+# Production desktops are pulled on every startup. Experimental desktops are
+# only pulled when listed in $HELIX_EXPERIMENTAL_DESKTOPS (space-separated,
+# e.g. "sway zorin"). Keep this categorization in sync with PRODUCTION_DESKTOPS
+# / AVAILABLE_EXPERIMENTAL_DESKTOPS in the top-level `stack` script.
+PRODUCTION_DESKTOPS=("ubuntu")
+AVAILABLE_EXPERIMENTAL_DESKTOPS=("sway" "zorin" "xfce" "kde")
+
+for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    load_desktop_image "$desktop" "false"
+done
+
+declare -A ENABLED_EXPERIMENTAL=()
+for desktop in ${HELIX_EXPERIMENTAL_DESKTOPS:-}; do
+    ENABLED_EXPERIMENTAL[$desktop]=1
+done
+
+for desktop in "${AVAILABLE_EXPERIMENTAL_DESKTOPS[@]}"; do
+    if [ -n "${ENABLED_EXPERIMENTAL[$desktop]:-}" ]; then
+        load_desktop_image "$desktop" "false"
+    else
+        echo "ℹ️  helix-${desktop} is experimental; skipping pull (set HELIX_EXPERIMENTAL_DESKTOPS=\"${desktop} ...\" to enable)"
+    fi
+done
 
 # ================================================================================
 # Clean up old desktop images to free disk space

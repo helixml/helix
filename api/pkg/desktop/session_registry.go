@@ -3,12 +3,12 @@ package desktop
 
 import (
 	"encoding/binary"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog/log"
 )
 
 // User colors for multi-player cursors (Figma-style palette)
@@ -99,10 +99,11 @@ func (r *SessionRegistry) cleanupStaleClients() {
 
 			// Remove stale clients
 			for _, clientID := range staleClientIDs {
-				slog.Info("[MULTIPLAYER] Removing stale client",
-					"sessionID", sessionID,
-					"clientID", clientID,
-					"timeout", staleClientTimeout)
+				log.Info().
+					Str("sessionID", sessionID).
+					Uint32("clientID", clientID).
+					Dur("timeout", staleClientTimeout).
+					Msg("[MULTIPLAYER] Removing stale client")
 				session.clients.Delete(clientID)
 				r.broadcastUserLeft(sessionID, clientID)
 			}
@@ -131,11 +132,12 @@ func (r *SessionRegistry) UpdateClientActivity(sessionID string, clientID uint32
 // If clientUniqueID is non-empty and a client with the same ID already exists in the session,
 // the old client is evicted (WebSocket closed, triggering cleanup in the old handler goroutine).
 func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, avatarURL, clientUniqueID string, conn *websocket.Conn, wsMu *sync.Mutex) *ConnectedClient {
-	slog.Info("[MULTIPLAYER] RegisterClient called",
-		"sessionID", sessionID,
-		"userID", userID,
-		"userName", userName,
-		"clientUniqueID", clientUniqueID)
+	log.Info().
+		Str("sessionID", sessionID).
+		Str("userID", userID).
+		Str("userName", userName).
+		Str("clientUniqueID", clientUniqueID).
+		Msg("[MULTIPLAYER] RegisterClient called")
 	// Get or create session
 	sessionI, _ := r.sessions.LoadOrStore(sessionID, &SessionClients{})
 	session := sessionI.(*SessionClients)
@@ -155,10 +157,11 @@ func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, ava
 			return true
 		})
 		for i, id := range evictIDs {
-			slog.Info("[MULTIPLAYER] Evicting stale client (same clientUniqueID reconnected)",
-				"sessionID", sessionID,
-				"evictedClientID", id,
-				"clientUniqueID", clientUniqueID)
+			log.Info().
+				Str("sessionID", sessionID).
+				Uint32("evictedClientID", id).
+				Str("clientUniqueID", clientUniqueID).
+				Msg("[MULTIPLAYER] Evicting stale client (same clientUniqueID reconnected)")
 			session.clients.Delete(id)
 			r.broadcastUserLeft(sessionID, id)
 			// Close old connection's underlying TCP conn to unblock its handler goroutine.
@@ -214,12 +217,14 @@ func (r *SessionRegistry) sendSelfId(client *ConnectedClient) {
 	binary.LittleEndian.PutUint32(msg[1:5], client.ID)
 
 	if err := client.sendMessage(websocket.BinaryMessage, msg); err != nil {
-		slog.Error("[MULTIPLAYER] sendSelfId: failed to send",
-			"clientID", client.ID,
-			"err", err)
+		log.Error().
+			Err(err).
+			Uint32("clientID", client.ID).
+			Msg("[MULTIPLAYER] sendSelfId: failed to send")
 	} else {
-		slog.Info("[MULTIPLAYER] sendSelfId: sent to client",
-			"clientID", client.ID)
+		log.Info().
+			Uint32("clientID", client.ID).
+			Msg("[MULTIPLAYER] sendSelfId: sent to client")
 	}
 }
 
@@ -251,9 +256,10 @@ func (r *SessionRegistry) BroadcastCursorPosition(sessionID string, fromClientID
 	if !ok {
 		// Log only first 5 times to avoid spam
 		if broadcastCursorMissCount.Add(1) <= 5 {
-			slog.Warn("[MULTIPLAYER] BroadcastCursorPosition: session not found",
-				"sessionID", sessionID,
-				"fromClientID", fromClientID)
+			log.Warn().
+				Str("sessionID", sessionID).
+				Uint32("fromClientID", fromClientID).
+				Msg("[MULTIPLAYER] BroadcastCursorPosition: session not found")
 		}
 		return
 	}
@@ -304,11 +310,12 @@ func (r *SessionRegistry) BroadcastCursorPosition(sessionID string, fromClientID
 	// Log every 100 broadcasts to help debug multi-player issues
 	count := broadcastCursorSuccessCount.Add(1)
 	if count <= 10 || count%100 == 0 {
-		slog.Info("[MULTIPLAYER] BroadcastCursorPosition",
-			"sessionID", sessionID,
-			"fromClientID", fromClientID,
-			"sentTo", sentCount,
-			"totalBroadcasts", count)
+		log.Info().
+			Str("sessionID", sessionID).
+			Uint32("fromClientID", fromClientID).
+			Int("sentTo", sentCount).
+			Uint32("totalBroadcasts", count).
+			Msg("[MULTIPLAYER] BroadcastCursorPosition")
 	}
 }
 
@@ -380,20 +387,22 @@ func (r *SessionRegistry) broadcastUserJoined(sessionID string, newClient *Conne
 	session.clients.Range(func(key, value any) bool {
 		client := value.(*ConnectedClient)
 		if err := client.sendMessage(websocket.BinaryMessage, msg); err != nil {
-			slog.Error("[MULTIPLAYER] broadcastUserJoined: failed to send",
-				"targetClientID", client.ID,
-				"newClientID", newClient.ID,
-				"err", err)
+			log.Error().
+				Err(err).
+				Uint32("targetClientID", client.ID).
+				Uint32("newClientID", newClient.ID).
+				Msg("[MULTIPLAYER] broadcastUserJoined: failed to send")
 		} else {
 			sentCount++
 		}
 		return true
 	})
-	slog.Info("[MULTIPLAYER] broadcastUserJoined",
-		"sessionID", sessionID,
-		"newClientID", newClient.ID,
-		"userName", newClient.UserName,
-		"sentTo", sentCount)
+	log.Info().
+		Str("sessionID", sessionID).
+		Uint32("newClientID", newClient.ID).
+		Str("userName", newClient.UserName).
+		Int("sentTo", sentCount).
+		Msg("[MULTIPLAYER] broadcastUserJoined")
 }
 
 // sendExistingUsers sends all existing users to a new client
@@ -438,15 +447,17 @@ func (r *SessionRegistry) sendExistingUsers(sessionID string, newClient *Connect
 		copy(msg[offset:], avatarBytes)
 
 		if err := newClient.sendMessage(websocket.BinaryMessage, msg); err != nil {
-			slog.Error("[MULTIPLAYER] sendExistingUsers: failed to send",
-				"newClientID", newClient.ID,
-				"existingClientID", existingClient.ID,
-				"err", err)
+			log.Error().
+				Err(err).
+				Uint32("newClientID", newClient.ID).
+				Uint32("existingClientID", existingClient.ID).
+				Msg("[MULTIPLAYER] sendExistingUsers: failed to send")
 		} else {
-			slog.Info("[MULTIPLAYER] sendExistingUsers: sent existing user to new client",
-				"newClientID", newClient.ID,
-				"existingClientID", existingClient.ID,
-				"existingUserName", existingClient.UserName)
+			log.Info().
+				Uint32("newClientID", newClient.ID).
+				Uint32("existingClientID", existingClient.ID).
+				Str("existingUserName", existingClient.UserName).
+				Msg("[MULTIPLAYER] sendExistingUsers: sent existing user to new client")
 		}
 		return true
 	})

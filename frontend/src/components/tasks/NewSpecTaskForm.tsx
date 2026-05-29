@@ -25,9 +25,10 @@ import {
   Tooltip,
   IconButton,
 } from "@mui/material";
-import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
+import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
 import { ChevronDown, UserCircle2, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
+import GooseRecipeSelector from "./GooseRecipeSelector";
 import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
@@ -49,9 +50,27 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
+import {
+  SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
+  SPEC_TASK_ATTACHMENT_MAX_BYTES,
+  SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
+  useUploadSpecTaskAttachments,
+} from "../../services/specTaskAttachmentsService";
+
+const ATTACHMENT_ACCEPT_ATTR = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
+  .flatMap(([mime, exts]) => [mime, ...exts])
+  .join(",");
+
+function humanAttachmentSize(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
 
 const LAST_LABELS_KEY = "helix_last_task_labels";
 const DRAFT_KEY_PREFIX = "helix_new_spectask_draft_";
+const LAST_JUST_DO_IT_KEY = "helix_new_spectask_just_do_it";
+const LAST_AUTO_START_KEY = "helix_new_spectask_auto_start";
 
 
 
@@ -117,9 +136,30 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     string[]
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
-  const [justDoItMode, setJustDoItMode] = useState(false);
-  const [autoStart, setAutoStart] = useState(false);
+  // Goose recipe selection — only meaningful when the selected agent's runtime
+  // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
+  // backend skips baking and the agent's declared recipes are still available
+  // as runtime /<name> slash commands inside the desktop.
+  const [selectedRecipeName, setSelectedRecipeName] = useState<string>("");
+  const [recipeParams, setRecipeParams] = useState<Record<string, string>>({});
+  const [justDoItMode, setJustDoItMode] = useState<boolean>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_JUST_DO_IT_KEY) || "false");
+    } catch {
+      return false;
+    }
+  });
+  const [autoStart, setAutoStart] = useState<boolean>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_AUTO_START_KEY) || "false");
+    } catch {
+      return false;
+    }
+  });
   const [isCreating, setIsCreating] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const attachmentInput = useRef<HTMLInputElement | null>(null);
+  const uploadAttachments = useUploadSpecTaskAttachments();
 
   // Empty string = "Unassigned". Pre-filled with the current user below.
   const [assigneeId, setAssigneeId] = useState<string>("");
@@ -279,6 +319,28 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
+  // Determine whether the selected agent is a goose_code agent. We check
+  // the zed_external assistant's code_agent_runtime — without this gate the
+  // recipe selector would render for non-goose agents and just show "no
+  // recipes" forever, which is noisy.
+  const selectedAgentIsGoose = useMemo(() => {
+    if (!selectedHelixAgent || !apps.apps) return false;
+    const app = apps.apps.find((a) => a.id === selectedHelixAgent);
+    if (!app) return false;
+    const assistant = app.config?.helix?.assistants?.find(
+      (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
+    );
+    return assistant?.code_agent_runtime === "goose_code";
+  }, [selectedHelixAgent, apps.apps]);
+
+  // Reset recipe selection when the chosen agent changes — recipe names are
+  // scoped to the agent, so a leftover selection from a previous agent would
+  // be silently ignored at session start.
+  useEffect(() => {
+    setSelectedRecipeName("");
+    setRecipeParams({});
+  }, [selectedHelixAgent]);
+
   // Load apps on mount
   useEffect(() => {
     if (account.user?.id) {
@@ -314,17 +376,39 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     };
   }, []);
 
+  // Persist the two workflow toggles to localStorage on every change so they
+  // remember their state from one use of the form to the next.
+  const handleJustDoItChange = useCallback((checked: boolean) => {
+    setJustDoItMode(checked);
+    try {
+      localStorage.setItem(LAST_JUST_DO_IT_KEY, JSON.stringify(checked));
+    } catch {
+      /* localStorage may be unavailable (quota, private mode) — ignore */
+    }
+  }, []);
+  const handleAutoStartChange = useCallback((checked: boolean) => {
+    setAutoStart(checked);
+    try {
+      localStorage.setItem(LAST_AUTO_START_KEY, JSON.stringify(checked));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   // Handle inline agent creation
   // Reset form
   const resetForm = useCallback(() => {
     setTaskPrompt("");
     localStorage.removeItem(draftKey);
     setTaskPriority("medium");
+    setPendingAttachments([]);
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
-    setJustDoItMode(false);
-    setAutoStart(false);
+    setSelectedRecipeName("");
+    setRecipeParams({});
+    // justDoItMode and autoStart intentionally kept — they persist to the next
+    // task via localStorage (see handleJustDoItChange / handleAutoStartChange)
     setBranchMode(TypesBranchMode.BranchModeNew);
     setBaseBranch(defaultBranchName);
     setBranchPrefix("");
@@ -391,6 +475,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           branchMode === TypesBranchMode.BranchModeExisting
             ? workingBranch
             : undefined,
+        goose_recipe_name: selectedRecipeName || undefined,
+        goose_recipe_params:
+          selectedRecipeName && Object.keys(recipeParams).length > 0
+            ? recipeParams
+            : undefined,
       };
 
       const response = await api
@@ -409,6 +498,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         if (taskId && taskLabels.length > 0) {
           for (const label of taskLabels) {
             await addLabelMutation.mutateAsync({ taskId, label });
+          }
+        }
+
+        // Upload any pending attachments. We do this AFTER task creation so the
+        // task always exists even if attachment upload fails — the user can retry
+        // from the detail page.
+        if (taskId && pendingAttachments.length > 0) {
+          try {
+            await uploadAttachments.mutateAsync({ taskId, files: pendingAttachments });
+          } catch (e: any) {
+            snackbar.error(
+              `Task created but attachment upload failed: ${e?.response?.data || e?.message || 'unknown error'}. You can retry from the task detail page.`,
+            );
           }
         }
 
@@ -452,13 +554,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "j") {
         e.preventDefault();
-        setJustDoItMode((prev) => !prev);
+        handleJustDoItChange(!justDoItMode);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [justDoItMode, handleJustDoItChange]);
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -666,6 +768,96 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             inputRef={taskPromptRef}
             size="small"
           />
+
+          {/* Attachment picker.
+              IMPORTANT: do NOT wrap MUI Button around the input. Multiple iterations
+              of `<Button component="label">` failed to open the native file dialog
+              because MUI's button wrapping intercepts the click before the label
+              fires. Use a plain styled <label htmlFor> pointing at a sibling <input>
+              elsewhere on the page — the browser's label-for-input mechanism opens
+              the dialog reliably with no JS involvement.
+
+              Uploads happen after task creation in handleCreateTask. */}
+          <Box>
+            <input
+              ref={attachmentInput}
+              id="new-spectask-attach-input"
+              type="file"
+              multiple
+              accept={ATTACHMENT_ACCEPT_ATTR}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                e.target.value = "";
+                if (!files.length) return;
+
+                const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
+                if (files.length > remaining) {
+                  snackbar.error(
+                    `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
+                  );
+                  return;
+                }
+                const accepted: File[] = [];
+                for (const f of files) {
+                  if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
+                    snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
+                    continue;
+                  }
+                  accepted.push(f);
+                }
+                if (accepted.length) {
+                  setPendingAttachments((prev) => [...prev, ...accepted]);
+                }
+              }}
+            />
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+              <Box
+                component="label"
+                htmlFor="new-spectask-attach-input"
+                sx={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  px: 1.5,
+                  py: 0.5,
+                  border: "1px solid",
+                  borderColor: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "action.disabled" : "primary.main",
+                  color: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "action.disabled" : "primary.main",
+                  borderRadius: 1,
+                  fontSize: "0.8125rem",
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.02857em",
+                  cursor: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "not-allowed" : "pointer",
+                  userSelect: "none",
+                  "&:hover": {
+                    backgroundColor: pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK ? "transparent" : "action.hover",
+                  },
+                }}
+              >
+                <AttachFileIcon sx={{ fontSize: 18 }} />
+                Attach files
+              </Box>
+              {pendingAttachments.map((f, idx) => (
+                <Chip
+                  key={`${f.name}-${idx}`}
+                  size="small"
+                  label={`${f.name} (${humanAttachmentSize(f.size)})`}
+                  onDelete={() =>
+                    setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              ))}
+              {pendingAttachments.length === 0 && (
+                <Typography variant="caption" color="text.secondary">
+                  Optional — screenshots / PDFs / text the agent should look at.
+                  Max {SPEC_TASK_ATTACHMENT_MAX_PER_TASK} files,{" "}
+                  {humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)} each.
+                </Typography>
+              )}
+            </Stack>
+          </Box>
 
           <Autocomplete
             multiple
@@ -917,6 +1109,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   onChange={setSelectedHelixAgent}
                   agents={sortedApps}
                 />
+                {selectedAgentIsGoose && (
+                  <GooseRecipeSelector
+                    projectId={projectId}
+                    selectedRecipeName={selectedRecipeName}
+                    onSelectedRecipeNameChange={setSelectedRecipeName}
+                    params={recipeParams}
+                    onParamsChange={setRecipeParams}
+                    pendingAttachments={pendingAttachments}
+                  />
+                )}
                 <Button
                   size="small"
                   onClick={() => setShowCreateAgentForm(true)}
@@ -987,7 +1189,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 control={
                   <Checkbox
                     checked={justDoItMode}
-                    onChange={(e) => setJustDoItMode(e.target.checked)}
+                    onChange={(e) => handleJustDoItChange(e.target.checked)}
                     color="warning"
                   />
                 }
@@ -1031,7 +1233,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 control={
                   <Checkbox
                     checked={autoStart}
-                    onChange={(e) => setAutoStart(e.target.checked)}
+                    onChange={(e) => handleAutoStartChange(e.target.checked)}
                     color="primary"
                   />
                 }

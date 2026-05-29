@@ -55,7 +55,8 @@ const OrgBilling: FC = () => {
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
   
   const { data: wallet } = useGetWallet(orgId, !isLoadingServerConfig && serverConfig?.billing_enabled)
-  const { data: usage } = useGetOrgUsage(orgId || '', !!orgId)
+  const { data: usage } = useGetOrgUsage(orgId || '', { enabled: !!orgId })
+  const usageMetrics = usage?.metrics || []
   
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
   const [isSubscribing, setIsSubscribing] = useState<boolean>(false)
@@ -157,16 +158,16 @@ const OrgBilling: FC = () => {
             </Typography>
 
             {/* Usage Charts Row */}
-            {usage && (
+            {usageMetrics.length > 0 && (
               <Grid container spacing={2} sx={{ mb: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
                 <Grid item xs={12} md={4}>
-                  <TokenUsage usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+                  <TokenUsage usageData={[{ metrics: usageMetrics }]} isLoading={false} />
                 </Grid>
                 <Grid item xs={12} md={4}>
-                  <TotalCost usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+                  <TotalCost usageData={[{ metrics: usageMetrics }]} isLoading={false} />
                 </Grid>
                 <Grid item xs={12} md={4}>
-                  <TotalRequests usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+                  <TotalRequests usageData={[{ metrics: usageMetrics }]} isLoading={false} />
                 </Grid>
               </Grid>
             )}

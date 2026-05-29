@@ -255,6 +255,11 @@ export interface ActivateTrialInput {
     credits?: number;
 }
 
+export interface GrantCreditsInput {
+    userId: string;
+    credits: number;
+}
+
 /**
  * Hook to activate a trial on a user (cloud edition, admin only).
  * If the user has no orgs yet, the intent is stashed and applied when they
@@ -271,6 +276,30 @@ export function useAdminActivateTrial() {
             const response = await apiClient.v1AdminUsersTrialActivateCreate(input.userId, {
                 days: input.days ?? 0,
                 credits: input.credits ?? 0,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+/**
+ * Hook to grant credits to a user (cloud edition, admin only). Unlike
+ * useAdminActivateTrial, this works regardless of subscription state: the
+ * wallet on the user's oldest owned org is topped up directly, or the grant
+ * is stashed on the user if they have no orgs yet.
+ */
+export function useAdminGrantCredits() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: GrantCreditsInput) => {
+            const response = await apiClient.v1AdminUsersCreditsCreate(input.userId, {
+                credits: input.credits,
             });
             return response.data;
         },

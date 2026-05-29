@@ -69,15 +69,27 @@ type DevContainerManager struct {
 	// and polled by the API server via the /golden-copy-progress endpoint.
 	goldenCopyProgress   map[string]*GoldenCopyProgress
 	goldenCopyProgressMu sync.RWMutex
+
+	// Optional ring buffer that receives a copy of every inner-container log
+	// line streamed via streamContainerLogs. nil means no buffering.
+	logBuffer *LogBuffer
 }
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
+	return NewDevContainerManagerWithLogBuffer(manager, nil)
+}
+
+// NewDevContainerManagerWithLogBuffer creates a dev container manager that
+// also fans inner-container logs into the supplied LogBuffer. Pass nil to
+// disable buffering (equivalent to NewDevContainerManager).
+func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer) *DevContainerManager {
 	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
+		logBuffer:          logBuffer,
 	}
 
 	// GC orphaned session dirs on startup and periodically
@@ -1827,12 +1839,19 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 		stdcopy.StdCopy(pw, pw, logReader)
 	}()
 
-	// Read lines and print with prefix
+	// Read lines and print with prefix. Also feed the in-memory ring buffer
+	// (if configured) so the admin /logs WS endpoint can replay history and
+	// live-tail.
 	scanner := bufio.NewScanner(pr)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if line != "" {
-			fmt.Printf("%s%s\n", prefix, line)
+		if line == "" {
+			continue
+		}
+		formatted := fmt.Sprintf("%s%s", prefix, line)
+		fmt.Println(formatted)
+		if dm.logBuffer != nil {
+			dm.logBuffer.Write(formatted)
 		}
 	}
 

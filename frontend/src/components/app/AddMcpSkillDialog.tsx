@@ -36,7 +36,7 @@ import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import useApi from '../../hooks/useApi';
-import { TypesToolMCPClientConfig, McpTool, TypesOAuthProvider } from '../../api/api';
+import { TypesToolMCPClientConfig, GithubComMark3LabsMcpGoMcpTool as McpTool, TypesOAuthProvider } from '../../api/api';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import { useListOAuthProviders } from '../../services/oauthProvidersService';
 
