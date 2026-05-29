@@ -29,6 +29,9 @@ import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
+import DescriptionIcon from '@mui/icons-material/Description'
+
+import RunnerLogs from './RunnerLogs'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from '../../contexts/account'
 import useApi from '../../hooks/useApi'
@@ -846,6 +849,31 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
             </Card>
           </Grid>
         )}
+
+        {/* Runner Logs: live-tail hydra-aggregated logs from the selected
+            Runner. Requires a specific Runner selection — the stream is
+            per-Runner so "All Sandboxes" shows a prompt. */}
+        <Grid item xs={12}>
+          <Card>
+            <CardHeader
+              avatar={<DescriptionIcon />}
+              title="Runner Logs"
+              subheader="Live tail of hydra-aggregated logs (Runner stdout + inner desktop containers)"
+            />
+            <CardContent>
+              {selectedSandboxId ? (
+                <RunnerLogs runnerId={selectedSandboxId} />
+              ) : (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <DescriptionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    Pick a Runner from the selector above to live-tail its logs.
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
 
         {/* Dev Containers */}
         <Grid item xs={12}>
