@@ -39,18 +39,30 @@ type Server struct {
 	router              *mux.Router
 }
 
-// NewServer creates a new Hydra server
+// NewServer creates a new Hydra server with an internally-allocated log
+// buffer. Use NewServerWithLogBuffer when the caller wants to tee zerolog
+// output (or other line streams) into the same buffer the /logs WS endpoint
+// serves.
 func NewServer(manager *Manager, socketPath string) *Server {
+	return NewServerWithLogBuffer(manager, socketPath, NewLogBuffer(0))
+}
+
+// NewServerWithLogBuffer creates a Hydra server backed by the supplied log
+// buffer. Used by cmd/hydra so the logger can tee into the same buffer the
+// admin /logs WS endpoint exposes. logBuffer must not be nil.
+func NewServerWithLogBuffer(manager *Manager, socketPath string, logBuffer *LogBuffer) *Server {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath
 	}
+	if logBuffer == nil {
+		logBuffer = NewLogBuffer(0)
+	}
 
-	// Shared log buffer captures hydra-aggregated runner output (currently:
-	// inner container streams from DevContainerManager.streamContainerLogs).
-	// Exposed via /logs WS for admin live-tail through RevDial.
-	logBuffer := NewLogBuffer(0)
-
-	// Create dev container manager for desktop container lifecycle functionality
+	// Shared log buffer captures hydra-aggregated runner output: inner
+	// container streams from DevContainerManager.streamContainerLogs plus
+	// (when teed via LogBufferWriter at construction time) hydra's own
+	// zerolog output. Exposed via /logs WS for admin live-tail through
+	// RevDial.
 	devContainerManager := NewDevContainerManagerWithLogBuffer(manager, logBuffer)
 
 	return &Server{

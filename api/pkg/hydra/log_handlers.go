@@ -24,12 +24,15 @@ const (
 	logsMaxTail     = 5000
 	logsWriteWait   = 10 * time.Second
 	logsPingPeriod  = 30 * time.Second
+	logsPongWait    = 90 * time.Second
 )
 
 // handleLogs streams hydra-aggregated runner logs (including streamed inner
 // container output) over a WebSocket. Query params:
 //
-//	tail    int   trailing line count to emit on connect (default 200, max 5000)
+//	tail    int   trailing line count to emit on connect.
+//	              default 200, max 5000, 0 means "no history, live tail only",
+//	              negatives are clamped to 0.
 //	follow  bool  stay subscribed after the tail (default true)
 //
 // Each emitted message is a JSON-encoded LogLine.
@@ -66,16 +69,53 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Atomically snapshot the trailing N lines and subscribe to live lines.
-	// SnapshotAndSubscribe guarantees no lines are missed between the two
-	// (a plain Snapshot then Subscribe has a race window).
-	snapshot, sub, cancel := s.logBuffer.SnapshotAndSubscribe(tail)
+	// Read deadline + pong handler: a half-open TCP (laptop sleep, NAT
+	// timeout) is otherwise only detected when our next ping write fails,
+	// which can be 30+ seconds. With ReadDeadline + a pong-bumps-deadline
+	// pattern, the read loop unblocks with an error after logsPongWait and
+	// the subscriber tears down cleanly. SetPongHandler returns nil to
+	// signal "ping/pong handled, bump the deadline."
+	_ = conn.SetReadDeadline(time.Now().Add(logsPongWait))
+	conn.SetReadLimit(512)
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(logsPongWait))
+	})
+
+	// Subscribe BEFORE the snapshot so the live-tail buffer is live during
+	// snapshot delivery — if the snapshot send is slow (large tail, slow
+	// client), incoming lines accumulate in the per-subscriber channel
+	// rather than being lost. SnapshotAndSubscribe holds the buffer's lock
+	// across both, so no producer race.
+	snapshot, sub, cancel, err := s.logBuffer.SnapshotAndSubscribe(tail)
+	if err != nil {
+		// Subscriber cap exceeded. Send a clean WS close with the standard
+		// "try again later" code so the client can render the cap message
+		// instead of a generic disconnect.
+		log.Warn().Err(err).Msg("logs ws: rejecting new subscriber, cap reached")
+		_ = conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, err.Error()),
+			time.Now().Add(logsWriteWait),
+		)
+		return
+	}
 	defer cancel()
 
-	for _, line := range snapshot {
-		if err := writeLogLine(conn, line); err != nil {
-			return
+	// Background goroutine to detect client disconnect; runs immediately so
+	// snapshot delivery to a dead client unblocks via the write-deadline
+	// rather than blocking the full snapshot before we notice.
+	clientGone := make(chan struct{})
+	go func() {
+		defer close(clientGone)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
 		}
+	}()
+
+	if !sendSnapshot(conn, snapshot, clientGone) {
+		return
 	}
 
 	if !follow {
@@ -87,24 +127,14 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Background goroutine to detect client disconnect and stop us.
-	clientGone := make(chan struct{})
-	go func() {
-		defer close(clientGone)
-		conn.SetReadLimit(512)
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
-
 	pingTicker := time.NewTicker(logsPingPeriod)
 	defer pingTicker.Stop()
 
 	for {
 		select {
 		case <-clientGone:
+			return
+		case <-r.Context().Done():
 			return
 		case line, ok := <-sub:
 			if !ok {
@@ -125,11 +155,31 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// sendSnapshot writes the snapshot to the client, bailing early if the client
+// has already disconnected. Returns false if delivery failed (caller should
+// stop). Without this guard, a closed-client snapshot would write each line
+// up to its 10s deadline before noticing the connection is dead.
+func sendSnapshot(conn *websocket.Conn, snapshot []LogLine, clientGone <-chan struct{}) bool {
+	for _, line := range snapshot {
+		select {
+		case <-clientGone:
+			return false
+		default:
+		}
+		if err := writeLogLine(conn, line); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func writeLogLine(conn *websocket.Conn, line LogLine) error {
 	payload, err := json.Marshal(line)
 	if err != nil {
-		// Shouldn't happen for our shape, but don't kill the stream.
-		return nil
+		// json.Marshal cannot fail for our {time.Time, string} shape, but
+		// if the contract ever drifts, surface the error so the connection
+		// closes rather than silently dropping lines forever.
+		return err
 	}
 	if err := conn.SetWriteDeadline(time.Now().Add(logsWriteWait)); err != nil {
 		return err

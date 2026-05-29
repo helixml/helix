@@ -65,7 +65,12 @@ The admin logs endpoint can lift this pattern verbatim. The only differences are
 
 ### Hydra already streams container logs to its own stdout
 
-Post-mortem log files from recent test runs show hydra prefixing inner-container logs with `[HYDRA] [DESKTOP ubuntu-external-<id>] ...` and emitting them on its own stdout. That stream is already running for every active Runner. The new hydra endpoint just needs to fan a WebSocket subscription onto that existing stream.
+Post-mortem log files from recent test runs show hydra prefixing inner-container logs with `[HYDRA] [DESKTOP ubuntu-external-<id>] ...` and emitting them on its own stdout. That stream is already running for every active Runner. The new hydra endpoint fans a WebSocket subscription onto an in-memory ring (`LogBuffer`) that captures:
+
+- Inner-container logs from `DevContainerManager.streamContainerLogs` (the `[DESKTOP ...]` prefixed stream).
+- Hydra's own zerolog output (info / warn / error). The cmd/hydra main wraps the logger output in an `io.MultiWriter` that fans into stderr AND the buffer, so admin viewers see hydra-level diagnostics (startup failures, NVIDIA detection warnings, RevDial reconnect events) alongside container output.
+
+Not captured: dockerd's own logs (it runs as a sibling process), systemd/journal entries on the host, or anything written before hydra constructs its logger. For deeper post-mortem these still require host-level access.
 
 ## Design
 
@@ -158,11 +163,12 @@ Estimated effort: 1-2 days end-to-end for one engineer.
 ## Open questions
 
 - **Per-container filtering.** Hydra's stdout includes prefix-tagged lines from every inner container. Operators often only want one container's logs. Should v1 support a `container=<name>` query parameter that drops lines not matching that prefix? Adds complexity to hydra. **Recommend deferring to v2** unless an operator hits this on day one.
-- **Multiple concurrent subscribers per Runner.** If two admins open the logs tab simultaneously, hydra should fan out without re-reading any history. Verify the buffer model supports that before landing.
-- **Auth model for "admin sees logs of any Runner."** Today, admin scope is a single boolean. If Helix grows org-scoped admin (which it has, per `[[feedback_org_membership_git_403]]` design doc), the logs endpoint should respect that — an org admin should only see Runners assigned to their org. Check `lookupOrg` pattern in `wallet_handlers.go` for the standard.
-- **Log retention.** Hydra likely buffers a bounded amount (e.g. last 10k lines) in process memory. If an admin opens logs for a Runner that has been running for a week, history beyond that buffer is gone. Acceptable for v1; document the limit clearly.
-- **Frontend dependency.** Is there an existing in-repo virtualized log viewer component? If yes, reuse. If not, this PR may need to add `react-window` or similar — that adds bundle size, worth flagging.
-- **Drain on Runner disconnect.** If the Runner's RevDial connection drops mid-stream, what does the admin see? Recommend: brief reconnect attempt (5s), then close with a clear "runner disconnected" status. Do not silently hang.
+- **Multiple concurrent subscribers per Runner.** Resolved in v1: `LogBuffer` fans every line out to all subscribers without re-reading history (`logbuf.go:Write`); subscriber count is capped at `maxSubscribers=32` per buffer so a buggy reconnect loop or a hostile client can't starve the writer.
+- **Auth model for "admin sees logs of any Runner."** Runners are global infrastructure in the current model — the `SandboxInstance` row has no `OrganizationID`, so there is no org to scope against. Documented in the handler comment. If Runners ever gain org-scoping, the handler will need to call `lookupOrg()` and check membership, matching `wallet_handlers.go`.
+- **Log retention.** Resolved: hydra buffers the last 10,000 lines in process memory. History beyond that is gone. **Hydra restart wipes the buffer entirely** — this is the same scenario where logs are most useful (a crashed daemon), and the v1 endpoint will return an empty buffer on the next start. Operators chasing post-mortem evidence after a hydra crash should fall back to `docker logs <outer-sandbox>` or the S3 taskoutput.txt from the task-running platform. Persistent on-disk retention is a v2 follow-up.
+- **Content disclosure.** Streamed `docker logs` output contains whatever the inner desktop containers printed — API keys, OAuth tokens, environment-variable dumps from crash traces. Documented as carrying the same trust as reading every running container's stdout. Treat "admin" as a trusted operator role.
+- **Frontend dependency.** Resolved: `xterm.js` is already in the bundle (used by `SandboxTerminal.tsx`); no new dependency added. xterm passes ANSI escape sequences through, so hydra's colored output keeps its formatting.
+- **Drain on Runner disconnect.** Resolved in v1: hydra-side handler holds the WS open while the runner runs and closes cleanly on shutdown; control-plane side uses `proxy.ResilientProxy` which handles RevDial reconnects transparently. On reconnect, the upgrade request uses `tail=0` so the client doesn't receive a duplicate history dump every drop-and-recover cycle. Frontend renders a "Reconnecting…" chip during the gap and "Disconnected" if a second close happens before the first reconnect succeeded.
 
 ## Followups (explicit non-goals captured for later)
 
