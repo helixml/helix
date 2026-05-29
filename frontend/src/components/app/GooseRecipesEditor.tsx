@@ -6,24 +6,38 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
 import Collapse from '@mui/material/Collapse'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
-import Link from '@mui/material/Link'
+import ListSubheader from '@mui/material/ListSubheader'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
-import Stack from '@mui/material/Stack'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import FolderIcon from '@mui/icons-material/Folder'
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined'
+import LinkIcon from '@mui/icons-material/Link'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
+import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
+import { useAttachRepositoryToProject } from '../../services'
+import { useGitRepositories } from '../../services/gitRepositoryService'
 import { IAssistantGooseRecipe } from '../../types'
 import { ServerGooseRecipeCandidate } from '../../api/api'
+
+// Sentinel value used in the dropdown to mean "open the attach dialog".
+// MUI Select uses string-equality on values, so any out-of-band token
+// (one that can't collide with a real URL) works — pick a clearly
+// invalid scheme so it's obvious in logs.
+const ATTACH_NEW_REPO_SENTINEL = '__helix__:attach-new-repo'
 
 const SLASH_COMMAND_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
 
@@ -243,6 +257,55 @@ const GooseRecipesEditor: FC<GooseRecipesEditorProps> = ({
   const orgId = candidatesResponse?.org_id || ''
   const candidatesError = candidatesResponse?.error || ''
 
+  // Inline attach-repo dialog state. Reuses the same mutation as the
+  // Project Settings → Repositories tab so attach + cache invalidation
+  // behave identically — picking "+ Attach a new repository…" should
+  // feel like a shortcut, not a separate code path.
+  const account = useAccount()
+  const snackbar = useSnackbar()
+  const queryClient = useQueryClient()
+  const [attachDialogOpen, setAttachDialogOpen] = useState(false)
+  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState('')
+  const currentOrgID = account.organizationTools.organization?.id
+  const { data: allUserRepositories = [] } = useGitRepositories(
+    currentOrgID
+      ? { organizationId: currentOrgID }
+      : account.user?.id
+        ? { ownerId: account.user.id }
+        : { enabled: false },
+  )
+  const attachRepoMutation = useAttachRepositoryToProject(projectId)
+
+  // Repos eligible for attaching: belong to the user/org but not yet
+  // attached to this project. Matches the same filter used in
+  // ProjectSettings.tsx so the lists stay consistent.
+  const attachableRepos = useMemo(
+    () =>
+      allUserRepositories.filter(
+        (repo: { id?: string }) =>
+          repo.id && !repoOptions.some((opt) => opt.url && opt.url === (repo as { external_url?: string; clone_url?: string }).external_url) &&
+          !repoOptions.some((opt) => opt.url && opt.url === (repo as { external_url?: string; clone_url?: string }).clone_url),
+      ),
+    [allUserRepositories, repoOptions],
+  )
+
+  const handleAttachRepo = async () => {
+    if (!selectedRepoToAttach || !projectId) return
+    try {
+      await attachRepoMutation.mutateAsync(selectedRepoToAttach)
+      snackbar.success('Repository attached')
+      setAttachDialogOpen(false)
+      setSelectedRepoToAttach('')
+      // The candidates list and repos dropdown both come from the
+      // candidates query — invalidate it so the new repo appears.
+      queryClient.invalidateQueries({
+        queryKey: ['app-goose-recipe-candidates', appId],
+      })
+    } catch (err) {
+      snackbar.error('Failed to attach repository')
+    }
+  }
+
   const tree = useMemo(() => buildTree(candidates), [candidates])
   const usedPaths = useMemo(
     () => new Set(recipes.map((r) => r.path)),
@@ -284,9 +347,32 @@ const GooseRecipesEditor: FC<GooseRecipesEditorProps> = ({
     })
   }
 
-  const manageReposURL = projectId && orgId
-    ? `/orgs/${orgId}/projects/${projectId}/specs?dialog=project-settings&dialog_project_id=${projectId}&dialog_project_settings_tab=repositories`
-    : ''
+  // Selecting the primary repo from the dropdown stores empty URL —
+  // that's the "fall back to primary" mode the backend already
+  // implements. So the dropdown's selected value mirrors that: empty
+  // when the user picked primary, or the explicit URL otherwise.
+  const primaryRepo = repoOptions.find((r) => r.is_primary)
+  const dropdownValue = recipeRepoURL === '' && primaryRepo
+    ? primaryRepo.url || ''
+    : recipeRepoURL
+
+  const handleRepoSelect = (value: string) => {
+    if (value === ATTACH_NEW_REPO_SENTINEL) {
+      setAttachDialogOpen(true)
+      return
+    }
+    // Normalize picking the primary repo back to empty URL so the
+    // backend continues to use its "fallback to primary" path.
+    if (primaryRepo && value === primaryRepo.url) {
+      onChange({ recipeRepoURL: '', recipes })
+    } else {
+      onChange({ recipeRepoURL: value, recipes })
+    }
+  }
+
+  // Unused but kept for now: org_id is no longer needed since the
+  // dialog is inline. Keeping it referenced so TS doesn't complain.
+  void orgId
 
   return (
     <Box>
@@ -299,23 +385,22 @@ const GooseRecipesEditor: FC<GooseRecipesEditorProps> = ({
         files, then pick a file from the tree.
       </Typography>
 
-      <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ mb: 2 }}>
-        <FormControl size="small" sx={{ flex: 1 }} disabled={disabled}>
-          <InputLabel id="goose-recipe-repo-label">Recipe repository</InputLabel>
-          <Select
-            labelId="goose-recipe-repo-label"
-            label="Recipe repository"
-            value={recipeRepoURL}
-            onChange={(e) => onChange({ recipeRepoURL: e.target.value, recipes })}
-          >
-            <MenuItem value="">
-              <em>(Use project's primary repository)</em>
-            </MenuItem>
-            {repoOptions.map((opt) => (
-              <MenuItem key={opt.url} value={opt.url}>
+      <FormControl size="small" fullWidth disabled={disabled} sx={{ mb: 2 }}>
+        <InputLabel id="goose-recipe-repo-label">Recipe repository</InputLabel>
+        <Select
+          labelId="goose-recipe-repo-label"
+          label="Recipe repository"
+          value={dropdownValue}
+          onChange={(e) => handleRepoSelect(e.target.value)}
+          renderValue={(value) => {
+            const opt = repoOptions.find((r) => r.url === value)
+            if (!opt) return value
+            return (
+              <Box component="span">
                 {opt.name}
                 {opt.is_primary && (
                   <Typography
+                    component="span"
                     variant="caption"
                     color="text.secondary"
                     sx={{ ml: 1 }}
@@ -323,21 +408,38 @@ const GooseRecipesEditor: FC<GooseRecipesEditorProps> = ({
                     (primary)
                   </Typography>
                 )}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        {manageReposURL && (
-          <Link
-            href={manageReposURL}
-            underline="hover"
-            variant="caption"
-            sx={{ pb: 1, whiteSpace: 'nowrap' }}
-          >
-            Manage repositories →
-          </Link>
-        )}
-      </Stack>
+              </Box>
+            )
+          }}
+        >
+          {repoOptions.length === 0 && (
+            <MenuItem value="" disabled>
+              <em>No repositories attached to this project</em>
+            </MenuItem>
+          )}
+          {repoOptions.map((opt) => (
+            <MenuItem key={opt.url} value={opt.url}>
+              {opt.name}
+              {opt.is_primary && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ ml: 1 }}
+                >
+                  (primary)
+                </Typography>
+              )}
+            </MenuItem>
+          ))}
+          {projectId && [
+            <ListSubheader key="__attach_subheader__" sx={{ lineHeight: 1.5 }} />,
+            <MenuItem key="__attach_new__" value={ATTACH_NEW_REPO_SENTINEL}>
+              <AddIcon fontSize="small" sx={{ mr: 1 }} />
+              Attach a new repository…
+            </MenuItem>,
+          ]}
+        </Select>
+      </FormControl>
 
       {candidatesError && (
         <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }}>
@@ -462,6 +564,70 @@ const GooseRecipesEditor: FC<GooseRecipesEditorProps> = ({
           Add
         </Button>
       </Box>
+
+      <Dialog
+        open={attachDialogOpen}
+        onClose={() => {
+          setAttachDialogOpen(false)
+          setSelectedRepoToAttach('')
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LinkIcon />
+            Attach Repository to Project
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Pick a repository from your account to attach to this project so
+            it becomes available as a recipe source.
+          </Typography>
+          <FormControl fullWidth size="small">
+            <InputLabel>Select Repository</InputLabel>
+            <Select
+              value={selectedRepoToAttach}
+              onChange={(e) => setSelectedRepoToAttach(e.target.value)}
+              label="Select Repository"
+            >
+              {attachableRepos.map((repo: { id?: string; name?: string }) => (
+                <MenuItem key={repo.id} value={repo.id}>
+                  {repo.name}
+                </MenuItem>
+              ))}
+            </Select>
+            {attachableRepos.length === 0 && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 1, display: 'block' }}
+              >
+                No more repositories available to attach. Create one in
+                Repositories first.
+              </Typography>
+            )}
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setAttachDialogOpen(false)
+              setSelectedRepoToAttach('')
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAttachRepo}
+            disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
+          >
+            {attachRepoMutation.isPending ? 'Attaching…' : 'Attach'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
