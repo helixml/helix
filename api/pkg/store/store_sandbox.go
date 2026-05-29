@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -103,6 +104,27 @@ func (s *PostgresStore) UpdateSandboxInstanceStatus(ctx context.Context, id stri
 		Update("status", status).Error
 }
 
+// MarkSandboxInstanceOfflineIfStale flips a sandbox row to status="offline"
+// only when its current last_seen is older than `staleBefore`. This is a
+// compare-and-swap variant of UpdateSandboxInstanceStatus used by the
+// reaper to avoid racing a concurrent heartbeat: SELECT-then-UPDATE without
+// this guard can flip a now-healthy Runner back to offline when its
+// heartbeat lands between the reaper's query and its update.
+//
+// Returns the number of rows affected (0 = the row was refreshed by a
+// recent heartbeat, no transition; 1 = transition applied; ErrNotFound
+// only if the id no longer exists).
+func (s *PostgresStore) MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error) {
+	res := s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ? AND last_seen < ? AND status = ?", id, staleBefore, "online").
+		Update("status", "offline")
+	if res.Error != nil {
+		return 0, fmt.Errorf("error marking sandbox offline: %w", res.Error)
+	}
+	return res.RowsAffected, nil
+}
+
 // IncrementSandboxContainerCount increments the active container count
 func (s *PostgresStore) IncrementSandboxContainerCount(ctx context.Context, id string) error {
 	return s.gdb.WithContext(ctx).
@@ -146,15 +168,14 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 // FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
 // Returns nil if no suitable sandbox host is found.
 //
-// The staleness threshold (90s) is tight on purpose: a Runner that has not
-// heartbeated in 90s is treated as gone for dispatch, even if the reaper
-// hasn't flipped its row to "offline" yet (the reaper does that on a 1-min
-// ticker once the row is 5min stale). 90s = ~3 typical heartbeat intervals;
-// shorter risks excluding a temporarily-laggy-but-healthy Runner.
+// Uses config.DefaultSandboxDispatchStaleThreshold (90s) as the dispatch
+// staleness filter. The Runner-side heartbeat cadence is 30s (see
+// cmd/sandbox-heartbeat/main.go:27 `HeartbeatInterval`), so 90s = 3
+// heartbeat intervals: a Runner that misses one beat stays selectable;
+// missing two-or-more excludes it from new dispatch. The reaper uses the
+// looser SandboxStaleThreshold for UI/reporting state.
 func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
-	// Get sandboxes that are online and have heartbeated within the
-	// stale-threshold window. See note above on why 90s.
-	staleThreshold := time.Now().Add(-90 * time.Second)
+	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).
 		Where("status = ? AND last_seen > ?", "online", staleThreshold).

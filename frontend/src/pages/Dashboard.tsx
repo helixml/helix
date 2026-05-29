@@ -89,7 +89,19 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
         refetchInterval: 10000,
     });
 
-    // Don't auto-select - default to "All Sandboxes" view for aggregate monitoring
+    // Don't auto-select — default to "All Sandboxes" view for aggregate monitoring.
+    // BUT if the currently-selected Runner has disappeared from the list (reaper
+    // flipped it to offline, then it dropped out of the API response, or it was
+    // deleted), reset to empty so the dropdown doesn't render an opaque sbx_…
+    // id with no hostname/icon and the downstream panel doesn't render empty
+    // arrays under a stale id.
+    useEffect(() => {
+        if (!selectedSandboxId || !sandboxInstances) return;
+        const stillExists = sandboxInstances.some((i) => i.id === selectedSandboxId);
+        if (!stillExists) {
+            setSelectedSandboxId("");
+        }
+    }, [sandboxInstances, selectedSandboxId]);
 
     const onViewSession = useCallback((session_id: string) => {
         setSessionIdParam(session_id);
