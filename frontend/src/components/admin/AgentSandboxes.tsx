@@ -862,7 +862,7 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
             />
             <CardContent>
               {selectedSandboxId ? (
-                <RunnerLogs runnerId={selectedSandboxId} />
+                <RunnerLogs runnerId={selectedSandboxId} compact />
               ) : (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
                   <DescriptionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />

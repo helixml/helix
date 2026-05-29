@@ -31,6 +31,18 @@ interface Props {
   // full-screen page. Hide when the component is already rendered as
   // that standalone page (otherwise the user can recursively pop out).
   showOpenInNewTab?: boolean
+  // compact renders a glimpse view suitable for embedding inside another
+  // scrolling container (like the admin panel card). Behaviour:
+  //   - xterm scrollback set to 0 so the terminal only shows what fits
+  //     in the visible viewport; older lines roll off the top instead of
+  //     creating a nested scroll surface inside an already-scrolling
+  //     parent. (Three-deep scroll on the admin panel is awful.)
+  //   - smaller default tail; the standalone full-screen view is the
+  //     place to grep history.
+  //   - pause/clear controls hidden so the toolbar is just a status chip
+  //     + an "open in new tab" affordance.
+  // The standalone /admin/runner-logs/:runner_id page passes compact=false.
+  compact?: boolean
 }
 
 type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
@@ -66,10 +78,17 @@ function runnerLogsUrl(runnerId: string, tail: number): string {
 // forever resetting itself on every successful onopen.
 const RunnerLogs: FC<Props> = ({
   runnerId,
-  tail = 500,
-  height = 480,
+  tail,
+  height,
   showOpenInNewTab = true,
+  compact = false,
 }) => {
+  // Defaults differ between glimpse (compact card) and full standalone:
+  //   tail:   compact = 100 (last few seconds is the point), full = 500
+  //   height: compact = 240 (a strip beneath the dev-containers section),
+  //           full   = 480 (matches SandboxTerminal)
+  const effectiveTail = tail ?? (compact ? 100 : 500)
+  const effectiveHeight = height ?? (compact ? 240 : 480)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -151,7 +170,10 @@ const RunnerLogs: FC<Props> = ({
       convertEol: true,
       cursorBlink: false,
       disableStdin: true,
-      scrollback: 10000,
+      // compact: 0 scrollback so older lines roll off the top rather
+      // than spawning a nested scroll surface inside the admin panel.
+      // standalone: 10k scrollback for proper grep-through-history use.
+      scrollback: compact ? 0 : 10000,
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -183,7 +205,7 @@ const RunnerLogs: FC<Props> = ({
       if (cancelled) return
       setStatus(isRetry ? 'reconnecting' : 'connecting')
 
-      const ws = new WebSocket(runnerLogsUrl(runnerId, tail))
+      const ws = new WebSocket(runnerLogsUrl(runnerId, effectiveTail))
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -255,7 +277,7 @@ const RunnerLogs: FC<Props> = ({
       pausedRef.current = false
       hasRetriedRef.current = false
     }
-  }, [runnerId, tail])
+  }, [runnerId, effectiveTail, compact])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -280,21 +302,28 @@ const RunnerLogs: FC<Props> = ({
             </IconButton>
           </Tooltip>
         )}
-        <Tooltip title={paused ? 'Resume' : 'Pause'}>
-          <IconButton size="small" onClick={togglePause}>
-            {paused ? <PlayArrowIcon fontSize="small" /> : <PauseIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Scroll to bottom">
-          <IconButton size="small" onClick={scrollToBottom}>
-            <VerticalAlignBottomIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Clear">
-          <IconButton size="small" onClick={clearTerminal}>
-            <DeleteSweepIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        {/* Pause / scroll-to-bottom / clear are debug affordances. Hidden
+            in compact mode because the card is a glimpse, not a debugger
+            — the standalone tab is where deep interaction belongs. */}
+        {!compact && (
+          <>
+            <Tooltip title={paused ? 'Resume' : 'Pause'}>
+              <IconButton size="small" onClick={togglePause}>
+                {paused ? <PlayArrowIcon fontSize="small" /> : <PauseIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Scroll to bottom">
+              <IconButton size="small" onClick={scrollToBottom}>
+                <VerticalAlignBottomIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Clear">
+              <IconButton size="small" onClick={clearTerminal}>
+                <DeleteSweepIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
       </Stack>
       <Box
         ref={containerRef}
@@ -306,7 +335,7 @@ const RunnerLogs: FC<Props> = ({
           // remaining space and setting minHeight: '100%' would force the
           // box to be the FULL parent height, overflowing by the toolbar
           // strip's height.
-          minHeight: typeof height === 'number' ? height : 0,
+          minHeight: typeof effectiveHeight === 'number' ? effectiveHeight : 0,
           minWidth: 0,
           backgroundColor: '#000000',
           borderRadius: 1,
