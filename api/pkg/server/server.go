@@ -661,6 +661,17 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
+	// Reap stale runner registrations: sandbox_instances rows whose
+	// last_seen is older than the stale-threshold get their status
+	// flipped to "offline" so the admin UI + the FindAvailable selector
+	// stop treating dead Runners as available. Thresholds configurable
+	// via HELIX_SANDBOX_REAPER_INTERVAL / HELIX_SANDBOX_STALE_THRESHOLD.
+	go apiServer.startSandboxInstanceReaper(
+		ctx,
+		apiServer.Cfg.SandboxReaperInterval,
+		apiServer.Cfg.SandboxStaleThreshold,
+	)
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
@@ -1082,9 +1093,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
-	// Agent Sandboxes debugging routes (admin only)
-	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
-	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
+	// Agent Sandboxes debugging routes (admin only). Registered on
+	// adminRouter so requireAdmin actually enforces the gate. Comment
+	// previously claimed "admin only" while the route sat on authRouter
+	// (any authenticated user) — this PR widens what the response
+	// includes (per-GPU sandbox_id), so the gap is closed at the same
+	// time. The /admin/... path prefix is required because adminRouter
+	// is a MatcherFunc subrouter, not a PathPrefix subrouter — see
+	// server.go:760.
+	adminRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
+	adminRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)

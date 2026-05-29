@@ -51,11 +51,22 @@ const BASE = "/api/v1/runner-profiles";
 
 export const runnerProfilesQueryKey = () => ["runnerProfiles"];
 
-export function useListRunnerProfiles() {
+// Options that callers may use to tune the cache/refresh behaviour. Most
+// admin surfaces only need the default (staleTime 3s, no polling), but
+// the Agent Sandboxes panel polls debug data on a 5s cadence and wants
+// the profiles list to stay aligned with that so the per-sandbox card
+// toggles in/out of view without manual refresh.
+export interface UseListRunnerProfilesOptions {
+  refetchInterval?: number;
+  staleTime?: number;
+}
+
+export function useListRunnerProfiles(opts?: UseListRunnerProfilesOptions) {
   return useQuery<RunnerProfile[]>({
     queryKey: runnerProfilesQueryKey(),
     queryFn: async () => (await axios.get<RunnerProfile[]>(BASE)).data || [],
-    staleTime: 3000,
+    staleTime: opts?.staleTime ?? 3000,
+    refetchInterval: opts?.refetchInterval,
   });
 }
 

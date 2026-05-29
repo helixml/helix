@@ -43,6 +43,25 @@ type ServerConfig struct {
 	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
 	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
+	// SandboxReaperInterval is how often the sandbox-instance reaper scans
+	// the sandbox_instances table for stale rows and flips their status to
+	// offline. Used in conjunction with SandboxStaleThreshold and
+	// SandboxDispatchStaleThreshold.
+	SandboxReaperInterval time.Duration `envconfig:"HELIX_SANDBOX_REAPER_INTERVAL" default:"1m"`
+
+	// SandboxStaleThreshold is the inactivity threshold after which a
+	// sandbox row is flipped to status="offline" by the reaper. Should
+	// comfortably exceed the heartbeat cadence so transient lag doesn't
+	// reap a healthy Runner.
+	SandboxStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_STALE_THRESHOLD" default:"5m"`
+
+	// SandboxDispatchStaleThreshold is the tighter freshness filter
+	// applied by FindAvailableSandboxInstance when selecting a Runner
+	// for new work. Set lower than SandboxStaleThreshold so freshly-dead
+	// Runners are excluded from dispatch well before the reaper flips
+	// their DB row.
+	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
+
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
@@ -370,6 +389,15 @@ type TextExtractor struct {
 // RAGProviderName is the string stamped into KnowledgeVersion records to
 // identify which backend indexed them. Kodit is the only RAG backend.
 const RAGProviderName = "kodit"
+
+// Sandbox reaper defaults. Use when ServerConfig values are zero (e.g.
+// the field was never explicitly configured and envconfig left it
+// unparsed). Keep in sync with the `default:` tags above.
+var (
+	DefaultSandboxReaperInterval         = time.Minute
+	DefaultSandboxStaleThreshold         = 5 * time.Minute
+	DefaultSandboxDispatchStaleThreshold = 90 * time.Second
+)
 
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`

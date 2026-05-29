@@ -39,6 +39,7 @@ import {
   useAssignRunnerProfile,
   useClearRunnerProfile,
   useListCompatibleRunnerProfiles,
+  useListRunnerProfiles,
 } from '../../services/runnerProfilesService'
 
 // Types matching the backend response
@@ -51,6 +52,10 @@ interface GPUInfo {
   memory_free_bytes: number
   utilization_percent: number
   temperature_celsius: number
+  // sandbox_id identifies which Runner this GPU is attached to. Added so
+  // the admin UI can filter the aggregated GPU list when a specific Runner
+  // is selected in the dropdown.
+  sandbox_id?: string
 }
 
 interface ClientInfo {
@@ -706,6 +711,14 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   const queryClient = useQueryClient()
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
+  // Inference profile catalogue. Polled on the same 5s cadence as the
+  // debug query below so the card visibility tracks profile additions /
+  // deletions made in another tab without manual refresh.
+  const {
+    data: runnerProfiles,
+    isLoading: isLoadingRunnerProfiles,
+  } = useListRunnerProfiles({ refetchInterval: 5000 })
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
     queryFn: async () => {
@@ -737,11 +750,26 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     stopMutation.mutate(sessionId)
   }
 
-  const gpus = data?.gpus || []
+  const allGpus = data?.gpus || []
   const devContainers = data?.dev_containers || []
   const sandboxes = data?.sandboxes || []
 
-  // Filter by selected sandbox if specified
+  // Filter by selected sandbox if specified. Every GPU in the API response
+  // is tagged with its owning sandbox_id (see agent_sandboxes_handlers.go),
+  // so untagged GPUs under the current selection are dropped — they're
+  // either orphans or evidence of a backend bug worth flagging in the
+  // console rather than silently rendering under every Runner.
+  const gpus = selectedSandboxId
+    ? allGpus.filter((g) => {
+        if (!g.sandbox_id) {
+          // eslint-disable-next-line no-console
+          console.warn('[AgentSandboxes] dropping untagged GPU under specific-Runner filter', g)
+          return false
+        }
+        return g.sandbox_id === selectedSandboxId
+      })
+    : allGpus
+
   const filteredContainers = selectedSandboxId
     ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
     : devContainers
@@ -755,6 +783,22 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   const filteredSandboxes = selectedSandboxId
     ? sandboxes.filter((s) => s.id === selectedSandboxId)
     : sandboxes
+
+  // Decide whether to render the Inference Profiles card. Visible when
+  // at least one Runner Profile is configured OR when any sandbox in the
+  // current view has a profile already assigned (so deleting the last
+  // catalogue entry mid-interaction doesn't hide a "Clear" button from
+  // the operator). During the initial load of the profiles query, keep
+  // the card mounted to avoid a flash-of-hidden-card on first paint —
+  // it'll hide on the next render if the load resolves to empty.
+  const anySandboxHasProfileAssigned = filteredSandboxes.some(
+    (s) => !!s.active_profile_id,
+  )
+  const hasRunnerProfiles = (runnerProfiles?.length ?? 0) > 0
+  const showInferenceProfilesCard =
+    isLoadingRunnerProfiles ||
+    hasRunnerProfiles ||
+    anySandboxHasProfileAssigned
 
   // Summary stats should reflect the current filter
   // Note: sandbox status is "online"/"offline"/"degraded", not "running"
@@ -826,10 +870,10 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
           </Grid>
         )}
 
-        {/* Inference Profile state per sandbox. Always render one card per
-            sandbox so unassigned sandboxes show the assignment UI; assigned
-            ones show status + clear button + download progress. */}
-        {filteredSandboxes.length > 0 && (
+        {/* Inference Profile state per sandbox. See showInferenceProfilesCard
+            above for the visibility decision (configured profile, mid-load,
+            or any sandbox already assigned). */}
+        {showInferenceProfilesCard && filteredSandboxes.length > 0 && (
           <Grid item xs={12}>
             <Card>
               <CardHeader
