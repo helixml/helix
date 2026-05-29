@@ -9,6 +9,10 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import PauseIcon from '@mui/icons-material/Pause'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import VerticalAlignBottomIcon from '@mui/icons-material/VerticalAlignBottom'
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
+import SyncIcon from '@mui/icons-material/Sync'
+import ErrorIcon from '@mui/icons-material/Error'
+import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -46,36 +50,36 @@ function runnerLogsUrl(runnerId: string, tail: number): string {
 //
 // Pause holds the terminal at its current scroll/content state and queues
 // incoming lines into an in-memory buffer (capped at queueWhilePausedCap).
-// Resume drains the queue into the terminal. The WebSocket stays open while
-// paused — pausing is purely a render gate.
+// Resume drains the queue into the terminal in one batched write. The
+// WebSocket stays open while paused — pausing is purely a render gate.
 //
-// Reconnect: on close or error, the component schedules a single reconnect
-// attempt after reconnectDelayMs. If that also fails, status flips to
-// `closed` and the user can manually reload by toggling pause off-then-on
-// (handled by including pause in the effect's dependency list would be
-// over-engineering for v1; instead we surface the state for a future manual
-// "Reconnect" button).
+// Reconnect: one short retry on close. After it also fails, status flips
+// to `closed` until the user navigates away and back. The retry is gated
+// by a one-shot `hasRetriedRef` flag (separate from the
+// connecting-vs-reconnecting state) so a flapping connection doesn't loop
+// forever resetting itself on every successful onopen.
 const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const termRef = useRef<Terminal | undefined>()
-  const fitRef = useRef<FitAddon | undefined>()
-  const wsRef = useRef<WebSocket | undefined>()
+  const termRef = useRef<Terminal | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
   const pausedRef = useRef<boolean>(false)
   const queueRef = useRef<string[]>([])
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>()
-  const attemptRef = useRef<number>(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasRetriedRef = useRef<boolean>(false)
+  // handleIncomingRef lets the WS handlers call the latest write logic
+  // without re-creating the WS effect on every render. The WS effect only
+  // depends on `runnerId` and `tail` — see the long comment in the effect.
+  const handleIncomingRef = useRef<(line: string) => void>(() => {})
 
   const [status, setStatus] = useState<ConnectionState>('connecting')
   const [paused, setPaused] = useState<boolean>(false)
   const [queuedCount, setQueuedCount] = useState<number>(0)
 
-  const writeLine = useCallback((line: string) => {
-    const term = termRef.current
-    if (!term) return
-    term.writeln(line)
-  }, [])
-
-  const handleIncoming = useCallback(
+  // Refresh handleIncomingRef on every render so the WS callbacks see
+  // current state (paused flag, write function). The actual handler is
+  // bound to refs only, so this is cheap.
+  handleIncomingRef.current = useCallback(
     (line: string) => {
       if (pausedRef.current) {
         const q = queueRef.current
@@ -86,9 +90,9 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
         setQueuedCount(q.length)
         return
       }
-      writeLine(line)
+      termRef.current?.writeln(line)
     },
-    [writeLine],
+    [],
   )
 
   const togglePause = useCallback(() => {
@@ -96,16 +100,20 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
       const next = !prev
       pausedRef.current = next
       if (!next) {
-        // Resuming: drain queue, then scroll to bottom.
+        // Resuming. Batch the queued lines into a single xterm.write call
+        // (~one render commit) so large drains don't block the main
+        // thread the way per-line writelns of 2000 lines would.
         const q = queueRef.current
-        for (const line of q) writeLine(line)
+        if (q.length > 0) {
+          termRef.current?.write(q.join('\r\n') + '\r\n')
+        }
         queueRef.current = []
         setQueuedCount(0)
         termRef.current?.scrollToBottom()
       }
       return next
     })
-  }, [writeLine])
+  }, [])
 
   const clearTerminal = useCallback(() => {
     termRef.current?.clear()
@@ -117,9 +125,11 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
     termRef.current?.scrollToBottom()
   }, [])
 
-  // Open/maintain the WebSocket. The terminal itself is set up once per
-  // `runnerId` change; the WS lifecycle is nested inside so reconnect doesn't
-  // tear down xterm.
+  // One effect owns the entire xterm + WS lifecycle, keyed on the runner
+  // we're tailing. The WS handlers read from `handleIncomingRef.current`
+  // (not a captured closure) so render-driven state changes don't tear
+  // the WS down. The effect's only deps are `runnerId` and `tail` —
+  // anything else would cause unwanted teardowns.
   useEffect(() => {
     if (!containerRef.current || !runnerId) return
 
@@ -137,27 +147,30 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
     term.open(containerRef.current)
     termRef.current = term
     fitRef.current = fit
-    try {
-      fit.fit()
-    } catch {
-      // ignore — first paint may not have laid out yet
-    }
 
-    const onResize = () => {
+    // Initial fit may run before layout settles. ResizeObserver fires
+    // after layout and on any subsequent container resize (e.g. tab
+    // open/close), which the plain window-resize listener misses.
+    const safeFit = () => {
       try {
         fit.fit()
       } catch {
-        // ignore
+        // ignore — happens during teardown if dimensions are zero
       }
     }
-    window.addEventListener('resize', onResize)
+    safeFit()
+    const ro =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(safeFit) : null
+    if (ro && containerRef.current) ro.observe(containerRef.current)
+    window.addEventListener('resize', safeFit)
 
     let cancelled = false
+    hasRetriedRef.current = false
+    setStatus('connecting')
 
-    const connect = () => {
+    const connect = (isRetry: boolean) => {
       if (cancelled) return
-      attemptRef.current += 1
-      setStatus(attemptRef.current === 1 ? 'connecting' : 'reconnecting')
+      setStatus(isRetry ? 'reconnecting' : 'connecting')
 
       const ws = new WebSocket(runnerLogsUrl(runnerId, tail))
       wsRef.current = ws
@@ -165,17 +178,25 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
       ws.onopen = () => {
         if (cancelled) return
         setStatus('open')
-        attemptRef.current = 0
+        // Reset the retry budget so a long-lived connection that
+        // eventually drops gets one more shot. Without this, every
+        // future drop would be the second-and-final attempt.
+        hasRetriedRef.current = false
       }
       ws.onmessage = (e) => {
         if (typeof e.data !== 'string') return
         try {
           const msg = JSON.parse(e.data) as { t?: string; line?: string }
-          if (typeof msg.line === 'string') handleIncoming(msg.line)
+          if (typeof msg.line === 'string') {
+            handleIncomingRef.current(msg.line)
+          }
         } catch {
-          // Backend always emits JSON; if it ever sends raw text, render it
-          // unparsed so we don't silently drop log output.
-          handleIncoming(e.data)
+          // Backend always emits JSON. Non-JSON is a contract break and
+          // dumping it raw into the terminal as a "fallback" risks
+          // visually corrupting the log view, so just drop with a console
+          // warning.
+          // eslint-disable-next-line no-console
+          console.warn('[RunnerLogs] received non-JSON WS message; dropping')
         }
       }
       ws.onerror = () => {
@@ -184,32 +205,46 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
       }
       ws.onclose = () => {
         if (cancelled) return
-        // One short retry. After that, status sticks at "closed" until the
-        // user navigates away and back.
-        if (attemptRef.current <= 1) {
+        // Clear any in-flight reconnect timer before scheduling a new
+        // one — without this a fast flap leaks setTimeouts.
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = null
+        }
+        if (!hasRetriedRef.current) {
+          hasRetriedRef.current = true
           setStatus('reconnecting')
-          reconnectTimerRef.current = setTimeout(connect, reconnectDelayMs)
+          reconnectTimerRef.current = setTimeout(() => connect(true), reconnectDelayMs)
         } else {
           setStatus('closed')
         }
       }
     }
 
-    connect()
+    connect(false)
 
     return () => {
       cancelled = true
-      window.removeEventListener('resize', onResize)
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', safeFit)
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
       wsRef.current?.close()
+      wsRef.current = null
       term.dispose()
-      termRef.current = undefined
-      fitRef.current = undefined
-      wsRef.current = undefined
+      termRef.current = null
+      fitRef.current = null
+      // Reset paused-related state so a re-mount with a different
+      // runner_id doesn't display a stale "N lines queued" hint.
       queueRef.current = []
-      attemptRef.current = 0
+      setQueuedCount(0)
+      setPaused(false)
+      pausedRef.current = false
+      hasRetriedRef.current = false
     }
-  }, [runnerId, tail, handleIncoming])
+  }, [runnerId, tail])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -251,22 +286,45 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
   )
 }
 
+// StatusChip renders the WS state as a labelled chip with a leading icon so
+// the state is not communicated by colour alone (accessibility + colour-blind
+// users). Icon + label + colour each carry the same signal.
 const StatusChip: FC<{ status: ConnectionState }> = ({ status }) => {
-  const props = (() => {
+  const view = (() => {
     switch (status) {
       case 'open':
-        return { label: 'Live', color: 'success' as const }
+        return {
+          label: 'Live',
+          color: 'success' as const,
+          icon: <FiberManualRecordIcon sx={{ fontSize: 14 }} />,
+        }
       case 'connecting':
-        return { label: 'Connecting…', color: 'default' as const }
+        return {
+          label: 'Connecting…',
+          color: 'default' as const,
+          icon: <HourglassEmptyIcon sx={{ fontSize: 14 }} />,
+        }
       case 'reconnecting':
-        return { label: 'Reconnecting…', color: 'warning' as const }
+        return {
+          label: 'Reconnecting…',
+          color: 'warning' as const,
+          icon: <SyncIcon sx={{ fontSize: 14 }} />,
+        }
       case 'error':
-        return { label: 'Error', color: 'error' as const }
+        return {
+          label: 'Error',
+          color: 'error' as const,
+          icon: <ErrorIcon sx={{ fontSize: 14 }} />,
+        }
       case 'closed':
-        return { label: 'Disconnected', color: 'error' as const }
+        return {
+          label: 'Disconnected',
+          color: 'error' as const,
+          icon: <ErrorIcon sx={{ fontSize: 14 }} />,
+        }
     }
   })()
-  return <Chip size="small" label={props.label} color={props.color} />
+  return <Chip size="small" label={view.label} color={view.color} icon={view.icon} />
 }
 
 export default RunnerLogs
