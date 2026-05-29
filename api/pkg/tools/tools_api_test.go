@@ -17,8 +17,40 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	golden "gotest.tools/v3/golden"
 )
+
+// installLLMMock swaps the suite's apiClient with a mock that returns each
+// of the provided responses in order. Tests in this suite previously relied
+// on a real TogetherAI call to extract parameters / interpret responses,
+// which made the entire suite an availability test for an upstream LLM
+// provider rather than a unit test for tool logic. The CI flake that
+// motivated this is a sustained 503 on whichever gpt-oss model is "healthy
+// this week" -- retry doesn't help because the outages last hours, not
+// seconds, and bumping the model name is a treadmill.
+//
+// Test authors set the canned responses they want back. The first call to
+// the chat completion API returns responses[0], the second returns
+// responses[1], etc. Each test should pass exactly as many strings as the
+// path through the production code makes LLM calls -- param extraction
+// (RunAction + getAPIRequestParameters) is one call; response
+// interpretation (RunAction only) adds a second.
+func installLLMMock(suite *ActionTestSuite, responses ...string) *openai.MockClient {
+	suite.T().Helper()
+	mock := openai.NewMockClient(suite.ctrl)
+	suite.strategy.apiClient = mock
+	for _, content := range responses {
+		mock.EXPECT().
+			CreateChatCompletion(gomock.Any(), gomock.Any()).
+			Return(oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{
+					{Message: oai.ChatCompletionMessage{Content: content}},
+				},
+			}, nil)
+	}
+	return mock
+}
 
 // TestAction_CallAPI tests query formation for a single API call to
 // fetch a single record from the database
@@ -167,13 +199,8 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 		},
 	}
 
-	// suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-	// 	func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-	// 		suite.Equal("session-123", call.SessionID)
-	// 		suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
-
-	// 		return call, nil
-	// 	})
+	// One LLM call -- parameter extraction from the user message.
+	installLLMMock(suite, `{"petId": "55443"}`)
 
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, suite.strategy.apiClient, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
@@ -211,6 +238,9 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem
 			Content: "Can you please give me the details for pet 55443?",
 		},
 	}
+
+	// One LLM call -- parameter extraction from the user message.
+	installLLMMock(suite, `{"petId": "55443"}`)
 
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, suite.strategy.apiClient, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)

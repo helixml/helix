@@ -104,6 +104,9 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 		},
 	}
 
+	// One LLM call -- the actionability classifier.
+	installLLMMock(suite, `{"needs_tool": "yes", "api": "getWeather", "justification": "user is asking about weather"}`)
+
 	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.Require().NoError(err)
 
@@ -224,6 +227,9 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 			Content: "What's the reason why oceans have less fish??",
 		},
 	}
+
+	// One LLM call -- the actionability classifier.
+	installLLMMock(suite, `{"needs_tool": "no", "api": "", "justification": "general knowledge question"}`)
 
 	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.NoError(err)
