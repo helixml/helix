@@ -1184,7 +1184,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
 	// Live-tail of a runner's hydra-aggregated logs over WebSocket.
 	// See design/2026-05-29-admin-runner-logs.md.
-	adminRouter.HandleFunc("/runners/{runner_id}/logs", apiServer.streamAdminRunnerLogs).Methods(http.MethodGet)
+	// NOTE: adminRouter is auth-based, not path-based (MatcherFunc, no
+	// PathPrefix). Existing admin user routes hard-prefix `/admin/` so
+	// they live at /api/v1/admin/... — the runner-profile family above
+	// (`/runner-profiles`, `/runners/...`) lives at /api/v1/... and is
+	// an existing naming inconsistency. This new route follows the
+	// /admin/... convention to match the frontend's URL builder.
+	adminRouter.HandleFunc("/admin/runners/{runner_id}/logs", apiServer.streamAdminRunnerLogs).Methods(http.MethodGet)
 
 	// Runner-token-authenticated read paths so the sandbox-side compose-
 	// manager can fetch its own assignment + profile content using the
