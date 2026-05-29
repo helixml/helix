@@ -732,35 +732,17 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 // missing on disk are skipped with a warn-level log — `goose acp` silently
 // drops unparseable slash_commands entries, so leaving them in the config
 // would produce a confusing partial state.
-func (apiServer *HelixAPIServer) resolveGooseRecipesIntoConfig(ctx context.Context, app *types.App, assistant *types.AssistantConfig, projectID string, cfg *types.CodeAgentConfig) error {
+func (apiServer *HelixAPIServer) resolveGooseRecipesIntoConfig(ctx context.Context, app *types.App, assistant *types.AssistantConfig, _ string, cfg *types.CodeAgentConfig) error {
 	if len(assistant.GooseRecipes) == 0 {
 		return nil
 	}
-
-	// Find the recipe repo. When GooseRecipeRepoURL is set we look it up
-	// directly; otherwise fall back to the project's primary repository.
-	var repo *types.GitRepository
-	if assistant.GooseRecipeRepoURL != "" {
-		r, err := apiServer.Store.GetGitRepositoryByExternalURL(ctx, app.OrganizationID, assistant.GooseRecipeRepoURL)
-		if err != nil {
-			return fmt.Errorf("recipe repo %s not found: %w", assistant.GooseRecipeRepoURL, err)
-		}
-		repo = r
-	} else {
-		project, err := apiServer.Store.GetProject(ctx, projectID)
-		if err != nil {
-			return fmt.Errorf("project %s not found: %w", projectID, err)
-		}
-		if project.DefaultRepoID == "" {
-			return fmt.Errorf("project %s has no primary repository", projectID)
-		}
-		r, err := apiServer.Store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err != nil {
-			return fmt.Errorf("primary repo %s not found: %w", project.DefaultRepoID, err)
-		}
-		repo = r
+	if assistant.GooseRecipeRepoURL == "" {
+		return fmt.Errorf("agent declares goose recipes but no recipe_repo_url is set")
 	}
-
+	repo, err := apiServer.Store.GetGitRepositoryByURL(ctx, app.OrganizationID, assistant.GooseRecipeRepoURL)
+	if err != nil {
+		return fmt.Errorf("recipe repo %s not found in this organization: %w", assistant.GooseRecipeRepoURL, err)
+	}
 	if repo.LocalPath == "" {
 		// Repo hasn't been cloned yet — recipes will appear on the next
 		// session start after the clone completes. Log and continue.

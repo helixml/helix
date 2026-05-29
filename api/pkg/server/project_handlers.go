@@ -2910,40 +2910,36 @@ func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgen
 }
 
 // validateGooseAgentSpec checks the agent.goose block from a project YAML
-// apply request: the recipe repo must be attached to the project (or
-// resolvable as an org-scoped repo); recipe names must be unique; recipe
+// apply request: a recipe_repo_url is required when any recipes are
+// declared (org-scoped — the repo just needs to exist in the org, not
+// be attached to this project); recipe names must be unique; recipe
 // paths must stay inside the repo (no ".." traversal).
-func validateGooseAgentSpec(ctx context.Context, st store.Store, orgID string, resolvedRepos []types.ProjectRepositorySpec, goose *types.ProjectAgentGoose) *system.HTTPError {
+func validateGooseAgentSpec(ctx context.Context, st store.Store, orgID string, _ []types.ProjectRepositorySpec, goose *types.ProjectAgentGoose) *system.HTTPError {
 	if goose == nil {
 		return nil
 	}
 
-	// Resolve recipe_repo_url to a project-attached repo (or the primary
-	// repo when omitted). The URL must match one of the project's attached
-	// repos verbatim — we don't auto-attach here.
+	// recipe_repo_url is required when recipes are declared. We
+	// deliberately don't fall back to the project's primary repo — that
+	// was the source of "no recipes load when the agent is shared across
+	// projects" confusion. Either pick a repo explicitly or don't
+	// declare recipes.
+	if len(goose.Recipes) > 0 && goose.RecipeRepoURL == "" {
+		return system.NewHTTPError400("agent.goose.recipes requires agent.goose.recipe_repo_url to be set")
+	}
 	if goose.RecipeRepoURL != "" {
-		attached := false
-		for _, r := range resolvedRepos {
-			if r.URL == goose.RecipeRepoURL {
-				attached = true
-				break
+		// The repo must exist in this org. Matches by either external_url
+		// (for GitHub/GitLab/etc) or clone_url (Helix-hosted) — recipe
+		// repos aren't necessarily project-attached so we look up here.
+		if _, err := st.GetGitRepositoryByURL(ctx, orgID, goose.RecipeRepoURL); err != nil {
+			if err == store.ErrNotFound {
+				return system.NewHTTPError400(fmt.Sprintf(
+					"agent.goose.recipe_repo_url %q is not a repository in this organization",
+					goose.RecipeRepoURL,
+				))
 			}
-		}
-		if !attached {
-			return system.NewHTTPError400(fmt.Sprintf(
-				"agent.goose.recipe_repo_url %q must also appear in the project's repositories list — attach the recipe repo to the project first",
-				goose.RecipeRepoURL,
-			))
-		}
-		// And the repo must already exist in the GitRepository table for
-		// this org; CreateGitRepository in the apply loop above will set
-		// it up if missing, so this check is mostly belt-and-braces for
-		// projects where the apply order matters.
-		if _, err := st.GetGitRepositoryByExternalURL(ctx, orgID, goose.RecipeRepoURL); err != nil && err != store.ErrNotFound {
 			return system.NewHTTPError500(fmt.Sprintf("failed to look up recipe repo %s: %v", goose.RecipeRepoURL, err))
 		}
-	} else if len(resolvedRepos) == 0 {
-		return system.NewHTTPError400("agent.goose.recipes requires at least one repository to be attached to the project, or agent.goose.recipe_repo_url to be set")
 	}
 
 	seen := make(map[string]bool, len(goose.Recipes))

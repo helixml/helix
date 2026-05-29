@@ -67,6 +67,25 @@ func (s *PostgresStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID
 	return &repo, nil
 }
 
+// GetGitRepositoryByURL looks up a repository within an organization by
+// either its external_url (external repos) or its clone_url (Helix-hosted
+// repos). The frontend persists whichever URL the candidates endpoint
+// surfaced, so the lookup at runtime needs to accept both. Use this when
+// you have a URL string and don't know which kind of repo it is.
+func (s *PostgresStore) GetGitRepositoryByURL(ctx context.Context, orgID, url string) (*types.GitRepository, error) {
+	var repo types.GitRepository
+	err := s.gdb.WithContext(ctx).
+		Where("organization_id = ? AND (external_url = ? OR clone_url = ?)", orgID, url, url).
+		First(&repo).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &repo, nil
+}
+
 // ListGitRepositories lists all git repositories, optionally filtered by owner
 func (s *PostgresStore) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	var repos []*types.GitRepository

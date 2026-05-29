@@ -2108,7 +2108,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Same as the project-keyed variant, but reachable from the\napp-edit UI where the parent project id isn't always in\nscope. Resolves the parent project by finding one whose\ndefault_helix_app_id matches this app — apps in Helix are\ncreated 1:1 with a project's default agent, so this is\nunambiguous in practice.",
+                "description": "Returns every git repo in the agent's organization as a\ndropdown option, plus the walked files of whichever repo\nis currently selected via assistant.GooseRecipeRepoURL.\nRecipe repos are org-scoped — they don't need to be\nattached to any particular project.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10036,61 +10036,6 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/server.ProjectGooseRecipe"
                             }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/projects/{id}/goose-recipes/candidates": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Walks the recipe repo's local clone and returns every\n*.yaml / *.yml file the user could pick as a Goose recipe.\nSkips noisy directories (node_modules, vendor, .git) and\ncaps at 200 entries. Used by the project-settings file\npicker so users don't have to type recipe paths by hand.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Projects"
-                ],
-                "summary": "List YAML files in the project's recipe repository",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.GooseRecipeCandidatesResponse"
                         }
                     },
                     "401": {
@@ -20280,7 +20225,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "current_repo_url": {
-                    "description": "CurrentRepoURL is the external_url of the repo whose files we\nwalked. Empty when walking the project's primary repo.",
+                    "description": "CurrentRepoURL is the external_url of the repo whose files we\nwalked. Mirrors assistant.GooseRecipeRepoURL — present so the UI\ncan pre-select the right dropdown entry.",
                     "type": "string"
                 },
                 "error": {
@@ -20292,16 +20237,8 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.GooseRecipeCandidate"
                     }
                 },
-                "org_id": {
-                    "description": "OrgID is the parent project's org — needed for the\n/orgs/:org_id/... deep-link URL.",
-                    "type": "string"
-                },
-                "project_id": {
-                    "description": "ProjectID lets the editor deep-link to the parent project's\nRepositories tab without an extra roundtrip.",
-                    "type": "string"
-                },
                 "repositories": {
-                    "description": "Repositories attached to the project, eligible to host recipes.",
+                    "description": "Repositories the agent's org can use as a recipe source.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/server.GooseRecipeRepoOption"
@@ -20315,9 +20252,6 @@ const docTemplate = `{
         "server.GooseRecipeRepoOption": {
             "type": "object",
             "properties": {
-                "is_primary": {
-                    "type": "boolean"
-                },
                 "name": {
                     "type": "string"
                 },

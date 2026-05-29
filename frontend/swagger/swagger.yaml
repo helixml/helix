@@ -1159,7 +1159,8 @@ definitions:
       current_repo_url:
         description: |-
           CurrentRepoURL is the external_url of the repo whose files we
-          walked. Empty when walking the project's primary repo.
+          walked. Mirrors assistant.GooseRecipeRepoURL — present so the UI
+          can pre-select the right dropdown entry.
         type: string
       error:
         type: string
@@ -1167,18 +1168,8 @@ definitions:
         items:
           $ref: '#/definitions/server.GooseRecipeCandidate'
         type: array
-      org_id:
-        description: |-
-          OrgID is the parent project's org — needed for the
-          /orgs/:org_id/... deep-link URL.
-        type: string
-      project_id:
-        description: |-
-          ProjectID lets the editor deep-link to the parent project's
-          Repositories tab without an extra roundtrip.
-        type: string
       repositories:
-        description: Repositories attached to the project, eligible to host recipes.
+        description: Repositories the agent's org can use as a recipe source.
         items:
           $ref: '#/definitions/server.GooseRecipeRepoOption'
         type: array
@@ -1187,8 +1178,6 @@ definitions:
     type: object
   server.GooseRecipeRepoOption:
     properties:
-      is_primary:
-        type: boolean
       name:
         type: string
       url:
@@ -12139,12 +12128,11 @@ paths:
       consumes:
       - application/json
       description: |-
-        Same as the project-keyed variant, but reachable from the
-        app-edit UI where the parent project id isn't always in
-        scope. Resolves the parent project by finding one whose
-        default_helix_app_id matches this app — apps in Helix are
-        created 1:1 with a project's default agent, so this is
-        unambiguous in practice.
+        Returns every git repo in the agent's organization as a
+        dropdown option, plus the walked files of whichever repo
+        is currently selected via assistant.GooseRecipeRepoURL.
+        Recipe repos are org-scoped — they don't need to be
+        attached to any particular project.
       parameters:
       - description: App ID
         in: path
@@ -17185,46 +17173,6 @@ paths:
       security:
       - BearerAuth: []
       summary: List Goose recipes available to a project
-      tags:
-      - Projects
-  /api/v1/projects/{id}/goose-recipes/candidates:
-    get:
-      consumes:
-      - application/json
-      description: |-
-        Walks the recipe repo's local clone and returns every
-        *.yaml / *.yml file the user could pick as a Goose recipe.
-        Skips noisy directories (node_modules, vendor, .git) and
-        caps at 200 entries. Used by the project-settings file
-        picker so users don't have to type recipe paths by hand.
-      parameters:
-      - description: Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.GooseRecipeCandidatesResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: List YAML files in the project's recipe repository
       tags:
       - Projects
   /api/v1/projects/{id}/guidelines-history:

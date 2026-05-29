@@ -24,6 +24,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -2544,6 +2545,21 @@ func (m *MockStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID, ex
 func (mr *MockStoreMockRecorder) GetGitRepositoryByExternalURL(ctx, orgID, externalURL any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitRepositoryByExternalURL", reflect.TypeOf((*MockStore)(nil).GetGitRepositoryByExternalURL), ctx, orgID, externalURL)
+}
+
+// GetGitRepositoryByURL mocks base method.
+func (m *MockStore) GetGitRepositoryByURL(ctx context.Context, orgID, url string) (*types.GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGitRepositoryByURL", ctx, orgID, url)
+	ret0, _ := ret[0].(*types.GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGitRepositoryByURL indicates an expected call of GetGitRepositoryByURL.
+func (mr *MockStoreMockRecorder) GetGitRepositoryByURL(ctx, orgID, url any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitRepositoryByURL", reflect.TypeOf((*MockStore)(nil).GetGitRepositoryByURL), ctx, orgID, url)
 }
 
 // GetInteraction mocks base method.
