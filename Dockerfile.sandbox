@@ -270,7 +270,7 @@ RUN chmod +x /opt/gow/startup-app.sh
 ENV HELIX_API_URL="" \
     SANDBOX_INSTANCE_ID="" \
     RUNNER_TOKEN="" \
-    GPU_TYPE="nvidia" \
+    GPU_VENDOR="nvidia" \
     MAX_SANDBOXES="10" \
     HELIX_DEV_MODE="false" \
     ZED_IMAGE="helix-sway:latest" \
