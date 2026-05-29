@@ -138,10 +138,33 @@ type GooseRecipeCandidate struct {
 
 // GooseRecipeCandidatesResponse wraps the file list so the response is
 // extensible (truncation flag, error message) without an API break.
+// The Repositories list lets the frontend render a "recipe repository"
+// dropdown without making a second roundtrip to /projects/:id/repositories.
 type GooseRecipeCandidatesResponse struct {
 	Files     []GooseRecipeCandidate `json:"files"`
 	Truncated bool                   `json:"truncated,omitempty"`
 	Error     string                 `json:"error,omitempty"`
+
+	// Repositories attached to the project, eligible to host recipes.
+	Repositories []GooseRecipeRepoOption `json:"repositories"`
+	// CurrentRepoURL is the external_url of the repo whose files we
+	// walked. Empty when walking the project's primary repo.
+	CurrentRepoURL string `json:"current_repo_url,omitempty"`
+	// ProjectID lets the editor deep-link to the parent project's
+	// Repositories tab without an extra roundtrip.
+	ProjectID string `json:"project_id,omitempty"`
+	// OrgID is the parent project's org — needed for the
+	// /orgs/:org_id/... deep-link URL.
+	OrgID string `json:"org_id,omitempty"`
+}
+
+// GooseRecipeRepoOption is one entry in the recipe-repo dropdown.
+// URL is the value persisted onto GooseRecipeRepoURL; empty URL is the
+// "(Use primary repository)" entry the UI renders implicitly.
+type GooseRecipeRepoOption struct {
+	URL       string `json:"url"`
+	Name      string `json:"name"`
+	IsPrimary bool   `json:"is_primary,omitempty"`
 }
 
 // listProjectGooseRecipeCandidates godoc
@@ -193,11 +216,7 @@ func (s *HelixAPIServer) listProjectGooseRecipeCandidates(_ http.ResponseWriter,
 		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}}, nil
 	}
 
-	rootDir, repoErr := s.resolveGooseRecipeRoot(ctx, app, assistant, project)
-	if repoErr != "" {
-		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}, Error: repoErr}, nil
-	}
-	return walkRecipeCandidates(rootDir)
+	return s.buildRecipeCandidates(ctx, app, assistant, project)
 }
 
 // resolveGooseRecipeRoot returns the absolute container-side directory
@@ -290,11 +309,63 @@ func (s *HelixAPIServer) listAppGooseRecipeCandidates(_ http.ResponseWriter, r *
 		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}, Error: projErr.Error()}, nil
 	}
 
+	return s.buildRecipeCandidates(ctx, app, assistant, project)
+}
+
+// buildRecipeCandidates resolves the recipe root, walks for *.yaml
+// files, and decorates the response with the list of repos attached to
+// the parent project so the UI can render a "recipe repository"
+// dropdown. Walk errors are surfaced via Error, not HTTPError, because
+// the dropdown is still useful even when the current repo has no files
+// (or hasn't been cloned).
+func (s *HelixAPIServer) buildRecipeCandidates(ctx context.Context, app *types.App, assistant *types.AssistantConfig, project *types.Project) (*GooseRecipeCandidatesResponse, *system.HTTPError) {
+	repos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: project.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("list project repos: %v", err))
+	}
+	options := make([]GooseRecipeRepoOption, 0, len(repos))
+	for _, repo := range repos {
+		opt := GooseRecipeRepoOption{
+			Name:      repo.Name,
+			IsPrimary: repo.ID == project.DefaultRepoID,
+		}
+		// External repos have a stable ExternalURL we can persist on
+		// GooseRecipeRepoURL. Helix-hosted repos use CloneURL as the
+		// identifier — but those are uncommon for recipe storage so we
+		// don't go out of our way to surface them; the user can still
+		// hit them by leaving the field empty (primary fallback).
+		if repo.IsExternal && repo.ExternalURL != "" {
+			opt.URL = repo.ExternalURL
+		} else {
+			opt.URL = repo.CloneURL
+		}
+		options = append(options, opt)
+	}
+
+	// Surface the URL whose tree we're about to walk so the frontend can
+	// pre-select the right dropdown entry.
+	currentURL := assistant.GooseRecipeRepoURL
+
 	rootDir, repoErr := s.resolveGooseRecipeRoot(ctx, app, assistant, project)
 	if repoErr != "" {
-		return &GooseRecipeCandidatesResponse{Files: []GooseRecipeCandidate{}, Error: repoErr}, nil
+		return &GooseRecipeCandidatesResponse{
+			Files:          []GooseRecipeCandidate{},
+			Error:          repoErr,
+			Repositories:   options,
+			CurrentRepoURL: currentURL,
+			ProjectID:      project.ID,
+			OrgID:          project.OrganizationID,
+		}, nil
 	}
-	return walkRecipeCandidates(rootDir)
+	walked, walkErr := walkRecipeCandidates(rootDir)
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	walked.Repositories = options
+	walked.CurrentRepoURL = currentURL
+	walked.ProjectID = project.ID
+	walked.OrgID = project.OrganizationID
+	return walked, nil
 }
 
 // findProjectByDefaultAppID returns the project that uses appID as its

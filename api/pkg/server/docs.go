@@ -20279,6 +20279,10 @@ const docTemplate = `{
         "server.GooseRecipeCandidatesResponse": {
             "type": "object",
             "properties": {
+                "current_repo_url": {
+                    "description": "CurrentRepoURL is the external_url of the repo whose files we\nwalked. Empty when walking the project's primary repo.",
+                    "type": "string"
+                },
                 "error": {
                     "type": "string"
                 },
@@ -20288,8 +20292,37 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.GooseRecipeCandidate"
                     }
                 },
+                "org_id": {
+                    "description": "OrgID is the parent project's org — needed for the\n/orgs/:org_id/... deep-link URL.",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "ProjectID lets the editor deep-link to the parent project's\nRepositories tab without an extra roundtrip.",
+                    "type": "string"
+                },
+                "repositories": {
+                    "description": "Repositories attached to the project, eligible to host recipes.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.GooseRecipeRepoOption"
+                    }
+                },
                 "truncated": {
                     "type": "boolean"
+                }
+            }
+        },
+        "server.GooseRecipeRepoOption": {
+            "type": "object",
+            "properties": {
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
                 }
             }
         },

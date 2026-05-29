@@ -1156,14 +1156,43 @@ definitions:
     type: object
   server.GooseRecipeCandidatesResponse:
     properties:
+      current_repo_url:
+        description: |-
+          CurrentRepoURL is the external_url of the repo whose files we
+          walked. Empty when walking the project's primary repo.
+        type: string
       error:
         type: string
       files:
         items:
           $ref: '#/definitions/server.GooseRecipeCandidate'
         type: array
+      org_id:
+        description: |-
+          OrgID is the parent project's org — needed for the
+          /orgs/:org_id/... deep-link URL.
+        type: string
+      project_id:
+        description: |-
+          ProjectID lets the editor deep-link to the parent project's
+          Repositories tab without an extra roundtrip.
+        type: string
+      repositories:
+        description: Repositories attached to the project, eligible to host recipes.
+        items:
+          $ref: '#/definitions/server.GooseRecipeRepoOption'
+        type: array
       truncated:
         type: boolean
+    type: object
+  server.GooseRecipeRepoOption:
+    properties:
+      is_primary:
+        type: boolean
+      name:
+        type: string
+      url:
+        type: string
     type: object
   server.InitializeSampleRepositoriesRequest:
     properties:

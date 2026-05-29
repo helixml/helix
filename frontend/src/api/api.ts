@@ -747,9 +747,32 @@ export interface ServerGooseRecipeCandidate {
 }
 
 export interface ServerGooseRecipeCandidatesResponse {
+  /**
+   * CurrentRepoURL is the external_url of the repo whose files we
+   * walked. Empty when walking the project's primary repo.
+   */
+  current_repo_url?: string;
   error?: string;
   files?: ServerGooseRecipeCandidate[];
+  /**
+   * OrgID is the parent project's org — needed for the
+   * /orgs/:org_id/... deep-link URL.
+   */
+  org_id?: string;
+  /**
+   * ProjectID lets the editor deep-link to the parent project's
+   * Repositories tab without an extra roundtrip.
+   */
+  project_id?: string;
+  /** Repositories attached to the project, eligible to host recipes. */
+  repositories?: ServerGooseRecipeRepoOption[];
   truncated?: boolean;
+}
+
+export interface ServerGooseRecipeRepoOption {
+  is_primary?: boolean;
+  name?: string;
+  url?: string;
 }
 
 export interface ServerInitializeSampleRepositoriesRequest {
