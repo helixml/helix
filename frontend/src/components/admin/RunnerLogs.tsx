@@ -300,7 +300,14 @@ const RunnerLogs: FC<Props> = ({
         ref={containerRef}
         sx={{
           flexGrow: 1,
-          minHeight: height,
+          // minHeight only applies for fixed pixel heights — used by the
+          // card view to guarantee a readable terminal. When the parent
+          // sizes us via flex (height='100%'), flexGrow:1 fills the
+          // remaining space and setting minHeight: '100%' would force the
+          // box to be the FULL parent height, overflowing by the toolbar
+          // strip's height.
+          minHeight: typeof height === 'number' ? height : 0,
+          minWidth: 0,
           backgroundColor: '#000000',
           borderRadius: 1,
           overflow: 'hidden',

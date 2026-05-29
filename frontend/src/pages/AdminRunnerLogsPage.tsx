@@ -33,17 +33,21 @@ const AdminRunnerLogsPage: FC = () => {
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        position: 'fixed',
+        inset: 0,
         p: 2,
         backgroundColor: 'background.default',
+        // Prevent the page from being scrolled by the terminal's content;
+        // the terminal does its own internal scroll.
+        overflow: 'hidden',
       }}
     >
-      <Box sx={{ mb: 1 }}>
+      <Box sx={{ mb: 1, flexShrink: 0 }}>
         <Typography variant="subtitle1" sx={{ fontFamily: 'monospace' }}>
           Runner Logs · {runnerId}
         </Typography>
       </Box>
-      <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+      <Box sx={{ flexGrow: 1, minHeight: 0, minWidth: 0 }}>
         <RunnerLogs runnerId={runnerId} height="100%" showOpenInNewTab={false} />
       </Box>
     </Box>

@@ -170,6 +170,23 @@ Estimated effort: 1-2 days end-to-end for one engineer.
 - **Frontend dependency.** Resolved: `xterm.js` is already in the bundle (used by `SandboxTerminal.tsx`); no new dependency added. xterm passes ANSI escape sequences through, so hydra's colored output keeps its formatting.
 - **Drain on Runner disconnect.** Resolved in v1: hydra-side handler holds the WS open while the runner runs and closes cleanly on shutdown; control-plane side uses `proxy.ResilientProxy` which handles RevDial reconnects transparently. On reconnect, the upgrade request uses `tail=0` so the client doesn't receive a duplicate history dump every drop-and-recover cycle. Frontend renders a "Reconnecting…" chip during the gap and "Disconnected" if a second close happens before the first reconnect succeeded.
 
+## Memory bounds
+
+All three layers are explicitly bounded so a long-running tail or a chatty inner container can't OOM anything:
+
+| Layer | Bound | Knob |
+|---|---|---|
+| Hydra `LogBuffer` ring | 10 000 lines × ~256 B ≈ **2.5 MB** per Runner | `defaultLogBufferCapacity` |
+| Hydra per-subscriber channel | 256 lines × ~256 B ≈ **65 KB** | `slowSubBuffer` |
+| Hydra concurrent subscribers | **32** (cap → `CloseTryAgainLater` on overflow) | `maxSubscribers` |
+| Control-plane `ResilientProxy` | input + output 512 KB each ≈ **1 MB** per active tab | `proxy.DefaultBufferSize` |
+| Browser xterm scrollback | 10 000 lines × ~256 B ≈ **2.5 MB** per tab | `scrollback` in `RunnerLogs.tsx` |
+| Browser pause queue | 2 000 lines × ~256 B ≈ **500 KB** per tab | `queueWhilePausedCap` |
+
+Worst case under heavy use: ~5 MB hydra + (~1 MB × N control-plane WS proxies) + (~3 MB × M browser tabs). With 5 admins × 20 Runners = 100 active streams that's ~500 MB on the control plane and ~15 MB per admin browser. Fine for a control plane running a database; trivial for a browser tab.
+
+Not enforced: rate-limiting on producer-side hydra writes. A pathological inner container that prints 100 k lines/sec floods through `Write`, the ring constantly overwrites, and downstream WS pipes saturate but don't OOM — the drop-oldest fanout keeps the producer running. Worth adding a producer-side cap in v2 if we see this in practice.
+
 ## Followups (explicit non-goals captured for later)
 
 - v2: per-container filter.
