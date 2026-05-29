@@ -1182,6 +1182,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/runners/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/runners/{runner_id}/assign-profile", apiServer.assignRunnerProfile).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
+	// Live-tail of a runner's hydra-aggregated logs over WebSocket.
+	// See design/2026-05-29-admin-runner-logs.md.
+	adminRouter.HandleFunc("/runners/{runner_id}/logs", apiServer.streamAdminRunnerLogs).Methods(http.MethodGet)
 
 	// Runner-token-authenticated read paths so the sandbox-side compose-
 	// manager can fetch its own assignment + profile content using the
