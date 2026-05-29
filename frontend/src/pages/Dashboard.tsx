@@ -334,14 +334,21 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                         {/* Sandbox Selector */}
                         <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                             <FormControl size="small" sx={{ minWidth: 400 }}>
-                                <InputLabel id="sandbox-selector-label">Agent Sandbox</InputLabel>
+                                <InputLabel id="sandbox-selector-label" shrink>Agent Sandbox</InputLabel>
                                 <Select
                                     labelId="sandbox-selector-label"
                                     value={selectedSandboxId}
                                     label="Agent Sandbox"
+                                    displayEmpty
                                     onChange={(e) => setSelectedSandboxId(e.target.value)}
                                     disabled={isLoadingSandboxes || !sandboxInstances?.length}
                                     startAdornment={<StorageIcon sx={{ mr: 1, color: "text.secondary" }} />}
+                                    renderValue={(value) => {
+                                        if (!value) return <em>All Sandboxes</em>
+                                        const inst = sandboxInstances?.find((i) => i.id === value)
+                                        if (!inst) return value
+                                        return `${inst.gpu_vendor ? "🖥️" : "💻"} ${inst.hostname || inst.id}`
+                                    }}
                                 >
                                     <MenuItem value="">
                                         <em>All Sandboxes</em>

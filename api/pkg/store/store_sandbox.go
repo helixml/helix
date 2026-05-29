@@ -145,9 +145,16 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 
 // FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
 // Returns nil if no suitable sandbox host is found.
+//
+// The staleness threshold (90s) is tight on purpose: a Runner that has not
+// heartbeated in 90s is treated as gone for dispatch, even if the reaper
+// hasn't flipped its row to "offline" yet (the reaper does that on a 1-min
+// ticker once the row is 5min stale). 90s = ~3 typical heartbeat intervals;
+// shorter risks excluding a temporarily-laggy-but-healthy Runner.
 func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
-	// Get sandboxes that are online and have sent heartbeat in the last 2 minutes
-	staleThreshold := time.Now().Add(-2 * time.Minute)
+	// Get sandboxes that are online and have heartbeated within the
+	// stale-threshold window. See note above on why 90s.
+	staleThreshold := time.Now().Add(-90 * time.Second)
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).
 		Where("status = ? AND last_seen > ?", "online", staleThreshold).

@@ -661,6 +661,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
+	// Reap stale runner registrations: sandbox_instances rows whose
+	// last_seen is older than the stale-threshold get their status
+	// flipped to "offline" so the admin UI + the FindAvailable selector
+	// stop treating dead Runners as available. See
+	// design/2026-05-29-admin-sandboxes-cleanup.md (eventual).
+	go apiServer.startSandboxInstanceReaper(ctx, time.Minute, 5*time.Minute)
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,

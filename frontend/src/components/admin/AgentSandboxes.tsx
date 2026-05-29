@@ -39,6 +39,7 @@ import {
   useAssignRunnerProfile,
   useClearRunnerProfile,
   useListCompatibleRunnerProfiles,
+  useListRunnerProfiles,
 } from '../../services/runnerProfilesService'
 
 // Types matching the backend response
@@ -51,6 +52,10 @@ interface GPUInfo {
   memory_free_bytes: number
   utilization_percent: number
   temperature_celsius: number
+  // sandbox_id identifies which Runner this GPU is attached to. Added so
+  // the admin UI can filter the aggregated GPU list when a specific Runner
+  // is selected in the dropdown.
+  sandbox_id?: string
 }
 
 interface ClientInfo {
@@ -706,6 +711,14 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   const queryClient = useQueryClient()
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
+  // Inference profile catalogue. Used to decide whether to render the
+  // Inference Profiles card at all — when there are no profiles configured
+  // the card would just show "No profiles match this sandbox's GPUs" for
+  // every Runner, which is noise. Admins discover profile setup via the
+  // dedicated "Runner Profiles" sidebar tab.
+  const { data: runnerProfiles } = useListRunnerProfiles()
+  const hasRunnerProfiles = (runnerProfiles?.length ?? 0) > 0
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
     queryFn: async () => {
@@ -737,11 +750,17 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     stopMutation.mutate(sessionId)
   }
 
-  const gpus = data?.gpus || []
+  const allGpus = data?.gpus || []
   const devContainers = data?.dev_containers || []
   const sandboxes = data?.sandboxes || []
 
-  // Filter by selected sandbox if specified
+  // Filter by selected sandbox if specified. GPUs carry a sandbox_id tag
+  // (added 2026-05-29 — older API responses without the field will all be
+  // shown regardless of selection, matching the pre-tagging behaviour).
+  const gpus = selectedSandboxId
+    ? allGpus.filter((g) => !g.sandbox_id || g.sandbox_id === selectedSandboxId)
+    : allGpus
+
   const filteredContainers = selectedSandboxId
     ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
     : devContainers
@@ -826,10 +845,12 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
           </Grid>
         )}
 
-        {/* Inference Profile state per sandbox. Always render one card per
-            sandbox so unassigned sandboxes show the assignment UI; assigned
-            ones show status + clear button + download progress. */}
-        {filteredSandboxes.length > 0 && (
+        {/* Inference Profile state per sandbox. Only render the card when
+            at least one Runner Profile is configured globally — otherwise
+            every sandbox would just say "no profiles match" which is noise.
+            When no profiles exist, admins discover the setup via the
+            dedicated "Runner Profiles" sidebar tab. */}
+        {hasRunnerProfiles && filteredSandboxes.length > 0 && (
           <Grid item xs={12}>
             <Card>
               <CardHeader
