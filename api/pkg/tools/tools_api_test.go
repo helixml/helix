@@ -22,34 +22,29 @@ import (
 )
 
 // installLLMMock swaps the suite's apiClient with a mock that returns each
-// of the provided responses in order. Tests in this suite previously relied
-// on a real TogetherAI call to extract parameters / interpret responses,
-// which made the entire suite an availability test for an upstream LLM
-// provider rather than a unit test for tool logic. The CI flake that
-// motivated this is a sustained 503 on whichever gpt-oss model is "healthy
-// this week" -- retry doesn't help because the outages last hours, not
-// seconds, and bumping the model name is a treadmill.
-//
-// Test authors set the canned responses they want back. The first call to
-// the chat completion API returns responses[0], the second returns
-// responses[1], etc. Each test should pass exactly as many strings as the
-// path through the production code makes LLM calls -- param extraction
-// (RunAction + getAPIRequestParameters) is one call; response
-// interpretation (RunAction only) adds a second.
-func installLLMMock(suite *ActionTestSuite, responses ...string) *openai.MockClient {
+// of the provided responses in order. Pass one string per LLM call the
+// production code path makes -- param extraction is one call; response
+// interpretation adds a second. gomock.InOrder pins the sequence so a
+// future reordering in production surfaces as a test failure instead of
+// silently swapping the responses.
+func installLLMMock(suite *ActionTestSuite, responses ...string) {
 	suite.T().Helper()
 	mock := openai.NewMockClient(suite.ctrl)
 	suite.strategy.apiClient = mock
+	var prev *gomock.Call
 	for _, content := range responses {
-		mock.EXPECT().
+		call := mock.EXPECT().
 			CreateChatCompletion(gomock.Any(), gomock.Any()).
 			Return(oai.ChatCompletionResponse{
 				Choices: []oai.ChatCompletionChoice{
 					{Message: oai.ChatCompletionMessage{Content: content}},
 				},
 			}, nil)
+		if prev != nil {
+			call.After(prev)
+		}
+		prev = call
 	}
-	return mock
 }
 
 // TestAction_CallAPI tests query formation for a single API call to
@@ -435,8 +430,6 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleP
 }
 
 func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
-	defer suite.ctrl.Finish()
-
 	apiClient := openai.NewMockClient(suite.ctrl)
 	suite.strategy.apiClient = apiClient
 

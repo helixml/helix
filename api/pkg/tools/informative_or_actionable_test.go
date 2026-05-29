@@ -117,30 +117,12 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 }
 
 func (suite *ActionTestSuite) TestIsActionable_Retryable() {
-	defer suite.ctrl.Finish()
-
-	apiClient := openai.NewMockClient(suite.ctrl)
-	suite.strategy.apiClient = apiClient
-
-	apiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai_ext.ChatCompletionResponse{
-		Choices: []openai_ext.ChatCompletionChoice{
-			{
-				Message: openai_ext.ChatCompletionMessage{
-					Content: `incorrect json maybe? {"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
-				},
-			},
-		},
-	}, nil)
-
-	apiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai_ext.ChatCompletionResponse{
-		Choices: []openai_ext.ChatCompletionChoice{
-			{
-				Message: openai_ext.ChatCompletionMessage{
-					Content: `{"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
-				},
-			},
-		},
-	}, nil)
+	// Two LLM calls: the first returns malformed JSON to drive the retry
+	// path in IsActionable, the second returns valid JSON.
+	installLLMMock(suite,
+		`incorrect json maybe? {"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
+		`{"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
+	)
 
 	tools := []*types.Tool{
 		{
