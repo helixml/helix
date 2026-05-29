@@ -13,6 +13,7 @@ import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import SyncIcon from '@mui/icons-material/Sync'
 import ErrorIcon from '@mui/icons-material/Error'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -25,6 +26,11 @@ interface Props {
   // height of the terminal area. Defaults to a roomy 480px to match the
   // SandboxTerminal component.
   height?: number | string
+  // showOpenInNewTab renders an "Open in new tab" icon button in the
+  // toolbar that opens /admin/runner-logs/:runner_id as a standalone
+  // full-screen page. Hide when the component is already rendered as
+  // that standalone page (otherwise the user can recursively pop out).
+  showOpenInNewTab?: boolean
 }
 
 type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
@@ -58,7 +64,12 @@ function runnerLogsUrl(runnerId: string, tail: number): string {
 // by a one-shot `hasRetriedRef` flag (separate from the
 // connecting-vs-reconnecting state) so a flapping connection doesn't loop
 // forever resetting itself on every successful onopen.
-const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
+const RunnerLogs: FC<Props> = ({
+  runnerId,
+  tail = 500,
+  height = 480,
+  showOpenInNewTab = true,
+}) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -255,6 +266,19 @@ const RunnerLogs: FC<Props> = ({ runnerId, tail = 500, height = 480 }) => {
           <Typography variant="caption" color="text.secondary">
             {queuedCount} line{queuedCount !== 1 ? 's' : ''} queued
           </Typography>
+        )}
+        {showOpenInNewTab && (
+          <Tooltip title="Open in new tab">
+            <IconButton
+              size="small"
+              component="a"
+              href={`/admin/runner-logs/${encodeURIComponent(runnerId)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <OpenInNewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         )}
         <Tooltip title={paused ? 'Resume' : 'Pause'}>
           <IconButton size="small" onClick={togglePause}>
