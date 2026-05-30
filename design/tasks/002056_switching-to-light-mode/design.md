@@ -1,80 +1,127 @@
-# Design: Fix Light/Dark Theme Toggle Not Returning to Dark Mode
+# Design: Diagnose Helix→Zed Theme Sync Stuck After Toggle Post-Resume
 
-## Root Cause
+## Current state (post-001998)
 
-The bug lives in `crates/theme_settings/src/settings.rs:292-315`, in the `Static(_)` arm of `ThemeSelection::set_mode()`:
+The settings-sync-daemon already implements the obvious fix the user is half-remembering ("it special-cases certain themes"). In `api/cmd/settings-sync-daemon/main.go`:
 
-```rust
-*selection = ThemeSelection::Dynamic {
-    mode: ThemeAppearanceMode::System,         // BUG: ignores the `mode` arg
-    light: ThemeName(DEFAULT_LIGHT_THEME.into()),
-    dark:  ThemeName(DEFAULT_DARK_THEME.into()),
-};
+- `HELIX_MANAGED_THEMES = {"One Light": true, "Ayu Dark": true}` (lines 1116–1119) — the two themes the daemon itself writes from a color-scheme preference.
+- `effectiveTheme(apiTheme string) string` (lines 1126–1143) — returns `apiTheme` when on-disk `theme` is unset, empty, or in `HELIX_MANAGED_THEMES`; otherwise returns the on-disk value to preserve a user's manual Zed-UI choice.
+- `syncFromHelix` (line 954) and `checkHelixUpdates` (line 1709) both call `effectiveTheme`.
+- `extractUserOverrides` (line 1440) skips `"theme"` so the daemon's local decision can't be uploaded as a user override and replayed back.
+- `checkHelixUpdates` (line 1692) calls `applyGNOMEColorScheme` on every poll — idempotent, repairs missed WS events.
+
+Commits in `git log`:
+- `8053d6948` — the 001998 main fix
+- `462d5e661` — follow-up tightening WS reconnect for faster convergence
+
+Both are merged. So the user's current symptom is **either a regression / new failure mode**, or the running container image doesn't contain those commits.
+
+## Hypotheses (ranked)
+
+### H1 — Structured `theme` on disk bypasses `effectiveTheme` correctly but the daemon's string write doesn't dislodge Zed's in-memory `Dynamic { mode: System }` state
+
+If at some point Zed's `theme::ToggleMode` action ran (independent of the Helix toggle), the on-disk `theme` could be:
+
+```json
+"theme": { "mode": "system", "light": "One Light", "dark": "Ayu Dark" }
 ```
 
-When the user's `theme` setting is `Static("SomeTheme")` and they invoke `theme::ToggleMode` (e.g. requesting `Dark`), the handler at `crates/workspace/src/workspace.rs:7973-7994` passes the requested mode to `set_mode()` — but the `Static(_)` branch discards it, hardcodes `System`, and overwrites both theme slots with built-in defaults.
+(See the separately-identified Zed `set_mode` defect, which hardcodes `mode: System` when converting `Static → Dynamic` — out of scope here, but relevant context.)
 
-Consequences:
-1. The persisted `mode` becomes `System`, so the active theme is now governed by the OS appearance — not the user's explicit toggle.
-2. The user's previously-chosen theme name is lost.
-3. The next toggle starts from a different effective mode than the user expects, producing the symptom: "switching back to dark mode doesn't switch it back."
+`effectiveTheme` does `existing["theme"].(string)` — for a structured value `ok = false`, so `!ok` triggers and it returns `apiTheme`. The daemon then writes `"theme": "Ayu Dark"` (string). That **should** dislodge the structured form on Zed's next reload.
 
-## Theme Settings Model (Reference)
+Possible failure: if Zed's settings live-reload doesn't fully reset the in-memory theme when the structure changes from object → string (or if `mode: System` is sticky and tied to a `SystemAppearance` snapshot that doesn't refresh), the rendered theme stays on the system-driven value. The daemon log would still show "wrote Ayu Dark" — making the failure invisible to anyone reading daemon logs only.
 
-`ThemeSettingsContent.theme: Option<ThemeSelection>` (`crates/settings_content/src/theme.rs:159`) has two shapes:
-- `Static(ThemeName)` — one theme regardless of OS appearance.
-- `Dynamic { mode: ThemeAppearanceMode, light: ThemeName, dark: ThemeName }`.
+**Test:** Reproduce, then inspect both `settings.json` (proves daemon wrote correctly) and Zed's rendered theme (proves Zed picked it up or didn't). Divergence between the two is the smoking gun for a Zed-side reload bug.
 
-`ThemeAppearanceMode` is `Light | Dark | System`. Resolution at `crates/theme_settings/src/settings.rs:148-161`: `Light`/`Dark` pick the matching slot directly; `System` defers to the `SystemAppearance` global, refreshed by `cx.observe_window_appearance()` (`workspace.rs:1759-1766`).
+### H2 — The deployed image doesn't actually contain the 001998 fix
 
-## Fix
+`./stack build-ubuntu` doesn't always transfer cleanly to the sandbox (documented in `helix/design/2026-03-12-settings-sync-daemon-fixes.md` "Bug 2"). It's possible the user is hitting a session running an older image where `theme` was still in `USER_PREFERENCE_FIELDS` and `mergeSettings` pinned the on-disk value.
 
-In the `Static(_)` arm of `set_mode()`:
+**Test:** Check the running image tag, `docker exec` into the desktop container, and inspect the daemon binary's build date or run `--version` if present. Confirm against `sandbox-images/helix-ubuntu.version`.
 
-1. Use the `mode` parameter passed to `set_mode()` instead of hardcoding `ThemeAppearanceMode::System`.
-2. Preserve the existing static theme name by placing it into the slot matching its appearance (`Theme::appearance()` returns Light or Dark):
-   - If the previous static theme is a light theme → put it in `light`, default the `dark` slot.
-   - If it is a dark theme → put it in `dark`, default the `light` slot.
-3. When `mode == System`, the same preservation logic still applies so the user does not silently lose their chosen theme.
+### H3 — Session-resume timing race
 
-Sketch:
+On session resume, ordering is:
+1. Container starts → start-zed-core.sh launches the daemon
+2. Daemon's `main()` runs `syncFromHelix()` with retries
+3. Zed starts (separately, also from start-zed-core.sh)
+4. Zed reads `~/.config/zed/settings.json` at startup, applies theme
+5. Daemon's WS subscriber connects, may re-sync
 
-```rust
-ThemeSelection::Static(prev_name) => {
-    let prev_theme = theme_registry.get(&prev_name.0).ok();
-    let prev_is_dark = prev_theme.map(|t| t.appearance() == Appearance::Dark).unwrap_or(false);
-    let (light, dark) = if prev_is_dark {
-        (ThemeName(DEFAULT_LIGHT_THEME.into()), prev_name.clone())
-    } else {
-        (prev_name.clone(), ThemeName(DEFAULT_DARK_THEME.into()))
-    };
-    *selection = ThemeSelection::Dynamic { mode, light, dark };
-}
+If Zed reads settings.json **before** the daemon has finished its initial sync write, Zed comes up with the stale theme from the previous session's file. Subsequent Helix toggles do update settings.json — but if Zed's reactive-reload watcher missed the early write window or if Zed has cached state from start-up, the toggle wouldn't apply.
+
+**Test:** Inspect daemon log timestamps (`Updated settings.json`) vs. Zed log timestamps (Zed startup / theme load) on a fresh resume. Watch a single Helix toggle post-resume and confirm whether settings.json's `theme` field actually changes on disk.
+
+### H4 — `onFileChanged` races with the WS-triggered `syncFromHelix`
+
+After the daemon writes settings.json, fsnotify fires. The `lastModified < 1*time.Second` guard at `onFileChanged` (line 1587) is supposed to suppress own-write echoes — but it relies on wall-clock comparison from `d.lastModified = time.Now()` set inside `writeSettings`. If multiple writes pile up (initial sync + immediate WS push), this guard can race.
+
+If `onFileChanged` does run, it calls `extractUserOverrides` (which skips `theme` — defensive, post-001998) and uploads to the API. Even if theme is skipped, the upload itself shouldn't corrupt the daemon's view. But it's worth confirming the guard holds in the failure scenario.
+
+**Test:** Add temporary INFO logging to `onFileChanged` showing the elapsed-since-last-write, then reproduce the failure.
+
+### H5 — User's settings.json contains a custom theme that effectiveTheme correctly preserves, masking the perceived bug
+
+If the user previously set Zed to e.g. `"theme": "Solarized Dark"`, `effectiveTheme` returns `"Solarized Dark"` regardless of what Helix sends — by design. The user perceives this as "Zed doesn't switch", because `Solarized Dark` does not change when they toggle. This is **working as intended** per 001998's preserve-custom-themes design.
+
+**Test:** Read `~/.config/zed/settings.json` and check whether `theme` is `One Light` / `Ayu Dark` or something else. If something else, this is a UX issue (user expectation vs. documented behaviour), not a code bug.
+
+## Approach
+
+This task is primarily an **investigation**, not a coding task. A code change should only land once the failure mode is reproduced and the right hypothesis confirmed.
+
+### Phase 1 — reproduce and capture
+
+1. Start an inner-Helix session, let it stabilise, close it (resume target).
+2. Resume; capture daemon logs from startup.
+3. Toggle Helix dark → light → dark via the UI.
+4. After each toggle, capture: GNOME `color-scheme`, `settings.json.theme`, Zed's rendered theme (visible in window chrome / via Zed's command palette).
+5. Compare daemon logs against on-disk state and rendered state.
+
+### Phase 2 — root-cause
+
+Use the captures from Phase 1 to identify which of H1–H5 fired (or a new H6). Update this design doc with the finding.
+
+### Phase 3 — fix the actual bug
+
+- **If H1:** the fix is in Zed (see Risks), not in the daemon. Open a follow-up against the `zed` repo.
+- **If H2:** rebuild and redeploy the image (`./stack build-ubuntu` + verify `sandbox-images/helix-ubuntu.version` matches across desktop and sandbox per `2026-03-12-settings-sync-daemon-fixes.md`).
+- **If H3:** add a startup ordering guarantee — e.g. block Zed launch on the daemon's initial sync completing, or have the daemon write settings.json synchronously before any other init step runs.
+- **If H4:** strengthen the own-write guard (track writes by file `mtime` or a sequence counter; switch to a `wasWrittenByDaemon` boolean that the watcher resets after the next event).
+- **If H5:** documentation / UX fix — surface the special-casing in the Helix UI or in the toggle's tooltip ("theme follows your custom Zed selection").
+
+### Phase 4 — add observability so the next regression is debuggable from logs alone
+
+Regardless of which hypothesis lands, add one structured INFO log line per sync that touches `theme`:
+
+```
+theme sync: branch=managed_overwrite on_disk="One Light" wrote="Ayu Dark" api="Ayu Dark"
+theme sync: branch=preserve_custom on_disk="Solarized Dark" wrote=<none> api="Ayu Dark"
+theme sync: branch=structured_replace on_disk=<object> wrote="Ayu Dark" api="Ayu Dark"
+theme sync: branch=no_api_theme on_disk=… wrote=<none> api=""
 ```
 
-## Symmetric Audit
-
-- `set_theme()` at `settings.rs:233-264` performs an analogous Static→Dynamic conversion. Audit it for the same hardcoded-`System` defect and align behaviour.
-- `IconThemeSelection::set_mode()` (icon themes mirror the same `Static | Dynamic` shape). Apply the same fix if present.
-
-## Key Decisions
-
-- **Preserve the user's previous theme rather than reset to defaults.** Reset-to-defaults was almost certainly unintentional. Preserving it matches user expectations and is what the existing tests imply when they exercise round-trip toggling.
-- **No settings migration.** The on-disk `Dynamic` shape is unchanged; only the path that *produces* a new `Dynamic` from a `Static` changes. Existing settings files load identically.
-- **No new actions, no new fields.** The fix is local to two functions.
+This makes Phase 1 of any future investigation a `grep`, not a code-walk.
 
 ## Risks / Open Questions
 
-- If the previous static theme name does not resolve in `ThemeRegistry` (e.g. an uninstalled extension theme), `appearance()` lookup fails — fall back to defaulting both slots, same as today.
-- The System-appearance observer at `workspace.rs:1759-1766` is correct as written; the fix relies on it only triggering when `mode == System`. Confirm no test asserts the observer overrides explicit modes.
-- Determine whether `IconThemeSelection::set_mode` has the identical defect during implementation; if so, fix in the same PR to keep the two settings shapes behaviourally consistent.
+- **Zed-side `set_mode` defect** (separately identified in the `zed` repo, `crates/theme_settings/src/settings.rs:292-315`): hardcodes `mode: System` and resets theme slots when converting `Static → Dynamic`. If the user's Zed has been in a state where this fired, `~/.config/zed/settings.json` may contain a structured `theme` that, when replaced by the daemon's string write, leaves Zed in a stale in-memory state. Out of scope for this Helix task; flag as a follow-up Zed task if H1 confirms.
+- **`mergeSettings` does NOT call `effectiveTheme`.** It pulls `theme` from `helixSettings` (which was set by the caller's `effectiveTheme` call). If a future code path calls `mergeSettings` without first calling `effectiveTheme` on the API response, the merged settings will contain whatever theme is in `helixSettings` from the last sync — potentially stale. Audit during fix.
+- **The Helix→GNOME path uses gsettings (direct, synchronous), the Helix→Zed path uses a JSON file write (indirect, reactive).** Failures will always be asymmetric between the two even when the daemon is correct — the GNOME path has fewer moving parts.
+- **`http.Client` has no timeout** (called out in 001998 implementation notes line 157). If the API is briefly unreachable during resume, the daemon's initial `syncFromHelix` can block for ~30s on a TCP timeout, widening any startup race window in H3.
 
 ## Reference Files
 
-- `/home/retro/work/zed/crates/theme_settings/src/settings.rs:292-315` — primary fix site
-- `/home/retro/work/zed/crates/theme_settings/src/settings.rs:233-264` — `set_theme()` audit site
-- `/home/retro/work/zed/crates/theme_settings/src/settings.rs:148-161` — `ThemeSelection::name()` resolution (no change needed)
-- `/home/retro/work/zed/crates/workspace/src/workspace.rs:7973-7994` — `toggle_theme_mode()` caller (no change needed)
-- `/home/retro/work/zed/crates/workspace/src/workspace.rs:15696-15758` — existing test to extend
-- `/home/retro/work/zed/crates/settings_content/src/theme.rs:159,267-280,344-354` — settings shape reference
-- `/home/retro/work/zed/crates/theme/src/theme.rs:130-183` — `SystemAppearance` global
+- `/home/retro/work/helix/api/cmd/settings-sync-daemon/main.go` — daemon source
+  - `HELIX_MANAGED_THEMES` (1116–1119)
+  - `effectiveTheme()` (1126–1143)
+  - `syncFromHelix` theme assign (954)
+  - `checkHelixUpdates` theme assign (1709), GNOME apply (1692)
+  - `extractUserOverrides` theme skip (1440)
+  - `mergeSettings` USER_PREFERENCE_FIELDS loop (1337–1342)
+  - `onFileChanged` own-write guard (1587)
+- `/home/retro/work/helix/api/cmd/settings-sync-daemon/main_test.go` — extend with structured-theme + missing-file tests
+- `/home/retro/work/helix-specs/design/tasks/001998_when-switching-helix/design.md` — prior fix rationale
+- `/home/retro/work/helix/design/2026-03-12-settings-sync-daemon-fixes.md` — image-transfer gotchas relevant to H2
+- `/home/retro/work/zed/crates/theme_settings/src/settings.rs:292-315` — Zed-side `set_mode` defect (related, out of scope for this task)
