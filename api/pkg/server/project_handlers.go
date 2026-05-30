@@ -1413,6 +1413,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			}
 
 			// Restart Zed agent with existing session
+			// (project secrets injected by HydraExecutor.StartDesktop)
 			zedAgent := &types.DesktopAgent{
 				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
@@ -1429,15 +1430,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				Resolution:          resolution,
 				ZoomLevel:           zoomLevel,
 				DesktopType:         desktopType,
-			}
-
-			// Inject project secrets as environment variables (matching spec task behavior)
-			projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-			if err != nil {
-				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory restart, continuing without them")
-			} else if len(projectSecrets) > 0 {
-				zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
 			}
 
 			// Add user's API token inside session lock via OnBeforeCreate hook
@@ -1578,6 +1570,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	// Create ZedAgent for team desktop
+	// (project secrets injected by HydraExecutor.StartDesktop)
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      project.OrganizationID,
 		SessionID:           createdSession.ID,
@@ -1594,15 +1587,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-	}
-
-	// Inject project secrets as environment variables (matching spec task behavior)
-	projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory session, continuing without them")
-	} else if len(projectSecrets) > 0 {
-		zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
 	}
 
 	// Add user's API token inside session lock via OnBeforeCreate hook

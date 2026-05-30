@@ -529,10 +529,12 @@ func NewServer(
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
-	// Set the project secrets callback for injecting secrets as env vars into desktop containers
-	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	// Wire project-secret injection into HydraExecutor so every desktop container
+	// (spec task, exploratory session, resume) picks up project secrets without
+	// each caller having to remember.
+	externalAgentExecutor.SetProjectSecretsGetter(apiServer.GetProjectSecretsAsEnvVars)
 	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
 	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
 
