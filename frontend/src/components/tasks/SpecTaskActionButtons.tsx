@@ -101,7 +101,13 @@ interface CompactActionButtonProps {
   fullWidth?: boolean;
   icon: React.ReactNode;
   label: string;
-  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  // When href is set, the button renders as a real anchor so that Safari's
+  // popup blocker treats it as a normal user-initiated navigation rather than
+  // blocking a window.open() call.
+  href?: string;
+  target?: string;
+  rel?: string;
   sx?: object;
 }
 
@@ -114,8 +120,14 @@ function CompactActionButton({
   icon,
   label,
   onClick,
+  href,
+  target,
+  rel,
   sx,
 }: CompactActionButtonProps) {
+  const anchorProps = href
+    ? { component: "a" as const, href, target, rel }
+    : {};
   return (
     <Tooltip title={tooltip} placement="top">
       <span style={{ width: fullWidth ? "100%" : "auto", display: "block" }}>
@@ -126,6 +138,7 @@ function CompactActionButton({
           disabled={disabled}
           fullWidth={fullWidth}
           onClick={onClick}
+          {...anchorProps}
           sx={{
             minWidth: 72,
             px: 1,
@@ -753,10 +766,10 @@ export default function SpecTaskActionButtons({
               disabled={isArchived}
               icon={<LaunchIcon sx={{ fontSize: 18 }} />}
               label={prLabel}
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(prUrl, "_blank");
-              }}
+              href={prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
             />
           </Box>
         );
@@ -771,10 +784,11 @@ export default function SpecTaskActionButtons({
                 variant="contained"
                 color="secondary"
                 startIcon={<LaunchIcon />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(prUrl, "_blank");
-                }}
+                component="a"
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 disabled={isArchived}
                 fullWidth={!isInline}
                 sx={buttonSx}
@@ -813,10 +827,11 @@ export default function SpecTaskActionButtons({
               {pullRequests.map((pr, idx) => (
                 <MenuItem
                   key={pr.repository_id || idx}
-                  onClick={() => {
-                    window.open(pr.pr_url, "_blank");
-                    setPrMenuAnchor(null);
-                  }}
+                  component="a"
+                  href={pr.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setPrMenuAnchor(null)}
                 >
                   <ListItemText
                     primary={pr.repository_name || `Repository ${idx + 1}`}
@@ -859,10 +874,11 @@ export default function SpecTaskActionButtons({
             {pullRequests.map((pr, idx) => (
               <MenuItem
                 key={pr.repository_id || idx}
-                onClick={() => {
-                  window.open(pr.pr_url, "_blank");
-                  setPrMenuAnchor(null);
-                }}
+                component="a"
+                href={pr.pr_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setPrMenuAnchor(null)}
               >
                 <ListItemText
                   primary={pr.repository_name || `Repository ${idx + 1}`}
