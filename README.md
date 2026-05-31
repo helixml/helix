@@ -269,3 +269,40 @@ If you find Helix useful, please consider giving us a star on GitHub!
 ---
 
 Built with ❤️  by [HelixML, Inc.](https://helix.ml)
+
+## FAQ
+
+### What is helix?
+
+Private AI Agent platform with RAG, multi-provider LLM.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| Easy-to-use Web UI | Available |
+| Session-based architecture | Available |
+| Multi-step reasoning | Available |
+| REST API integration | Available |
+| MCP server compatibility | Available |
+
+### Installation
+
+Deploy in data center or VPC with helix.yaml configuration
+
+### Is it free?
+
+Yes, open source and free to use.
+
+### How to contribute?
+
+Check the repository for contributing guidelines.
+
+### Where to get help?
+
+- GitHub Issues: https://github.com/helixml/helix/issues
+- Documentation: Check README and docs folder
+
+### License
+
+Check the repository LICENSE file for details.
