@@ -769,7 +769,6 @@ export default function SpecTaskActionButtons({
               href={prUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
             />
           </Box>
         );
@@ -788,7 +787,6 @@ export default function SpecTaskActionButtons({
                 href={prUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
                 disabled={isArchived}
                 fullWidth={!isInline}
                 sx={buttonSx}
