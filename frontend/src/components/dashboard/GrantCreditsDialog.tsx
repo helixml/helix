@@ -11,10 +11,14 @@ import {
     CircularProgress,
     IconButton,
     Typography,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesUser } from '../../api/api';
-import { useAdminGrantCredits } from '../../services/dashboardService';
+import { useAdminGrantCredits, useAdminUserOwnedOrgs } from '../../services/dashboardService';
 import useSnackbar from '../../hooks/useSnackbar';
 
 interface GrantCreditsDialogProps {
@@ -27,9 +31,11 @@ const DEFAULT_CREDITS = 50;
 
 const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }) => {
     const [credits, setCredits] = useState(String(DEFAULT_CREDITS));
+    const [orgId, setOrgId] = useState<string>('');
     const [error, setError] = useState('');
     const grantCredits = useAdminGrantCredits();
     const snackbar = useSnackbar();
+    const { data: ownedOrgs, isLoading: isLoadingOrgs } = useAdminUserOwnedOrgs(user?.id, open);
 
     useEffect(() => {
         if (open) {
@@ -38,6 +44,25 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
         }
     }, [open]);
 
+    // Pre-select the only owned org when there's exactly one, so the admin
+    // doesn't have to interact with a one-item dropdown. Multi-org or
+    // no-org cases require an explicit choice (or none, for the stash path).
+    useEffect(() => {
+        if (!ownedOrgs) return;
+        if (ownedOrgs.length === 1) {
+            setOrgId(ownedOrgs[0].id);
+        } else {
+            setOrgId('');
+        }
+    }, [ownedOrgs]);
+
+    const hasOrgs = (ownedOrgs?.length ?? 0) > 0;
+    const willStash = !isLoadingOrgs && !hasOrgs;
+    const submitDisabled =
+        grantCredits.isPending ||
+        isLoadingOrgs ||
+        (hasOrgs && !orgId);
+
     const handleSubmit = async () => {
         if (!user?.id) return;
         const creditsNum = parseFloat(credits);
@@ -45,10 +70,15 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
             setError('Credits must be greater than 0');
             return;
         }
+        if (hasOrgs && !orgId) {
+            setError('Pick which organisation receives the grant');
+            return;
+        }
         try {
             const result = await grantCredits.mutateAsync({
                 userId: user.id,
                 credits: creditsNum,
+                orgId: hasOrgs ? orgId : undefined,
             });
             const status = (result as any)?.status as string | undefined;
             if (status === 'stashed') {
@@ -89,9 +119,15 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
                 <Box sx={{ mt: 2 }}>
                     {user && (
                         <Alert severity="info" sx={{ mb: 2 }}>
-                            Granting credits to <strong>{user.email || user.username}</strong>. Top-up lands on the
-                            user's oldest owned org regardless of subscription state. If the user has no organization
-                            yet, the grant is parked on the user and applied when they create their first org.
+                            Granting credits to <strong>{user.email || user.username}</strong>. The grant lands
+                            on the wallet of the selected organisation, regardless of subscription state.
+                        </Alert>
+                    )}
+
+                    {willStash && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                            This user owns no organisations yet. The grant will be stashed and applied
+                            automatically when they create their first owned org.
                         </Alert>
                     )}
 
@@ -99,6 +135,24 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
                         <Alert severity="error" sx={{ mb: 2 }}>
                             {error}
                         </Alert>
+                    )}
+
+                    {hasOrgs && (
+                        <FormControl fullWidth margin="normal" disabled={grantCredits.isPending}>
+                            <InputLabel id="grant-credits-org-label">Organisation</InputLabel>
+                            <Select
+                                labelId="grant-credits-org-label"
+                                label="Organisation"
+                                value={orgId}
+                                onChange={(e) => setOrgId(e.target.value as string)}
+                            >
+                                {ownedOrgs!.map((org) => (
+                                    <MenuItem key={org.id} value={org.id}>
+                                        {org.display_name || org.name} ({org.id})
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
                     )}
 
                     <TextField
@@ -120,7 +174,7 @@ const GrantCreditsDialog: FC<GrantCreditsDialogProps> = ({ open, onClose, user }
                     onClick={handleSubmit}
                     color="secondary"
                     variant="contained"
-                    disabled={grantCredits.isPending}
+                    disabled={submitDisabled}
                     startIcon={grantCredits.isPending ? <CircularProgress size={20} /> : null}
                 >
                     {grantCredits.isPending ? 'Granting…' : 'Grant credits'}
