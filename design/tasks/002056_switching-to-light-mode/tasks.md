@@ -37,7 +37,7 @@
 
 ## Phase 4 — Observability (do this regardless of which hypothesis lands)
 
-- [ ] Add a single structured INFO log line emitted by `effectiveTheme` (or its callers) describing the branch taken: `branch=managed_overwrite|preserve_custom|structured_replace|no_api_theme`, on-disk value, written value, API value.
+- [~] Add a single structured INFO log line emitted by `effectiveTheme` (or its callers) describing the branch taken: `branch=managed_overwrite|preserve_custom|structured_replace|no_api_theme`, on-disk value, written value, API value.
 - [ ] Audit `mergeSettings` for any path that touches `theme` without going through `effectiveTheme`; if any exist, route them through the helper.
 - [ ] Add unit tests in `main_test.go` covering: bare-string managed theme, bare-string custom theme, structured `{mode,light,dark}` on disk, missing settings file, unparseable settings file.
 
