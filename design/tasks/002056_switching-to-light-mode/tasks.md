@@ -2,12 +2,12 @@
 
 ## Phase 1 — Reproduce and Capture
 
-- [ ] In the inner Helix, start a session, wait for desktop, close it, then resume.
-- [ ] Confirm the deployed image tag: `cat /home/retro/work/helix/sandbox-images/helix-ubuntu.version` and cross-check the sandbox has it: `docker compose -f /home/retro/work/helix/docker-compose.dev.yaml exec -T sandbox-nvidia docker images helix-ubuntu --format "{{.Tag}}"`.
-- [ ] Verify the running daemon binary corresponds to a commit at or after `8053d6948`: `docker exec <ubuntu-external-container> /usr/local/bin/settings-sync-daemon --version` (or compare binary `mtime` if no version flag).
-- [ ] Capture daemon logs from container start through three toggles: `docker compose exec sandbox-nvidia docker logs -f <name> 2>&1 | grep -E "config event|config_changed|applied GNOME|Updated settings.json|theme"`
-- [ ] Toggle Helix dark → light → dark → light (4 transitions). After each, record: GNOME `gsettings get org.gnome.desktop.interface color-scheme`, contents of `~/.config/zed/settings.json` `.theme` field, and Zed's visibly-rendered theme.
-- [ ] Save captures under `screenshots/` and `logs/` in this task directory.
+- [x] Confirm the deployed image tag: `cat /home/retro/work/helix/sandbox-images/helix-ubuntu.version` and cross-check the sandbox has it: `docker compose -f /home/retro/work/helix/docker-compose.dev.yaml exec -T sandbox-nvidia docker images helix-ubuntu --format "{{.Tag}}"`. (Built and transferred `helix-ubuntu:12c14d` during implementation — contains the new `theme sync:` log line. Any session started after this point picks it up.)
+- [~] In the inner Helix, start a session, wait for desktop, close it, then resume.  *Attempted via chrome-devtools MCP: registered test user, completed onboarding, created project, queued a placeholder chat — but the spec-task pipeline returned a system error and no `ubuntu-external` container started. Reproduction via the chat-driven spec-task flow is fragile from inside chrome-devtools MCP; better verified by the user with a normal session start.*
+- [ ] Verify the running daemon binary corresponds to a commit at or after `8053d6948`: `docker exec <ubuntu-external-container> /usr/local/bin/settings-sync-daemon --version` (or compare binary `mtime` if no version flag). *(Deferred to user — needs a live `ubuntu-external` container.)*
+- [ ] Capture daemon logs from container start through three toggles, looking specifically for the new structured line: `docker compose exec sandbox-nvidia docker logs -f <name> 2>&1 | grep -E "theme sync|applied GNOME|Updated settings.json"` *(Deferred to user.)*
+- [ ] Toggle Helix dark → light → dark → light (4 transitions). After each, record: GNOME `gsettings get org.gnome.desktop.interface color-scheme`, contents of `~/.config/zed/settings.json` `.theme` field, and Zed's visibly-rendered theme. *(Deferred to user.)*
+- [ ] Save captures under `screenshots/` and `logs/` in this task directory. *(Deferred to user.)*
 
 ## Phase 2 — Root-cause
 

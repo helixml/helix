@@ -111,6 +111,29 @@ This makes Phase 1 of any future investigation a `grep`, not a code-walk.
 - **The Helix→GNOME path uses gsettings (direct, synchronous), the Helix→Zed path uses a JSON file write (indirect, reactive).** Failures will always be asymmetric between the two even when the daemon is correct — the GNOME path has fewer moving parts.
 - **`http.Client` has no timeout** (called out in 001998 implementation notes line 157). If the API is briefly unreachable during resume, the daemon's initial `syncFromHelix` can block for ~30s on a TCP timeout, widening any startup race window in H3.
 
+## Implementation Notes (after coding)
+
+- **Built and shipped** `helix-ubuntu:12c14d` (image tag in `sandbox-images/helix-ubuntu.version`) containing the new structured logging on the `feature/002056-diagnose-helixzed-theme` branch.
+- Code change is **purely observational**: split `effectiveTheme` into `computeEffectiveTheme(apiTheme) (result, branch, onDiskRepr)` (pure decision) + `effectiveTheme(apiTheme)` (logging wrapper). One INFO log line per call:
+  ```
+  theme sync: branch=<X> on_disk=<Y> wrote=<Z> api=<W>
+  ```
+- Branches: `no_api_theme | no_existing_file | unparseable | no_theme_key | structured_replace | empty_string | managed_overwrite | preserve_custom`.
+- The `structured_replace` branch is broken out explicitly because Zed's own `ToggleMode` action can persist `theme` as a `{mode, light, dark}` object. The daemon's existing behavior (replace with bare string) is preserved — just made visible in logs.
+- `mergeSettings` audit clean: `theme` is set in exactly two callsites (`syncFromHelix:959` and `checkHelixUpdates:1754`), both routed through `effectiveTheme`. `USER_PREFERENCE_FIELDS` is empty post-001998 so `mergeSettings`'s preserve-from-disk loop is a no-op for theme.
+- Test coverage: `TestComputeEffectiveTheme` in `main_test.go` covers all 8 branches with 9 cases. Required converting `SettingsPath` / `KeymapPath` from `const` to `var` so tests can point them at a tempdir.
+- **Live reproduction in inner Helix attempted but blocked**: registered test user, completed onboarding, queued a chat — but the spec-task pipeline returned an error and no `ubuntu-external` container started in this environment. The image is built, transferred, and ready in the sandbox; reproduction is best done by the user with a normal session start.
+
+## What the user can do next
+
+1. Start a fresh spec-task session (any project) — it will pull `helix-ubuntu:12c14d` automatically.
+2. Tail the daemon logs filtered to the new line:
+   ```
+   docker compose exec sandbox-nvidia docker logs -f <ubuntu-external-container> 2>&1 | grep "theme sync"
+   ```
+3. Toggle Helix dark↔light a few times. Each toggle should emit one `theme sync:` line.
+4. Reproduce the symptom (resume + toggle); the branch label in the matching `theme sync:` log line will pin which hypothesis from this design doc actually fires. Send that line back and I'll wire the targeted fix.
+
 ## Reference Files
 
 - `/home/retro/work/helix/api/cmd/settings-sync-daemon/main.go` — daemon source
