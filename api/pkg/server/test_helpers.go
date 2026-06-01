@@ -13,16 +13,17 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// chatMessagePaceWindow is the minimum spacing between two QueueCommand
-// chat_message sends on the same session. Real users naturally pause for
-// several seconds between messages; the cross-repo E2E test driver fires them
-// programmatically with zero delay, which exposed a transient race in the
-// claude-agent-acp wrapper where a new prompt arriving before the wrapper has
-// finalised a cancelled turn returns
+// chatMessagePaceWindow is a drain-window backoff for the claude-agent-acp
+// wrapper: when a follow-up prompt arrives on the same session before the
+// wrapper has finalised a previous cancelled turn the wrapper returns
 // "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null".
-// Pacing here makes the test traffic shape match real usage.
-// Production code paths do not call QueueCommand.
-const chatMessagePaceWindow = 8 * time.Second
+// The cross-repo E2E test driver fires chat_messages programmatically with
+// zero delay, which hammers this race; the existing 2s gap in
+// advanceAfterCompletion is empirically not enough. This pacing in
+// QueueCommand sets a per-session floor; tune up if CI continues to flake.
+// Production chat_message paths flow through sendChatMessageToExternalAgent
+// and do not call QueueCommand, so this is test-traffic-only.
+const chatMessagePaceWindow = 4 * time.Second
 
 var (
 	lastChatMessageMu   sync.Mutex
@@ -83,8 +84,8 @@ func (s *HelixAPIServer) ExternalAgentSyncHandler() http.HandlerFunc {
 // Returns true if the command was queued/sent, false if no connection exists.
 //
 // For chat_message commands, calls are paced per-session by
-// chatMessagePaceWindow so back-to-back sends from tests model realistic
-// user spacing rather than a sub-second burst the product never produces.
+// chatMessagePaceWindow to work around the claude-agent-acp drain race
+// (see the chatMessagePaceWindow doc).
 func (s *HelixAPIServer) QueueCommand(sessionID string, cmd types.ExternalAgentCommand) bool {
 	if cmd.Type == "chat_message" {
 		paceChatMessage(sessionID)
