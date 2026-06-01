@@ -63,3 +63,10 @@ Use `mcp__github__create_pull_request_review` against `helixml/helix#2484` with 
 3. Consistency note re: `login()`.
 4. Test-coverage recommendation (file an issue or block on it).
 5. CI status snapshot.
+
+## Implementation Notes (added during review)
+
+- **Bypass hunt was run as a standalone Go program** (`/tmp/bypass_hunt.go`) that imports `net/url` and re-implements `isSameOriginRedirect` verbatim from the patch. 24 adversarial inputs exercised. Full table → `findings.md` §3. No security bypass.
+- **Two minor robustness notes** surfaced — case-sensitive host comparison (RFC 3986 says hosts are case-insensitive; suggest `strings.EqualFold`) and default-port strictness (`:443` doesn't match implicit `:443`). Both err toward rejection (safe); flagged as non-blocking comments.
+- **CI status**: `get_pull_request_status` returned `state: pending, total_count: 0`. Helix Drone CI likely gates external-contributor PRs from secret-bearing builds. Mention in the review.
+- **Verdict: APPROVE** — vulnerability real, fix correct, all sinks closed, no bypass. Missing tests recommended as follow-up but not a blocker for a 30-line security fix that the maintainer can validate by reading.
