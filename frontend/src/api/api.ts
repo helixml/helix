@@ -150,19 +150,6 @@ export enum HydraDevContainerType {
   DevContainerTypeHeadless = "headless",
 }
 
-export interface HydraGPUInfo {
-  index?: number;
-  memory_free_bytes?: number;
-  memory_total_bytes?: number;
-  memory_used_bytes?: number;
-  name?: string;
-  temperature_celsius?: number;
-  /** GPU core utilization */
-  utilization_percent?: number;
-  /** "nvidia", "amd", "intel" */
-  vendor?: string;
-}
-
 export interface HydraListSandboxCommandsResponse {
   commands?: HydraSandboxCommandResponse[];
 }
@@ -599,7 +586,7 @@ export interface ServerActivateTrialResponse {
 
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
-  gpus?: HydraGPUInfo[];
+  gpus?: ServerGPUInfoWithSandbox[];
   message?: string;
   sandboxes?: ServerSandboxInstanceInfo[];
 }
@@ -740,8 +727,23 @@ export interface ServerExposedPort {
   url?: string;
 }
 
+export interface ServerGPUInfoWithSandbox {
+  index?: number;
+  memory_free_bytes?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  name?: string;
+  sandbox_id?: string;
+  temperature_celsius?: number;
+  /** GPU core utilization */
+  utilization_percent?: number;
+  /** "nvidia", "amd", "intel" */
+  vendor?: string;
+}
+
 export interface ServerGrantCreditsRequest {
   credits?: number;
+  org_id?: string;
 }
 
 export interface ServerGrantCreditsResponse {
@@ -1122,6 +1124,12 @@ export interface ServerOrganizationDomainInfo {
   auto_join_domain?: string;
   organization_id?: string;
   organization_name?: string;
+}
+
+export interface ServerOwnedOrgSummary {
+  display_name?: string;
+  id?: string;
+  name?: string;
 }
 
 export interface ServerPhaseProgress {
@@ -7097,7 +7105,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Adds credits to the wallet of the user's oldest owned org, or stashes the grant on the user for application at first org creation. Works regardless of subscription state, unlike adminActivateTrial.
+     * @description Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.
      *
      * @tags users
      * @name V1AdminUsersCreditsCreate
@@ -7112,6 +7120,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin "Grant credits" dialog to populate its org picker.
+     *
+     * @tags users
+     * @name V1AdminUsersOwnedOrgsDetail
+     * @summary List a user's owned organisations (Admin, cloud only)
+     * @request GET:/api/v1/admin/users/{id}/owned-orgs
+     * @secure
+     */
+    v1AdminUsersOwnedOrgsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerOwnedOrgSummary[], any>({
+        path: `/api/v1/admin/users/${id}/owned-orgs`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

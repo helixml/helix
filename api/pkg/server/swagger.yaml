@@ -223,27 +223,6 @@ definitions:
     - DevContainerTypeSway
     - DevContainerTypeUbuntu
     - DevContainerTypeHeadless
-  hydra.GPUInfo:
-    properties:
-      index:
-        type: integer
-      memory_free_bytes:
-        type: integer
-      memory_total_bytes:
-        type: integer
-      memory_used_bytes:
-        type: integer
-      name:
-        type: string
-      temperature_celsius:
-        type: integer
-      utilization_percent:
-        description: GPU core utilization
-        type: integer
-      vendor:
-        description: '"nvidia", "amd", "intel"'
-        type: string
-    type: object
   hydra.ListSandboxCommandsResponse:
     properties:
       commands:
@@ -911,7 +890,7 @@ definitions:
         type: array
       gpus:
         items:
-          $ref: '#/definitions/hydra.GPUInfo'
+          $ref: '#/definitions/server.GPUInfoWithSandbox'
         type: array
       message:
         type: string
@@ -1145,10 +1124,35 @@ definitions:
       url:
         type: string
     type: object
+  server.GPUInfoWithSandbox:
+    properties:
+      index:
+        type: integer
+      memory_free_bytes:
+        type: integer
+      memory_total_bytes:
+        type: integer
+      memory_used_bytes:
+        type: integer
+      name:
+        type: string
+      sandbox_id:
+        type: string
+      temperature_celsius:
+        type: integer
+      utilization_percent:
+        description: GPU core utilization
+        type: integer
+      vendor:
+        description: '"nvidia", "amd", "intel"'
+        type: string
+    type: object
   server.GrantCreditsRequest:
     properties:
       credits:
         type: number
+      org_id:
+        type: string
     type: object
   server.GrantCreditsResponse:
     properties:
@@ -1806,6 +1810,15 @@ definitions:
       organization_id:
         type: string
       organization_name:
+        type: string
+    type: object
+  server.OwnedOrgSummary:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
         type: string
     type: object
   server.PhaseProgress:
@@ -11341,16 +11354,18 @@ paths:
     post:
       consumes:
       - application/json
-      description: Adds credits to the wallet of the user's oldest owned org, or stashes
-        the grant on the user for application at first org creation. Works regardless
-        of subscription state, unlike adminActivateTrial.
+      description: Adds credits to the wallet of an explicitly chosen organisation
+        the user owns, or stashes the grant on the user when they own no organisations
+        yet (the grant is applied to their first owned org on creation). Works regardless
+        of subscription state.
       parameters:
       - description: User ID
         in: path
         name: id
         required: true
         type: string
-      - description: Credits to grant (must be > 0)
+      - description: Credits to grant (must be > 0) and the target org_id (required
+          iff user owns ≥1 orgs)
         in: body
         name: request
         required: true
@@ -11366,6 +11381,31 @@ paths:
       security:
       - BearerAuth: []
       summary: Grant credits to a user (Admin, cloud only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/owned-orgs:
+    get:
+      description: Returns the organisations the target user is the owner of, sorted
+        by creation time ascending. Used by the admin "Grant credits" dialog to populate
+        its org picker.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.OwnedOrgSummary'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a user's owned organisations (Admin, cloud only)
       tags:
       - users
   /api/v1/admin/users/{id}/password:

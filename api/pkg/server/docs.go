@@ -857,7 +857,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Adds credits to the wallet of the user's oldest owned org, or stashes the grant on the user for application at first org creation. Works regardless of subscription state, unlike adminActivateTrial.",
+                "description": "Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.",
                 "consumes": [
                     "application/json"
                 ],
@@ -877,7 +877,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Credits to grant (must be \u003e 0)",
+                        "description": "Credits to grant (must be \u003e 0) and the target org_id (required iff user owns ≥1 orgs)",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -891,6 +891,43 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.GrantCreditsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/users/{id}/owned-orgs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin \"Grant credits\" dialog to populate its org picker.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "List a user's owned organisations (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.OwnedOrgSummary"
+                            }
                         }
                     }
                 }
@@ -18935,37 +18972,6 @@ const docTemplate = `{
                 "DevContainerTypeHeadless"
             ]
         },
-        "hydra.GPUInfo": {
-            "type": "object",
-            "properties": {
-                "index": {
-                    "type": "integer"
-                },
-                "memory_free_bytes": {
-                    "type": "integer"
-                },
-                "memory_total_bytes": {
-                    "type": "integer"
-                },
-                "memory_used_bytes": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "temperature_celsius": {
-                    "type": "integer"
-                },
-                "utilization_percent": {
-                    "description": "GPU core utilization",
-                    "type": "integer"
-                },
-                "vendor": {
-                    "description": "\"nvidia\", \"amd\", \"intel\"",
-                    "type": "string"
-                }
-            }
-        },
         "hydra.ListSandboxCommandsResponse": {
             "type": "object",
             "properties": {
@@ -19862,7 +19868,7 @@ const docTemplate = `{
                 "gpus": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/hydra.GPUInfo"
+                        "$ref": "#/definitions/server.GPUInfoWithSandbox"
                     }
                 },
                 "message": {
@@ -20220,11 +20226,48 @@ const docTemplate = `{
                 }
             }
         },
+        "server.GPUInfoWithSandbox": {
+            "type": "object",
+            "properties": {
+                "index": {
+                    "type": "integer"
+                },
+                "memory_free_bytes": {
+                    "type": "integer"
+                },
+                "memory_total_bytes": {
+                    "type": "integer"
+                },
+                "memory_used_bytes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "temperature_celsius": {
+                    "type": "integer"
+                },
+                "utilization_percent": {
+                    "description": "GPU core utilization",
+                    "type": "integer"
+                },
+                "vendor": {
+                    "description": "\"nvidia\", \"amd\", \"intel\"",
+                    "type": "string"
+                }
+            }
+        },
         "server.GrantCreditsRequest": {
             "type": "object",
             "properties": {
                 "credits": {
                     "type": "number"
+                },
+                "org_id": {
+                    "type": "string"
                 }
             }
         },
@@ -21237,6 +21280,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "organization_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.OwnedOrgSummary": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
