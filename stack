@@ -1502,7 +1502,9 @@ function build-sandbox() {
   _bs_elapsed "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  docker buildx build -f Dockerfile.sandbox -t helix-sandbox:latest .
+  local SANDBOX_APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+  docker buildx build --build-arg APP_VERSION="$SANDBOX_APP_VERSION" \
+    -f Dockerfile.sandbox -t helix-sandbox:latest .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
