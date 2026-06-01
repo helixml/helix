@@ -37,9 +37,9 @@
 
 ## Phase 4 — Observability (do this regardless of which hypothesis lands)
 
-- [~] Add a single structured INFO log line emitted by `effectiveTheme` (or its callers) describing the branch taken: `branch=managed_overwrite|preserve_custom|structured_replace|no_api_theme`, on-disk value, written value, API value.
-- [ ] Audit `mergeSettings` for any path that touches `theme` without going through `effectiveTheme`; if any exist, route them through the helper.
-- [ ] Add unit tests in `main_test.go` covering: bare-string managed theme, bare-string custom theme, structured `{mode,light,dark}` on disk, missing settings file, unparseable settings file.
+- [x] Add a single structured INFO log line emitted by `effectiveTheme` (or its callers) describing the branch taken: `branch=managed_overwrite|preserve_custom|structured_replace|no_api_theme`, on-disk value, written value, API value. (Split `effectiveTheme` into a pure `computeEffectiveTheme` returning `(result, branch, onDiskRepr)` plus a logging wrapper; logs as `theme sync: branch=X on_disk=Y wrote="Z" api="W"`.)
+- [x] Audit `mergeSettings` for any path that touches `theme` without going through `effectiveTheme`; if any exist, route them through the helper. (Audit clean: theme is set in only two callsites — `syncFromHelix:959` and `checkHelixUpdates:1754` — both already routed through `effectiveTheme`. `mergeSettings` doesn't touch theme because `USER_PREFERENCE_FIELDS` is empty post-001998.)
+- [x] Add unit tests in `main_test.go` covering: bare-string managed theme, bare-string custom theme, structured `{mode,light,dark}` on disk, missing settings file, unparseable settings file. (Added `TestComputeEffectiveTheme` with 9 cases covering all branches: no_api_theme, no_existing_file, unparseable, no_theme_key, structured_replace, empty_string, managed_overwrite ×2, preserve_custom. Required converting `SettingsPath` from const to var so tests can point it at a tempdir.)
 
 ## Phase 5 — Verify
 
