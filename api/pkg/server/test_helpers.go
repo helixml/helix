@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -10,6 +11,23 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+)
+
+// chatMessagePaceWindow is a drain-window backoff for the claude-agent-acp
+// wrapper: when a follow-up prompt arrives on the same session before the
+// wrapper has finalised a previous cancelled turn the wrapper returns
+// "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null".
+// The cross-repo E2E test driver fires chat_messages programmatically with
+// zero delay, which hammers this race; the existing 2s gap in
+// advanceAfterCompletion is empirically not enough. This pacing in
+// QueueCommand sets a per-session floor; tune up if CI continues to flake.
+// Production chat_message paths flow through sendChatMessageToExternalAgent
+// and do not call QueueCommand, so this is test-traffic-only.
+const chatMessagePaceWindow = 4 * time.Second
+
+var (
+	lastChatMessageMu   sync.Mutex
+	lastChatMessageTime = map[string]time.Time{}
 )
 
 // NewTestServer creates a minimal HelixAPIServer for testing the WebSocket
@@ -64,8 +82,35 @@ func (s *HelixAPIServer) ExternalAgentSyncHandler() http.HandlerFunc {
 
 // QueueCommand sends a command to an agent connected via WebSocket.
 // Returns true if the command was queued/sent, false if no connection exists.
+//
+// For chat_message commands, calls are paced per-session by
+// chatMessagePaceWindow to work around the claude-agent-acp drain race
+// (see the chatMessagePaceWindow doc).
 func (s *HelixAPIServer) QueueCommand(sessionID string, cmd types.ExternalAgentCommand) bool {
+	if cmd.Type == "chat_message" {
+		paceChatMessage(sessionID)
+	}
 	return s.externalAgentWSManager.queueOrSend(sessionID, cmd)
+}
+
+// paceChatMessage enforces a minimum spacing between chat_message sends on
+// the same session by reserving the next available slot at least
+// chatMessagePaceWindow after the previous send. Concurrent callers serialise
+// through reserved slots so two parallel calls do not both fire immediately.
+func paceChatMessage(sessionID string) {
+	lastChatMessageMu.Lock()
+	target := time.Now()
+	if last, ok := lastChatMessageTime[sessionID]; ok {
+		if scheduled := last.Add(chatMessagePaceWindow); scheduled.After(target) {
+			target = scheduled
+		}
+	}
+	lastChatMessageTime[sessionID] = target
+	wait := time.Until(target)
+	lastChatMessageMu.Unlock()
+	if wait > 0 {
+		time.Sleep(wait)
+	}
 }
 
 // SendChatMessage sends a chat message through the production code path,
