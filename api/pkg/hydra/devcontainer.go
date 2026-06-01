@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1268,7 +1269,95 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				Capabilities: [][]string{{"gpu"}},
 			},
 		}
-		log.Debug().Strs("device_ids", deviceIDs).Msg("Configured NVIDIA GPU passthrough")
+
+		// Belt-and-braces against nvidia-container-runtime silently
+		// no-op'ing in nested-DinD. Hydra always spawns desktop
+		// containers via the sandbox's nested dockerd (outer dockerd →
+		// helix-sandbox → nested dockerd → desktop container), so the
+		// runtime path is invoked from inside a container that was
+		// itself launched with --gpus all. In that topology the runtime
+		// can return success without actually injecting /dev/nvidia*
+		// into the inner container; render-node detection then falls
+		// back to SOFTWARE and nvh264enc fails to enter PLAYING.
+		//
+		// Mounting the device nodes explicitly via hostConfig.Devices
+		// rescues that case. When the runtime DOES inject the same
+		// nodes (it varies by host/driver combo), the explicit mounts
+		// and the runtime-injected nodes target the same source — Linux
+		// tolerates the duplicate identical bind-mount, both writes
+		// succeed silently (Docker itself does NOT dedupe
+		// HostConfig.Devices against runtime-injected nodes; this works
+		// because the kernel does). Driver libraries are inherited via
+		// the standard ld.so paths after `ldconfig` runs in
+		// sandbox/04-start-dockerd.sh.
+		//
+		// No depth gate: hydra always spawns into nested-DinD so there
+		// is no single-level path to special-case. The cost of always
+		// running this is a handful of extra cgroup-device entries —
+		// harmless when the runtime would have done the same.
+		//
+		// Only runs on NVIDIA; AMD / Intel / default paths below are
+		// unchanged.
+		for _, dev := range []string{
+			"/dev/nvidiactl",
+			"/dev/nvidia-uvm",
+			"/dev/nvidia-uvm-tools",
+			"/dev/nvidia-modeset",
+		} {
+			if _, err := os.Stat(dev); err == nil {
+				hostConfig.Devices = append(hostConfig.Devices,
+					container.DeviceMapping{
+						PathOnHost:        dev,
+						PathInContainer:   dev,
+						CgroupPermissions: "rwm",
+					},
+				)
+			}
+		}
+		// Per-GPU device nodes: /dev/nvidia0, /dev/nvidia1, ...
+		// Glob then post-filter to digits-only because
+		// /dev/nvidia[0-9]* on its own would match e.g.
+		// /dev/nvidia0-foo if it existed (devtmpfs is root-only so
+		// not exploitable, just defensive). When gpuIndex is set,
+		// mount only that one.
+		//
+		// CAVEAT (Decision-15 follow-up): the per-GPU node name is
+		// kernel-enumeration order, while DeviceRequests indexing
+		// (`strconv.Itoa(*gpuIndex)`) uses the CUDA-style ordering
+		// that can be reordered by NVIDIA_VISIBLE_DEVICES, MIG, or
+		// PCI_BUS_ID. On single-GPU instances the two indexes
+		// coincide. On multi-GPU instances they may not — verification
+		// still TODO before relying on gpuIndex pinning here.
+		nvidiaDigitGlob, _ := filepath.Glob("/dev/nvidia[0-9]*")
+		perGPURE := regexp.MustCompile(`^/dev/nvidia[0-9]+$`)
+		nvidiaGPUNodes := make([]string, 0, len(nvidiaDigitGlob))
+		for _, dev := range nvidiaDigitGlob {
+			if perGPURE.MatchString(dev) {
+				nvidiaGPUNodes = append(nvidiaGPUNodes, dev)
+			}
+		}
+		if len(nvidiaGPUNodes) == 0 {
+			log.Warn().Msg("nvidia GPU passthrough: no /dev/nvidia[0-9]+ nodes found in outer container; inner desktop will not have per-GPU access")
+		}
+		for _, dev := range nvidiaGPUNodes {
+			if gpuIndex != nil {
+				want := fmt.Sprintf("/dev/nvidia%d", *gpuIndex)
+				if dev != want {
+					continue
+				}
+			}
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().
+			Strs("device_ids", deviceIDs).
+			Int("explicit_dev_mounts", len(hostConfig.Devices)).
+			Msg("Configured NVIDIA GPU passthrough")
 
 	case "amd":
 		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
