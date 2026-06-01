@@ -6,9 +6,9 @@
 - [x] Reproduce the open redirect against current `main` — code-only reproduction (dev stack not exercised); the unmodified handler passes `r.URL.Query().Get("redirect_uri")` straight to `http.Redirect`
 - [x] Confirm each of the five sinks is gated by the new `isSameOriginRedirect()` check — `postLogoutRedirect` is reset to `s.Cfg.WebServer.URL` before reaching every sink (verified line-by-line)
 - [x] Bypass-hunt: table-test `isSameOriginRedirect()` against 24 adversarial inputs (`/tmp/bypass_hunt.go`). Full table in `findings.md` §3. **No security bypass found.**
-- [x] Compare to existing `redirect_uri` validation in `login()` — divergence is defensible (login hard-fails 400, logout falls back silently because session is already cleared). Flag in review as a one-line note.
+- [x] Compare to existing `redirect_uri` validation in `login()` — divergence is defensible (login hard-fails 400, logout falls back silently because session is already cleared). Flagged in review as a one-line note.
 - [x] Note the missing unit test for `isSameOriginRedirect`. **Accept as follow-up** — 30-line security fix with correct logic; tests recommended but not a merge blocker.
-- [x] Check CI status — `state: pending, total_count: 0`. No checks ran (likely Drone gates external PRs from secrets). Mention in review.
+- [x] Check CI status — `state: pending, total_count: 0`. No checks ran (likely Drone gates external PRs from secrets). Mentioned in review.
 - [x] Compose review body — see `findings.md` and the posted PR review.
-- [~] Post the review via `mcp__github__create_pull_request_review` with `event: APPROVE`
-- [ ] Write PR description files (helix has no code change; this is a review-only task)
+- [x] Post the review via `mcp__github__create_pull_request_review` — **APPROVED** at https://github.com/helixml/helix/pull/2484#pullrequestreview-4399392694
+- [x] Write PR description file (review-only task, no code change; `pull_request.md` documents the verdict + link to the posted review)
