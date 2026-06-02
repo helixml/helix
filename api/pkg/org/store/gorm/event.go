@@ -7,14 +7,15 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/event"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
-	"github.com/helixml/helix/api/pkg/org/domain"
 )
 
 type eventRow struct {
 	ID        string    `gorm:"primaryKey;type:text"`
+	OrgID     string    `gorm:"primaryKey;type:text;index"`
 	StreamID  string    `gorm:"not null;index"`
 	Source    string    `gorm:"index"` // empty for system-emitted
 	Body      string    `gorm:"not null"`
@@ -35,19 +36,19 @@ func (r *eventsRepo) Append(ctx context.Context, e domain.Event) error {
 	return nil
 }
 
-func (r *eventsRepo) ListForStream(ctx context.Context, streamID stream.ID, limit int) ([]domain.Event, error) {
-	query := r.db.WithContext(ctx).Where("stream_id = ?", string(streamID)).Order("created_at DESC, id DESC")
+func (r *eventsRepo) ListForStream(ctx context.Context, orgID string, streamID stream.ID, limit int) ([]domain.Event, error) {
+	query := r.db.WithContext(ctx).Where("org_id = ? AND stream_id = ?", orgID, string(streamID)).Order("created_at DESC, id DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 	var rows []eventRow
 	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events for stream %q: %w", streamID, err)
+		return nil, fmt.Errorf("list events for stream %q in org %q: %w", streamID, orgID, err)
 	}
 	return rowsToEvents(rows)
 }
 
-func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []stream.ID, since event.ID, limit int) ([]domain.Event, error) {
+func (r *eventsRepo) ListSince(ctx context.Context, orgID string, streamIDs []stream.ID, since event.ID, limit int) ([]domain.Event, error) {
 	if len(streamIDs) == 0 {
 		return nil, nil
 	}
@@ -56,9 +57,6 @@ func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []stream.ID, since
 		ids = append(ids, string(s))
 	}
 
-	// Resolve `since` to its (created_at, id) pair. If the event is unknown
-	// (empty since, or stale), we fall back to "no lower bound" — same as if
-	// the caller passed nothing.
 	var (
 		sinceTS time.Time
 		sinceID string
@@ -66,19 +64,16 @@ func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []stream.ID, since
 	)
 	if since != "" {
 		var pivot eventRow
-		err := r.db.WithContext(ctx).Where("id = ?", string(since)).Take(&pivot).Error
+		err := r.db.WithContext(ctx).Where("org_id = ? AND id = ?", orgID, string(since)).Take(&pivot).Error
 		if err == nil {
 			sinceTS = pivot.CreatedAt
 			sinceID = pivot.ID
 			hasLB = true
 		}
-		// gorm.ErrRecordNotFound and other errors fall through to "no lower
-		// bound" — tail callers tolerate this and just see recent history.
 	}
 
-	query := r.db.WithContext(ctx).Where("stream_id IN ?", ids)
+	query := r.db.WithContext(ctx).Where("org_id = ? AND stream_id IN ?", orgID, ids)
 	if hasLB {
-		// (created_at, id) > (sinceTS, sinceID)
 		query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)", sinceTS, sinceTS, sinceID)
 	}
 	query = query.Order("created_at ASC, id ASC")
@@ -87,30 +82,28 @@ func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []stream.ID, since
 	}
 	var rows []eventRow
 	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events since %q: %w", since, err)
+		return nil, fmt.Errorf("list events since %q in org %q: %w", since, orgID, err)
 	}
 	return rowsToEvents(rows)
 }
 
-func (r *eventsRepo) ListAll(ctx context.Context, limit int) ([]domain.Event, error) {
-	query := r.db.WithContext(ctx).Order("created_at DESC, id DESC")
+func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]domain.Event, error) {
+	query := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("created_at DESC, id DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 	var rows []eventRow
 	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list all events: %w", err)
+		return nil, fmt.Errorf("list all events in org %q: %w", orgID, err)
 	}
 	return rowsToEvents(rows)
 }
 
-func (r *eventsRepo) ListForWorker(ctx context.Context, workerID worker.ID, limit int) ([]domain.Event, error) {
-	// Join events with subscriptions to return only events on streams the
-	// worker subscribes to, newest first.
+func (r *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID worker.ID, limit int) ([]domain.Event, error) {
 	query := r.db.WithContext(ctx).
 		Table("org_events AS e").
-		Joins("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id").
-		Where("s.worker_id = ?", string(workerID)).
+		Joins("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id AND s.org_id = e.org_id").
+		Where("e.org_id = ? AND s.worker_id = ?", orgID, string(workerID)).
 		Order("e.created_at DESC, e.id DESC").
 		Select("e.*")
 	if limit > 0 {
@@ -118,7 +111,7 @@ func (r *eventsRepo) ListForWorker(ctx context.Context, workerID worker.ID, limi
 	}
 	var rows []eventRow
 	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events for worker %q: %w", workerID, err)
+		return nil, fmt.Errorf("list events for worker %q in org %q: %w", workerID, orgID, err)
 	}
 	return rowsToEvents(rows)
 }
@@ -126,6 +119,7 @@ func (r *eventsRepo) ListForWorker(ctx context.Context, workerID worker.ID, limi
 func eventToRow(e domain.Event) eventRow {
 	return eventRow{
 		ID:        string(e.ID),
+		OrgID:     e.OrganizationID,
 		StreamID:  string(e.StreamID),
 		Source:    string(e.Source),
 		Body:      e.Body,
@@ -140,6 +134,7 @@ func rowToEvent(row eventRow) (domain.Event, error) {
 		worker.ID(row.Source),
 		row.Body,
 		row.CreatedAt,
+		row.OrgID,
 	)
 }
 

@@ -52,6 +52,14 @@ type HireWorker struct {
 	deps Deps
 }
 
+// NewHireWorker constructs the tool with its dependencies. Exported so
+// non-MCP callers (the REST POST /workers handler in
+// api/pkg/org/server/api) can drive the same hire path the MCP
+// surface uses.
+func NewHireWorker(deps Deps) *HireWorker {
+	return &HireWorker{deps: deps}
+}
+
 const HireWorkerName tool.Name = "hire_worker"
 
 var hireWorkerSchema = mustSchema[hireWorkerArgs]()

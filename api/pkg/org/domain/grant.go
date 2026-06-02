@@ -14,13 +14,14 @@ import (
 // a CFO-specific tool or a role-prompt constraint, not a per-grant rule
 // the runtime enforces.
 type ToolGrant struct {
-	ID       grant.ID
-	WorkerID worker.ID
-	ToolName tool.Name
+	ID             grant.ID
+	OrganizationID string
+	WorkerID       worker.ID
+	ToolName       tool.Name
 }
 
-// NewToolGrant validates and constructs a ToolGrant.
-func NewToolGrant(id grant.ID, workerID worker.ID, toolName tool.Name) (ToolGrant, error) {
+// NewToolGrant validates and constructs a ToolGrant. orgID is required.
+func NewToolGrant(id grant.ID, workerID worker.ID, toolName tool.Name, orgID string) (ToolGrant, error) {
 	if id == "" {
 		return ToolGrant{}, errors.New("grant id is empty")
 	}
@@ -30,5 +31,8 @@ func NewToolGrant(id grant.ID, workerID worker.ID, toolName tool.Name) (ToolGran
 	if toolName == "" {
 		return ToolGrant{}, errors.New("grant tool name is empty")
 	}
-	return ToolGrant{ID: id, WorkerID: workerID, ToolName: toolName}, nil
+	if orgID == "" {
+		return ToolGrant{}, errors.New("grant orgID is empty")
+	}
+	return ToolGrant{ID: id, OrganizationID: orgID, WorkerID: workerID, ToolName: toolName}, nil
 }

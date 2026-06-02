@@ -41,6 +41,8 @@ type fakeProjectService struct {
 	updateAppCalls     int
 	updateAppLastCfg   types.AppConfig
 	whoAmIResp         string
+	deleteProjectIDs   []string
+	deleteAppIDs       []string
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -118,6 +120,20 @@ func (f *fakeProjectService) UpdateAppConfig(_ context.Context, _ string, cfg ty
 	defer f.mu.Unlock()
 	f.updateAppCalls++
 	f.updateAppLastCfg = cfg
+	return nil
+}
+
+func (f *fakeProjectService) DeleteProject(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteProjectIDs = append(f.deleteProjectIDs, id)
+	return nil
+}
+
+func (f *fakeProjectService) DeleteApp(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteAppIDs = append(f.deleteAppIDs, id)
 	return nil
 }
 

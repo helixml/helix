@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
+	"github.com/helixml/helix/api/pkg/org/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/prompts"
 	"github.com/helixml/helix/api/pkg/org/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
@@ -229,6 +230,23 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// JSON handlers (Phase A of the UI migration) — consumed by the
 	// React pages at /helix-org/* (Phase B). They mount under
 	// /api/v1/org/ via the orgServer's extras list.
+	// REST hire shares the exact tool the MCP registry exposes — same
+	// Deps, same Invocation shape. The chat-driven and chart-driven
+	// hire paths can't drift because there is only one implementation.
+	hireTool := tools.NewHireWorker(deps)
+
+	// Fire (DELETE /workers/{id}) cascades Helix-side teardown
+	// (project + agent app) plus full org-store cleanup. The Helix
+	// runtime port is satisfied by the same in-process adapter every
+	// other Helix call goes through.
+	lifecycleSvc := &lifecycle.Service{
+		Store:   st,
+		Helix:   inProcClient,
+		Logger:  logger,
+		EnvsDir: envsDir,
+		Owner:   "w-owner",
+	}
+
 	apiDeps := helixorgapi.Deps{
 		Store:      st,
 		Configs:    configReg,
@@ -237,6 +255,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Owner:      "w-owner",
 		DBPath:     orgRoot,
 		EnvsDir:    envsDir,
+		HireWorker: hireTool,
+		Lifecycle:  lifecycleSvc,
 		NewID:      deps.NewID,
 		Now:        deps.Now,
 	}
@@ -563,7 +583,20 @@ func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 	if !ok {
 		return nil, fmt.Errorf("helix-org requires a Postgres-backed helix store; got %T", helixStore)
 	}
-	st, err := orggorm.OpenWithDB(accessor.GormDB())
+	// Production wiring: install the FK constraint that ties every
+	// org_* table back to organizations(id) ON DELETE CASCADE. The
+	// composite-PK schema is not auto-migratable from the prior
+	// single-tenant shape, so the first deploy of this code wants
+	// ResetSchema=true. Subsequent deploys can flip to false; the
+	// AutoMigrate is idempotent regardless.
+	//
+	// We always pass ResetSchema=true while this code remains gated by
+	// the `helix-org` alpha feature — losing alpha test data is
+	// acceptable, getting the schema right is essential.
+	st, err := orggorm.OpenWithDB(accessor.GormDB(), orggorm.Options{
+		ResetSchema:           true,
+		InstallOrganizationFK: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open helix-org gorm: %w", err)
 	}

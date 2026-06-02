@@ -10,19 +10,24 @@ import (
 // Position is a concrete slot in the org chart, instantiating a Role.
 // ParentID is nil for the root position.
 type Position struct {
-	ID       position.ID
-	RoleID   role.ID
-	ParentID *position.ID
+	ID             position.ID
+	OrganizationID string
+	RoleID         role.ID
+	ParentID       *position.ID
 }
 
-// NewPosition validates and constructs a Position.
-// Pass parentID = nil for the root position.
-func NewPosition(id position.ID, roleID role.ID, parentID *position.ID) (Position, error) {
+// NewPosition validates and constructs a Position. orgID is required
+// — every Position is scoped to a helix.Organization via the composite
+// (id, org_id) PK. Pass parentID = nil for the root position.
+func NewPosition(id position.ID, roleID role.ID, parentID *position.ID, orgID string) (Position, error) {
 	if id == "" {
 		return Position{}, errors.New("position id is empty")
 	}
 	if roleID == "" {
 		return Position{}, errors.New("position role id is empty")
+	}
+	if orgID == "" {
+		return Position{}, errors.New("position orgID is empty")
 	}
 	var parent *position.ID
 	if parentID != nil {
@@ -35,7 +40,7 @@ func NewPosition(id position.ID, roleID role.ID, parentID *position.ID) (Positio
 		p := *parentID
 		parent = &p
 	}
-	return Position{ID: id, RoleID: roleID, ParentID: parent}, nil
+	return Position{ID: id, OrganizationID: orgID, RoleID: roleID, ParentID: parent}, nil
 }
 
 // IsRoot reports whether the position has no parent.

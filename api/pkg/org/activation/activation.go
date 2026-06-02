@@ -45,6 +45,7 @@ type ID string
 //     with a *different* outcome is an error.
 type Activation struct {
 	ID                 ID
+	OrganizationID     string
 	WorkerID           worker.ID
 	Triggers           []Trigger
 	StartedAt          time.Time
@@ -53,13 +54,13 @@ type Activation struct {
 	TranscriptStreamID stream.ID
 }
 
-// New constructs an Activation, validating invariants. The
-// TranscriptStreamID is derived from WorkerID — callers cannot
-// override.
+// New constructs an Activation, validating invariants. orgID is
+// required. The TranscriptStreamID is derived from WorkerID — callers
+// cannot override.
 //
 // Triggers is copied defensively so subsequent mutation of the
 // caller's slice cannot mutate the aggregate.
-func New(id ID, workerID worker.ID, triggers []Trigger, startedAt time.Time) (*Activation, error) {
+func New(id ID, workerID worker.ID, triggers []Trigger, startedAt time.Time, orgID string) (*Activation, error) {
 	if id == "" {
 		return nil, errors.New("activation: ID is empty")
 	}
@@ -72,10 +73,14 @@ func New(id ID, workerID worker.ID, triggers []Trigger, startedAt time.Time) (*A
 	if startedAt.IsZero() {
 		return nil, errors.New("activation: StartedAt is zero")
 	}
+	if orgID == "" {
+		return nil, errors.New("activation: orgID is empty")
+	}
 	copied := make([]Trigger, len(triggers))
 	copy(copied, triggers)
 	return &Activation{
 		ID:                 id,
+		OrganizationID:     orgID,
 		WorkerID:           workerID,
 		Triggers:           copied,
 		StartedAt:          startedAt,
@@ -125,7 +130,7 @@ func (a *Activation) IsCompleted() bool {
 // implementation's default).
 type Repository interface {
 	Create(ctx context.Context, a *Activation) error
-	Complete(ctx context.Context, id ID, outcome Outcome, endedAt time.Time) error
-	Get(ctx context.Context, id ID) (*Activation, error)
-	ListForWorker(ctx context.Context, workerID worker.ID, limit int) ([]*Activation, error)
+	Complete(ctx context.Context, orgID string, id ID, outcome Outcome, endedAt time.Time) error
+	Get(ctx context.Context, orgID string, id ID) (*Activation, error)
+	ListForWorker(ctx context.Context, orgID string, workerID worker.ID, limit int) ([]*Activation, error)
 }

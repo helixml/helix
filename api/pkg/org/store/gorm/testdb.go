@@ -104,7 +104,13 @@ func GetOrgTestDB(t *testing.T) *store.Store {
 		_ = sqlDB.Close()
 	})
 
-	st, err := OpenWithDB(scoped)
+	// Tests use a fresh per-schema connection — ResetSchema is
+	// redundant (the schema is empty) but harmless. We skip the FK
+	// installer because the test schema has no `organizations` table
+	// (helix-proper's tables live in `public`); the FK install path
+	// would no-op anyway via the HasTable check, but skipping
+	// explicitly is faster and clearer.
+	st, err := OpenWithDB(scoped, Options{ResetSchema: false, InstallOrganizationFK: false})
 	if err != nil {
 		t.Fatalf("open org store on schema %s: %v", schemaName, err)
 	}

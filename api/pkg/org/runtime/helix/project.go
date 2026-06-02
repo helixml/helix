@@ -66,6 +66,20 @@ type ProjectService interface {
 	// uses this to attach helix-org's MCP server to the auto-provisioned
 	// Agent App.
 	UpdateAppConfig(ctx context.Context, id string, config types.AppConfig) error
+
+	// DeleteProject soft-deletes a Helix project and stops any active
+	// sessions running against it. Used by the fire-worker cascade to
+	// tear down the per-Worker project on worker delete. Missing
+	// projects (already deleted, or never created) are reported via
+	// ErrProjectNotFound so callers can ignore them.
+	DeleteProject(ctx context.Context, id string) error
+
+	// DeleteApp removes a Helix App. Used by the fire-worker cascade
+	// to clean up the per-Worker agent app that ApplyProject auto-
+	// provisioned. Missing apps are reported via ErrProjectNotFound
+	// (re-used sentinel — semantically "the resource isn't there
+	// anymore"); callers should treat that as success.
+	DeleteApp(ctx context.Context, id string) error
 }
 
 // WorkerProject ensures a Worker has a Helix project of its own.

@@ -32,15 +32,10 @@ type Worker interface {
 	Position() position.ID
 	IdentityContent() string
 	// OrganizationID returns the helix.Organization the Worker
-	// belongs to, or empty when the deployment is single-tenant
-	// (today's alpha). H5.2+ uses (org_id, worker_id) as the
-	// composite key for tenant isolation; H5.1 lands the field +
-	// accessor as additive scaffolding.
+	// belongs to. Always non-empty: workers are constructed via
+	// NewHumanWorker / NewAIWorker which require it, and the store's
+	// composite (id, org_id) PK enforces it at persistence.
 	OrganizationID() string
-	// WithOrgID returns a copy of the Worker stamped with the
-	// given OrganizationID — value semantics, the original is
-	// unchanged.
-	WithOrgID(orgID string) Worker
 	WithIdentityContent(content string) Worker
 	isWorker()
 }
@@ -55,14 +50,17 @@ type HumanWorker struct {
 
 // NewHumanWorker validates and constructs a HumanWorker. Empty
 // position is permitted — it represents an archived / vacated
-// Worker; tools that hire must pass a non-empty Position. The
-// resulting Worker has no OrgID; call WithOrgID to scope it to a
-// helix.Organization.
-func NewHumanWorker(id worker.ID, pos position.ID, identityContent string) (*HumanWorker, error) {
+// Worker; tools that hire must pass a non-empty Position. orgID is
+// required: every Worker is scoped to a helix.Organization via the
+// composite (id, org_id) PK.
+func NewHumanWorker(id worker.ID, pos position.ID, identityContent, orgID string) (*HumanWorker, error) {
 	if id == "" {
 		return nil, errors.New("worker id is empty")
 	}
-	return &HumanWorker{id: id, position: pos, identityContent: identityContent}, nil
+	if orgID == "" {
+		return nil, errors.New("worker orgID is empty")
+	}
+	return &HumanWorker{id: id, position: pos, identityContent: identityContent, orgID: orgID}, nil
 }
 
 func (h *HumanWorker) ID() worker.ID           { return h.id }
@@ -72,9 +70,6 @@ func (h *HumanWorker) IdentityContent() string { return h.identityContent }
 func (h *HumanWorker) OrganizationID() string  { return h.orgID }
 func (h *HumanWorker) WithIdentityContent(content string) Worker {
 	return &HumanWorker{id: h.id, position: h.position, identityContent: content, orgID: h.orgID}
-}
-func (h *HumanWorker) WithOrgID(orgID string) Worker {
-	return &HumanWorker{id: h.id, position: h.position, identityContent: h.identityContent, orgID: orgID}
 }
 func (h *HumanWorker) isWorker() {}
 
@@ -86,14 +81,15 @@ type AIWorker struct {
 	orgID           string
 }
 
-// NewAIWorker validates and constructs an AIWorker. The resulting
-// Worker has no OrgID; call WithOrgID to scope it to a
-// helix.Organization.
-func NewAIWorker(id worker.ID, pos position.ID, identityContent string) (*AIWorker, error) {
+// NewAIWorker validates and constructs an AIWorker. orgID is required.
+func NewAIWorker(id worker.ID, pos position.ID, identityContent, orgID string) (*AIWorker, error) {
 	if id == "" {
 		return nil, errors.New("worker id is empty")
 	}
-	return &AIWorker{id: id, position: pos, identityContent: identityContent}, nil
+	if orgID == "" {
+		return nil, errors.New("worker orgID is empty")
+	}
+	return &AIWorker{id: id, position: pos, identityContent: identityContent, orgID: orgID}, nil
 }
 
 func (a *AIWorker) ID() worker.ID           { return a.id }
@@ -103,8 +99,5 @@ func (a *AIWorker) IdentityContent() string { return a.identityContent }
 func (a *AIWorker) OrganizationID() string  { return a.orgID }
 func (a *AIWorker) WithIdentityContent(content string) Worker {
 	return &AIWorker{id: a.id, position: a.position, identityContent: content, orgID: a.orgID}
-}
-func (a *AIWorker) WithOrgID(orgID string) Worker {
-	return &AIWorker{id: a.id, position: a.position, identityContent: a.identityContent, orgID: orgID}
 }
 func (a *AIWorker) isWorker() {}

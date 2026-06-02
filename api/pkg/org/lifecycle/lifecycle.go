@@ -1,0 +1,143 @@
+// Package lifecycle owns the cross-cutting orchestration that
+// composes store + runtime + on-disk state when a Worker is created
+// or destroyed.
+//
+// Hire is intentionally not yet a lifecycle method — the canonical
+// hire path is api/pkg/org/tools.HireWorker (an MCP tool), which the
+// REST layer drives via a synthetic Invocation. Fire has no MCP
+// counterpart by design (the LLM should not be able to delete
+// workers from chat), so it lives here as a plain Go service callable
+// from REST handlers only.
+package lifecycle
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+
+	"github.com/helixml/helix/api/pkg/org/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/store"
+	"github.com/helixml/helix/api/pkg/org/worker"
+)
+
+// HelixRuntime is the slice of runtime/helix.ProjectService that the
+// Fire cascade needs to tear down a Worker's Helix-side project and
+// agent app. Production wiring satisfies this with the in-process
+// adapter used everywhere else; the interface exists so tests can
+// stub.
+type HelixRuntime interface {
+	DeleteProject(ctx context.Context, id string) error
+	DeleteApp(ctx context.Context, id string) error
+}
+
+// Service composes the worker-lifecycle operations the REST layer
+// drives. All fields are required; pass nil HelixRuntime only in
+// tests that don't need the Helix-side teardown.
+type Service struct {
+	Store   *store.Store
+	Helix   HelixRuntime
+	Logger  *slog.Logger
+	EnvsDir string
+	// Owner is the WorkerID of the embedded owner (typically "w-owner").
+	// Fire refuses to delete the owner so the alpha can't be bricked by
+	// a UI misclick.
+	Owner worker.ID
+}
+
+// ErrOwnerProtected is returned by Fire when the caller targets the
+// embedded owner Worker. The REST layer maps it to 409 Conflict.
+var ErrOwnerProtected = errors.New("cannot fire the owner worker")
+
+// Fire tears down a Worker end-to-end:
+//
+//  1. Read the Helix-runtime state (project + app IDs) before clearing.
+//  2. DeleteProject on Helix — stops any active sessions.
+//  3. DeleteApp on Helix — removes the auto-provisioned agent app.
+//  4. Clear the WorkerRuntimeState sidecar.
+//  5. Delete every Subscription + Grant for this worker.
+//  6. Remove the env directory from disk and delete its row.
+//  7. Delete the Worker row.
+//
+// Steps 2/3/5/6 are best-effort and logged on failure — a half-torn
+// worker is better than refusing to clean up partial state. Step 7
+// is the only step whose error propagates (the row is the user-
+// visible source of truth).
+//
+// Activations are intentionally left behind as an audit trail.
+func (s *Service) Fire(ctx context.Context, id worker.ID) error {
+	if id == "" {
+		return errors.New("worker id is empty")
+	}
+	if id == s.Owner {
+		return ErrOwnerProtected
+	}
+	if s.Store == nil {
+		return errors.New("lifecycle: store is nil")
+	}
+	if _, err := s.Store.Workers.Get(ctx, id); err != nil {
+		return fmt.Errorf("get worker %q: %w", id, err)
+	}
+
+	state, _ := helix.LoadState(ctx, s.Store, id)
+
+	if s.Helix != nil && state.ProjectID != "" {
+		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {
+			s.logger().Warn("fire: delete helix project", "worker", id, "project", state.ProjectID, "err", err)
+		}
+	}
+	if s.Helix != nil && state.AgentAppID != "" {
+		if err := s.Helix.DeleteApp(ctx, state.AgentAppID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {
+			s.logger().Warn("fire: delete helix app", "worker", id, "app", state.AgentAppID, "err", err)
+		}
+	}
+	if s.Store.WorkerRuntimeState != nil {
+		if err := s.Store.WorkerRuntimeState.Clear(ctx, id, helix.Backend); err != nil {
+			s.logger().Warn("fire: clear runtime state", "worker", id, "err", err)
+		}
+	}
+
+	if subs, err := s.Store.Subscriptions.ListForWorker(ctx, id); err == nil {
+		for _, sub := range subs {
+			if err := s.Store.Subscriptions.Delete(ctx, id, sub.StreamID); err != nil {
+				s.logger().Warn("fire: delete subscription", "worker", id, "stream", sub.StreamID, "err", err)
+			}
+		}
+	} else {
+		s.logger().Warn("fire: list subscriptions", "worker", id, "err", err)
+	}
+
+	if grants, err := s.Store.Grants.ListByWorker(ctx, id); err == nil {
+		for _, g := range grants {
+			if err := s.Store.Grants.Delete(ctx, g.ID); err != nil {
+				s.logger().Warn("fire: delete grant", "worker", id, "grant", g.ID, "err", err)
+			}
+		}
+	} else {
+		s.logger().Warn("fire: list grants", "worker", id, "err", err)
+	}
+
+	if env, err := s.Store.Environments.Get(ctx, id); err == nil {
+		if env.Path != "" {
+			if rmErr := os.RemoveAll(env.Path); rmErr != nil {
+				s.logger().Warn("fire: remove env dir", "worker", id, "path", env.Path, "err", rmErr)
+			}
+		}
+	}
+	if err := s.Store.Environments.Delete(ctx, id); err != nil {
+		s.logger().Warn("fire: delete environment row", "worker", id, "err", err)
+	}
+
+	if err := s.Store.Workers.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete worker row %q: %w", id, err)
+	}
+	return nil
+}
+
+func (s *Service) logger() *slog.Logger {
+	if s.Logger != nil {
+		return s.Logger
+	}
+	return slog.Default()
+}

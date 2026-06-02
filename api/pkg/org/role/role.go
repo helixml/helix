@@ -43,18 +43,22 @@ type ID string
 // still valid — the hiring caller's prompt is then responsible for
 // figuring out what to grant/subscribe from Content alone.
 type Role struct {
-	ID        ID
-	Content   string
-	Tools     []tool.Name
-	Streams   []stream.ID
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             ID
+	OrganizationID string
+	Content        string
+	Tools          []tool.Name
+	Streams        []stream.ID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // New validates and constructs a Role. Treat the returned value as
-// immutable. Tools and Streams may be empty; ID, Content, and now must
-// all be non-empty (now non-zero).
-func New(id ID, content string, tools []tool.Name, streams []stream.ID, now time.Time) (Role, error) {
+// immutable. Tools and Streams may be empty; ID, Content, orgID, and
+// now must all be non-empty (now non-zero). orgID is required because
+// every Role is scoped to a helix.Organization — the composite (id,
+// org_id) PK is what lets short readable IDs (`r-owner`, `r-cfo`)
+// repeat across tenants.
+func New(id ID, content string, tools []tool.Name, streams []stream.ID, now time.Time, orgID string) (Role, error) {
 	if id == "" {
 		return Role{}, errors.New("role id is empty")
 	}
@@ -64,12 +68,16 @@ func New(id ID, content string, tools []tool.Name, streams []stream.ID, now time
 	if now.IsZero() {
 		return Role{}, errors.New("role timestamp is zero")
 	}
+	if orgID == "" {
+		return Role{}, errors.New("role orgID is empty")
+	}
 	return Role{
-		ID:        id,
-		Content:   content,
-		Tools:     tools,
-		Streams:   streams,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             id,
+		OrganizationID: orgID,
+		Content:        content,
+		Tools:          tools,
+		Streams:        streams,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}, nil
 }

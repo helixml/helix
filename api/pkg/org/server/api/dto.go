@@ -77,6 +77,32 @@ type WorkerDetailDTO struct {
 	Position *PositionDTO `json:"position,omitempty"`
 }
 
+// HireWorkerRequest is the body of POST /workers. Mirrors the MCP
+// hire_worker tool's args so the same persona / position / grant
+// shape works from the React chart. `id` is optional — the server
+// falls back to `w-<uuid>` when empty, but the React UI is
+// expected to pass a human-readable handle (`w-mark`, `w-priya`).
+type HireWorkerRequest struct {
+	ID              string           `json:"id,omitempty"`
+	PositionID      string           `json:"position_id"`
+	Kind            string           `json:"kind"`
+	IdentityContent string           `json:"identity_content"`
+	Grants          []HireGrantInput `json:"grants,omitempty"`
+}
+
+// HireGrantInput is one tool-grant bundled with a hire.
+type HireGrantInput struct {
+	ToolName string `json:"tool_name"`
+}
+
+// HireWorkerResponse is the body of POST /workers on success. The
+// new Worker's ID is always set; ActivationID is set only for AI
+// kind (humans don't dispatch a hire activation).
+type HireWorkerResponse struct {
+	ID           string `json:"id"`
+	ActivationID string `json:"activation_id,omitempty"`
+}
+
 // UpdateWorkerIdentityRequest is the body of POST
 // /workers/{id}/identity.
 type UpdateWorkerIdentityRequest struct {

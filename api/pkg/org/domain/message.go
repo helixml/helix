@@ -25,10 +25,10 @@ func (e Event) Message() (message.Message, error) {
 // NewMessageEvent is the standard way to construct an Event whose
 // Body holds a Message. It encodes the Message and delegates field
 // validation to NewEvent.
-func NewMessageEvent(id event.ID, streamID stream.ID, source worker.ID, msg message.Message, createdAt time.Time) (Event, error) {
+func NewMessageEvent(id event.ID, streamID stream.ID, source worker.ID, msg message.Message, createdAt time.Time, orgID string) (Event, error) {
 	body, err := msg.Encode()
 	if err != nil {
 		return Event{}, err
 	}
-	return NewEvent(id, streamID, source, body, createdAt)
+	return NewEvent(id, streamID, source, body, createdAt, orgID)
 }

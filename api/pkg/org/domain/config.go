@@ -17,16 +17,16 @@ import (
 // Operational config is set through the helix-org config CLI, never
 // through MCP. See design/config.md for the access-pattern split.
 type Config struct {
-	Key       string
-	Value     string // JSON-encoded
-	UpdatedAt time.Time
-	UpdatedBy worker.ID // empty until auth lands
+	OrganizationID string
+	Key            string
+	Value          string // JSON-encoded
+	UpdatedAt      time.Time
+	UpdatedBy      worker.ID // empty until auth lands
 }
 
-// NewConfig validates and constructs a Config. Key must be non-empty,
-// dot-namespaced (no spaces, no leading/trailing dots), and the value
-// must be non-empty. Value JSON shape is the registry's responsibility.
-func NewConfig(key, value string, updatedAt time.Time, updatedBy worker.ID) (Config, error) {
+// NewConfig validates and constructs a Config. orgID is required —
+// every config row is tenant-scoped via the composite (key, org_id) PK.
+func NewConfig(key, value string, updatedAt time.Time, updatedBy worker.ID, orgID string) (Config, error) {
 	if key == "" {
 		return Config{}, errors.New("config key is empty")
 	}
@@ -42,10 +42,14 @@ func NewConfig(key, value string, updatedAt time.Time, updatedBy worker.ID) (Con
 	if updatedAt.IsZero() {
 		return Config{}, errors.New("config updatedAt is zero")
 	}
+	if orgID == "" {
+		return Config{}, errors.New("config orgID is empty")
+	}
 	return Config{
-		Key:       key,
-		Value:     value,
-		UpdatedAt: updatedAt.UTC(),
-		UpdatedBy: updatedBy,
+		OrganizationID: orgID,
+		Key:            key,
+		Value:          value,
+		UpdatedAt:      updatedAt.UTC(),
+		UpdatedBy:      updatedBy,
 	}, nil
 }

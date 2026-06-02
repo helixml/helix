@@ -9,18 +9,14 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/org/role"
+	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/tool"
-	"github.com/helixml/helix/api/pkg/org/store"
 )
 
-// roleRow is the GORM-mapped representation. Tools and Streams are
-// JSON-encoded arrays so that adding to the typed manifest never
-// needs a column-level schema migration: the slice serialises
-// transparently. An empty slice and a missing column both decode to
-// nil — equivalent semantics in role.Role.
 type roleRow struct {
 	ID        string   `gorm:"primaryKey;type:text"`
+	OrgID     string   `gorm:"primaryKey;type:text;index"`
 	Content   string   `gorm:"not null"`
 	Tools     []string `gorm:"serializer:json"`
 	Streams   []string `gorm:"serializer:json"`
@@ -34,29 +30,29 @@ type rolesRepo struct {
 	db *gorm.DB
 }
 
-func (r *rolesRepo) Create(ctx context.Context, role role.Role) error {
-	if err := r.db.WithContext(ctx).Create(roleToRow(role)).Error; err != nil {
+func (r *rolesRepo) Create(ctx context.Context, ro role.Role) error {
+	if err := r.db.WithContext(ctx).Create(roleToRow(ro)).Error; err != nil {
 		return fmt.Errorf("create role: %w", err)
 	}
 	return nil
 }
 
-func (r *rolesRepo) Get(ctx context.Context, id role.ID) (role.Role, error) {
+func (r *rolesRepo) Get(ctx context.Context, orgID string, id role.ID) (role.Role, error) {
 	var row roleRow
-	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
+	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND id = ?", orgID, string(id)).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return role.Role{}, fmt.Errorf("role %q: %w", id, store.ErrNotFound)
+			return role.Role{}, fmt.Errorf("role %q in org %q: %w", id, orgID, store.ErrNotFound)
 		}
-		return role.Role{}, fmt.Errorf("get role %q: %w", id, err)
+		return role.Role{}, fmt.Errorf("get role %q in org %q: %w", id, orgID, err)
 	}
 	return rowToRole(row), nil
 }
 
-func (r *rolesRepo) List(ctx context.Context) ([]role.Role, error) {
+func (r *rolesRepo) List(ctx context.Context, orgID string) ([]role.Role, error) {
 	var rows []roleRow
-	if err := r.db.WithContext(ctx).Order("id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list roles: %w", err)
+	if err := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("id").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list roles in org %q: %w", orgID, err)
 	}
 	out := make([]role.Role, 0, len(rows))
 	for _, row := range rows {
@@ -65,9 +61,9 @@ func (r *rolesRepo) List(ctx context.Context) ([]role.Role, error) {
 	return out, nil
 }
 
-func (r *rolesRepo) Update(ctx context.Context, role role.Role) error {
-	row := roleToRow(role)
-	res := r.db.WithContext(ctx).Model(&roleRow{}).Where("id = ?", row.ID).Updates(map[string]any{
+func (r *rolesRepo) Update(ctx context.Context, ro role.Role) error {
+	row := roleToRow(ro)
+	res := r.db.WithContext(ctx).Model(&roleRow{}).Where("org_id = ? AND id = ?", row.OrgID, row.ID).Updates(map[string]any{
 		"content":    row.Content,
 		"tools":      row.Tools,
 		"streams":    row.Streams,
@@ -77,7 +73,7 @@ func (r *rolesRepo) Update(ctx context.Context, role role.Role) error {
 		return fmt.Errorf("update role: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return fmt.Errorf("role %q: %w", role.ID, store.ErrNotFound)
+		return fmt.Errorf("role %q in org %q: %w", ro.ID, ro.OrganizationID, store.ErrNotFound)
 	}
 	return nil
 }
@@ -91,10 +87,6 @@ func roleToRow(r role.Role) roleRow {
 	for _, s := range r.Streams {
 		streams = append(streams, string(s))
 	}
-	// Preserve the nil-vs-empty distinction the role.Role API exposes:
-	// New() stores nil when no values are passed, so the row should
-	// reflect the same. GORM's json serializer encodes nil as NULL and
-	// []string{} as `[]` — both decode back appropriately.
 	if len(tools) == 0 {
 		tools = nil
 	}
@@ -103,6 +95,7 @@ func roleToRow(r role.Role) roleRow {
 	}
 	return roleRow{
 		ID:        string(r.ID),
+		OrgID:     r.OrganizationID,
 		Content:   r.Content,
 		Tools:     tools,
 		Streams:   streams,
@@ -127,11 +120,12 @@ func rowToRole(row roleRow) role.Role {
 		}
 	}
 	return role.Role{
-		ID:        role.ID(row.ID),
-		Content:   row.Content,
-		Tools:     tools,
-		Streams:   streams,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		ID:             role.ID(row.ID),
+		OrganizationID: row.OrgID,
+		Content:        row.Content,
+		Tools:          tools,
+		Streams:        streams,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
 	}
 }

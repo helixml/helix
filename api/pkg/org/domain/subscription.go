@@ -13,13 +13,16 @@ import (
 // up when they read their events. The (worker.ID, stream.ID) pair is the
 // identity — there is no synthetic ID.
 type Subscription struct {
-	WorkerID  worker.ID
-	StreamID  stream.ID
-	CreatedAt time.Time
+	OrganizationID string
+	WorkerID       worker.ID
+	StreamID       stream.ID
+	CreatedAt      time.Time
 }
 
-// NewSubscription validates and constructs a Subscription.
-func NewSubscription(workerID worker.ID, streamID stream.ID, createdAt time.Time) (Subscription, error) {
+// NewSubscription validates and constructs a Subscription. orgID is
+// required — subscriptions are tenant-scoped; the worker and stream
+// they link must both belong to the same org.
+func NewSubscription(workerID worker.ID, streamID stream.ID, createdAt time.Time, orgID string) (Subscription, error) {
 	if workerID == "" {
 		return Subscription{}, errors.New("subscription workerId is empty")
 	}
@@ -29,9 +32,13 @@ func NewSubscription(workerID worker.ID, streamID stream.ID, createdAt time.Time
 	if createdAt.IsZero() {
 		return Subscription{}, errors.New("subscription createdAt is zero")
 	}
+	if orgID == "" {
+		return Subscription{}, errors.New("subscription orgID is empty")
+	}
 	return Subscription{
-		WorkerID:  workerID,
-		StreamID:  streamID,
-		CreatedAt: createdAt.UTC(),
+		OrganizationID: orgID,
+		WorkerID:       workerID,
+		StreamID:       streamID,
+		CreatedAt:      createdAt.UTC(),
 	}, nil
 }

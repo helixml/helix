@@ -113,6 +113,19 @@ export interface PublishRequest {
   to?: string[]
 }
 
+export interface HireWorkerRequest {
+  id?: string
+  position_id: string
+  kind: 'human' | 'ai'
+  identity_content: string
+  grants?: { tool_name: string }[]
+}
+
+export interface HireWorkerResponse {
+  id: string
+  activation_id?: string
+}
+
 export interface PublishResponse {
   event_id: string
 }
@@ -193,6 +206,45 @@ export function useHelixOrgStreams(options?: { enabled?: boolean }) {
 }
 
 // ---- Mutations -----------------------------------------------------------
+
+// useHireHelixOrgWorker hires a Worker. Server runs the same hire_worker
+// tool MCP uses, so chart-driven hires produce identical store state to
+// chat-driven hires (env dir, activation stream, hire dispatch).
+export function useHireHelixOrgWorker() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: HireWorkerRequest) => {
+      const data = await api.post<HireWorkerRequest, HireWorkerResponse>(
+        `${BASE}/workers`,
+        payload,
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart })
+    },
+  })
+}
+
+// useFireHelixOrgWorker tears a Worker down: stops sessions, deletes
+// the Helix project + agent app, clears runtime state, removes the
+// env dir + grants + subscriptions, finally the worker row. The owner
+// worker is server-side protected (409).
+export function useFireHelixOrgWorker() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (workerId: string) => {
+      await api.delete(`${BASE}/workers/${encodeURIComponent(workerId)}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart })
+    },
+  })
+}
 
 export function useUpdateHelixOrgWorkerIdentity(workerId: string) {
   const api = useApi()

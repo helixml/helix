@@ -13,12 +13,14 @@ import (
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/streamhub"
+	"github.com/helixml/helix/api/pkg/org/tools"
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
@@ -50,6 +52,18 @@ type Deps struct {
 	DBPath    string
 	EnvsDir   string
 
+	// HireWorker is the constructed hire tool, shared with the MCP
+	// registry. The REST POST /workers handler builds a synthetic
+	// Invocation around the owner Worker and dispatches through this
+	// same path so REST hires and chat-driven hires produce identical
+	// store state. nil disables POST /workers (returns 501).
+	HireWorker *tools.HireWorker
+
+	// Lifecycle owns the cross-cutting Fire cascade (Helix project +
+	// app teardown, store cleanup, env-dir removal). nil disables
+	// DELETE /workers/{id} (returns 501).
+	Lifecycle *lifecycle.Service
+
 	// NewID and Now are seams for tests. Production wiring passes
 	// system.GenerateID / time.Now.
 	NewID func() string
@@ -78,7 +92,9 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /positions", Handler: http.HandlerFunc(a.listPositions)},
 		{Pattern: "GET /roles", Handler: http.HandlerFunc(a.listRoles)},
 		{Pattern: "GET /workers", Handler: http.HandlerFunc(a.listWorkers)},
+		{Pattern: "POST /workers", Handler: http.HandlerFunc(a.hireWorker)},
 		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},
+		{Pattern: "DELETE /workers/{id}", Handler: http.HandlerFunc(a.fireWorker)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
@@ -283,6 +299,128 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		out = append(out, workerDTO(wk, nil))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// hireWorker creates a Worker through the same code path the MCP
+// hire_worker tool drives. The caller identity is fixed to the
+// embedded owner ("w-owner") — the React chart UX is owner-driven
+// in the alpha; per-user hires arrive when multi-tenant lands.
+//
+// @Summary Helix-org: hire worker
+// @Description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+// @Tags HelixOrg
+// @Accept json
+// @Produce json
+// @Param payload body api.HireWorkerRequest true "Hire request"
+// @Success 201 {object} api.HireWorkerResponse
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/workers [post]
+func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
+	if a.deps.HireWorker == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("hire is not wired in this deployment"))
+		return
+	}
+	ctx := r.Context()
+	var req HireWorkerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.PositionID) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("position_id is required"))
+		return
+	}
+	if strings.TrimSpace(req.Kind) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("kind is required"))
+		return
+	}
+	if strings.TrimSpace(req.IdentityContent) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("identity_content is required"))
+		return
+	}
+
+	owner, err := a.deps.Store.Workers.Get(ctx, worker.ID(a.deps.Owner))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("load owner %s: %w", a.deps.Owner, err))
+		return
+	}
+
+	// hire_worker reads its args off domain.Invocation.Args using the
+	// same JSON shape MCP delivers — we marshal HireWorkerRequest into
+	// the wire form so there is exactly one parser.
+	type wireGrant struct {
+		ToolName string `json:"toolName"`
+	}
+	type wireArgs struct {
+		ID              string      `json:"id,omitempty"`
+		PositionID      string      `json:"positionId"`
+		Kind            string      `json:"kind"`
+		IdentityContent string      `json:"identityContent"`
+		Grants          []wireGrant `json:"grants,omitempty"`
+	}
+	wargs := wireArgs{
+		ID:              strings.TrimSpace(req.ID),
+		PositionID:      strings.TrimSpace(req.PositionID),
+		Kind:            strings.TrimSpace(req.Kind),
+		IdentityContent: req.IdentityContent,
+	}
+	for _, g := range req.Grants {
+		if name := strings.TrimSpace(g.ToolName); name != "" {
+			wargs.Grants = append(wargs.Grants, wireGrant{ToolName: name})
+		}
+	}
+	argsJSON, err := json.Marshal(wargs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("marshal hire args: %w", err))
+		return
+	}
+
+	resp, err := a.deps.HireWorker.Invoke(ctx, domain.Invocation{Caller: owner, Args: argsJSON})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var out HireWorkerResponse
+	if err := json.Unmarshal(resp, &out); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("decode hire response: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// fireWorker tears down a Worker via the lifecycle service. Returns
+// 409 if the target is the owner.
+//
+// @Summary Helix-org: fire worker
+// @Description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + grants + env dir + env row, then the worker row. Activations are preserved as audit.
+// @Tags HelixOrg
+// @Param id path string true "Worker ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/org/workers/{id} [delete]
+func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
+	if a.deps.Lifecycle == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("fire is not wired in this deployment"))
+		return
+	}
+	id := worker.ID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
+		return
+	}
+	switch err := a.deps.Lifecycle.Fire(r.Context(), id); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, lifecycle.ErrOwnerProtected):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, errStatus(err), err)
+	}
 }
 
 // workerDTO converts a domain.Worker to its wire form. tools may be

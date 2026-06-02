@@ -13,13 +13,15 @@ import (
 // manager populates the directory before calling hire_worker, and the
 // agent manages their own files from then on.
 type Environment struct {
-	WorkerID  worker.ID
-	Path      string
-	CreatedAt time.Time
+	OrganizationID string
+	WorkerID       worker.ID
+	Path           string
+	CreatedAt      time.Time
 }
 
-// NewEnvironment validates and constructs an Environment.
-func NewEnvironment(workerID worker.ID, path string, createdAt time.Time) (Environment, error) {
+// NewEnvironment validates and constructs an Environment. orgID is
+// required.
+func NewEnvironment(workerID worker.ID, path string, createdAt time.Time, orgID string) (Environment, error) {
 	if workerID == "" {
 		return Environment{}, errors.New("environment workerId is empty")
 	}
@@ -29,9 +31,13 @@ func NewEnvironment(workerID worker.ID, path string, createdAt time.Time) (Envir
 	if createdAt.IsZero() {
 		return Environment{}, errors.New("environment createdAt is zero")
 	}
+	if orgID == "" {
+		return Environment{}, errors.New("environment orgID is empty")
+	}
 	return Environment{
-		WorkerID:  workerID,
-		Path:      path,
-		CreatedAt: createdAt.UTC(),
+		OrganizationID: orgID,
+		WorkerID:       workerID,
+		Path:           path,
+		CreatedAt:      createdAt.UTC(),
 	}, nil
 }

@@ -8,14 +8,15 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
-	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/store"
 )
 
 type positionRow struct {
 	ID        string  `gorm:"primaryKey;type:text"`
+	OrgID     string  `gorm:"primaryKey;type:text;index"`
 	RoleID    string  `gorm:"not null;index"`
 	ParentID  *string `gorm:"index"`
 	CreatedAt time.Time
@@ -36,30 +37,30 @@ func (r *positionsRepo) Create(ctx context.Context, pos domain.Position) error {
 	return nil
 }
 
-func (r *positionsRepo) Get(ctx context.Context, id position.ID) (domain.Position, error) {
+func (r *positionsRepo) Get(ctx context.Context, orgID string, id position.ID) (domain.Position, error) {
 	var row positionRow
-	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
+	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND id = ?", orgID, string(id)).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return domain.Position{}, fmt.Errorf("position %q: %w", id, store.ErrNotFound)
+			return domain.Position{}, fmt.Errorf("position %q in org %q: %w", id, orgID, store.ErrNotFound)
 		}
-		return domain.Position{}, fmt.Errorf("get position %q: %w", id, err)
+		return domain.Position{}, fmt.Errorf("get position %q in org %q: %w", id, orgID, err)
 	}
 	return rowToPosition(row)
 }
 
-func (r *positionsRepo) List(ctx context.Context) ([]domain.Position, error) {
+func (r *positionsRepo) List(ctx context.Context, orgID string) ([]domain.Position, error) {
 	var rows []positionRow
-	if err := r.db.WithContext(ctx).Order("id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list positions: %w", err)
+	if err := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("id").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list positions in org %q: %w", orgID, err)
 	}
 	return rowsToPositions(rows)
 }
 
-func (r *positionsRepo) ListChildren(ctx context.Context, parent position.ID) ([]domain.Position, error) {
+func (r *positionsRepo) ListChildren(ctx context.Context, orgID string, parent position.ID) ([]domain.Position, error) {
 	var rows []positionRow
-	if err := r.db.WithContext(ctx).Where("parent_id = ?", string(parent)).Order("id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list children of %q: %w", parent, err)
+	if err := r.db.WithContext(ctx).Where("org_id = ? AND parent_id = ?", orgID, string(parent)).Order("id").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list children of %q in org %q: %w", parent, orgID, err)
 	}
 	return rowsToPositions(rows)
 }
@@ -72,6 +73,7 @@ func positionToRow(pos domain.Position) positionRow {
 	}
 	return positionRow{
 		ID:       string(pos.ID),
+		OrgID:    pos.OrganizationID,
 		RoleID:   string(pos.RoleID),
 		ParentID: parent,
 	}
@@ -83,7 +85,7 @@ func rowToPosition(row positionRow) (domain.Position, error) {
 		p := position.ID(*row.ParentID)
 		parent = &p
 	}
-	return domain.NewPosition(position.ID(row.ID), role.ID(row.RoleID), parent)
+	return domain.NewPosition(position.ID(row.ID), role.ID(row.RoleID), parent, row.OrgID)
 }
 
 func rowsToPositions(rows []positionRow) ([]domain.Position, error) {

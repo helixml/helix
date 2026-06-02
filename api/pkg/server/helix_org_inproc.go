@@ -284,6 +284,43 @@ func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg 
 	return nil
 }
 
+// DeleteProject soft-deletes a Helix project and stops any sessions
+// currently running against it. Used by the fire-worker cascade. A
+// 404 from the underlying handler is mapped to ErrProjectNotFound so
+// callers can treat already-gone projects as success.
+func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error {
+	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/projects/"+id, nil, map[string]string{"id": id})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.deleteProject(nil, r); herr != nil {
+		if herr.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: %s", runtimehelix.ErrProjectNotFound, herr.Message)
+		}
+		return fmt.Errorf("delete project %s: %s", id, herr.Error())
+	}
+	return nil
+}
+
+// DeleteApp removes a Helix App. Used by the fire-worker cascade to
+// clean up the per-Worker agent app that ApplyProject auto-
+// provisioned. 404 maps to ErrProjectNotFound (the same "already
+// gone" semantics; we re-use the sentinel rather than minting a
+// second one for the cascade caller's sake).
+func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
+	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/apps/"+id, nil, map[string]string{"id": id})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.deleteApp(nil, r); herr != nil {
+		if herr.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: %s", runtimehelix.ErrProjectNotFound, herr.Message)
+		}
+		return fmt.Errorf("delete app %s: %s", id, herr.Error())
+	}
+	return nil
+}
+
 // ---- runtimehelix.SpawnerClient ----
 
 // ServerStatus returns the desktop-quota slice of /api/v1/config. We
