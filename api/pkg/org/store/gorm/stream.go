@@ -3,8 +3,6 @@ package gorm
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -29,50 +27,9 @@ type streamRow struct {
 
 func (streamRow) TableName() string { return "org_streams" }
 
-type streamsRepo struct {
-	db *gorm.DB
-}
+type streamMapper struct{}
 
-func (r *streamsRepo) Create(ctx context.Context, s domain.Stream) error {
-	row, err := streamToRow(s)
-	if err != nil {
-		return err
-	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create stream: %w", err)
-	}
-	return nil
-}
-
-func (r *streamsRepo) Get(ctx context.Context, orgID string, id stream.ID) (domain.Stream, error) {
-	var row streamRow
-	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND id = ?", orgID, string(id)).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return domain.Stream{}, fmt.Errorf("stream %q in org %q: %w", id, orgID, store.ErrNotFound)
-		}
-		return domain.Stream{}, fmt.Errorf("get stream %q in org %q: %w", id, orgID, err)
-	}
-	return rowToStream(row)
-}
-
-func (r *streamsRepo) List(ctx context.Context, orgID string) ([]domain.Stream, error) {
-	var rows []streamRow
-	if err := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list streams in org %q: %w", orgID, err)
-	}
-	out := make([]domain.Stream, 0, len(rows))
-	for _, row := range rows {
-		s, err := rowToStream(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, s)
-	}
-	return out, nil
-}
-
-func streamToRow(s domain.Stream) (streamRow, error) {
+func (streamMapper) ToRow(s domain.Stream) (streamRow, error) {
 	cfg := ""
 	if len(s.Transport.Config) > 0 {
 		cfg = string(s.Transport.Config)
@@ -89,7 +46,7 @@ func streamToRow(s domain.Stream) (streamRow, error) {
 	}, nil
 }
 
-func rowToStream(row streamRow) (domain.Stream, error) {
+func (streamMapper) ToDomain(row streamRow) (domain.Stream, error) {
 	tp := transport.Transport{Kind: transport.Kind(row.TransportKind)}
 	if row.TransportConfig != "" {
 		tp.Config = json.RawMessage(row.TransportConfig)
@@ -103,4 +60,20 @@ func rowToStream(row streamRow) (domain.Stream, error) {
 		tp,
 		row.OrgID,
 	)
+}
+
+type streamsRepo struct {
+	*Repository[domain.Stream, streamRow]
+}
+
+func newStreamsRepo(db *gorm.DB) *streamsRepo {
+	return &streamsRepo{Repository: NewRepository[domain.Stream, streamRow](db, streamMapper{}, "stream")}
+}
+
+func (r *streamsRepo) Get(ctx context.Context, orgID string, id stream.ID) (domain.Stream, error) {
+	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
+
+func (r *streamsRepo) List(ctx context.Context, orgID string) ([]domain.Stream, error) {
+	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }

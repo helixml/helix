@@ -3,7 +3,6 @@ package gorm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -29,73 +28,9 @@ type activationRow struct {
 
 func (activationRow) TableName() string { return "org_activations" }
 
-type activationsRepo struct {
-	db *gorm.DB
-}
+type activationMapper struct{}
 
-func (r *activationsRepo) Create(ctx context.Context, a *activation.Activation) error {
-	row, err := activationToRow(a)
-	if err != nil {
-		return err
-	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create activation %q: %w", a.ID, err)
-	}
-	return nil
-}
-
-func (r *activationsRepo) Complete(ctx context.Context, orgID string, id activation.ID, outcome activation.Outcome, endedAt time.Time) error {
-	res := r.db.WithContext(ctx).Model(&activationRow{}).
-		Where("org_id = ? AND id = ?", orgID, string(id)).
-		Updates(map[string]any{
-			"ended_at":       endedAt,
-			"outcome_status": string(outcome.Status),
-			"outcome_error":  outcome.Error,
-		})
-	if res.Error != nil {
-		return fmt.Errorf("complete activation %q in org %q: %w", id, orgID, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("complete activation %q in org %q: %w", id, orgID, store.ErrNotFound)
-	}
-	return nil
-}
-
-func (r *activationsRepo) Get(ctx context.Context, orgID string, id activation.ID) (*activation.Activation, error) {
-	var row activationRow
-	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND id = ?", orgID, string(id)).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("activation %q in org %q: %w", id, orgID, store.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get activation %q in org %q: %w", id, orgID, err)
-	}
-	return rowToActivation(row)
-}
-
-func (r *activationsRepo) ListForWorker(ctx context.Context, orgID string, workerID worker.ID, limit int) ([]*activation.Activation, error) {
-	query := r.db.WithContext(ctx).
-		Where("org_id = ? AND worker_id = ?", orgID, string(workerID)).
-		Order("started_at DESC, id DESC")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	var rows []activationRow
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list activations for worker %q in org %q: %w", workerID, orgID, err)
-	}
-	out := make([]*activation.Activation, 0, len(rows))
-	for _, row := range rows {
-		a, err := rowToActivation(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, nil
-}
-
-func activationToRow(a *activation.Activation) (activationRow, error) {
+func (activationMapper) ToRow(a *activation.Activation) (activationRow, error) {
 	triggersJSON, err := json.Marshal(a.Triggers)
 	if err != nil {
 		return activationRow{}, fmt.Errorf("encode triggers for activation %q: %w", a.ID, err)
@@ -113,7 +48,7 @@ func activationToRow(a *activation.Activation) (activationRow, error) {
 	}, nil
 }
 
-func rowToActivation(row activationRow) (*activation.Activation, error) {
+func (activationMapper) ToDomain(row activationRow) (*activation.Activation, error) {
 	var triggers []activation.Trigger
 	if err := json.Unmarshal([]byte(row.TriggersJSON), &triggers); err != nil {
 		return nil, fmt.Errorf("decode triggers for activation %q: %w", row.ID, err)
@@ -134,4 +69,42 @@ func rowToActivation(row activationRow) (*activation.Activation, error) {
 		}
 	}
 	return a, nil
+}
+
+type activationsRepo struct {
+	*Repository[*activation.Activation, activationRow]
+}
+
+func newActivationsRepo(db *gorm.DB) *activationsRepo {
+	return &activationsRepo{Repository: NewRepository[*activation.Activation, activationRow](db, activationMapper{}, "activation")}
+}
+
+func (r *activationsRepo) Create(ctx context.Context, a *activation.Activation) error {
+	return r.Repository.Create(ctx, a)
+}
+
+func (r *activationsRepo) Complete(ctx context.Context, orgID string, id activation.ID, outcome activation.Outcome, endedAt time.Time) error {
+	return r.Repository.Update(ctx,
+		store.WithOrg(orgID),
+		store.WithID(string(id)),
+		store.WithUpdates(map[string]any{
+			"ended_at":       endedAt,
+			"outcome_status": string(outcome.Status),
+			"outcome_error":  outcome.Error,
+		}),
+	)
+}
+
+func (r *activationsRepo) Get(ctx context.Context, orgID string, id activation.ID) (*activation.Activation, error) {
+	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
+
+func (r *activationsRepo) ListForWorker(ctx context.Context, orgID string, workerID worker.ID, limit int) ([]*activation.Activation, error) {
+	return r.Repository.Find(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("worker_id", string(workerID)),
+		store.WithOrderDesc("started_at"),
+		store.WithOrderDesc("id"),
+		store.WithLimit(limit),
+	)
 }

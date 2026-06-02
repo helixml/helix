@@ -99,15 +99,15 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	return &store.Store{
 		Roles:              newRolesRepo(db),
 		Positions:          newPositionsRepo(db),
-		Workers:            &workersRepo{db: db},
+		Workers:            newWorkersRepo(db),
 		WorkerRuntimeState: &workerRuntimeStateRepo{db: db},
-		Grants:             &grantsRepo{db: db},
-		Streams:            &streamsRepo{db: db},
-		Subscriptions:      &subscriptionsRepo{db: db},
-		Events:             &eventsRepo{db: db},
-		Environments:       &environmentsRepo{db: db},
-		Configs:            &configsRepo{db: db},
-		Activations:        &activationsRepo{db: db},
+		Grants:             newGrantsRepo(db),
+		Streams:            newStreamsRepo(db),
+		Subscriptions:      newSubscriptionsRepo(db),
+		Events:             newEventsRepo(db),
+		Environments:       newEnvironmentsRepo(db),
+		Configs:            newConfigsRepo(db),
+		Activations:        newActivationsRepo(db),
 	}, nil
 }
 

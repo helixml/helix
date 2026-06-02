@@ -29,6 +29,9 @@ type Query struct {
 	conditions []Condition
 	clauses    []Clause
 	orders     []Order
+	joins      []Join
+	table      string
+	selects    string
 	limit      int
 	updates    map[string]any
 }
@@ -50,6 +53,15 @@ func (q Query) Clauses() []Clause { return append([]Clause(nil), q.clauses...) }
 
 // Orders returns the ORDER BY specs.
 func (q Query) Orders() []Order { return append([]Order(nil), q.orders...) }
+
+// Joins returns the JOIN clauses.
+func (q Query) Joins() []Join { return append([]Join(nil), q.joins...) }
+
+// Table returns the override FROM table (empty when unset).
+func (q Query) Table() string { return q.table }
+
+// Selects returns the SELECT projection (empty when unset).
+func (q Query) Selects() string { return q.selects }
 
 // Limit returns the row cap (0 means unbounded).
 func (q Query) Limit() int { return q.limit }
@@ -83,6 +95,15 @@ type Clause struct {
 type Order struct {
 	Expr      string // either a column name or a raw expression
 	Ascending bool
+}
+
+// Join is a JOIN clause — gorm-compatible raw join string with bind
+// args (e.g. `JOIN other AS o ON o.x = e.y`). Used for the few queries
+// (events listForWorker / listSince) where filter columns live on a
+// joined table.
+type Join struct {
+	SQL  string
+	Args []any
 }
 
 // ---- generic primitives -------------------------------------------------
@@ -136,6 +157,34 @@ func WithLimit(limit int) Option {
 		if limit > 0 {
 			q.limit = limit
 		}
+		return q
+	}
+}
+
+// WithJoin appends a JOIN clause. Use when the filter / projection
+// needs columns from another table (events ListForWorker, ListSince).
+func WithJoin(sql string, args ...any) Option {
+	return func(q Query) Query {
+		q.joins = append(q.joins, Join{SQL: sql, Args: args})
+		return q
+	}
+}
+
+// WithTable overrides the FROM table. Required when the Repository's
+// gorm.Model(R) default would clash with a JOIN that aliases the row
+// table (e.g. `org_events AS e`).
+func WithTable(name string) Option {
+	return func(q Query) Query {
+		q.table = name
+		return q
+	}
+}
+
+// WithSelect sets the SELECT projection. Mainly useful with JOINs so
+// the row scanner sees only the entity table's columns.
+func WithSelect(projection string) Option {
+	return func(q Query) Query {
+		q.selects = projection
 		return q
 	}
 }

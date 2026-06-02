@@ -17,6 +17,15 @@ import (
 // (github.com/helixml/kodit/internal/database).
 func ApplyOptions(db *gorm.DB, opts ...store.Option) *gorm.DB {
 	q := store.Build(opts...)
+	if t := q.Table(); t != "" {
+		db = db.Table(t)
+	}
+	for _, j := range q.Joins() {
+		db = db.Joins(j.SQL, j.Args...)
+	}
+	if sel := q.Selects(); sel != "" {
+		db = db.Select(sel)
+	}
 	for _, cond := range q.Conditions() {
 		if cond.In {
 			db = db.Where(fmt.Sprintf("%s IN ?", cond.Field), cond.Value)

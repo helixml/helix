@@ -2,6 +2,7 @@ package gorm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/event"
+	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
@@ -24,28 +26,72 @@ type eventRow struct {
 
 func (eventRow) TableName() string { return "org_events" }
 
+type eventMapper struct{}
+
+func (eventMapper) ToRow(e domain.Event) (eventRow, error) {
+	return eventRow{
+		ID:        string(e.ID),
+		OrgID:     e.OrganizationID,
+		StreamID:  string(e.StreamID),
+		Source:    string(e.Source),
+		Body:      e.Body,
+		CreatedAt: e.CreatedAt,
+	}, nil
+}
+
+func (eventMapper) ToDomain(row eventRow) (domain.Event, error) {
+	return domain.NewEvent(
+		event.ID(row.ID),
+		stream.ID(row.StreamID),
+		worker.ID(row.Source),
+		row.Body,
+		row.CreatedAt,
+		row.OrgID,
+	)
+}
+
 type eventsRepo struct {
-	db *gorm.DB
+	*Repository[domain.Event, eventRow]
+}
+
+func newEventsRepo(db *gorm.DB) *eventsRepo {
+	return &eventsRepo{Repository: NewRepository[domain.Event, eventRow](db, eventMapper{}, "event")}
 }
 
 func (r *eventsRepo) Append(ctx context.Context, e domain.Event) error {
-	row := eventToRow(e)
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-	return nil
+	return r.Repository.Create(ctx, e)
 }
 
 func (r *eventsRepo) ListForStream(ctx context.Context, orgID string, streamID stream.ID, limit int) ([]domain.Event, error) {
-	query := r.db.WithContext(ctx).Where("org_id = ? AND stream_id = ?", orgID, string(streamID)).Order("created_at DESC, id DESC")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	var rows []eventRow
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events for stream %q in org %q: %w", streamID, orgID, err)
-	}
-	return rowsToEvents(rows)
+	return r.Repository.Find(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("stream_id", string(streamID)),
+		store.WithOrderDesc("created_at"),
+		store.WithOrderDesc("id"),
+		store.WithLimit(limit),
+	)
+}
+
+func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]domain.Event, error) {
+	return r.Repository.Find(ctx,
+		store.WithOrg(orgID),
+		store.WithOrderDesc("created_at"),
+		store.WithOrderDesc("id"),
+		store.WithLimit(limit),
+	)
+}
+
+func (r *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID worker.ID, limit int) ([]domain.Event, error) {
+	return r.Repository.Find(ctx,
+		store.WithTable("org_events AS e"),
+		store.WithJoin("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id AND s.org_id = e.org_id"),
+		store.WithSelect("e.*"),
+		store.WithCondition("e.org_id", orgID),
+		store.WithCondition("s.worker_id", string(workerID)),
+		store.WithOrderDesc("e.created_at"),
+		store.WithOrderDesc("e.id"),
+		store.WithLimit(limit),
+	)
 }
 
 func (r *eventsRepo) ListSince(ctx context.Context, orgID string, streamIDs []stream.ID, since event.ID, limit int) ([]domain.Event, error) {
@@ -57,95 +103,40 @@ func (r *eventsRepo) ListSince(ctx context.Context, orgID string, streamIDs []st
 		ids = append(ids, string(s))
 	}
 
+	// Look up the cursor pivot's (created_at, id) so we can resolve
+	// "events strictly after the pivot" without depending on the
+	// caller passing a timestamp. A missing pivot silently degrades
+	// to "from the beginning" — same as the prior implementation.
 	var (
 		sinceTS time.Time
 		sinceID string
 		hasLB   bool
 	)
 	if since != "" {
-		var pivot eventRow
-		err := r.db.WithContext(ctx).Where("org_id = ? AND id = ?", orgID, string(since)).Take(&pivot).Error
+		pivot, err := r.Repository.FindOne(ctx,
+			store.WithOrg(orgID),
+			store.WithID(string(since)),
+		)
 		if err == nil {
 			sinceTS = pivot.CreatedAt
-			sinceID = pivot.ID
+			sinceID = string(pivot.ID)
 			hasLB = true
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("lookup since-pivot %q: %w", since, err)
 		}
 	}
 
-	query := r.db.WithContext(ctx).Where("org_id = ? AND stream_id IN ?", orgID, ids)
+	opts := []store.Option{
+		store.WithCondition("org_id", orgID),
+		store.WithConditionIn("stream_id", ids),
+	}
 	if hasLB {
-		query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)", sinceTS, sinceTS, sinceID)
+		opts = append(opts, store.WithWhere("(created_at > ?) OR (created_at = ? AND id > ?)", sinceTS, sinceTS, sinceID))
 	}
-	query = query.Order("created_at ASC, id ASC")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	var rows []eventRow
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events since %q in org %q: %w", since, orgID, err)
-	}
-	return rowsToEvents(rows)
-}
-
-func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]domain.Event, error) {
-	query := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("created_at DESC, id DESC")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	var rows []eventRow
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list all events in org %q: %w", orgID, err)
-	}
-	return rowsToEvents(rows)
-}
-
-func (r *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID worker.ID, limit int) ([]domain.Event, error) {
-	query := r.db.WithContext(ctx).
-		Table("org_events AS e").
-		Joins("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id AND s.org_id = e.org_id").
-		Where("e.org_id = ? AND s.worker_id = ?", orgID, string(workerID)).
-		Order("e.created_at DESC, e.id DESC").
-		Select("e.*")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	var rows []eventRow
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events for worker %q in org %q: %w", workerID, orgID, err)
-	}
-	return rowsToEvents(rows)
-}
-
-func eventToRow(e domain.Event) eventRow {
-	return eventRow{
-		ID:        string(e.ID),
-		OrgID:     e.OrganizationID,
-		StreamID:  string(e.StreamID),
-		Source:    string(e.Source),
-		Body:      e.Body,
-		CreatedAt: e.CreatedAt,
-	}
-}
-
-func rowToEvent(row eventRow) (domain.Event, error) {
-	return domain.NewEvent(
-		event.ID(row.ID),
-		stream.ID(row.StreamID),
-		worker.ID(row.Source),
-		row.Body,
-		row.CreatedAt,
-		row.OrgID,
+	opts = append(opts,
+		store.WithOrderAsc("created_at"),
+		store.WithOrderAsc("id"),
+		store.WithLimit(limit),
 	)
-}
-
-func rowsToEvents(rows []eventRow) ([]domain.Event, error) {
-	out := make([]domain.Event, 0, len(rows))
-	for _, row := range rows {
-		e, err := rowToEvent(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, nil
+	return r.Repository.Find(ctx, opts...)
 }

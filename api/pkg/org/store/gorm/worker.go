@@ -3,7 +3,6 @@ package gorm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -32,98 +31,24 @@ type workerRow struct {
 
 func (workerRow) TableName() string { return "org_workers" }
 
-type workersRepo struct {
-	db *gorm.DB
-}
+type workerMapper struct{}
 
-func (r *workersRepo) Create(ctx context.Context, worker domain.Worker) error {
-	row, err := workerToRow(worker)
-	if err != nil {
-		return err
-	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create worker: %w", err)
-	}
-	return nil
-}
-
-func (r *workersRepo) Get(ctx context.Context, orgID string, id worker.ID) (domain.Worker, error) {
-	var row workerRow
-	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND id = ?", orgID, string(id)).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("worker %q in org %q: %w", id, orgID, store.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get worker %q in org %q: %w", id, orgID, err)
-	}
-	return rowToWorker(row)
-}
-
-func (r *workersRepo) List(ctx context.Context, orgID string) ([]domain.Worker, error) {
-	var rows []workerRow
-	if err := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list workers in org %q: %w", orgID, err)
-	}
-	out := make([]domain.Worker, 0, len(rows))
-	for _, row := range rows {
-		w, err := rowToWorker(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, w)
-	}
-	return out, nil
-}
-
-func (r *workersRepo) Delete(ctx context.Context, orgID string, id worker.ID) error {
-	res := r.db.WithContext(ctx).Delete(&workerRow{}, "org_id = ? AND id = ?", orgID, string(id))
-	if res.Error != nil {
-		return fmt.Errorf("delete worker %q in org %q: %w", id, orgID, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("worker %q in org %q: %w", id, orgID, store.ErrNotFound)
-	}
-	return nil
-}
-
-func (r *workersRepo) Update(ctx context.Context, worker domain.Worker) error {
-	row, err := workerToRow(worker)
-	if err != nil {
-		return err
-	}
-	res := r.db.WithContext(ctx).
-		Model(&workerRow{}).
-		Where("org_id = ? AND id = ?", row.OrgID, row.ID).
-		Updates(map[string]any{
-			"identity_content": row.IdentityContent,
-			"positions":        row.Positions,
-			"kind":             row.Kind,
-		})
-	if res.Error != nil {
-		return fmt.Errorf("update worker %q in org %q: %w", row.ID, row.OrgID, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("worker %q in org %q: %w", worker.ID(), row.OrgID, store.ErrNotFound)
-	}
-	return nil
-}
-
-func workerToRow(worker domain.Worker) (workerRow, error) {
-	pos := worker.Position()
+func (workerMapper) ToRow(w domain.Worker) (workerRow, error) {
+	pos := w.Position()
 	encoded, err := json.Marshal([]position.ID{pos})
 	if err != nil {
 		return workerRow{}, fmt.Errorf("marshal position: %w", err)
 	}
 	return workerRow{
-		ID:              string(worker.ID()),
-		OrgID:           worker.OrganizationID(),
-		Kind:            string(worker.Kind()),
+		ID:              string(w.ID()),
+		OrgID:           w.OrganizationID(),
+		Kind:            string(w.Kind()),
 		Positions:       string(encoded),
-		IdentityContent: worker.IdentityContent(),
+		IdentityContent: w.IdentityContent(),
 	}, nil
 }
 
-func rowToWorker(row workerRow) (domain.Worker, error) {
+func (workerMapper) ToDomain(row workerRow) (domain.Worker, error) {
 	var positions []position.ID
 	if row.Positions != "" {
 		if err := json.Unmarshal([]byte(row.Positions), &positions); err != nil {
@@ -142,4 +67,40 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
 	}
+}
+
+type workersRepo struct {
+	*Repository[domain.Worker, workerRow]
+}
+
+func newWorkersRepo(db *gorm.DB) *workersRepo {
+	return &workersRepo{Repository: NewRepository[domain.Worker, workerRow](db, workerMapper{}, "worker")}
+}
+
+func (r *workersRepo) Get(ctx context.Context, orgID string, id worker.ID) (domain.Worker, error) {
+	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
+
+func (r *workersRepo) List(ctx context.Context, orgID string) ([]domain.Worker, error) {
+	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
+}
+
+func (r *workersRepo) Delete(ctx context.Context, orgID string, id worker.ID) error {
+	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
+
+func (r *workersRepo) Update(ctx context.Context, w domain.Worker) error {
+	row, err := workerMapper{}.ToRow(w)
+	if err != nil {
+		return err
+	}
+	return r.Repository.Update(ctx,
+		store.WithOrg(row.OrgID),
+		store.WithID(row.ID),
+		store.WithUpdates(map[string]any{
+			"identity_content": row.IdentityContent,
+			"positions":        row.Positions,
+			"kind":             row.Kind,
+		}),
+	)
 }

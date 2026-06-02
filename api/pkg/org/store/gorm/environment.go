@@ -3,7 +3,6 @@ package gorm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -23,39 +22,48 @@ type environmentRow struct {
 
 func (environmentRow) TableName() string { return "org_environments" }
 
-type environmentsRepo struct {
-	db *gorm.DB
-}
+type environmentMapper struct{}
 
-func (r *environmentsRepo) Create(ctx context.Context, env domain.Environment) error {
-	row := environmentRow{
+func (environmentMapper) ToRow(env domain.Environment) (environmentRow, error) {
+	return environmentRow{
 		OrgID:     env.OrganizationID,
 		WorkerID:  string(env.WorkerID),
 		Path:      env.Path,
 		CreatedAt: env.CreatedAt,
-	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create environment: %w", err)
-	}
-	return nil
+	}, nil
 }
 
-func (r *environmentsRepo) Get(ctx context.Context, orgID string, workerID worker.ID) (domain.Environment, error) {
-	var row environmentRow
-	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND worker_id = ?", orgID, string(workerID)).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return domain.Environment{}, fmt.Errorf("environment for worker %q in org %q: %w", workerID, orgID, store.ErrNotFound)
-		}
-		return domain.Environment{}, fmt.Errorf("get environment for worker %q in org %q: %w", workerID, orgID, err)
-	}
+func (environmentMapper) ToDomain(row environmentRow) (domain.Environment, error) {
 	return domain.NewEnvironment(worker.ID(row.WorkerID), row.Path, row.CreatedAt, row.OrgID)
 }
 
+type environmentsRepo struct {
+	*Repository[domain.Environment, environmentRow]
+}
+
+func newEnvironmentsRepo(db *gorm.DB) *environmentsRepo {
+	return &environmentsRepo{Repository: NewRepository[domain.Environment, environmentRow](db, environmentMapper{}, "environment")}
+}
+
+func (r *environmentsRepo) Get(ctx context.Context, orgID string, workerID worker.ID) (domain.Environment, error) {
+	return r.FindOne(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("worker_id", string(workerID)),
+	)
+}
+
 func (r *environmentsRepo) Delete(ctx context.Context, orgID string, workerID worker.ID) error {
-	res := r.db.WithContext(ctx).Delete(&environmentRow{}, "org_id = ? AND worker_id = ?", orgID, string(workerID))
-	if res.Error != nil {
-		return fmt.Errorf("delete environment for worker %q in org %q: %w", workerID, orgID, res.Error)
+	// Pre-existing behaviour: Delete swallows ErrNotFound (returns
+	// nil when no row matches). The Repository.Delete returns
+	// ErrNotFound when rows-affected is 0; map that back to nil so
+	// downstream callers (worker lifecycle teardown) stay
+	// idempotent.
+	err := r.Repository.Delete(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("worker_id", string(workerID)),
+	)
+	if err != nil && errors.Is(err, store.ErrNotFound) {
+		return nil
 	}
-	return nil
+	return err
 }
