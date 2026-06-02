@@ -3,7 +3,6 @@ package gorm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -27,72 +26,9 @@ type roleRow struct {
 
 func (roleRow) TableName() string { return "org_roles" }
 
-type rolesRepo struct {
-	db *gorm.DB
-}
+type roleMapper struct{}
 
-func (r *rolesRepo) Create(ctx context.Context, ro role.Role) error {
-	if err := r.db.WithContext(ctx).Create(roleToRow(ro)).Error; err != nil {
-		return fmt.Errorf("create role: %w", err)
-	}
-	return nil
-}
-
-func (r *rolesRepo) Get(ctx context.Context, orgID string, id role.ID) (role.Role, error) {
-	var row roleRow
-	err := r.db.WithContext(ctx).First(&row, "org_id = ? AND id = ?", orgID, string(id)).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return role.Role{}, fmt.Errorf("role %q in org %q: %w", id, orgID, store.ErrNotFound)
-		}
-		return role.Role{}, fmt.Errorf("get role %q in org %q: %w", id, orgID, err)
-	}
-	return rowToRole(row), nil
-}
-
-func (r *rolesRepo) List(ctx context.Context, orgID string) ([]role.Role, error) {
-	var rows []roleRow
-	if err := r.db.WithContext(ctx).Where("org_id = ?", orgID).Order("id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list roles in org %q: %w", orgID, err)
-	}
-	out := make([]role.Role, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, rowToRole(row))
-	}
-	return out, nil
-}
-
-func (r *rolesRepo) Update(ctx context.Context, ro role.Role) error {
-	row := roleToRow(ro)
-	// Pre-marshal the JSON columns so Postgres sees a typed string
-	// literal. gorm's serializer:json tag works on full-row Save but
-	// not on map[string]any Updates — passing the raw []string there
-	// produces "could not determine data type of parameter" because
-	// the pgx driver can't infer the column type from a generic any.
-	toolsJSON, err := json.Marshal(row.Tools)
-	if err != nil {
-		return fmt.Errorf("marshal tools: %w", err)
-	}
-	streamsJSON, err := json.Marshal(row.Streams)
-	if err != nil {
-		return fmt.Errorf("marshal streams: %w", err)
-	}
-	res := r.db.WithContext(ctx).Model(&roleRow{}).Where("org_id = ? AND id = ?", row.OrgID, row.ID).Updates(map[string]any{
-		"content":    row.Content,
-		"tools":      string(toolsJSON),
-		"streams":    string(streamsJSON),
-		"updated_at": row.UpdatedAt,
-	})
-	if res.Error != nil {
-		return fmt.Errorf("update role: %w", res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("role %q in org %q: %w", ro.ID, ro.OrganizationID, store.ErrNotFound)
-	}
-	return nil
-}
-
-func roleToRow(r role.Role) roleRow {
+func (roleMapper) ToRow(r role.Role) (roleRow, error) {
 	tools := make([]string, 0, len(r.Tools))
 	for _, t := range r.Tools {
 		tools = append(tools, string(t))
@@ -115,10 +51,10 @@ func roleToRow(r role.Role) roleRow {
 		Streams:   streams,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
-	}
+	}, nil
 }
 
-func rowToRole(row roleRow) role.Role {
+func (roleMapper) ToDomain(row roleRow) (role.Role, error) {
 	var tools []tool.Name
 	if len(row.Tools) > 0 {
 		tools = make([]tool.Name, 0, len(row.Tools))
@@ -141,5 +77,50 @@ func rowToRole(row roleRow) role.Role {
 		Streams:        streams,
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
+	}, nil
+}
+
+type rolesRepo struct {
+	*Repository[role.Role, roleRow]
+}
+
+func newRolesRepo(db *gorm.DB) *rolesRepo {
+	return &rolesRepo{Repository: NewRepository[role.Role, roleRow](db, roleMapper{}, "role")}
+}
+
+func (r *rolesRepo) Get(ctx context.Context, orgID string, id role.ID) (role.Role, error) {
+	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
+
+func (r *rolesRepo) List(ctx context.Context, orgID string) ([]role.Role, error) {
+	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
+}
+
+func (r *rolesRepo) Update(ctx context.Context, ro role.Role) error {
+	row, err := roleMapper{}.ToRow(ro)
+	if err != nil {
+		return fmt.Errorf("map role: %w", err)
 	}
+	// Pre-marshal JSON columns so the Updates() map carries typed
+	// string literals; gorm's serializer:json tag works on full-row
+	// Save but not on a map[string]any Updates — pgx can't infer the
+	// column type from a bare []string parameter.
+	toolsJSON, err := json.Marshal(row.Tools)
+	if err != nil {
+		return fmt.Errorf("marshal tools: %w", err)
+	}
+	streamsJSON, err := json.Marshal(row.Streams)
+	if err != nil {
+		return fmt.Errorf("marshal streams: %w", err)
+	}
+	return r.Repository.Update(ctx,
+		store.WithOrg(row.OrgID),
+		store.WithID(row.ID),
+		store.WithUpdates(map[string]any{
+			"content":    row.Content,
+			"tools":      string(toolsJSON),
+			"streams":    string(streamsJSON),
+			"updated_at": row.UpdatedAt,
+		}),
+	)
 }

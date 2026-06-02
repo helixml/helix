@@ -97,8 +97,8 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	}
 
 	return &store.Store{
-		Roles:              &rolesRepo{db: db},
-		Positions:          &positionsRepo{db: db},
+		Roles:              newRolesRepo(db),
+		Positions:          newPositionsRepo(db),
 		Workers:            &workersRepo{db: db},
 		WorkerRuntimeState: &workerRuntimeStateRepo{db: db},
 		Grants:             &grantsRepo{db: db},
