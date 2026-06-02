@@ -134,32 +134,29 @@ type WorkerProject struct {
 
 // Ensure applies a Helix project for the given Worker if one
 // doesn't exist yet. Returns the resolved project / agent-app /
-// repo IDs (read from the runtime state after persistence so callers
-// see the same view of state).
-func (a *WorkerProject) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
-	worker, err := a.Store.Workers.Get(ctx, workerID)
+// repo IDs.
+func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
+	worker, err := a.Store.Workers.Get(ctx, orgID, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get worker: %w", err)
 	}
-	state, err := LoadState(ctx, a.Store, workerID)
+	state, err := LoadState(ctx, a.Store, orgID, workerID)
 	if err != nil {
 		return "", "", "", err
 	}
-	// Resolve role content from the Worker's Position (if any).
 	var roleContent, roleName string
 	if posID := worker.Position(); posID != "" {
-		if pos, err := a.Store.Positions.Get(ctx, posID); err == nil {
-			if role, err := a.Store.Roles.Get(ctx, pos.RoleID); err == nil {
+		if pos, err := a.Store.Positions.Get(ctx, orgID, posID); err == nil {
+			if role, err := a.Store.Roles.Get(ctx, orgID, pos.RoleID); err == nil {
 				roleContent = role.Content
 				roleName = string(role.ID)
 			}
 		}
 	}
-	// Fast path: project already exists.
 	if state.ProjectID != "" {
 		if _, err := a.Service.GetProject(ctx, state.ProjectID); err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
-				if clearErr := ClearProject(ctx, a.Store, workerID); clearErr != nil {
+				if clearErr := ClearProject(ctx, a.Store, orgID, workerID); clearErr != nil {
 					return "", "", "", fmt.Errorf("clear stale project state for %s: %w", workerID, clearErr)
 				}
 				if a.Logger != nil {
@@ -265,7 +262,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, workerID worker.ID) (project
 			a.Logger.Info("helix mcp attached", "worker", workerID, "app", resp.AgentAppID, "mcp", mcpURL)
 		}
 	}
-	if err := SaveProject(ctx, a.Store, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
+	if err := SaveProject(ctx, a.Store, orgID, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
 		return "", "", "", fmt.Errorf("persist helix project IDs: %w", err)
 	}
 	if a.Logger != nil {

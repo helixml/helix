@@ -44,7 +44,7 @@ import (
 //
 // The zero value — nil — means "no process will be spawned", which
 // is correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, workerID worker.ID, envPath string, triggers []activation.Trigger) error
+type Spawner func(ctx context.Context, orgID string, workerID worker.ID, envPath string, triggers []activation.Trigger) error
 
 // WorkspaceSync mirrors the canonical Role and Identity content of a
 // Worker into wherever that Worker's runtime reads them at activation
@@ -122,7 +122,7 @@ func ValidateWorkspaceName(name string) error {
 // SaveHiringUser call returns a wrapped error). Document the trade-off
 // at the call site.
 type HireHook interface {
-	OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error
+	OnHire(ctx context.Context, orgID string, workerID worker.ID, hiringUserID string) error
 }
 
 // NoopHireHook is a HireHook that does nothing. Useful for
