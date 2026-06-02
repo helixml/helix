@@ -206,3 +206,39 @@ type PublishResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
+
+// CreateRoleRequest is the body of POST /roles. Tools and Streams are
+// optional declarative scopes; an empty slice means the role does not
+// hold the corresponding scope. ID is required and must be a stable
+// readable handle (`r-engineer`, `r-pm`) — the org-graph chart relies
+// on these to address roles directly.
+type CreateRoleRequest struct {
+	ID      string   `json:"id"`
+	Content string   `json:"content"`
+	Tools   []string `json:"tools,omitempty"`
+	Streams []string `json:"streams,omitempty"`
+}
+
+// UpdateRoleRequest is the body of PUT /roles/{id}. Content replaces
+// the role.md; Tools and Streams replace the declarative scopes
+// wholesale (pass an empty slice to clear, omit to leave untouched).
+type UpdateRoleRequest struct {
+	Content *string  `json:"content,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
+	Streams []string `json:"streams,omitempty"`
+}
+
+// CreatePositionRequest is the body of POST /positions. ParentID may
+// be empty for a root position (the canonical `p-root` for the owner).
+type CreatePositionRequest struct {
+	ID       string `json:"id"`
+	RoleID   string `json:"role_id"`
+	ParentID string `json:"parent_id,omitempty"`
+}
+
+// UpdatePositionRequest is the body of PUT /positions/{id}. Currently
+// only the parent and role can be re-pointed.
+type UpdatePositionRequest struct {
+	RoleID   *string `json:"role_id,omitempty"`
+	ParentID *string `json:"parent_id,omitempty"`
+}

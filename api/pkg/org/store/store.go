@@ -45,6 +45,10 @@ type Positions interface {
 	Get(ctx context.Context, orgID string, id position.ID) (domain.Position, error)
 	List(ctx context.Context, orgID string) ([]domain.Position, error)
 	ListChildren(ctx context.Context, orgID string, parent position.ID) ([]domain.Position, error)
+	// Update mutates ParentID and RoleID; the (orgID, id) key cannot
+	// change. Returns ErrNotFound when the (orgID, id) pair doesn't
+	// exist.
+	Update(ctx context.Context, pos domain.Position) error
 }
 
 // Workers persists humans and AIs. Update mutates fields the system

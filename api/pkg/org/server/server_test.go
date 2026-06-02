@@ -65,7 +65,7 @@ func connectMCP(t *testing.T, baseURL string, workerID worker.ID) *mcp.ClientSes
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
-		Endpoint:             baseURL + "/workers/" + string(workerID) + "/mcp",
+		Endpoint:             baseURL + "/orgs/org-test/workers/" + string(workerID) + "/mcp",
 		DisableStandaloneSSE: true,
 	}
 	session, err := c.Connect(context.Background(), transport, nil)

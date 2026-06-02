@@ -143,7 +143,7 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 // helixOrgURLPrefix returns the per-org URL prefix the router serves
 // the helix-org JSON / MCP / webhook surface under.
 func helixOrgURLPrefix(orgIDOrSlug string) string {
-	return strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgIDOrSlug + "/helix-org"
+	return strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgIDOrSlug
 }
 
 // stripOrgScopedPrefix strips the leading /api/v1/orgs/<org>/<suffix>

@@ -101,7 +101,13 @@ func Routes(deps Deps) []Route {
 	return []Route{
 		{Pattern: "GET /chart", Handler: http.HandlerFunc(a.getChart)},
 		{Pattern: "GET /positions", Handler: http.HandlerFunc(a.listPositions)},
+		{Pattern: "POST /positions", Handler: http.HandlerFunc(a.createPosition)},
+		{Pattern: "GET /positions/{id}", Handler: http.HandlerFunc(a.getPosition)},
+		{Pattern: "PUT /positions/{id}", Handler: http.HandlerFunc(a.updatePosition)},
 		{Pattern: "GET /roles", Handler: http.HandlerFunc(a.listRoles)},
+		{Pattern: "POST /roles", Handler: http.HandlerFunc(a.createRole)},
+		{Pattern: "GET /roles/{id}", Handler: http.HandlerFunc(a.getRole)},
+		{Pattern: "PUT /roles/{id}", Handler: http.HandlerFunc(a.updateRole)},
 		{Pattern: "GET /workers", Handler: http.HandlerFunc(a.listWorkers)},
 		{Pattern: "POST /workers", Handler: http.HandlerFunc(a.hireWorker)},
 		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},

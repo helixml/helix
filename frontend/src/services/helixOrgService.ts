@@ -144,12 +144,14 @@ export const QUERY_KEYS = {
 }
 
 // useHelixOrgBase resolves the current `:org_id` URL param into the
-// `/api/v1/orgs/<org>/helix-org` prefix. Returns empty string when no
-// org segment is present — callers gate their queries on that.
+// `/api/v1/orgs/<org>` prefix. The org-graph JSON resources live
+// directly under the org segment — chart, positions, roles, workers,
+// streams, settings — no extra namespace. Returns empty string when
+// no org segment is present so callers can gate their queries.
 export function useHelixOrgBase(): { base: string; orgID: string } {
   const { params } = useRouter()
   const orgID = (params.org_id as string) || ''
-  const base = orgID ? `/api/v1/orgs/${encodeURIComponent(orgID)}/helix-org` : ''
+  const base = orgID ? `/api/v1/orgs/${encodeURIComponent(orgID)}` : ''
   return { base, orgID }
 }
 
@@ -345,5 +347,5 @@ export function usePublishHelixOrgStream(streamId: string) {
 // the current org scope. Callers instantiate EventSource themselves — they
 // already know the orgID from the URL.
 export function helixOrgStreamEventsUrl(orgID: string, streamId: string): string {
-  return `/api/v1/orgs/${encodeURIComponent(orgID)}/helix-org/streams/${encodeURIComponent(streamId)}/events`
+  return `/api/v1/orgs/${encodeURIComponent(orgID)}/streams/${encodeURIComponent(streamId)}/events`
 }

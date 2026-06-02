@@ -110,7 +110,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	body := "incoming text — anything goes here"
-	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader(body))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -172,12 +172,12 @@ func TestWebhookPostErrors(t *testing.T) {
 		body     string
 		wantCode int
 	}{
-		{"unknown stream", "POST", "/webhooks/s-ghost", "x", http.StatusNotFound},
-		{"wrong-transport stream (local) is not a webhook", "POST", "/webhooks/s-local", "x", http.StatusNotFound},
-		{"empty body", "POST", "/webhooks/s-inbox", "", http.StatusBadRequest},
-		{"GET not allowed", "GET", "/webhooks/s-inbox", "", http.StatusMethodNotAllowed},
-		{"PUT not allowed", "PUT", "/webhooks/s-inbox", "x", http.StatusMethodNotAllowed},
-		{"DELETE not allowed", "DELETE", "/webhooks/s-inbox", "", http.StatusMethodNotAllowed},
+		{"unknown stream", "POST", "/webhooks/org-test/s-ghost", "x", http.StatusNotFound},
+		{"wrong-transport stream (local) is not a webhook", "POST", "/webhooks/org-test/s-local", "x", http.StatusNotFound},
+		{"empty body", "POST", "/webhooks/org-test/s-inbox", "", http.StatusBadRequest},
+		{"GET not allowed", "GET", "/webhooks/org-test/s-inbox", "", http.StatusMethodNotAllowed},
+		{"PUT not allowed", "PUT", "/webhooks/org-test/s-inbox", "x", http.StatusMethodNotAllowed},
+		{"DELETE not allowed", "DELETE", "/webhooks/org-test/s-inbox", "", http.StatusMethodNotAllowed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -208,7 +208,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	// Empty body → 400. No event should land.
-	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader(""))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader(""))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestWebhookBodySizeBoundary(t *testing.T) {
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	atLimit := bytes.Repeat([]byte("a"), 1<<20)
-	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", bytes.NewReader(atLimit))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", bytes.NewReader(atLimit))
 	if err != nil {
 		t.Fatalf("POST at limit: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestWebhookBodySizeBoundary(t *testing.T) {
 	}
 
 	overLimit := bytes.Repeat([]byte("a"), (1<<20)+1)
-	resp, err = http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", bytes.NewReader(overLimit))
+	resp, err = http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", bytes.NewReader(overLimit))
 	if err != nil {
 		t.Fatalf("POST over limit: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader("x"))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader("x"))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
 	body := "line one\nline two\n\ttabbed → emoji 🚀 — UTF-8 preserved"
-	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "application/json", strings.NewReader(body))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			body := fmt.Sprintf("payload %02d", i)
-			resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader(body))
+			resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader(body))
 			if err != nil {
 				t.Errorf("POST %d: %v", i, err)
 				return
@@ -370,7 +370,7 @@ func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 	seedStream(t, s, "s-other", transport.KindWebhook)
 
-	resp, err := http.Post(srv.URL+"/webhooks/s-inbox", "text/plain", strings.NewReader("for inbox"))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader("for inbox"))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 	}
 
 	body := "round-trip text"
-	resp, err := http.Post(srv.URL+"/webhooks/s-bridge", "text/plain", strings.NewReader(body))
+	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-bridge", "text/plain", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}

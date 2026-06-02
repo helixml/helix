@@ -72,12 +72,34 @@ type Route struct {
 // the wiring layer. The request-logging middleware wraps the lot.
 func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/workers/{id}/mcp", s.mcpHandler())
+	// Per-org MCP per Worker. The {org} segment is required: composite
+	// (id, org_id) PKs mean the worker handle ("w-owner") repeats
+	// across tenants. The MCP handler reads orgID from
+	// OrgIDFromContext, so this route wraps the inner handler in a
+	// middleware that lifts {org} into the request context.
+	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
 	mux.Handle("POST /webhooks/{org}/{streamID}", s.webhookHandler())
 	for _, r := range extras {
 		mux.Handle(r.Pattern, r.Handler)
 	}
 	return s.requestLogger(mux)
+}
+
+// withMCPOrgScope lifts the {org} URL segment into the context via
+// WithOrgID so the per-Worker MCP handler can scope its store lookups
+// to the right helix tenant. Used by the standalone helix-org server
+// only — the helix-embedded MCP backend (mcp_backend_helix_org.go in
+// the helix package) does its own resolution because it needs to
+// check org membership too.
+func withMCPOrgScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		orgID := r.PathValue("org")
+		if orgID == "" {
+			http.Error(w, "missing org", http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(WithOrgID(r.Context(), orgID)))
+	})
 }
 
 // requestLogger logs one line per HTTP request at info level with method,

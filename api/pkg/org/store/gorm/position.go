@@ -57,6 +57,24 @@ func (r *positionsRepo) List(ctx context.Context, orgID string) ([]domain.Positi
 	return rowsToPositions(rows)
 }
 
+func (r *positionsRepo) Update(ctx context.Context, pos domain.Position) error {
+	row := positionToRow(pos)
+	res := r.db.WithContext(ctx).
+		Model(&positionRow{}).
+		Where("org_id = ? AND id = ?", row.OrgID, row.ID).
+		Updates(map[string]any{
+			"role_id":   row.RoleID,
+			"parent_id": row.ParentID,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update position %q in org %q: %w", row.ID, row.OrgID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("position %q in org %q: %w", row.ID, row.OrgID, store.ErrNotFound)
+	}
+	return nil
+}
+
 func (r *positionsRepo) ListChildren(ctx context.Context, orgID string, parent position.ID) ([]domain.Position, error) {
 	var rows []positionRow
 	if err := r.db.WithContext(ctx).Where("org_id = ? AND parent_id = ?", orgID, string(parent)).Order("id").Find(&rows).Error; err != nil {

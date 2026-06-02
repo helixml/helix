@@ -782,17 +782,19 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
-			// /api/v1/orgs/{org}/helix-org/* — per-tenant surface.
-			// withHelixOrgScope resolves {org} (slug or org_id) to a
-			// canonical orgID, authorises org-membership, bootstraps
-			// the tenant on first request, and stashes orgID on ctx
-			// so downstream handlers and the store layer scope to it.
-			// authRouter is a sub-mux of /api/v1, so paths registered
-			// against it are matched as full request paths.
-			authRouter.PathPrefix("/orgs/{org}/helix-org/").Handler(
+			// /api/v1/orgs/{org}/* — per-tenant surface for the
+			// org-graph resources (chart, workers, roles, positions,
+			// streams, settings). withHelixOrgScope resolves {org}
+			// (slug or org_id) to a canonical orgID, authorises
+			// org-membership, bootstraps the tenant on first request,
+			// and stashes orgID on ctx so downstream handlers + the
+			// store layer scope to it. authRouter is a sub-mux of
+			// /api/v1, so paths registered against it are matched as
+			// full request paths.
+			authRouter.PathPrefix("/orgs/{org}/").Handler(
 				requireFeature(alphaFeatureHelixOrg)(
 					apiServer.withHelixOrgScope(orgHandlers.scope,
-						stripOrgScopedPrefix(APIPrefix+"/orgs/", "/helix-org", orgHandlers.api),
+						stripOrgScopedPrefix(APIPrefix+"/orgs/", "", orgHandlers.api),
 					),
 				),
 			)

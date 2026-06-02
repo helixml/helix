@@ -2,6 +2,7 @@ package gorm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -63,10 +64,23 @@ func (r *rolesRepo) List(ctx context.Context, orgID string) ([]role.Role, error)
 
 func (r *rolesRepo) Update(ctx context.Context, ro role.Role) error {
 	row := roleToRow(ro)
+	// Pre-marshal the JSON columns so Postgres sees a typed string
+	// literal. gorm's serializer:json tag works on full-row Save but
+	// not on map[string]any Updates — passing the raw []string there
+	// produces "could not determine data type of parameter" because
+	// the pgx driver can't infer the column type from a generic any.
+	toolsJSON, err := json.Marshal(row.Tools)
+	if err != nil {
+		return fmt.Errorf("marshal tools: %w", err)
+	}
+	streamsJSON, err := json.Marshal(row.Streams)
+	if err != nil {
+		return fmt.Errorf("marshal streams: %w", err)
+	}
 	res := r.db.WithContext(ctx).Model(&roleRow{}).Where("org_id = ? AND id = ?", row.OrgID, row.ID).Updates(map[string]any{
 		"content":    row.Content,
-		"tools":      row.Tools,
-		"streams":    row.Streams,
+		"tools":      string(toolsJSON),
+		"streams":    string(streamsJSON),
 		"updated_at": row.UpdatedAt,
 	})
 	if res.Error != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/server/api"
 	"github.com/helixml/helix/api/pkg/org/store"
 	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
@@ -62,6 +63,9 @@ func do(t *testing.T, h http.Handler, method, path string, body any) *httptest.R
 	}
 	req := httptest.NewRequest(method, path, buf)
 	req.Header.Set("Content-Type", "application/json")
+	// Inject the org scope the middleware would otherwise set so the
+	// handlers don't 400 on resolveOrgID.
+	req = req.WithContext(helixorgserver.WithOrgID(req.Context(), "org-test"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec

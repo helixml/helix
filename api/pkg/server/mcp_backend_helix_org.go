@@ -84,7 +84,7 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 	}
 
 	rewritten := r.Clone(helixorgserver.WithOrgID(r.Context(), org.ID))
-	rewritten.URL.Path = "/workers/" + workerID + "/mcp"
+	rewritten.URL.Path = "/orgs/" + org.ID + "/workers/" + workerID + "/mcp"
 	rewritten.URL.RawPath = ""
 	rewritten.RequestURI = rewritten.URL.RequestURI()
 	// Forward the authenticated user's ID so helix-org tools can
