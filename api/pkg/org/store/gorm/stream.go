@@ -18,7 +18,7 @@ import (
 
 type streamRow struct {
 	ID              string `gorm:"primaryKey;type:text"`
-	OrgID           string `gorm:"primaryKey;type:text;index"`
+	OrgID           string `gorm:"primaryKey;type:text;index;uniqueIndex:idx_stream_org_name,priority:1"`
 	Name            string `gorm:"not null;uniqueIndex:idx_stream_org_name,priority:2"`
 	Description     string
 	CreatedBy       string `gorm:"not null;index"`
