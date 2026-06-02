@@ -16,7 +16,7 @@ After Phase A is shipped, we'll check in with the user before starting Phase B/C
 
 ### Frontend: UI text
 
-- [ ] Find all user-visible occurrences of "Skill" / "Skills" in the frontend.
+- [~] Find all user-visible occurrences of "Skill" / "Skills" in the frontend.
 - [ ] Update tab labels in `ProjectSettings.tsx` and `App.tsx` from "Skills" → "MCPs & APIs".
 - [ ] Update sidebar label in `AppSidebar.tsx`.
 - [ ] Update headings, dialog titles, button text, empty-state copy, tooltips inside `Skills.tsx` and its child components.
