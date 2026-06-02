@@ -82,7 +82,7 @@ func newStreamhub(t *testing.T) *streamhub.Hub {
 func seedStream(t *testing.T, s *store.Store, id stream.ID, kind transport.Kind) {
 	t.Helper()
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: kind})
+		transport.Transport{Kind: kind}, "org-test")
 	if err != nil {
 		t.Fatalf("new stream %q: %v", id, err)
 	}
@@ -120,7 +120,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, string(b))
 	}
 
-	events, err := s.Events.ListForStream(context.Background(), "s-inbox", 10)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 
-	events, err := s.Events.ListForStream(context.Background(), "s-inbox", 10)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	events, _ := s.Events.ListForStream(context.Background(), "s-inbox", 10)
+	events, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -299,7 +299,7 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	events, _ := s.Events.ListForStream(context.Background(), "s-inbox", 10)
+	events, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -341,7 +341,7 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 	}
 	wg.Wait()
 
-	events, err := s.Events.ListForStream(context.Background(), "s-inbox", 100)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 100)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -379,8 +379,8 @@ func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	inboxEvents, _ := s.Events.ListForStream(context.Background(), "s-inbox", 10)
-	otherEvents, _ := s.Events.ListForStream(context.Background(), "s-other", 10)
+	inboxEvents, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
+	otherEvents, _ := s.Events.ListForStream(context.Background(), "org-test", "s-other", 10)
 	if len(inboxEvents) != 1 {
 		t.Fatalf("inbox events = %d, want 1", len(inboxEvents))
 	}
@@ -414,7 +414,7 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: catcher.URL})
 	stream, err := domain.NewStream("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+		transport.Transport{Kind: transport.KindWebhook, Config: cfg}, "org-test")
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}

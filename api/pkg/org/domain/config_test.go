@@ -30,7 +30,7 @@ func TestNewConfig(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			c, err := NewConfig(tc.key, tc.value, tc.updatedAt, "")
+			c, err := NewConfig(tc.key, tc.value, tc.updatedAt, "", "org-test")
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatalf("NewConfig = nil, want error containing %q", tc.wantErr)

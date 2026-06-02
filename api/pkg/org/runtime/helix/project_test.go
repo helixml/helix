@@ -172,18 +172,18 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, worker
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	r, err := role.New("r-eng", roleContent, nil, nil, time.Now().UTC())
+	r, err := role.New("r-eng", roleContent, nil, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("role: %v", err)
 	}
 	if err := st.Roles.Create(ctx, r); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	pos, _ := domain.NewPosition("p-eng", "r-eng", nil)
+	pos, _ := domain.NewPosition("p-eng", "r-eng", nil, "org-test")
 	if err := st.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	w, err := domain.NewAIWorker("w-eng", "p-eng", "# Identity content")
+	w, err := domain.NewAIWorker("w-eng", "p-eng", "# Identity content", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	projectID, agentAppID, repoID, err := a.Ensure(context.Background(), wid)
+	projectID, agentAppID, repoID, err := a.Ensure(context.Background(), "org-test", wid)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 			t.Errorf("path %q not pushed", p)
 		}
 	}
-	state, err := LoadState(context.Background(), st, wid)
+	state, err := LoadState(context.Background(), st, "org-test", wid)
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role v1")
-	if err := SaveProject(context.Background(), st, wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
+	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
 	svc := newFakeProjectService()
@@ -282,7 +282,7 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	pid, aid, rid, err := a.Ensure(context.Background(), wid)
+	pid, aid, rid, err := a.Ensure(context.Background(), "org-test", wid)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -316,10 +316,10 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
-	if err := SaveProject(context.Background(), st, wid, "prj_ghost", "app_ghost", "repo_ghost"); err != nil {
+	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_ghost", "app_ghost", "repo_ghost"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), st, wid, "ses_ghost"); err != nil {
+	if err := SaveSession(context.Background(), st, "org-test", wid, "ses_ghost"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	svc := newFakeProjectService()
@@ -327,11 +327,11 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	_, _, _, err := a.Ensure(context.Background(), wid)
+	_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	state, err := LoadState(context.Background(), st, wid)
+	state, err := LoadState(context.Background(), st, "org-test", wid)
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
-	if err := SaveProject(context.Background(), st, wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
+	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
 	svc := newFakeProjectService()
@@ -361,7 +361,7 @@ func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	if _, _, _, err := a.Ensure(context.Background(), wid); err == nil {
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err == nil {
 		t.Fatal("expected error on transient GetProject failure")
 	}
 	svc.mu.Lock()
@@ -380,7 +380,7 @@ func TestEnsureAttachesMCPToAgentApp(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	if _, _, _, err := a.Ensure(context.Background(), wid); err != nil {
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	svc.mu.Lock()
@@ -421,7 +421,7 @@ func TestEnsureMCPAttachUsesBearerFromContext(t *testing.T) {
 	a := newApplierGit(svc, git, st)
 
 	ctx := WithBearerToken(context.Background(), "k_bob")
-	if _, _, _, err := a.Ensure(ctx, wid); err != nil {
+	if _, _, _, err := a.Ensure(ctx, "org-test", wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	svc.mu.Lock()
@@ -440,7 +440,7 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	if _, _, _, err := a.Ensure(context.Background(), wid); err != nil {
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	git.mu.Lock()
@@ -454,7 +454,7 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 func TestEnsureSkipsRolePushIfNoPosition(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
-	w, _ := domain.NewAIWorker("w-orphan", "", "# I am alone")
+	w, _ := domain.NewAIWorker("w-orphan", "", "# I am alone", "org-test")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestEnsureSkipsRolePushIfNoPosition(t *testing.T) {
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
-	if _, _, _, err := a.Ensure(context.Background(), w.ID()); err != nil {
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", w.ID()); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	git.mu.Lock()
@@ -484,7 +484,7 @@ func TestEnsureLogsButDoesNotFailOnPutFileError(t *testing.T) {
 	git.putFileErr = errors.New("disk full")
 	a := newApplierGit(svc, git, st)
 
-	if _, _, _, err := a.Ensure(context.Background(), wid); err != nil {
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
 		t.Fatalf("Ensure must not fail on PutFile error; got %v", err)
 	}
 }

@@ -28,7 +28,7 @@ func TestNewSubscription(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s, err := NewSubscription(tc.worker, tc.stream, tc.ts)
+			s, err := NewSubscription(tc.worker, tc.stream, tc.ts, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewSubscription error = %v, wantErr = %v", err, tc.wantErr)

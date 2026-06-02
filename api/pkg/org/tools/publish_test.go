@@ -29,14 +29,14 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	})
 	stream, err := domain.NewStream("s-github", "s-github", "", "w-owner",
 		time.Now().UTC(),
-		transport.Transport{Kind: transport.KindGitHub, Config: cfg})
+		transport.Transport{Kind: transport.KindGitHub, Config: cfg}, "org-test")
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 
 	deps := DefaultDeps(st)
 	tool := &Publish{deps: deps}
@@ -58,7 +58,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	}
 
 	// And no event was appended.
-	events, _ := st.Events.ListForStream(ctx, "s-github", 10)
+	events, _ := st.Events.ListForStream(ctx, "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (publish must not append on rejection)", len(events))
 	}
@@ -73,14 +73,14 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	ctx := context.Background()
 
 	stream, err := domain.NewStream("s-general", "s-general", "", "w-owner",
-		time.Now().UTC(), transport.LocalTransport())
+		time.Now().UTC(), transport.LocalTransport(), "org-test")
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 
 	deps := DefaultDeps(st)
 	tool := &Publish{deps: deps}
@@ -93,7 +93,7 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 		t.Fatalf("Invoke = %v, want nil for local stream", err)
 	}
 
-	events, _ := st.Events.ListForStream(ctx, "s-general", 10)
+	events, _ := st.Events.ListForStream(ctx, "org-test", "s-general", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}

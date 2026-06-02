@@ -27,7 +27,7 @@ func TestNewToolGrant(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			g, err := NewToolGrant(tc.id, tc.workerID, tc.toolName)
+			g, err := NewToolGrant(tc.id, tc.workerID, tc.toolName, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewToolGrant error = %v, wantErr = %v", err, tc.wantErr)

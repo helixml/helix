@@ -24,7 +24,7 @@ func TestNew_AcceptsValidInputs(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	r, err := role.New("r-ceo", "# CEO\nMakes calls.", nil, nil, now)
+	r, err := role.New("r-ceo", "# CEO\nMakes calls.", nil, nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v, want nil", err)
 	}
@@ -42,7 +42,7 @@ func TestNew_AcceptsValidInputs(t *testing.T) {
 func TestNew_RejectsEmptyID(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	_, err := role.New("", "# CEO", nil, nil, now)
+	_, err := role.New("", "# CEO", nil, nil, now, "org-test")
 	if err == nil {
 		t.Fatal("New() with empty id: want error, got nil")
 	}
@@ -51,7 +51,7 @@ func TestNew_RejectsEmptyID(t *testing.T) {
 func TestNew_RejectsEmptyContent(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	_, err := role.New("r-ceo", "", nil, nil, now)
+	_, err := role.New("r-ceo", "", nil, nil, now, "org-test")
 	if err == nil {
 		t.Fatal("New() with empty content: want error, got nil")
 	}
@@ -59,7 +59,7 @@ func TestNew_RejectsEmptyContent(t *testing.T) {
 
 func TestNew_RejectsZeroTime(t *testing.T) {
 	t.Parallel()
-	_, err := role.New("r-ceo", "# CEO", nil, nil, time.Time{})
+	_, err := role.New("r-ceo", "# CEO", nil, nil, time.Time{}, "org-test")
 	if err == nil {
 		t.Fatal("New() with zero time: want error, got nil")
 	}
@@ -73,7 +73,7 @@ func TestNew_NilToolsAndStreamsAreValid(t *testing.T) {
 	// caller's prompt is responsible for figuring out what to grant
 	// and subscribe from Content alone.
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	r, err := role.New("r-minimal", "# Minimal", nil, nil, now)
+	r, err := role.New("r-minimal", "# Minimal", nil, nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v, want nil", err)
 	}
@@ -89,7 +89,7 @@ func TestNew_EmptyToolsAndStreamsAreValid(t *testing.T) {
 	t.Parallel()
 	// Empty slices are equivalent to nil — neither is invalid.
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	r, err := role.New("r-minimal", "# Minimal", []tool.Name{}, []stream.ID{}, now)
+	r, err := role.New("r-minimal", "# Minimal", []tool.Name{}, []stream.ID{}, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v, want nil", err)
 	}
@@ -106,7 +106,7 @@ func TestNew_PopulatedToolsAndStreamsRoundTrip(t *testing.T) {
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	tools := []tool.Name{"read_events", "publish", "subscribe"}
 	streams := []stream.ID{"s-general", "s-inbox"}
-	r, err := role.New("r-secretary", "# Secretary", tools, streams, now)
+	r, err := role.New("r-secretary", "# Secretary", tools, streams, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestNew_OnlyToolsDeclared(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	tools := []tool.Name{"hire_worker"}
-	r, err := role.New("r-recruiter", "# Recruiter", tools, nil, now)
+	r, err := role.New("r-recruiter", "# Recruiter", tools, nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v", err)
 	}
@@ -138,7 +138,7 @@ func TestNew_OnlyStreamsDeclared(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	streams := []stream.ID{"s-broadcast"}
-	r, err := role.New("r-watcher", "# Watcher", nil, streams, now)
+	r, err := role.New("r-watcher", "# Watcher", nil, streams, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v", err)
 	}

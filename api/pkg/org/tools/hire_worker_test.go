@@ -30,6 +30,7 @@ type fakeDispatcher struct {
 }
 
 type dispatchHireCall struct {
+	orgID        string
 	workerID     worker.ID
 	envPath      string
 	activationID activation.ID
@@ -41,9 +42,9 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, _ domain.Event) {
 	f.mu.Unlock()
 }
 
-func (f *fakeDispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, workerID worker.ID, envPath string, activationID activation.ID) {
 	f.mu.Lock()
-	f.hires = append(f.hires, dispatchHireCall{workerID: workerID, envPath: envPath, activationID: activationID})
+	f.hires = append(f.hires, dispatchHireCall{orgID: orgID, workerID: workerID, envPath: envPath, activationID: activationID})
 	f.mu.Unlock()
 }
 
@@ -60,18 +61,18 @@ func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, domain.Worker)
 	now := time.Now().UTC()
 
 	// Seed enough to support hires off an existing position.
-	ownerRole, err := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, err := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("new role: %v", err)
 	}
 	if err := st.Roles.Create(ctx, ownerRole); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	if err := st.Positions.Create(ctx, rootPos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	caller, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	if err := st.Workers.Create(ctx, caller); err != nil {
 		t.Fatalf("create owner worker: %v", err)
 	}
@@ -123,11 +124,11 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 
 	ctx := context.Background()
 	// Worker row exists.
-	if _, err := deps.Store.Workers.Get(ctx, "w-renee"); err != nil {
+	if _, err := deps.Store.Workers.Get(ctx, "org-test", "w-renee"); err != nil {
 		t.Fatalf("worker row missing: %v", err)
 	}
 	// Environment row exists with expected envPath.
-	env, err := deps.Store.Environments.Get(ctx, "w-renee")
+	env, err := deps.Store.Environments.Get(ctx, "org-test", "w-renee")
 	if err != nil {
 		t.Fatalf("environment row missing: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 		t.Errorf("env path = %q, want %q", env.Path, wantPath)
 	}
 	// Human hires do NOT get an activation Stream.
-	if _, err := deps.Store.Streams.Get(ctx, stream.ID("s-activations-w-renee")); err == nil {
+	if _, err := deps.Store.Streams.Get(ctx, "org-test", stream.ID("s-activations-w-renee")); err == nil {
 		t.Fatalf("human hire must NOT create activation stream")
 	}
 	// Human hires do NOT trigger the dispatcher.
@@ -183,7 +184,7 @@ func TestHireWorkerReturnsActivationID(t *testing.T) {
 		t.Fatal("response.activation_id is empty; want a hire-Activation ID")
 	}
 
-	row, err := deps.Store.Activations.Get(context.Background(), activation.ID(resp.ActivationID))
+	row, err := deps.Store.Activations.Get(context.Background(), "org-test", activation.ID(resp.ActivationID))
 	if err != nil {
 		t.Fatalf("activation %q not in store: %v", resp.ActivationID, err)
 	}
@@ -226,15 +227,15 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 
 	ctx := context.Background()
 	streamID := activation.StreamID("w-alice")
-	if _, err := deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := deps.Store.Streams.Get(ctx, "org-test", streamID); err != nil {
 		t.Fatalf("activation stream missing: %v", err)
 	}
 	// Hiring worker (caller) is subscribed.
-	if _, err := deps.Store.Subscriptions.Find(ctx, "w-owner", streamID); err != nil {
+	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
 		t.Fatalf("hiring worker not subscribed to activation stream: %v", err)
 	}
 	// New worker is NOT subscribed (would loop the dispatcher).
-	if _, err := deps.Store.Subscriptions.Find(ctx, "w-alice", streamID); err == nil {
+	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-alice", streamID); err == nil {
 		t.Fatalf("new worker must NOT be subscribed to its own activation stream")
 	}
 	// Dispatcher was called once.
@@ -257,7 +258,7 @@ func TestHireWorkerGrantsBeforeDispatch(t *testing.T) {
 	captured := dispatcherCapturingGrants{
 		inner: dispatcher,
 		onHire: func() {
-			grants, _ := deps.Store.Grants.ListByWorker(context.Background(), "w-alice")
+			grants, _ := deps.Store.Grants.ListByWorker(context.Background(), "org-test", "w-alice")
 			grantsAtDispatch = len(grants)
 		},
 	}
@@ -291,11 +292,11 @@ func (d *dispatcherCapturingGrants) Dispatch(ctx context.Context, e domain.Event
 	d.inner.Dispatch(ctx, e)
 }
 
-func (d *dispatcherCapturingGrants) DispatchHire(ctx context.Context, w worker.ID, envPath string, activationID activation.ID) {
+func (d *dispatcherCapturingGrants) DispatchHire(ctx context.Context, orgID string, w worker.ID, envPath string, activationID activation.ID) {
 	if d.onHire != nil {
 		d.onHire()
 	}
-	d.inner.DispatchHire(ctx, w, envPath, activationID)
+	d.inner.DispatchHire(ctx, orgID, w, envPath, activationID)
 }
 
 // TestHireWorkerEnvDirCreated checks the on-disk Environment dir is
@@ -345,7 +346,7 @@ func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 		t.Errorf("err = %v, want mention of identityContent", err)
 	}
 	// No worker row should have been written.
-	if _, err := deps.Store.Workers.Get(context.Background(), "w-alice"); err == nil {
+	if _, err := deps.Store.Workers.Get(context.Background(), "org-test", "w-alice"); err == nil {
 		t.Fatal("worker row created despite identity rejection")
 	}
 }
@@ -359,12 +360,13 @@ type captureHireHandler struct {
 }
 
 type captureHireCall struct {
+	orgID    string
 	workerID worker.ID
 	userID   string
 }
 
-func (h *captureHireHandler) OnHire(_ context.Context, w worker.ID, uid string) error {
-	h.calls = append(h.calls, captureHireCall{workerID: w, userID: uid})
+func (h *captureHireHandler) OnHire(_ context.Context, orgID string, w worker.ID, uid string) error {
+	h.calls = append(h.calls, captureHireCall{orgID: orgID, workerID: w, userID: uid})
 	return h.failErr
 }
 
@@ -472,7 +474,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	if _, err := tool.Invoke(ctx, domain.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	state, err := runtimehelix.LoadState(context.Background(), deps.Store, "w-alice")
+	state, err := runtimehelix.LoadState(context.Background(), deps.Store, "org-test", "w-alice")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -500,7 +502,7 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	state, err := runtimehelix.LoadState(context.Background(), deps.Store, "w-alice")
+	state, err := runtimehelix.LoadState(context.Background(), deps.Store, "org-test", "w-alice")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -511,16 +513,11 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 
 // TestHireWorkerInheritsCallerOrgID pins H5.3: the new Worker
 // inherits its OrganizationID from the hiring caller's OrgID, so
-// tenancy travels through the hire chain — w-owner in org-acme can
-// only ever produce Workers in org-acme. Empty caller OrgID
-// (single-tenant alpha) leaves the new Worker unscoped, matching
-// today's behaviour.
+// tenancy travels through the hire chain — w-owner in org-test can
+// only ever produce Workers in org-test.
 func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
 	t.Parallel()
-	deps, _, _, baseCaller := newHireTestEnv(t)
-	// Re-stamp the caller with an OrgID via WithOrgID so subsequent
-	// hires inherit it.
-	caller := baseCaller.WithOrgID("org-acme")
+	deps, _, _, caller := newHireTestEnv(t)
 	tool := &HireWorker{deps: deps}
 
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -532,34 +529,11 @@ func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
 	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	got, err := deps.Store.Workers.Get(context.Background(), "w-alice")
+	got, err := deps.Store.Workers.Get(context.Background(), "org-test", "w-alice")
 	if err != nil {
 		t.Fatalf("Get hired worker: %v", err)
 	}
-	if got.OrganizationID() != "org-acme" {
-		t.Errorf("hired worker OrgID = %q, want org-acme (inherited from caller)", got.OrganizationID())
-	}
-}
-
-// TestHireWorkerLeavesOrgIDEmptyForUnscopedCaller pins the
-// single-tenant default: caller with no OrgID hires Workers with no
-// OrgID. Mirrors today's behaviour where the alpha is single-tenant.
-func TestHireWorkerLeavesOrgIDEmptyForUnscopedCaller(t *testing.T) {
-	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
-	tool := &HireWorker{deps: deps}
-
-	args, _ := json.Marshal(hireWorkerArgs{
-		ID:              "w-bob",
-		PositionID:      "p-root",
-		Kind:            worker.KindAI,
-		IdentityContent: "# Bob",
-	})
-	if _, err := tool.Invoke(context.Background(), domain.Invocation{Caller: caller, Args: args}); err != nil {
-		t.Fatalf("Invoke: %v", err)
-	}
-	got, _ := deps.Store.Workers.Get(context.Background(), "w-bob")
-	if got.OrganizationID() != "" {
-		t.Errorf("hired worker OrgID = %q, want empty (caller has no OrgID)", got.OrganizationID())
+	if got.OrganizationID() != "org-test" {
+		t.Errorf("hired worker OrgID = %q, want org-test (inherited from caller)", got.OrganizationID())
 	}
 }

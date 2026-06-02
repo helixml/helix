@@ -22,7 +22,7 @@ func TestEventMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	e, err := domain.NewEvent("e-1", "s-1", "w-alice", body, time.Now().UTC())
+	e, err := domain.NewEvent("e-1", "s-1", "w-alice", body, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("NewEvent: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestNewMessageEvent(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 	msg := message.Message{From: "w-alice", To: []string{"w-bob"}, Body: "hi"}
-	e, err := domain.NewMessageEvent("e-1", "s-dm", "w-alice", msg, now)
+	e, err := domain.NewMessageEvent("e-1", "s-dm", "w-alice", msg, now, "org-test")
 	if err != nil {
 		t.Fatalf("NewMessageEvent: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestNewMessageEventRejectsEmptyEncoding(t *testing.T) {
 	// NewEvent's empty-body check passes. This documents that "{}" is a
 	// valid (if degenerate) Body — pure trigger events.
 	now := time.Now().UTC()
-	e, err := domain.NewMessageEvent("e-1", "s-1", "", message.Message{}, now)
+	e, err := domain.NewMessageEvent("e-1", "s-1", "", message.Message{}, now, "org-test")
 	if err != nil {
 		t.Fatalf("NewMessageEvent(empty msg): %v", err)
 	}

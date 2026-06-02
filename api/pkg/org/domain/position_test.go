@@ -33,7 +33,7 @@ func TestNewPosition(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			pos, err := NewPosition(tc.id, tc.roleID, tc.parentID)
+			pos, err := NewPosition(tc.id, tc.roleID, tc.parentID, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewPosition error = %v, wantErr = %v", err, tc.wantErr)
@@ -52,7 +52,7 @@ func TestNewPositionParentIsCopied(t *testing.T) {
 	t.Parallel()
 
 	parent := position.ID("p-root")
-	pos, err := NewPosition("p-ceo", "r-ceo", &parent)
+	pos, err := NewPosition("p-ceo", "r-ceo", &parent, "org-test")
 	if err != nil {
 		t.Fatalf("NewPosition: %v", err)
 	}

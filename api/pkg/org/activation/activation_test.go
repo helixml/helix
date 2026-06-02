@@ -20,7 +20,7 @@ func TestNewActivationFromHireTrigger(t *testing.T) {
 	wid := worker.ID("w-alice")
 	triggers := []activation.Trigger{{Kind: activation.TriggerHire}}
 
-	a, err := activation.New("a-1", wid, triggers, started)
+	a, err := activation.New("a-1", wid, triggers, started, "org-test")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -53,11 +53,11 @@ func TestNewActivationFromHireTrigger(t *testing.T) {
 // transcript meaningless.
 func TestNewRejectsEmptyTriggers(t *testing.T) {
 	t.Parallel()
-	_, err := activation.New("a-1", "w-alice", nil, time.Now())
+	_, err := activation.New("a-1", "w-alice", nil, time.Now(), "org-test")
 	if err == nil {
 		t.Fatal("New with nil triggers = nil; want error")
 	}
-	_, err = activation.New("a-1", "w-alice", []activation.Trigger{}, time.Now())
+	_, err = activation.New("a-1", "w-alice", []activation.Trigger{}, time.Now(), "org-test")
 	if err == nil {
 		t.Fatal("New with empty triggers = nil; want error")
 	}
@@ -67,7 +67,7 @@ func TestNewRejectsEmptyTriggers(t *testing.T) {
 // would all key to the same row in storage; reject at construction.
 func TestNewRejectsEmptyID(t *testing.T) {
 	t.Parallel()
-	_, err := activation.New("", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now())
+	_, err := activation.New("", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now(), "org-test")
 	if err == nil {
 		t.Fatal("New with empty ID = nil; want error")
 	}
@@ -77,7 +77,7 @@ func TestNewRejectsEmptyID(t *testing.T) {
 // Worker. Empty WorkerID is meaningless.
 func TestNewRejectsEmptyWorker(t *testing.T) {
 	t.Parallel()
-	_, err := activation.New("a-1", "", []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now())
+	_, err := activation.New("a-1", "", []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now(), "org-test")
 	if err == nil {
 		t.Fatal("New with empty WorkerID = nil; want error")
 	}
@@ -89,7 +89,7 @@ func TestCompleteSetsEndedAtAndOutcome(t *testing.T) {
 	t.Parallel()
 	started := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	ended := started.Add(2 * time.Minute)
-	a, err := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started)
+	a, err := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started, "org-test")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestCompleteRefusesSecondCallWithDifferentOutcome(t *testing.T) {
 	t.Parallel()
 	started := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	ended := started.Add(time.Minute)
-	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started)
+	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started, "org-test")
 	if err := a.Complete(activation.Outcome{Status: activation.StatusOK}, ended); err != nil {
 		t.Fatalf("first Complete: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestCompleteRefusesSecondCallWithDifferentOutcome(t *testing.T) {
 func TestCompleteRejectsEndedAtBeforeStartedAt(t *testing.T) {
 	t.Parallel()
 	started := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
-	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started)
+	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started, "org-test")
 	if err := a.Complete(activation.Outcome{Status: activation.StatusOK}, started.Add(-time.Second)); err == nil {
 		t.Fatal("Complete with endedAt before startedAt = nil; want error")
 	}
@@ -138,7 +138,7 @@ func TestCompleteRejectsEndedAtBeforeStartedAt(t *testing.T) {
 // impls and consumers that want to filter "still running" vs "done."
 func TestIsCompletedReportsLifecycleState(t *testing.T) {
 	t.Parallel()
-	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now())
+	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now(), "org-test")
 	if a.IsCompleted() {
 		t.Fatal("fresh activation reports IsCompleted=true; want false")
 	}
@@ -160,12 +160,12 @@ func Test_Repository_IsAPort(t *testing.T) {
 type fakeRepo struct{}
 
 func (fakeRepo) Create(_ context.Context, _ *activation.Activation) error { return nil }
-func (fakeRepo) Complete(_ context.Context, _ activation.ID, _ activation.Outcome, _ time.Time) error {
+func (fakeRepo) Complete(_ context.Context, _ string, _ activation.ID, _ activation.Outcome, _ time.Time) error {
 	return nil
 }
-func (fakeRepo) Get(_ context.Context, _ activation.ID) (*activation.Activation, error) {
+func (fakeRepo) Get(_ context.Context, _ string, _ activation.ID) (*activation.Activation, error) {
 	return nil, errors.New("not found")
 }
-func (fakeRepo) ListForWorker(_ context.Context, _ worker.ID, _ int) ([]*activation.Activation, error) {
+func (fakeRepo) ListForWorker(_ context.Context, _ string, _ worker.ID, _ int) ([]*activation.Activation, error) {
 	return nil, nil
 }

@@ -55,20 +55,20 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 
 	// Seed owner directly: role, position, worker, environment, structural grants.
 	now := time.Now().UTC()
-	ownerRole, err := role.New("r-owner", "# Owner\nBootstrap owner.", nil, nil, now)
+	ownerRole, err := role.New("r-owner", "# Owner\nBootstrap owner.", nil, nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	ownerEnvPath := filepath.Join(envsDir, "w-owner")
 	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
 		t.Fatalf("mkdir owner env: %v", err)
 	}
-	ownerEnv, _ := domain.NewEnvironment("w-owner", ownerEnvPath, now)
+	ownerEnv, _ := domain.NewEnvironment("w-owner", ownerEnvPath, now, "org-test")
 	mustCreate(t, s.Environments.Create(ctx, ownerEnv))
 	for _, name := range []tool.Name{
 		tools.CreateRoleName,
@@ -81,7 +81,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		tools.PublishName,
 	} {
 		grantID := grant.ID("g-owner-" + name)
-		g, _ := domain.NewToolGrant(grantID, "w-owner", name)
+		g, _ := domain.NewToolGrant(grantID, "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 
@@ -126,7 +126,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		t.Fatalf("expected empty env dir, got %d entries", len(entries))
 	}
 	// IdentityContent lives in the domain.
-	ceoWorker, err := s.Workers.Get(ctx, "w-ceo")
+	ceoWorker, err := s.Workers.Get(ctx, "org-test", "w-ceo")
 	if err != nil {
 		t.Fatalf("get w-ceo: %v", err)
 	}
@@ -136,15 +136,15 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 
 	// hire_worker also creates the activation stream and subscribes the
 	// hiring Worker (the owner) so they can audit by reading events.
-	if _, err := s.Streams.Get(ctx, "s-activations-w-ceo"); err != nil {
+	if _, err := s.Streams.Get(ctx, "org-test", "s-activations-w-ceo"); err != nil {
 		t.Fatalf("activation stream missing for w-ceo: %v", err)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "w-owner", "s-activations-w-ceo"); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", "s-activations-w-ceo"); err != nil {
 		t.Fatalf("owner not subscribed to w-ceo activations: %v", err)
 	}
 	// The new Worker themselves is intentionally NOT subscribed —
 	// otherwise self-published events would loop the dispatcher.
-	if _, err := s.Subscriptions.Find(ctx, "w-ceo", "s-activations-w-ceo"); err == nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-activations-w-ceo"); err == nil {
 		t.Fatalf("w-ceo should NOT be subscribed to its own activation stream")
 	}
 
@@ -154,7 +154,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	ceoSession := connectMCP(t, srv.URL, "w-ceo")
 	invokeOK(t, ceoSession, tools.SubscribeName, map[string]any{"streamId": "s-general"})
 
-	if _, err := s.Subscriptions.Find(ctx, "w-ceo", "s-general"); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-general"); err != nil {
 		t.Fatalf("CEO subscription on s-general missing: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		"streamId": "s-general",
 		"body":     "please hire all of your staff",
 	})
-	ceoEvents, err := s.Events.ListForWorker(ctx, "w-ceo", 10)
+	ceoEvents, err := s.Events.ListForWorker(ctx, "org-test", "w-ceo", 10)
 	if err != nil {
 		t.Fatalf("ceo events: %v", err)
 	}
@@ -203,11 +203,11 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	for _, name := range []tool.Name{
 		tools.CreateRoleName,
@@ -216,7 +216,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		tools.CreatePositionName,
 		tools.HireWorkerName,
 	} {
-		g, _ := domain.NewToolGrant(grant.ID("g-"+name), "w-owner", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-"+name), "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 
@@ -259,7 +259,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 
 	// Role row in the DB now carries the new content; nothing was
 	// written to disk by the tool.
-	got, err := s.Roles.Get(ctx, "r-eng")
+	got, err := s.Roles.Get(ctx, "org-test", "r-eng")
 	if err != nil {
 		t.Fatalf("get r-eng: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		"workerId": "w-a",
 		"content":  "# Alice (v2)\nNow with extra spice.",
 	})
-	wa, err := s.Workers.Get(ctx, "w-a")
+	wa, err := s.Workers.Get(ctx, "org-test", "w-a")
 	if err != nil {
 		t.Fatalf("get w-a: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		t.Fatalf("w-a identity = %q", wa.IdentityContent())
 	}
 	// w-b's identity is untouched.
-	wb, err := s.Workers.Get(ctx, "w-b")
+	wb, err := s.Workers.Get(ctx, "org-test", "w-b")
 	if err != nil {
 		t.Fatalf("get w-b: %v", err)
 	}
@@ -318,23 +318,23 @@ func TestStreamMembers(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	worker, _ := domain.NewAIWorker("w-listener", "p-root", "")
+	worker, _ := domain.NewAIWorker("w-listener", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, worker))
 	for _, name := range []tool.Name{
 		tools.CreateStreamName,
 		tools.StreamMembersName,
 		tools.SubscribeName,
 	} {
-		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
-	g, _ := domain.NewToolGrant("g-listener-sub", "w-listener", tools.SubscribeName)
+	g, _ := domain.NewToolGrant("g-listener-sub", "w-listener", tools.SubscribeName, "org-test")
 	mustCreate(t, s.Grants.Create(ctx, g))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -378,22 +378,22 @@ func TestInviteWorkers(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	alice, _ := domain.NewAIWorker("w-alice", "p-root", "")
+	alice, _ := domain.NewAIWorker("w-alice", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := domain.NewAIWorker("w-bob", "p-root", "")
+	bob, _ := domain.NewAIWorker("w-bob", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 	for _, name := range []tool.Name{
 		tools.CreateStreamName,
 		tools.InviteWorkersName,
 		tools.StreamMembersName,
 	} {
-		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 
@@ -465,19 +465,19 @@ func TestDM(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	alice, _ := domain.NewHumanWorker("w-alice", "p-root", "")
+	alice, _ := domain.NewHumanWorker("w-alice", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := domain.NewAIWorker("w-bob", "p-root", "")
+	bob, _ := domain.NewAIWorker("w-bob", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 	for _, name := range []tool.Name{tools.DMName, tools.ReadEventsName} {
-		g, _ := domain.NewToolGrant(grant.ID("g-alice-"+name), "w-alice", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-alice-"+name), "w-alice", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
-	bobDMGrant, _ := domain.NewToolGrant("g-bob-dm", "w-bob", tools.DMName)
+	bobDMGrant, _ := domain.NewToolGrant("g-bob-dm", "w-bob", tools.DMName, "org-test")
 	mustCreate(t, s.Grants.Create(ctx, bobDMGrant))
 
 	aliceSession := connectMCP(t, srv.URL, "w-alice")
@@ -508,11 +508,11 @@ func TestDM(t *testing.T) {
 
 	// Both parties are subscribed; the event landed in the store.
 	for _, wid := range []worker.ID{"w-alice", "w-bob"} {
-		if _, err := s.Subscriptions.Find(ctx, wid, stream.ID(out.StreamID)); err != nil {
+		if _, err := s.Subscriptions.Find(ctx, "org-test", wid, stream.ID(out.StreamID)); err != nil {
 			t.Fatalf("%s not subscribed to %s: %v", wid, out.StreamID, err)
 		}
 	}
-	events, _ := s.Events.ListForWorker(ctx, "w-bob", 10)
+	events, _ := s.Events.ListForWorker(ctx, "org-test", "w-bob", 10)
 	if len(events) != 1 {
 		t.Fatalf("bob events = %+v, want one", events)
 	}
@@ -545,7 +545,7 @@ func TestDM(t *testing.T) {
 	}
 
 	// Alice can read the conversation through her own subscription.
-	events, _ = s.Events.ListForWorker(ctx, "w-alice", 10)
+	events, _ = s.Events.ListForWorker(ctx, "org-test", "w-alice", 10)
 	if len(events) != 2 {
 		t.Fatalf("alice events = %+v, want two", events)
 	}
@@ -579,11 +579,11 @@ func TestReadsOverMCP(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	for _, name := range []tool.Name{
 		tools.CreateStreamName,
@@ -594,7 +594,7 @@ func TestReadsOverMCP(t *testing.T) {
 		tools.ListStreamEventsName,
 		tools.ReadEventsName,
 	} {
-		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 
@@ -698,20 +698,20 @@ func TestWorkerLog(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := domain.NewAIWorker("w-bot", "p-root", "")
+	bot, _ := domain.NewAIWorker("w-bot", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	// Pre-create the activation stream + seed a couple of events. In
 	// production hire_worker creates the stream and the spawner
 	// publishes events; here we shortcut.
 	streamID := stream.ID("s-activations-w-bot")
-	stream, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, transport.Transport{})
+	stream, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, stream))
 	for i, body := range []string{"--- session start ---", "assistant: hello", "=== exit: ok ==="} {
 		ev, _ := domain.NewEvent(
@@ -720,12 +720,13 @@ func TestWorkerLog(t *testing.T) {
 			"w-bot",
 			body,
 			now.Add(time.Duration(i)*time.Second),
+			"org-test",
 		)
 		mustCreate(t, s.Events.Append(ctx, ev))
 	}
 
 	for _, name := range []tool.Name{tools.WorkerLogName} {
-		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 
@@ -754,7 +755,7 @@ func TestWorkerLog(t *testing.T) {
 	if out.Events[0].Body != "=== exit: ok ===" {
 		t.Fatalf("newest = %q, want exit marker", out.Events[0].Body)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "w-owner", streamID); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
 		t.Fatalf("owner not subscribed after worker_log: %v", err)
 	}
 
@@ -810,17 +811,17 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	ctx := context.Background()
 	base := time.Now().UTC().Truncate(time.Second)
 
-	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, base)
+	ownerRole, _ := role.New("r-owner", "# Owner", nil, nil, base, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "")
+	owner, _ := domain.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := domain.NewAIWorker("w-bot", "p-root", "")
+	bot, _ := domain.NewAIWorker("w-bot", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	streamID := activation.StreamID("w-bot")
-	str, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", base, transport.Transport{})
+	str, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, str))
 
 	// Two activations, non-overlapping windows. Events at +1s and +2s
@@ -830,13 +831,13 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	a2Start := base.Add(10 * time.Second)
 	a2End := base.Add(15 * time.Second)
 
-	a1, _ := activation.New("a-1", "w-bot", []activation.Trigger{{Kind: activation.TriggerHire}}, a1Start)
+	a1, _ := activation.New("a-1", "w-bot", []activation.Trigger{{Kind: activation.TriggerHire}}, a1Start, "org-test")
 	mustCreate(t, s.Activations.Create(ctx, a1))
-	mustCreate(t, s.Activations.Complete(ctx, "a-1", activation.Outcome{Status: activation.StatusOK}, a1End))
+	mustCreate(t, s.Activations.Complete(ctx, "org-test", "a-1", activation.Outcome{Status: activation.StatusOK}, a1End))
 
-	a2, _ := activation.New("a-2", "w-bot", []activation.Trigger{{Kind: activation.TriggerEvent}}, a2Start)
+	a2, _ := activation.New("a-2", "w-bot", []activation.Trigger{{Kind: activation.TriggerEvent}}, a2Start, "org-test")
 	mustCreate(t, s.Activations.Create(ctx, a2))
-	mustCreate(t, s.Activations.Complete(ctx, "a-2", activation.Outcome{Status: activation.StatusOK}, a2End))
+	mustCreate(t, s.Activations.Complete(ctx, "org-test", "a-2", activation.Outcome{Status: activation.StatusOK}, a2End))
 
 	// Seed events spanning both windows + one in the gap (must NOT be
 	// returned for either activation_id).
@@ -852,12 +853,12 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		{"e-2b", a2Start.Add(2 * time.Second), "assistant: a2-second"},
 	}
 	for _, p := range plan {
-		ev, _ := domain.NewEvent(event.ID(p.id), streamID, "w-bot", p.body, p.at)
+		ev, _ := domain.NewEvent(event.ID(p.id), streamID, "w-bot", p.body, p.at, "org-test")
 		mustCreate(t, s.Events.Append(ctx, ev))
 	}
 
 	for _, name := range []tool.Name{tools.WorkerLogName} {
-		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name)
+		g, _ := domain.NewToolGrant(grant.ID("g-owner-"+name), "w-owner", name, "org-test")
 		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -932,11 +933,11 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	// activationId belonging to a *different* Worker is rejected too —
 	// no cross-Worker leakage even if the caller knows another
 	// Worker's activation IDs.
-	other, _ := domain.NewAIWorker("w-other", "p-root", "")
+	other, _ := domain.NewAIWorker("w-other", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, other))
-	otherStream, _ := domain.NewStream(activation.StreamID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{})
+	otherStream, _ := domain.NewStream(activation.StreamID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, otherStream))
-	a3, _ := activation.New("a-3", "w-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base)
+	a3, _ := activation.New("a-3", "w-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base, "org-test")
 	mustCreate(t, s.Activations.Create(ctx, a3))
 	if _, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
 		"workerId":     "w-bot",

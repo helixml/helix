@@ -44,6 +44,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	githubtransport "github.com/helixml/helix/api/pkg/org/transports/github"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -86,14 +87,14 @@ func newTestTransport(t *testing.T) (*githubtransport.Transport, *store.Store, *
 		Type:    config.TypeObject,
 		Secrets: []string{"token", "webhook_secret"},
 	})
-	tp := githubtransport.New(reg, st, bc, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp := githubtransport.New("org-test", reg, st, bc, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return tp, st, rd, bc, reg
 }
 
 func setGitHubConfig(t *testing.T, reg *config.Registry, token, secret string) {
 	t.Helper()
 	val, _ := json.Marshal(map[string]string{"token": token, "webhook_secret": secret})
-	if err := reg.Set(context.Background(), "transport.github", string(val), ""); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.github", string(val), worker.ID("")); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
 }
@@ -104,7 +105,7 @@ func seedGitHubStream(t *testing.T, st *store.Store, id stream.ID, repo string, 
 	t.Helper()
 	cfg, _ := json.Marshal(map[string]any{"repo": repo, "events": events})
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindGitHub, Config: cfg})
+		transport.Transport{Kind: transport.KindGitHub, Config: cfg}, "org-test")
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
@@ -239,7 +240,7 @@ func TestInboundIssuesOpened(t *testing.T) {
 		t.Fatalf("status = %d, body = %q, want 204", resp.StatusCode, resp.Body)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -311,7 +312,7 @@ func TestInboundPullRequestLabeled(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -355,7 +356,7 @@ func TestInboundIssueCommentMapsBodyToCommentBody(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	msg, _ := events[0].Message()
 	if msg.Body != "I hit the same thing — happy to send a PR." {
 		t.Fatalf("Body = %q (want comment.body verbatim)", msg.Body)
@@ -381,7 +382,7 @@ func TestInboundBadSignatureReturns401(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (bad sig must not append)", len(events))
 	}
@@ -421,7 +422,7 @@ func TestInboundUnknownRepoReturns200NoAppend(t *testing.T) {
 	if resp.StatusCode/100 != 2 {
 		t.Fatalf("status = %d, want 2xx", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0", len(events))
 	}
@@ -445,7 +446,7 @@ func TestInboundEventTypeFilterDrops(t *testing.T) {
 	if resp.StatusCode/100 != 2 {
 		t.Fatalf("status = %d, want 2xx", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (filtered out)", len(events))
 	}
@@ -470,8 +471,8 @@ func TestInboundFanOutToMultipleStreams(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	docsEv, _ := st.Events.ListForStream(context.Background(), "s-docs", 10)
-	triageEv, _ := st.Events.ListForStream(context.Background(), "s-triage", 10)
+	docsEv, _ := st.Events.ListForStream(context.Background(), "org-test", "s-docs", 10)
+	triageEv, _ := st.Events.ListForStream(context.Background(), "org-test", "s-triage", 10)
 	if len(docsEv) != 1 || len(triageEv) != 1 {
 		t.Fatalf("fan-out = %d / %d, want 1 / 1", len(docsEv), len(triageEv))
 	}
@@ -527,7 +528,7 @@ func TestInboundDeliveryIDIsMessageID(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	msg, _ := events[0].Message()
 	if msg.MessageID != "particular-uuid-here" {
 		t.Fatalf("MessageID = %q, want particular-uuid-here", msg.MessageID)
@@ -550,7 +551,7 @@ func TestInboundEmptySenderTolerated(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "s-github", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
 	msg, _ := events[0].Message()
 	if msg.From != "" {
 		t.Fatalf("From = %q, want empty for sender-less event", msg.From)

@@ -35,7 +35,7 @@ func TestRunStampsOwnerWorkerWithOrganizationID(t *testing.T) {
 	if result.WorkerID != "w-owner" {
 		t.Errorf("WorkerID = %q, want w-owner", result.WorkerID)
 	}
-	owner, err := s.Workers.Get(ctx, result.WorkerID)
+	owner, err := s.Workers.Get(ctx, "org-acme", result.WorkerID)
 	if err != nil {
 		t.Fatalf("Get owner: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestRunOmitsOrgIDWhenUnspecified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	owner, _ := s.Workers.Get(ctx, result.WorkerID)
+	owner, _ := s.Workers.Get(ctx, "", result.WorkerID)
 	if owner.OrganizationID() != "" {
 		t.Errorf("owner.OrganizationID() = %q, want empty (single-tenant default)", owner.OrganizationID())
 	}

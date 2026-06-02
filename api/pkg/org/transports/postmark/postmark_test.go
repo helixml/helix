@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/domain"
 	"github.com/helixml/helix/api/pkg/org/transports/postmark"
+	"github.com/helixml/helix/api/pkg/org/worker"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -60,14 +61,14 @@ func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordi
 		Type:    config.TypeObject,
 		Secrets: []string{"token"},
 	})
-	tp := postmark.New(reg, st, bc, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp := postmark.New("org-test", reg, st, bc, rd, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return tp, st, rd, bc, reg
 }
 
 func setPostmarkConfig(t *testing.T, reg *config.Registry, token, inbound, from string) {
 	t.Helper()
 	val, _ := json.Marshal(map[string]string{"token": token, "inbound": inbound, "from": from})
-	if err := reg.Set(context.Background(), "transport.postmark", string(val), ""); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", string(val), worker.ID("")); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
 }
@@ -76,7 +77,7 @@ func seedEmailStream(t *testing.T, st *store.Store, id stream.ID, alias string) 
 	t.Helper()
 	cfg, _ := json.Marshal(transport.EmailConfig{Alias: alias})
 	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindEmail, Config: cfg})
+		transport.Transport{Kind: transport.KindEmail, Config: cfg}, "org-test")
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestInboundHappyPath(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, got)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "s-support", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -228,7 +229,7 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "s-support", 10)
+	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
 	msg, _ := events[0].Message()
 	if msg.InReplyTo != "<original@example.com>" {
 		t.Fatalf("InReplyTo = %q", msg.InReplyTo)
@@ -308,6 +309,7 @@ func TestEmitOutbound(t *testing.T) {
 		"w-sam",
 		msg,
 		time.Now().UTC(),
+		"org-test",
 	)
 	if err != nil {
 		t.Fatalf("new event: %v", err)
@@ -364,7 +366,7 @@ func TestEmitOverridesFromIfRealAddress(t *testing.T) {
 		To:   []string{"alice@example.com"},
 		Body: "...",
 	}
-	event, _ := domain.NewMessageEvent("e-1", stream.ID, "w-billing", msg, time.Now().UTC())
+	event, _ := domain.NewMessageEvent("e-1", stream.ID, "w-billing", msg, time.Now().UTC(), "org-test")
 	if err := tp.Emit(context.Background(), event); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
@@ -383,7 +385,7 @@ func TestEmitNoRecipient(t *testing.T) {
 	msg := message.Message{
 		Body: "I forgot the recipient",
 	}
-	event, _ := domain.NewMessageEvent("e-1", stream.ID, "", msg, time.Now().UTC())
+	event, _ := domain.NewMessageEvent("e-1", stream.ID, "", msg, time.Now().UTC(), "org-test")
 	err := tp.Emit(context.Background(), event)
 	if err == nil || !strings.Contains(err.Error(), "no recipient") {
 		t.Fatalf("err = %v", err)
@@ -404,7 +406,7 @@ func TestEmitPostmarkError(t *testing.T) {
 		To:   []string{"alice@example.com"},
 		Body: "...",
 	}
-	event, _ := domain.NewMessageEvent("e-1", stream.ID, "w-sam", msg, time.Now().UTC())
+	event, _ := domain.NewMessageEvent("e-1", stream.ID, "w-sam", msg, time.Now().UTC(), "org-test")
 	err := tp.Emit(context.Background(), event)
 	if err == nil || !strings.Contains(err.Error(), "postmark 422") {
 		t.Fatalf("err = %v, want postmark 422", err)

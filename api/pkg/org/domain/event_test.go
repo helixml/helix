@@ -33,7 +33,7 @@ func TestNewEvent(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e, err := NewEvent(tc.id, tc.stream, tc.source, tc.body, tc.ts)
+			e, err := NewEvent(tc.id, tc.stream, tc.source, tc.body, tc.ts, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewEvent error = %v, wantErr = %v", err, tc.wantErr)

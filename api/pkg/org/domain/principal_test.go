@@ -34,7 +34,7 @@ func TestEventSourcePrincipalLiftsWorkerSource(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e, err := domain.NewEvent("e-1", "s-x", worker.ID(tc.source), "body", time.Now())
+			e, err := domain.NewEvent("e-1", "s-x", worker.ID(tc.source), "body", time.Now(), "org-test")
 			if err != nil {
 				t.Fatalf("new event: %v", err)
 			}

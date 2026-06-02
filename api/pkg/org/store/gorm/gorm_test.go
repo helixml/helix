@@ -25,7 +25,7 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	created := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	r, err := role.New("r-ceo", "# CEO\nTop of the org.", nil, nil, created)
+	r, err := role.New("r-ceo", "# CEO\nTop of the org.", nil, nil, created, "org-test")
 	if err != nil {
 		t.Fatalf("NewRole: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := s.Roles.Get(ctx, "r-ceo")
+	got, err := s.Roles.Get(ctx, "org-test", "r-ceo")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -45,15 +45,16 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 	}
 
 	updated := role.Role{
-		ID:        got.ID,
-		Content:   "# CEO\nNow with more verve.",
-		CreatedAt: got.CreatedAt,
-		UpdatedAt: created.Add(time.Hour),
+		ID:             got.ID,
+		OrganizationID: "org-test",
+		Content:        "# CEO\nNow with more verve.",
+		CreatedAt:      got.CreatedAt,
+		UpdatedAt:      created.Add(time.Hour),
 	}
 	if err := s.Roles.Update(ctx, updated); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	got, err = s.Roles.Get(ctx, "r-ceo")
+	got, err = s.Roles.Get(ctx, "org-test", "r-ceo")
 	if err != nil {
 		t.Fatalf("Get after update: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 		t.Fatalf("UpdatedAt = %v, want %v", got.UpdatedAt, created.Add(time.Hour))
 	}
 
-	list, err := s.Roles.List(ctx)
+	list, err := s.Roles.List(ctx, "org-test")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 func TestRolesNotFound(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
-	_, err := s.Roles.Get(context.Background(), "missing")
+	_, err := s.Roles.Get(context.Background(), "org-test", "missing")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
@@ -87,17 +88,17 @@ func TestPositionsRoundTripAndChildren(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	root, _ := domain.NewPosition("p-root", "r-owner", nil)
+	root, _ := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	if err := s.Positions.Create(ctx, root); err != nil {
 		t.Fatalf("Create root: %v", err)
 	}
 	rootID := root.ID
-	child, _ := domain.NewPosition("p-ceo", "r-ceo", &rootID)
+	child, _ := domain.NewPosition("p-ceo", "r-ceo", &rootID, "org-test")
 	if err := s.Positions.Create(ctx, child); err != nil {
 		t.Fatalf("Create child: %v", err)
 	}
 
-	got, err := s.Positions.Get(ctx, "p-ceo")
+	got, err := s.Positions.Get(ctx, "org-test", "p-ceo")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestPositionsRoundTripAndChildren(t *testing.T) {
 		t.Fatalf("parent = %v, want p-root", got.ParentID)
 	}
 
-	kids, err := s.Positions.ListChildren(ctx, "p-root")
+	kids, err := s.Positions.ListChildren(ctx, "org-test", "p-root")
 	if err != nil {
 		t.Fatalf("ListChildren: %v", err)
 	}
@@ -119,7 +120,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	human, err := domain.NewHumanWorker("w-owner", "p-root", "i am the owner")
+	human, err := domain.NewHumanWorker("w-owner", "p-root", "i am the owner", "org-test")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("Create human: %v", err)
 	}
 
-	ai, err := domain.NewAIWorker("w-ceo", "p-ceo", "you are the ceo")
+	ai, err := domain.NewAIWorker("w-ceo", "p-ceo", "you are the ceo", "org-test")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("Create ai: %v", err)
 	}
 
-	gotHuman, err := s.Workers.Get(ctx, "w-owner")
+	gotHuman, err := s.Workers.Get(ctx, "org-test", "w-owner")
 	if err != nil {
 		t.Fatalf("Get human: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("want *HumanWorker, got %T", gotHuman)
 	}
 
-	gotAI, err := s.Workers.Get(ctx, "w-ceo")
+	gotAI, err := s.Workers.Get(ctx, "org-test", "w-ceo")
 	if err != nil {
 		t.Fatalf("Get ai: %v", err)
 	}
@@ -156,39 +157,28 @@ func TestWorkersHumanAndAI(t *testing.T) {
 
 }
 
-// TestWorkerOrganizationIDRoundTrip pins H5.1 at the storage seam:
-// a Worker stamped with OrgID via WithOrgID round-trips through
-// Create → Get with the OrgID preserved. Workers without OrgID
-// (today's single-tenant default) read back with empty OrgID.
+// TestWorkerOrganizationIDRoundTrip pins H5.2+ at the storage seam:
+// a Worker created with an OrgID round-trips through Create → Get with
+// the OrgID preserved. The composite (id, org_id) PK means lookups must
+// be scoped to the same org the row was created under.
 func TestWorkerOrganizationIDRoundTrip(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
-	scoped, err := domain.NewAIWorker("w-acme-bot", "p-eng", "# bot")
+	scoped, err := domain.NewAIWorker("w-acme-bot", "p-eng", "# bot", "org-acme")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
-	if err := s.Workers.Create(ctx, scoped.WithOrgID("org-acme")); err != nil {
+	if err := s.Workers.Create(ctx, scoped); err != nil {
 		t.Fatalf("Create scoped: %v", err)
 	}
-	got, err := s.Workers.Get(ctx, "w-acme-bot")
+	got, err := s.Workers.Get(ctx, "org-acme", "w-acme-bot")
 	if err != nil {
 		t.Fatalf("Get scoped: %v", err)
 	}
 	if got.OrganizationID() != "org-acme" {
 		t.Errorf("round-tripped OrgID = %q, want org-acme", got.OrganizationID())
-	}
-
-	// Sanity: a Worker created without WithOrgID reads back empty
-	// (single-tenant alpha — no migration of legacy rows needed).
-	unscoped, _ := domain.NewAIWorker("w-global", "p-eng", "# global")
-	if err := s.Workers.Create(ctx, unscoped); err != nil {
-		t.Fatalf("Create unscoped: %v", err)
-	}
-	g, _ := s.Workers.Get(ctx, "w-global")
-	if g.OrganizationID() != "" {
-		t.Errorf("unscoped OrgID = %q, want empty", g.OrganizationID())
 	}
 }
 
@@ -197,7 +187,7 @@ func TestGrants(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	g, err := domain.NewToolGrant("g-1", "w-ceo", "hire_worker")
+	g, err := domain.NewToolGrant("g-1", "w-ceo", "hire_worker", "org-test")
 	if err != nil {
 		t.Fatalf("NewToolGrant: %v", err)
 	}
@@ -205,7 +195,7 @@ func TestGrants(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := s.Grants.Get(ctx, "g-1")
+	got, err := s.Grants.Get(ctx, "org-test", "g-1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -213,7 +203,7 @@ func TestGrants(t *testing.T) {
 		t.Fatalf("tool = %q", got.ToolName)
 	}
 
-	list, err := s.Grants.ListByWorker(ctx, "w-ceo")
+	list, err := s.Grants.ListByWorker(ctx, "org-test", "w-ceo")
 	if err != nil {
 		t.Fatalf("ListByWorker: %v", err)
 	}
@@ -221,10 +211,10 @@ func TestGrants(t *testing.T) {
 		t.Fatalf("list len = %d", len(list))
 	}
 
-	if err := s.Grants.Delete(ctx, "g-1"); err != nil {
+	if err := s.Grants.Delete(ctx, "org-test", "g-1"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	_, err = s.Grants.Get(ctx, "g-1")
+	_, err = s.Grants.Get(ctx, "org-test", "g-1")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("after delete err = %v, want ErrNotFound", err)
 	}

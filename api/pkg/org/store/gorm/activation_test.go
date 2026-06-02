@@ -40,7 +40,7 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 			CreatedAt:  started.Add(-time.Minute),
 		},
 	}
-	a, err := activation.New("a-1", "w-alice", triggers, started)
+	a, err := activation.New("a-1", "w-alice", triggers, started, "org-test")
 	if err != nil {
 		t.Fatalf("new activation: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	got, err := s.Activations.Get(ctx, "a-1")
+	got, err := s.Activations.Get(ctx, "org-test", "a-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -88,16 +88,16 @@ func TestActivationCompleteRecordsOutcome(t *testing.T) {
 	s := newActivationStore(t)
 	ctx := context.Background()
 	started := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
-	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started)
+	a, _ := activation.New("a-1", "w-alice", []activation.Trigger{{Kind: activation.TriggerHire}}, started, "org-test")
 	if err := s.Activations.Create(ctx, a); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	ended := started.Add(30 * time.Second)
 	out := activation.Outcome{Status: activation.StatusError, Error: "boom"}
-	if err := s.Activations.Complete(ctx, "a-1", out, ended); err != nil {
+	if err := s.Activations.Complete(ctx, "org-test", "a-1", out, ended); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	got, err := s.Activations.Get(ctx, "a-1")
+	got, err := s.Activations.Get(ctx, "org-test", "a-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestActivationCompleteRecordsOutcome(t *testing.T) {
 func TestActivationGetUnknownIsNotFound(t *testing.T) {
 	t.Parallel()
 	s := newActivationStore(t)
-	_, err := s.Activations.Get(context.Background(), "a-missing")
+	_, err := s.Activations.Get(context.Background(), "org-test", "a-missing")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Get unknown = %v, want errors.Is(_, store.ErrNotFound)", err)
 	}
@@ -127,6 +127,7 @@ func TestActivationCompleteUnknownIsNotFound(t *testing.T) {
 	s := newActivationStore(t)
 	err := s.Activations.Complete(
 		context.Background(),
+		"org-test",
 		"a-missing",
 		activation.Outcome{Status: activation.StatusOK},
 		time.Now(),
@@ -146,7 +147,7 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 	base := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 
 	create := func(id activation.ID, w string, at time.Time) {
-		a, err := activation.New(id, "worker_id_overridden", []activation.Trigger{{Kind: activation.TriggerHire}}, at)
+		a, err := activation.New(id, "worker_id_overridden", []activation.Trigger{{Kind: activation.TriggerHire}}, at, "org-test")
 		if err != nil {
 			t.Fatalf("new: %v", err)
 		}
@@ -163,7 +164,7 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 	create("a-3", "w-alice", base.Add(20*time.Second))
 	create("a-4", "w-bob", base.Add(15*time.Second))
 
-	rows, err := s.Activations.ListForWorker(ctx, "w-alice", 10)
+	rows, err := s.Activations.ListForWorker(ctx, "org-test", "w-alice", 10)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 	}
 
 	// Limit clamps the returned slice.
-	limited, err := s.Activations.ListForWorker(ctx, "w-alice", 2)
+	limited, err := s.Activations.ListForWorker(ctx, "org-test", "w-alice", 2)
 	if err != nil {
 		t.Fatalf("list limit: %v", err)
 	}

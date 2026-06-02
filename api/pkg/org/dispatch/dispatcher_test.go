@@ -113,7 +113,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID worker.ID, _ string, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -152,8 +152,8 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID worker.ID) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	roleID := role.ID("r-test")
-	if _, err := s.Roles.Get(ctx, roleID); err != nil {
-		role, err := role.New(roleID, "# Role: Test\nTest role.", nil, nil, now)
+	if _, err := s.Roles.Get(ctx, "org-test", roleID); err != nil {
+		role, err := role.New(roleID, "# Role: Test\nTest role.", nil, nil, now, "org-test")
 		if err != nil {
 			t.Fatalf("new role: %v", err)
 		}
@@ -162,21 +162,21 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID worker.ID) {
 		}
 	}
 	posID := position.ID("p-" + string(workerID))
-	pos, err := domain.NewPosition(posID, roleID, nil)
+	pos, err := domain.NewPosition(posID, roleID, nil, "org-test")
 	if err != nil {
 		t.Fatalf("new position: %v", err)
 	}
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("create position: %v", err)
 	}
-	w, err := domain.NewAIWorker(workerID, posID, "# "+string(workerID)+"\nTest persona.")
+	w, err := domain.NewAIWorker(workerID, posID, "# "+string(workerID)+"\nTest persona.", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
 	if err := s.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	env, err := domain.NewEnvironment(workerID, t.TempDir(), now)
+	env, err := domain.NewEnvironment(workerID, t.TempDir(), now, "org-test")
 	if err != nil {
 		t.Fatalf("new env: %v", err)
 	}
@@ -188,7 +188,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID worker.ID) {
 // seedSubscription persists a Worker→Stream subscription.
 func seedSubscription(t *testing.T, s *store.Store, workerID worker.ID, streamID stream.ID) {
 	t.Helper()
-	sub, err := domain.NewSubscription(workerID, streamID, time.Now().UTC())
+	sub, err := domain.NewSubscription(workerID, streamID, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}
@@ -201,7 +201,7 @@ func seedSubscription(t *testing.T, s *store.Store, workerID worker.ID, streamID
 // its ID.
 func seedWebhookStream(t *testing.T, s *store.Store, id stream.ID, transport transport.Transport) {
 	t.Helper()
-	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport)
+	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport, "org-test")
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
 	}
@@ -222,7 +222,7 @@ var eventCounter atomic.Uint64
 func makeEvent(t *testing.T, streamID stream.ID, body string) domain.Event {
 	t.Helper()
 	id := event.ID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
-	e, err := domain.NewEvent(id, streamID, "w-test", body, time.Now().UTC())
+	e, err := domain.NewEvent(id, streamID, "w-test", body, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new event: %v", err)
 	}
@@ -525,6 +525,7 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 		"e-1", "s-team", "w-publisher",
 		message.Message{From: "w-publisher", Body: "hello"},
 		time.Now().UTC(),
+		"org-test",
 	)
 	if err != nil {
 		t.Fatalf("new event: %v", err)
@@ -560,6 +561,7 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 		"e-2", "s-team", "w-publisher",
 		message.Message{From: "w-publisher", Body: "ping"},
 		time.Now().UTC(),
+		"org-test",
 	)
 	if err != nil {
 		t.Fatalf("new event: %v", err)
@@ -605,7 +607,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID worker.ID, _ string, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -629,6 +631,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 			event.ID(id), "s-team", "w-other",
 			message.Message{From: "w-other", Body: body},
 			time.Now().UTC(),
+			"org-test",
 		)
 		if err != nil {
 			t.Fatalf("new event: %v", err)
@@ -728,7 +731,7 @@ func TestDispatchSkipsFanOutOnBadMessageBody(t *testing.T) {
 	// Hand-craft an event with non-JSON body — bypasses NewMessageEvent
 	// on purpose to simulate the only path that produces this state
 	// (hand-poked DB or a regression in a future write path).
-	e, err := domain.NewEvent("e-bad", "s-bad", "w-author", "not-json-payload", time.Now().UTC())
+	e, err := domain.NewEvent("e-bad", "s-bad", "w-author", "not-json-payload", time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new event: %v", err)
 	}

@@ -27,7 +27,7 @@ func TestNewEnvironment(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			env, err := NewEnvironment(tc.worker, tc.path, tc.ts)
+			env, err := NewEnvironment(tc.worker, tc.path, tc.ts, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewEnvironment error = %v, wantErr = %v", err, tc.wantErr)

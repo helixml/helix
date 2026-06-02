@@ -142,7 +142,7 @@ func TestGetSettings_RedactsSecretValues(t *testing.T) {
 	h := orgapi.Handler(deps)
 
 	rawValue := `{"token":"sekrit-XXXX","from":"ops@example.com"}`
-	if err := reg.Set(context.Background(), "transport.postmark", rawValue, "w-owner"); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue, worker.ID("w-owner")); err != nil {
 		t.Fatalf("set value: %v", err)
 	}
 
@@ -246,14 +246,14 @@ func TestPostWorkerRole_UpdatesRoleAssignment(t *testing.T) {
 // requirement.
 func seedOwnerPosition(t *testing.T, st *store.Store, ctx context.Context) {
 	t.Helper()
-	ro, err := role.New("r-owner", "# Owner\nseed", nil, nil, time.Now().UTC())
+	ro, err := role.New("r-owner", "# Owner\nseed", nil, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("role.New: %v", err)
 	}
 	if err := st.Roles.Create(ctx, ro); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	pos, err := domain.NewPosition("p-root", "r-owner", nil)
+	pos, err := domain.NewPosition("p-root", "r-owner", nil, "org-test")
 	if err != nil {
 		t.Fatalf("NewPosition: %v", err)
 	}
@@ -264,7 +264,7 @@ func seedOwnerPosition(t *testing.T, st *store.Store, ctx context.Context) {
 
 func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, pos, identity string) {
 	t.Helper()
-	w, err := domain.NewAIWorker(worker.ID(id), position.ID(pos), identity)
+	w, err := domain.NewAIWorker(worker.ID(id), position.ID(pos), identity, "org-test")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

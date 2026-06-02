@@ -8,7 +8,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/config"
 	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
+	"github.com/helixml/helix/api/pkg/org/worker"
 )
+
+const testOrgID = "org-test"
 
 func newRegistry(t *testing.T) *config.Registry {
 	t.Helper()
@@ -30,7 +33,7 @@ func TestRegistryRegisterAndSet(t *testing.T) {
 	ctx := context.Background()
 
 	// Default applies before any Set.
-	got, err := r.GetString(ctx, "claude.bin")
+	got, err := r.GetString(ctx, testOrgID, "claude.bin")
 	if err != nil {
 		t.Fatalf("GetString default: %v", err)
 	}
@@ -39,19 +42,19 @@ func TestRegistryRegisterAndSet(t *testing.T) {
 	}
 
 	// Set overrides default.
-	if err := r.Set(ctx, "claude.bin", `"/usr/local/bin/claude"`, ""); err != nil {
+	if err := r.Set(ctx, testOrgID, "claude.bin", `"/usr/local/bin/claude"`, worker.ID("")); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got, _ = r.GetString(ctx, "claude.bin")
+	got, _ = r.GetString(ctx, testOrgID, "claude.bin")
 	if got != "/usr/local/bin/claude" {
 		t.Fatalf("after set = %q", got)
 	}
 
 	// Delete falls back to default again.
-	if err := r.Delete(ctx, "claude.bin"); err != nil {
+	if err := r.Delete(ctx, testOrgID, "claude.bin"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	got, _ = r.GetString(ctx, "claude.bin")
+	got, _ = r.GetString(ctx, testOrgID, "claude.bin")
 	if got != "claude" {
 		t.Fatalf("after delete = %q", got)
 	}
@@ -65,7 +68,7 @@ func TestRegistryRequiredMissing(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	_, err := r.GetString(ctx, "claude.public_url")
+	_, err := r.GetString(ctx, testOrgID, "claude.public_url")
 	if !errors.Is(err, config.ErrRequired) {
 		t.Fatalf("err = %v, want ErrRequired", err)
 	}
@@ -82,7 +85,7 @@ func TestRegistryOptionalMissing(t *testing.T) {
 	var pm struct {
 		Token string `json:"token"`
 	}
-	err := r.GetObject(ctx, "transport.postmark", &pm)
+	err := r.GetObject(ctx, testOrgID, "transport.postmark", &pm)
 	if !errors.Is(err, config.ErrNotConfigured) {
 		t.Fatalf("err = %v, want ErrNotConfigured", err)
 	}
@@ -93,10 +96,10 @@ func TestRegistryUnknownKey(t *testing.T) {
 	r := newRegistry(t)
 	ctx := context.Background()
 
-	if err := r.Set(ctx, "ghost.key", `"x"`, ""); err == nil || !strings.Contains(err.Error(), "unknown") {
+	if err := r.Set(ctx, testOrgID, "ghost.key", `"x"`, worker.ID("")); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("Set unknown = %v", err)
 	}
-	if _, err := r.GetRaw(ctx, "ghost.key"); err == nil {
+	if _, err := r.GetRaw(ctx, testOrgID, "ghost.key"); err == nil {
 		t.Fatalf("GetRaw unknown = nil")
 	}
 }
@@ -119,7 +122,7 @@ func TestRegistryValidationRejectsBadShape(t *testing.T) {
 		{"a.o", `not json`}, // not JSON
 	}
 	for _, tc := range cases {
-		if err := r.Set(ctx, tc.key, tc.val, ""); err == nil {
+		if err := r.Set(ctx, testOrgID, tc.key, tc.val, worker.ID("")); err == nil {
 			t.Errorf("Set(%q, %q) = nil, want validation error", tc.key, tc.val)
 		}
 	}
@@ -135,18 +138,18 @@ func TestRegistryRedaction(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	if err := r.Set(ctx, "transport.postmark", `{"token":"abc-xyz","from":"x@y.com"}`, ""); err != nil {
+	if err := r.Set(ctx, testOrgID, "transport.postmark", `{"token":"abc-xyz","from":"x@y.com"}`, worker.ID("")); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
 	// Plaintext via GetRaw / GetObject — consumers see real values.
-	raw, _ := r.GetRaw(ctx, "transport.postmark")
+	raw, _ := r.GetRaw(ctx, testOrgID, "transport.postmark")
 	if !strings.Contains(raw, "abc-xyz") {
 		t.Fatalf("GetRaw should not redact: %q", raw)
 	}
 
 	// Redacted via GetRedacted — for CLI output.
-	redacted, _ := r.GetRedacted(ctx, "transport.postmark")
+	redacted, _ := r.GetRedacted(ctx, testOrgID, "transport.postmark")
 	if strings.Contains(redacted, "abc-xyz") {
 		t.Fatalf("GetRedacted leaked secret: %q", redacted)
 	}

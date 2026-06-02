@@ -36,23 +36,23 @@ func newTestServer(t *testing.T) (*httptest.Server, worker.ID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := role.New("r-ceo", "# CEO\nTop of org.", nil, nil, time.Now().UTC())
+	role, _ := role.New("r-ceo", "# CEO\nTop of org.", nil, nil, time.Now().UTC(), "org-test")
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
-	root, _ := domain.NewPosition("p-root", "r-ceo", nil)
+	root, _ := domain.NewPosition("p-root", "r-ceo", nil, "org-test")
 	if err := s.Positions.Create(ctx, root); err != nil {
 		t.Fatalf("seed root: %v", err)
 	}
-	ai, _ := domain.NewAIWorker("w-ceo", "p-root", "")
+	ai, _ := domain.NewAIWorker("w-ceo", "p-root", "", "org-test")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}
-	grant, _ := domain.NewToolGrant("g-1", "w-ceo", "hire_worker")
+	grant, _ := domain.NewToolGrant("g-1", "w-ceo", "hire_worker", "org-test")
 	if err := s.Grants.Create(ctx, grant); err != nil {
 		t.Fatalf("seed grant: %v", err)
 	}
-	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName)
+	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName, "org-test")
 	if err := s.Grants.Create(ctx, pingGrant); err != nil {
 		t.Fatalf("seed ping grant: %v", err)
 	}
@@ -184,16 +184,16 @@ func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Ser
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := role.New("r-ceo", "# CEO", nil, nil, time.Now().UTC())
+	role, _ := role.New("r-ceo", "# CEO", nil, nil, time.Now().UTC(), "org-test")
 	_ = s.Roles.Create(ctx, role)
-	root, _ := domain.NewPosition("p-root", "r-ceo", nil)
+	root, _ := domain.NewPosition("p-root", "r-ceo", nil, "org-test")
 	_ = s.Positions.Create(ctx, root)
-	ai, _ := domain.NewAIWorker("w-ceo", "p-root", "")
+	ai, _ := domain.NewAIWorker("w-ceo", "p-root", "", "org-test")
 	_ = s.Workers.Create(ctx, ai)
-	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName)
+	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName, "org-test")
 	_ = s.Grants.Create(ctx, pingGrant)
 	if grantCreateRole {
-		g, _ := domain.NewToolGrant("g-create-role", "w-ceo", tools.CreateRoleName)
+		g, _ := domain.NewToolGrant("g-create-role", "w-ceo", tools.CreateRoleName, "org-test")
 		if err := s.Grants.Create(ctx, g); err != nil {
 			t.Fatalf("seed create_role grant: %v", err)
 		}

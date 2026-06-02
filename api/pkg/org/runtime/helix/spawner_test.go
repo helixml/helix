@@ -67,15 +67,15 @@ func newHelixTestStore(t *testing.T) (*store.Store, worker.ID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	role, _ := role.New("r-eng", "# Role: Engineer", nil, nil, time.Now().UTC())
+	role, _ := role.New("r-eng", "# Role: Engineer", nil, nil, time.Now().UTC(), "org-test")
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("role: %v", err)
 	}
-	pos, _ := domain.NewPosition("p-eng", "r-eng", nil)
+	pos, _ := domain.NewPosition("p-eng", "r-eng", nil, "org-test")
 	if err := s.Positions.Create(ctx, pos); err != nil {
 		t.Fatalf("pos: %v", err)
 	}
-	worker, _ := domain.NewAIWorker("w-eng", "p-eng", "# Persona")
+	worker, _ := domain.NewAIWorker("w-eng", "p-eng", "# Persona", "org-test")
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("worker: %v", err)
 	}
@@ -113,14 +113,14 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
 		t.Errorf("StartChat calls: %d", got)
 	}
-	state, err := LoadState(context.Background(), s, wid)
+	state, err := LoadState(context.Background(), s, "org-test", wid)
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -182,10 +182,10 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	// Pre-seed an existing project + session for this worker.
-	if err := SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), s, wid, "ses_existing"); err != nil {
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &fakeHelixClient{
@@ -193,7 +193,7 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	// The first StartChatWithStatus call (resume) carries the existing
@@ -203,7 +203,7 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	if fc.lastStartReq.SessionID != "ses_existing" {
 		t.Errorf("StartChatRequest.SessionID = %q (want ses_existing) — resume must target persisted session", fc.lastStartReq.SessionID)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := LoadState(context.Background(), s, "org-test", wid)
 	if state.SessionID != "ses_existing" {
 		t.Errorf("session pointer changed to %q; resume must NOT open a fresh session", state.SessionID)
 	}
@@ -224,7 +224,7 @@ func TestSpawnerRefusesWhenDesktopQuotaExceeded(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil {
 		t.Fatal("expected error when quota exhausted")
 	}
@@ -264,7 +264,7 @@ func TestSpawnerColdStartReQueues(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	// Two StartChatWithStatus calls: the fresh open and the retry on
@@ -306,7 +306,7 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	cfg := newHelixCfg(t, fc, s)
 	cfg.ActivationTimeout = 30 * time.Millisecond
 	sp := Spawner(cfg)
-	err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
 	}
@@ -337,7 +337,7 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+			_ = sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 		}()
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -413,7 +413,7 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	// after the bridge has subscribed.
 	done := make(chan error, 1)
 	go func() {
-		done <- sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+		done <- sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	}()
 
 	// Wait for the bridge to subscribe (handlers map populated).
@@ -437,7 +437,7 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 		t.Fatalf("spawn: %v", err)
 	}
 
-	events, err := s.Events.ListForStream(context.Background(), activation.StreamID(wid), 100)
+	events, err := s.Events.ListForStream(context.Background(), "org-test", activation.StreamID(wid), 100)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -464,10 +464,10 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
-	if err := SaveProject(context.Background(), s, wid, "prj_test", "app_test", "repo_test"); err != nil {
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), s, wid, "ses_stale"); err != nil {
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_stale"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	fc := &staleSessionFake{
@@ -479,10 +479,10 @@ func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, wid)
+	state, _ := LoadState(context.Background(), s, "org-test", wid)
 	if state.SessionID != "ses_fresh" {
 		t.Errorf("session pointer = %q, want ses_fresh (stale resume must fall through to fresh)", state.SessionID)
 	}
@@ -519,10 +519,10 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	rows, err := s.Activations.ListForWorker(context.Background(), wid, 10)
+	rows, err := s.Activations.ListForWorker(context.Background(), "org-test", wid, 10)
 	if err != nil {
 		t.Fatalf("list activations: %v", err)
 	}
@@ -562,10 +562,10 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 	cfg := newHelixCfg(t, fc, s)
 	cfg.ActivationTimeout = time.Second
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
 		t.Fatal("spawn: nil error, want quota error")
 	}
-	rows, err := s.Activations.ListForWorker(context.Background(), wid, 10)
+	rows, err := s.Activations.ListForWorker(context.Background(), "org-test", wid, 10)
 	if err != nil {
 		t.Fatalf("list activations: %v", err)
 	}
