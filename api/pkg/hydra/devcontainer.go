@@ -1354,8 +1354,42 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
+		// DRM render node pass-through. nvidia-container-toolkit normally
+		// handles this, but on hosts where /dev/dri/renderD* for the NVIDIA
+		// driver was missing at the time nvidia-container-toolkit ran
+		// (notably the AWS Deep Learning AMI, which builds the driver with
+		// NV_EXCLUDE_BUILD_MODULES='nvidia-drm' so nvidia_drm has to be
+		// modprobed at boot via userdata) the toolkit doesn't pass anything
+		// and the inner desktop falls back to software rendering.
+		// enumerateDRMDevices walks sysfs and only returns devices whose
+		// kernel driver is "nvidia", so it's a no-op on hosts without
+		// nvidia_drm loaded.
+		nvDRM := enumerateDRMDevices("nvidia")
+		for _, d := range nvDRM {
+			if gpuIndex != nil {
+				if *gpuIndex < 0 || *gpuIndex >= len(nvDRM) {
+					break
+				}
+				if d != nvDRM[*gpuIndex] {
+					continue
+				}
+			}
+			for _, dev := range []string{d.renderNode, d.cardDevice} {
+				if dev == "" {
+					continue
+				}
+				hostConfig.Devices = append(hostConfig.Devices,
+					container.DeviceMapping{
+						PathOnHost:        dev,
+						PathInContainer:   dev,
+						CgroupPermissions: "rwm",
+					},
+				)
+			}
+		}
 		log.Debug().
 			Strs("device_ids", deviceIDs).
+			Int("nv_drm_devs", len(nvDRM)).
 			Int("explicit_dev_mounts", len(hostConfig.Devices)).
 			Msg("Configured NVIDIA GPU passthrough")
 
