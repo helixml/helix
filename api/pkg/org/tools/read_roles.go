@@ -42,8 +42,12 @@ func (t *ListRoles) Description() string {
 		"roles exist before creating a Position."
 }
 
-func (t *ListRoles) Invoke(ctx context.Context, _ domain.Invocation) (json.RawMessage, error) {
-	roles, err := t.deps.Store.Roles.List(ctx)
+func (t *ListRoles) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_roles: caller has no OrgID")
+	}
+	roles, err := t.deps.Store.Roles.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
 	}
@@ -81,9 +85,13 @@ func (t *GetRole) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	role, err := t.deps.Store.Roles.Get(ctx, role.ID(args.ID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("get_role: caller has no OrgID")
+	}
+	got, err := t.deps.Store.Roles.Get(ctx, orgID, role.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get role %q: %w", args.ID, err)
 	}
-	return json.Marshal(roleViewOf(role))
+	return json.Marshal(roleViewOf(got))
 }

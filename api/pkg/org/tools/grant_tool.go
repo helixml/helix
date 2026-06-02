@@ -42,18 +42,22 @@ func (t *GrantTool) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if _, err := t.deps.Store.Workers.Get(ctx, worker.ID(args.WorkerID)); err != nil {
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("grant_tool: caller has no OrgID")
+	}
+	if _, err := t.deps.Store.Workers.Get(ctx, orgID, worker.ID(args.WorkerID)); err != nil {
 		return nil, fmt.Errorf("worker %q: %w", args.WorkerID, err)
 	}
 	id := grant.ID(args.ID)
 	if id == "" {
 		id = grant.ID("g-" + t.deps.NewID())
 	}
-	grant, err := domain.NewToolGrant(id, worker.ID(args.WorkerID), tool.Name(args.ToolName))
+	g, err := domain.NewToolGrant(id, worker.ID(args.WorkerID), tool.Name(args.ToolName), orgID)
 	if err != nil {
 		return nil, err
 	}
-	if err := t.deps.Store.Grants.Create(ctx, grant); err != nil {
+	if err := t.deps.Store.Grants.Create(ctx, g); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"id": string(id)})

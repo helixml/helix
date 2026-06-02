@@ -47,11 +47,15 @@ func (t *CreateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("create_role: caller has no OrgID")
+	}
 	id := role.ID(args.ID)
 	if id == "" {
 		id = role.ID("r-" + t.deps.NewID())
 	}
-	r, err := role.New(id, args.Content, args.Tools, args.Streams, t.deps.Now())
+	r, err := role.New(id, args.Content, args.Tools, args.Streams, t.deps.Now(), orgID)
 	if err != nil {
 		return nil, err
 	}

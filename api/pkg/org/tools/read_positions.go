@@ -41,8 +41,12 @@ func (t *ListPositions) Description() string {
 		"navigate the org chart."
 }
 
-func (t *ListPositions) Invoke(ctx context.Context, _ domain.Invocation) (json.RawMessage, error) {
-	positions, err := t.deps.Store.Positions.List(ctx)
+func (t *ListPositions) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_positions: caller has no OrgID")
+	}
+	positions, err := t.deps.Store.Positions.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list positions: %w", err)
 	}
@@ -80,7 +84,11 @@ func (t *GetPosition) Invoke(ctx context.Context, inv domain.Invocation) (json.R
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	pos, err := t.deps.Store.Positions.Get(ctx, position.ID(args.ID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("get_position: caller has no OrgID")
+	}
+	pos, err := t.deps.Store.Positions.Get(ctx, orgID, position.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get position %q: %w", args.ID, err)
 	}
@@ -114,7 +122,11 @@ func (t *ListPositionChildren) Invoke(ctx context.Context, inv domain.Invocation
 	if args.ParentID == "" {
 		return nil, fmt.Errorf("parentId is required")
 	}
-	positions, err := t.deps.Store.Positions.ListChildren(ctx, position.ID(args.ParentID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_position_children: caller has no OrgID")
+	}
+	positions, err := t.deps.Store.Positions.ListChildren(ctx, orgID, position.ID(args.ParentID))
 	if err != nil {
 		return nil, fmt.Errorf("list children of %q: %w", args.ParentID, err)
 	}

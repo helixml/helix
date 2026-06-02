@@ -151,8 +151,12 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	}
 	since := event.ID(args.Since)
 	workerID := inv.Caller.ID()
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("read_events: caller has no OrgID")
+	}
 
-	fresh, err := t.fresh(ctx, workerID, limit, since)
+	fresh, err := t.fresh(ctx, orgID, workerID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +164,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return marshalEvents(fresh), nil
 	}
 
-	subs, err := t.deps.Store.Subscriptions.ListForWorker(ctx, workerID)
+	subs, err := t.deps.Store.Subscriptions.ListForWorker(ctx, orgID, workerID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions for %q: %w", workerID, err)
 	}
@@ -181,7 +185,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return marshalEvents(nil), nil
 	}
 
-	fresh, err = t.fresh(ctx, workerID, limit, since)
+	fresh, err = t.fresh(ctx, orgID, workerID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +194,8 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 
 // fresh returns events newer than `since` (exclusive), newest-first, up
 // to `limit`. An empty `since` means "return everything".
-func (t *ReadEvents) fresh(ctx context.Context, workerID worker.ID, limit int, since event.ID) ([]domain.Event, error) {
-	events, err := t.deps.Store.Events.ListForWorker(ctx, workerID, limit)
+func (t *ReadEvents) fresh(ctx context.Context, orgID string, workerID worker.ID, limit int, since event.ID) ([]domain.Event, error) {
+	events, err := t.deps.Store.Events.ListForWorker(ctx, orgID, workerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events for %q: %w", workerID, err)
 	}

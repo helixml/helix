@@ -63,8 +63,12 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	if args.StreamID == "" || args.Body == "" {
 		return nil, fmt.Errorf("streamId and body are required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("publish: caller has no OrgID")
+	}
 	streamID := stream.ID(args.StreamID)
-	stream, err := t.deps.Store.Streams.Get(ctx, streamID)
+	stream, err := t.deps.Store.Streams.Get(ctx, orgID, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
@@ -93,6 +97,7 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 		inv.Caller.ID(),
 		msg,
 		t.deps.Now(),
+		orgID,
 	)
 	if err != nil {
 		return nil, err

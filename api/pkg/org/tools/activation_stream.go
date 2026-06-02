@@ -26,7 +26,7 @@ import (
 // The description text is generic enough to fit both cases — humans
 // produce chat turns, AI Workers produce assistant text + tool calls;
 // the Stream carries both.
-func EnsureActivationStream(ctx context.Context, s *store.Store, workerID, observerID worker.ID, now time.Time) error {
+func EnsureActivationStream(ctx context.Context, s *store.Store, orgID string, workerID, observerID worker.ID, now time.Time) error {
 	streamID := activation.StreamID(workerID)
 	stream, err := domain.NewStream(
 		streamID,
@@ -37,6 +37,7 @@ func EnsureActivationStream(ctx context.Context, s *store.Store, workerID, obser
 		observerID,
 		now,
 		transport.Transport{},
+		orgID,
 	)
 	if err != nil {
 		return fmt.Errorf("activation stream for %q: %w", workerID, err)
@@ -44,7 +45,7 @@ func EnsureActivationStream(ctx context.Context, s *store.Store, workerID, obser
 	if err := s.Streams.Create(ctx, stream); err != nil {
 		return fmt.Errorf("create activation stream for %q: %w", workerID, err)
 	}
-	sub, err := domain.NewSubscription(observerID, streamID, now)
+	sub, err := domain.NewSubscription(observerID, streamID, now, orgID)
 	if err != nil {
 		return fmt.Errorf("activation subscription for %q: %w", observerID, err)
 	}

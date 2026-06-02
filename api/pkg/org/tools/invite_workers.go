@@ -52,32 +52,34 @@ func (t *InviteWorkers) Invoke(ctx context.Context, inv domain.Invocation) (json
 	if len(args.WorkerIDs) == 0 {
 		return nil, fmt.Errorf("workerIds must contain at least one worker")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("invite_workers: caller has no OrgID")
+	}
 	streamID := stream.ID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
 
-	// Validate all targets up-front so a typo in one ID doesn't leave
-	// the others half-subscribed.
 	workerIDs := make([]worker.ID, 0, len(args.WorkerIDs))
 	for _, raw := range args.WorkerIDs {
 		if raw == "" {
 			return nil, fmt.Errorf("workerIds contains an empty entry")
 		}
 		wid := worker.ID(raw)
-		if _, err := t.deps.Store.Workers.Get(ctx, wid); err != nil {
+		if _, err := t.deps.Store.Workers.Get(ctx, orgID, wid); err != nil {
 			return nil, fmt.Errorf("worker %q: %w", wid, err)
 		}
 		workerIDs = append(workerIDs, wid)
 	}
 
 	for _, wid := range workerIDs {
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, wid, streamID); err == nil {
+		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
 			continue
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		sub, err := domain.NewSubscription(wid, streamID, t.deps.Now())
+		sub, err := domain.NewSubscription(wid, streamID, t.deps.Now(), orgID)
 		if err != nil {
 			return nil, err
 		}

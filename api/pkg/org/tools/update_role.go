@@ -55,28 +55,29 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if args.Content == "" {
 		return nil, fmt.Errorf("content is required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("update_role: caller has no OrgID")
+	}
 	roleID := role.ID(args.RoleID)
 
-	existing, err := t.deps.Store.Roles.Get(ctx, roleID)
+	existing, err := t.deps.Store.Roles.Get(ctx, orgID, roleID)
 	if err != nil {
 		return nil, fmt.Errorf("role %q: %w", roleID, err)
 	}
 
 	updated := role.Role{
-		ID:        existing.ID,
-		Content:   args.Content,
-		CreatedAt: existing.CreatedAt,
-		UpdatedAt: t.deps.Now(),
+		ID:             existing.ID,
+		OrganizationID: orgID,
+		Content:        args.Content,
+		CreatedAt:      existing.CreatedAt,
+		UpdatedAt:      t.deps.Now(),
 	}
 	if err := t.deps.Store.Roles.Update(ctx, updated); err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
-	// Mirror role content into every Worker holding a Position with
-	// this Role. Each runtime backend resolves the per-Worker target
-	// from its own state — the claude runtime writes a file in
-	// envsDir; the Helix runtime pushes to the per-Worker repo.
-	positions, _ := t.deps.Store.Positions.List(ctx)
-	workers, _ := t.deps.Store.Workers.List(ctx)
+	positions, _ := t.deps.Store.Positions.List(ctx, orgID)
+	workers, _ := t.deps.Store.Workers.List(ctx, orgID)
 	positionWorkers := map[position.ID][]worker.ID{}
 	for _, w := range workers {
 		if p := w.Position(); p != "" {

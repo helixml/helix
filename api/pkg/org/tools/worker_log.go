@@ -92,8 +92,12 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 		return nil, fmt.Errorf("workerId is required")
 	}
 
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("worker_log: caller has no OrgID")
+	}
 	target := worker.ID(args.WorkerID)
-	wkr, err := t.deps.Store.Workers.Get(ctx, target)
+	wkr, err := t.deps.Store.Workers.Get(ctx, orgID, target)
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", target, err)
 	}
@@ -103,24 +107,20 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	}
 
 	streamID := activation.StreamID(target)
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("activation stream for %q: %w", target, err)
 	}
 
-	// activationId narrows results to events that fall inside one
-	// Activation's [StartedAt, EndedAt] window. Resolved here so the
-	// caller surfaces a clear error for unknown / cross-Worker IDs
-	// rather than silently returning [].
 	var actWindow *struct {
 		started time.Time
 		ended   time.Time
-		open    bool // true while EndedAt is nil — clamp the upper bound to now
+		open    bool
 	}
 	if args.ActivationID != "" {
 		if t.deps.Store.Activations == nil {
 			return nil, fmt.Errorf("activationId filter unsupported: store has no Activations repo")
 		}
-		a, err := t.deps.Store.Activations.Get(ctx, activation.ID(args.ActivationID))
+		a, err := t.deps.Store.Activations.Get(ctx, orgID, activation.ID(args.ActivationID))
 		if err != nil {
 			return nil, fmt.Errorf("activation %q: %w", args.ActivationID, err)
 		}
@@ -144,11 +144,11 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	// this, plain read_events will also include this Worker's
 	// transcript, which is usually the desired follow-up behaviour.
 	caller := inv.Caller.ID()
-	if _, err := t.deps.Store.Subscriptions.Find(ctx, caller, streamID); err != nil {
+	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, caller, streamID); err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		sub, err := domain.NewSubscription(caller, streamID, t.deps.Now())
+		sub, err := domain.NewSubscription(caller, streamID, t.deps.Now(), orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +173,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	}
 	since := event.ID(args.Since)
 
-	fresh, err := t.fresh(ctx, streamID, limit, since)
+	fresh, err := t.fresh(ctx, orgID, streamID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 		return marshalEvents(nil), nil
 	}
 
-	fresh, err = t.fresh(ctx, streamID, limit, since)
+	fresh, err = t.fresh(ctx, orgID, streamID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -230,8 +230,8 @@ func filterToActivationWindow(events []domain.Event, startedAt, endedAt time.Tim
 // fresh returns events on the activation stream newer than `since`
 // (exclusive), newest-first, up to `limit`. Empty `since` means
 // "return everything up to limit".
-func (t *WorkerLog) fresh(ctx context.Context, streamID stream.ID, limit int, since event.ID) ([]domain.Event, error) {
-	events, err := t.deps.Store.Events.ListForStream(ctx, streamID, limit)
+func (t *WorkerLog) fresh(ctx context.Context, orgID string, streamID stream.ID, limit int, since event.ID) ([]domain.Event, error) {
+	events, err := t.deps.Store.Events.ListForStream(ctx, orgID, streamID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events on %q: %w", streamID, err)
 	}

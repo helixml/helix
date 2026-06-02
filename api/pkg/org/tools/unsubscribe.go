@@ -37,9 +37,13 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv domain.Invocation) (json.R
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("unsubscribe: caller has no OrgID")
+	}
 	streamID := stream.ID(args.StreamID)
 	workerID := inv.Caller.ID()
-	if err := t.deps.Store.Subscriptions.Delete(ctx, workerID, streamID); err != nil {
+	if err := t.deps.Store.Subscriptions.Delete(ctx, orgID, workerID, streamID); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})

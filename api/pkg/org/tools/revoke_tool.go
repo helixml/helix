@@ -34,7 +34,11 @@ func (t *RevokeTool) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if err := t.deps.Store.Grants.Delete(ctx, grant.ID(args.GrantID)); err != nil {
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("revoke_tool: caller has no OrgID")
+	}
+	if err := t.deps.Store.Grants.Delete(ctx, orgID, grant.ID(args.GrantID)); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"id": args.GrantID})

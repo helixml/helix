@@ -41,8 +41,12 @@ func (t *ListWorkers) Description() string {
 	return "List every Worker: id, kind (human|ai), and Positions held."
 }
 
-func (t *ListWorkers) Invoke(ctx context.Context, _ domain.Invocation) (json.RawMessage, error) {
-	workers, err := t.deps.Store.Workers.List(ctx)
+func (t *ListWorkers) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_workers: caller has no OrgID")
+	}
+	workers, err := t.deps.Store.Workers.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list workers: %w", err)
 	}
@@ -80,7 +84,11 @@ func (t *GetWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	w, err := t.deps.Store.Workers.Get(ctx, worker.ID(args.ID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("get_worker: caller has no OrgID")
+	}
+	w, err := t.deps.Store.Workers.Get(ctx, orgID, worker.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", args.ID, err)
 	}
@@ -114,7 +122,11 @@ func (t *ListWorkerGrants) Invoke(ctx context.Context, inv domain.Invocation) (j
 	if args.WorkerID == "" {
 		return nil, fmt.Errorf("workerId is required")
 	}
-	grants, err := t.deps.Store.Grants.ListByWorker(ctx, worker.ID(args.WorkerID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_worker_grants: caller has no OrgID")
+	}
+	grants, err := t.deps.Store.Grants.ListByWorker(ctx, orgID, worker.ID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("list grants for %q: %w", args.WorkerID, err)
 	}
@@ -161,7 +173,11 @@ func (t *GetWorkerEnvironment) Invoke(ctx context.Context, inv domain.Invocation
 	if args.WorkerID == "" {
 		return nil, fmt.Errorf("workerId is required")
 	}
-	env, err := t.deps.Store.Environments.Get(ctx, worker.ID(args.WorkerID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("get_worker_environment: caller has no OrgID")
+	}
+	env, err := t.deps.Store.Environments.Get(ctx, orgID, worker.ID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("get environment for %q: %w", args.WorkerID, err)
 	}

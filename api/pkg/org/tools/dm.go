@@ -61,25 +61,27 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 	if args.ToWorkerID == "" || args.Body == "" {
 		return nil, fmt.Errorf("toWorkerId and body are required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("dm: caller has no OrgID")
+	}
 	sender := inv.Caller.ID()
 	recipient := worker.ID(args.ToWorkerID)
 	if sender == recipient {
 		return nil, fmt.Errorf("cannot DM yourself")
 	}
-	if _, err := t.deps.Store.Workers.Get(ctx, recipient); err != nil {
+	if _, err := t.deps.Store.Workers.Get(ctx, orgID, recipient); err != nil {
 		return nil, fmt.Errorf("recipient %q: %w", recipient, err)
 	}
 
 	streamID := dmStreamID(sender, recipient)
 
-	// Get-or-create the per-pair Stream. Reuse it across DMs so the
-	// conversation stays ordered in one place.
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf("lookup stream %q: %w", streamID, err)
 		}
 		name := fmt.Sprintf("dm: %s ↔ %s", sender, recipient)
-		s, err := domain.NewStream(streamID, name, "", sender, t.deps.Now(), transport.Transport{})
+		s, err := domain.NewStream(streamID, name, "", sender, t.deps.Now(), transport.Transport{}, orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -88,16 +90,13 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 		}
 	}
 
-	// Make sure both parties are subscribed (idempotent). The recipient
-	// might have unsubscribed since the last DM; re-subscribe them so
-	// the message actually reaches them.
 	for _, wid := range []worker.ID{sender, recipient} {
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, wid, streamID); err == nil {
+		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
 			continue
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		sub, err := domain.NewSubscription(wid, streamID, t.deps.Now())
+		sub, err := domain.NewSubscription(wid, streamID, t.deps.Now(), orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -117,6 +116,7 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 		sender,
 		msg,
 		t.deps.Now(),
+		orgID,
 	)
 	if err != nil {
 		return nil, err

@@ -50,7 +50,11 @@ func (t *GetGrant) Invoke(ctx context.Context, inv domain.Invocation) (json.RawM
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	g, err := t.deps.Store.Grants.Get(ctx, grant.ID(args.ID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("get_grant: caller has no OrgID")
+	}
+	g, err := t.deps.Store.Grants.Get(ctx, orgID, grant.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get grant %q: %w", args.ID, err)
 	}

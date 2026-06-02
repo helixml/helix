@@ -46,11 +46,15 @@ func (t *StreamMembers) Invoke(ctx context.Context, inv domain.Invocation) (json
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("stream_members: caller has no OrgID")
+	}
 	streamID := stream.ID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
-	subs, err := t.deps.Store.Subscriptions.ListForStream(ctx, streamID)
+	subs, err := t.deps.Store.Subscriptions.ListForStream(ctx, orgID, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}

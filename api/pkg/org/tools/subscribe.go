@@ -43,20 +43,23 @@ func (t *Subscribe) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("subscribe: caller has no OrgID")
+	}
 	streamID := stream.ID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
 
-	// Idempotent: if already subscribed, no-op.
 	workerID := inv.Caller.ID()
-	if _, err := t.deps.Store.Subscriptions.Find(ctx, workerID, streamID); err == nil {
+	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, workerID, streamID); err == nil {
 		return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
 
-	sub, err := domain.NewSubscription(workerID, streamID, t.deps.Now())
+	sub, err := domain.NewSubscription(workerID, streamID, t.deps.Now(), orgID)
 	if err != nil {
 		return nil, err
 	}

@@ -101,6 +101,10 @@ func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("create_stream: caller has no OrgID")
+	}
 	id := stream.ID(args.ID)
 	if id == "" {
 		id = stream.ID("s-" + t.deps.NewID())
@@ -112,7 +116,7 @@ func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.
 			Config: args.Transport.Config,
 		}
 	}
-	s, err := domain.NewStream(id, args.Name, args.Description, inv.Caller.ID(), t.deps.Now(), tr)
+	s, err := domain.NewStream(id, args.Name, args.Description, inv.Caller.ID(), t.deps.Now(), tr, orgID)
 	if err != nil {
 		return nil, err
 	}

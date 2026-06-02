@@ -39,15 +39,19 @@ func (t *CreatePosition) Invoke(ctx context.Context, inv domain.Invocation) (jso
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("create_position: caller has no OrgID")
+	}
 
-	if _, err := t.deps.Store.Roles.Get(ctx, role.ID(args.RoleID)); err != nil {
+	if _, err := t.deps.Store.Roles.Get(ctx, orgID, role.ID(args.RoleID)); err != nil {
 		return nil, fmt.Errorf("role %q: %w", args.RoleID, err)
 	}
 
 	var parent *position.ID
 	if args.ParentID != "" {
 		p := position.ID(args.ParentID)
-		if _, err := t.deps.Store.Positions.Get(ctx, p); err != nil {
+		if _, err := t.deps.Store.Positions.Get(ctx, orgID, p); err != nil {
 			return nil, fmt.Errorf("parent %q: %w", args.ParentID, err)
 		}
 		parent = &p
@@ -58,7 +62,7 @@ func (t *CreatePosition) Invoke(ctx context.Context, inv domain.Invocation) (jso
 		id = position.ID("p-" + t.deps.NewID())
 	}
 
-	pos, err := domain.NewPosition(id, role.ID(args.RoleID), parent)
+	pos, err := domain.NewPosition(id, role.ID(args.RoleID), parent, orgID)
 	if err != nil {
 		return nil, err
 	}

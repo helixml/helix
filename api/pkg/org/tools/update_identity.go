@@ -51,8 +51,12 @@ func (t *UpdateIdentity) Invoke(ctx context.Context, inv domain.Invocation) (jso
 	if args.Content == "" {
 		return nil, fmt.Errorf("content is required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("update_identity: caller has no OrgID")
+	}
 
-	existing, err := t.deps.Store.Workers.Get(ctx, worker.ID(args.WorkerID))
+	existing, err := t.deps.Store.Workers.Get(ctx, orgID, worker.ID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", args.WorkerID, err)
 	}

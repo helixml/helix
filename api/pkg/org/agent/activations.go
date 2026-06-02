@@ -39,6 +39,7 @@ func PublishActivationEvent(
 	newID func() string,
 	now func() time.Time,
 	logger *slog.Logger,
+	orgID string,
 	workerID worker.ID,
 	body string,
 ) (event.ID, error) {
@@ -52,6 +53,7 @@ func PublishActivationEvent(
 		workerID,
 		message.Message{From: string(workerID), Body: body},
 		now(),
+		orgID,
 	)
 	if err != nil {
 		if logger != nil {

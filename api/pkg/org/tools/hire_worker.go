@@ -141,7 +141,12 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return nil, fmt.Errorf("server is not configured with an envs directory")
 	}
 
-	pos, err := t.deps.Store.Positions.Get(ctx, position.ID(args.PositionID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("hire_worker: caller has no OrgID")
+	}
+
+	pos, err := t.deps.Store.Positions.Get(ctx, orgID, position.ID(args.PositionID))
 	if err != nil {
 		return nil, fmt.Errorf("position %q: %w", args.PositionID, err)
 	}
@@ -155,13 +160,13 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	var wkr domain.Worker
 	switch args.Kind {
 	case worker.KindHuman:
-		w, err := domain.NewHumanWorker(id, pos.ID, args.IdentityContent)
+		w, err := domain.NewHumanWorker(id, pos.ID, args.IdentityContent, orgID)
 		if err != nil {
 			return nil, err
 		}
 		wkr = w
 	case worker.KindAI:
-		w, err := domain.NewAIWorker(id, pos.ID, args.IdentityContent)
+		w, err := domain.NewAIWorker(id, pos.ID, args.IdentityContent, orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -170,19 +175,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		// Unreachable: Validate() above already rejected unknown kinds.
 		return nil, args.Kind.Validate()
 	}
-	// New Worker inherits the hiring caller's OrgID (H5.3) so the
-	// tenancy boundary travels through the hire chain — w-owner in
-	// org-acme hires a Worker in org-acme; never cross-tenant. Empty
-	// caller OrgID (single-tenant alpha) leaves the new Worker
-	// unscoped, matching today's behaviour.
-	if orgID := inv.Caller.OrganizationID(); orgID != "" {
-		wkr = wkr.WithOrgID(orgID)
-	}
 
-	// The env directory exists so it can be the Worker's cwd at
-	// activation; the spawner writes role.md / identity.md / agent.md
-	// into it just before exec'ing claude. Nothing on disk is the
-	// source of truth.
 	if err := os.MkdirAll(envPath, 0o750); err != nil {
 		return nil, fmt.Errorf("create env dir %q: %w", envPath, err)
 	}
@@ -191,7 +184,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return nil, err
 	}
 
-	env, err := domain.NewEnvironment(id, envPath, t.deps.Now())
+	env, err := domain.NewEnvironment(id, envPath, t.deps.Now(), orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,25 +192,22 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		return nil, fmt.Errorf("create environment: %w", err)
 	}
 
-	// Issue bundled grants before the Spawner runs. An AI Worker that
-	// comes up without its grants immediately fails on its first tool
-	// call.
 	for i, g := range args.Grants {
 		if g.ToolName == "" {
 			return nil, fmt.Errorf("grants[%d]: toolName is required", i)
 		}
 		grantID := grant.ID("g-" + t.deps.NewID())
-		grant, err := domain.NewToolGrant(grantID, id, tool.Name(g.ToolName))
+		grantRow, err := domain.NewToolGrant(grantID, id, tool.Name(g.ToolName), orgID)
 		if err != nil {
 			return nil, fmt.Errorf("grants[%d]: %w", i, err)
 		}
-		if err := t.deps.Store.Grants.Create(ctx, grant); err != nil {
+		if err := t.deps.Store.Grants.Create(ctx, grantRow); err != nil {
 			return nil, fmt.Errorf("grants[%d] (%s): %w", i, g.ToolName, err)
 		}
 	}
 
 	if args.Kind == worker.KindAI {
-		if err := EnsureActivationStream(ctx, t.deps.Store, id, inv.Caller.ID(), t.deps.Now()); err != nil {
+		if err := EnsureActivationStream(ctx, t.deps.Store, orgID, id, inv.Caller.ID(), t.deps.Now()); err != nil {
 			return nil, err
 		}
 	}
@@ -249,6 +239,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 			id,
 			[]activation.Trigger{{Kind: activation.TriggerHire}},
 			t.deps.Now(),
+			orgID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("build hire activation: %w", err)

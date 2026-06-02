@@ -51,8 +51,12 @@ func (t *ListStreams) Description() string {
 	return "List every Stream: id, name, description, creator, transport kind, and created-at."
 }
 
-func (t *ListStreams) Invoke(ctx context.Context, _ domain.Invocation) (json.RawMessage, error) {
-	streams, err := t.deps.Store.Streams.List(ctx)
+func (t *ListStreams) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_streams: caller has no OrgID")
+	}
+	streams, err := t.deps.Store.Streams.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list streams: %w", err)
 	}
@@ -90,7 +94,11 @@ func (t *GetStream) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 	if args.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	s, err := t.deps.Store.Streams.Get(ctx, stream.ID(args.ID))
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("get_stream: caller has no OrgID")
+	}
+	s, err := t.deps.Store.Streams.Get(ctx, orgID, stream.ID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get stream %q: %w", args.ID, err)
 	}
@@ -152,6 +160,10 @@ func (t *ListStreamEvents) Invoke(ctx context.Context, inv domain.Invocation) (j
 	if args.StreamID == "" {
 		return nil, fmt.Errorf("streamId is required")
 	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("list_stream_events: caller has no OrgID")
+	}
 	limit := args.Limit
 	if limit <= 0 {
 		limit = listStreamEventsDefaultLimit
@@ -160,10 +172,10 @@ func (t *ListStreamEvents) Invoke(ctx context.Context, inv domain.Invocation) (j
 		limit = listStreamEventsMaxLimit
 	}
 	streamID := stream.ID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
-	events, err := t.deps.Store.Events.ListForStream(ctx, streamID, limit)
+	events, err := t.deps.Store.Events.ListForStream(ctx, orgID, streamID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events for %q: %w", streamID, err)
 	}
