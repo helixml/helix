@@ -54,9 +54,9 @@ URL slug `?tab=skills` is **not** changed in Phase A — it's purely internal an
 ### Ship Phase A
 
 - [x] Write PR description (`pull_request_helix.md`). No other repos touched in Phase A, so no other PR descs.
-- [~] Merge origin/main into the feature branch.
-- [~] Push `feature/002066-rename-skills-mcps-apis`.
-- [ ] Tell user: Phase A shipped; ask whether to proceed with B/C in this session or as a follow-up.
+- [x] Merge origin/main into the feature branch (already up to date).
+- [x] Push `feature/002066-rename-skills-mcps-apis`.
+- [x] Tell user: Phase A shipped; ask whether to proceed with B/C in this session or as a follow-up.
 
 ---
 
