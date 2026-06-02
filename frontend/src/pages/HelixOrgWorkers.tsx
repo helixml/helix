@@ -56,7 +56,7 @@ const HelixOrgWorkers: FC = () => {
   }
 
   const handleOpen = (worker: WorkerDTO) => {
-    router.navigate('helix_org_worker_detail', { worker_id: worker.id })
+    router.navigate('helix_org_worker_detail', { org_id: router.params.org_id, worker_id: worker.id })
   }
 
   const tableData = useMemo(

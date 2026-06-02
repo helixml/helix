@@ -537,45 +537,45 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org React pages — the React replacement for the htmx SSR
-  // that used to live at /ui/* (deleted in Phase C of the UI migration).
-  // Routes intentionally live at top-level /helix-org/* (not under
-  // /orgs/:org_id/*) because helix-org is conceptually one shared
-  // owner-Worker today; multi-tenant scoping is a future track.
+  // helix-org React pages — multi-tenant. Each helix Organization
+  // gets its own helix-org tenant; the URL carries :org_id (slug or
+  // canonical id) and the helixOrgService uses it to scope every API
+  // call. Routes mirror the API surface:
+  // GET /api/v1/orgs/{org}/helix-org/{chart,workers,settings,streams}.
   name: 'helix_org_root',
-  path: '/helix-org',
-  meta: { drawer: false, title: 'Helix Org' },
+  path: '/orgs/:org_id/helix-org',
+  meta: { drawer: true, title: 'Helix Org' },
   render: () => {
-    const { navigateReplace } = useRouter()
+    const { navigateReplace, params } = useRouter()
     React.useEffect(() => {
-      navigateReplace('helix_org_chart', {})
-    }, [])
+      navigateReplace('helix_org_chart', { org_id: params.org_id })
+    }, [params.org_id])
     return null
   },
 }, {
   name: 'helix_org_chart',
-  path: '/helix-org/chart',
-  meta: { drawer: false, title: 'Helix Org · Chart' },
+  path: '/orgs/:org_id/helix-org/chart',
+  meta: { drawer: true, title: 'Helix Org · Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_workers',
-  path: '/helix-org/workers',
-  meta: { drawer: false, title: 'Helix Org · Workers' },
+  path: '/orgs/:org_id/helix-org/workers',
+  meta: { drawer: true, title: 'Helix Org · Workers' },
   render: () => <HelixOrgWorkers />,
 }, {
   name: 'helix_org_worker_detail',
-  path: '/helix-org/workers/:worker_id',
-  meta: { drawer: false, title: 'Helix Org · Worker' },
+  path: '/orgs/:org_id/helix-org/workers/:worker_id',
+  meta: { drawer: true, title: 'Helix Org · Worker' },
   render: () => <HelixOrgWorkerDetail />,
 }, {
   name: 'helix_org_settings',
-  path: '/helix-org/settings',
-  meta: { drawer: false, title: 'Helix Org · Settings' },
+  path: '/orgs/:org_id/helix-org/settings',
+  meta: { drawer: true, title: 'Helix Org · Settings' },
   render: () => <HelixOrgSettings />,
 }, {
   name: 'helix_org_streams',
-  path: '/helix-org/streams',
-  meta: { drawer: false, title: 'Helix Org · Streams' },
+  path: '/orgs/:org_id/helix-org/streams',
+  meta: { drawer: true, title: 'Helix Org · Streams' },
   render: () => <HelixOrgStreams />,
 }, NOT_FOUND_ROUTE]
 

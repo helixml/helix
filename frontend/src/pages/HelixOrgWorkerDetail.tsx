@@ -28,13 +28,14 @@ import {
 // JSON API; the stream tail attaches to /api/v1/org/streams/{id}/events
 // (cookie-authenticated EventSource — no custom headers needed).
 
-const ActivationStream: FC<{ workerId: string }> = ({ workerId }) => {
+const ActivationStream: FC<{ orgID: string; workerId: string }> = ({ orgID, workerId }) => {
   const [events, setEvents] = useState<EventCard[]>([])
   const [connected, setConnected] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
-    const url = helixOrgStreamEventsUrl(`s-activations-${workerId}`)
+    if (!orgID) return
+    const url = helixOrgStreamEventsUrl(orgID, `s-activations-${workerId}`)
     const es = new EventSource(url, { withCredentials: true })
     sourceRef.current = es
     es.onopen = () => setConnected(true)
@@ -51,7 +52,7 @@ const ActivationStream: FC<{ workerId: string }> = ({ workerId }) => {
       es.close()
       sourceRef.current = null
     }
-  }, [workerId])
+  }, [orgID, workerId])
 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
@@ -106,6 +107,7 @@ const HelixOrgWorkerDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const workerId = router.params.worker_id as string | undefined
+  const orgID = (router.params.org_id as string) || ''
 
   const { data, isLoading } = useHelixOrgWorker(workerId)
   const updateIdentity = useUpdateHelixOrgWorkerIdentity(workerId ?? '')
@@ -171,13 +173,13 @@ const HelixOrgWorkerDetail: FC = () => {
       breadcrumbTitle={worker.id}
       breadcrumbs={[
         { title: 'Helix Org' },
-        { title: 'Workers', routeName: 'helix_org_workers', params: {} },
+        { title: 'Workers', routeName: 'helix_org_workers', params: { org_id: orgID } },
       ]}
       topbarContent={(
         <Button
           variant="outlined"
           startIcon={<ArrowBackIcon />}
-          onClick={() => router.navigate('helix_org_workers', {})}
+          onClick={() => router.navigate('helix_org_workers', { org_id: orgID })}
         >
           Back
         </Button>
@@ -258,7 +260,7 @@ const HelixOrgWorkerDetail: FC = () => {
             />
           </Paper>
 
-          <ActivationStream workerId={workerId} />
+          <ActivationStream orgID={orgID} workerId={workerId} />
         </Stack>
       </Container>
     </Page>

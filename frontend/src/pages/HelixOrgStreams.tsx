@@ -16,6 +16,7 @@ import SendIcon from '@mui/icons-material/Send'
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useSnackbar from '../hooks/useSnackbar'
+import useRouter from '../hooks/useRouter'
 import {
   EventCard,
   StreamDTO,
@@ -27,14 +28,14 @@ import {
 // LiveEventTail attaches an EventSource to /api/v1/org/streams/{id}/events
 // and replaces its in-memory event list whenever the SSR sends a new
 // array (the API emits the full last-50-newest list on every wake).
-const LiveEventTail: FC<{ streamId: string }> = ({ streamId }) => {
+const LiveEventTail: FC<{ orgID: string; streamId: string }> = ({ orgID, streamId }) => {
   const [events, setEvents] = useState<EventCard[]>([])
   const [connected, setConnected] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
-    if (!streamId) return
-    const es = new EventSource(helixOrgStreamEventsUrl(streamId), { withCredentials: true })
+    if (!streamId || !orgID) return
+    const es = new EventSource(helixOrgStreamEventsUrl(orgID, streamId), { withCredentials: true })
     sourceRef.current = es
     es.onopen = () => setConnected(true)
     es.onerror = () => setConnected(false)
@@ -183,6 +184,8 @@ const PublishForm: FC<{ stream: StreamDTO }> = ({ stream }) => {
 }
 
 const HelixOrgStreams: FC = () => {
+  const { params } = useRouter()
+  const orgID = (params.org_id as string) || ''
   const { data, isLoading } = useHelixOrgStreams()
   const streams = data?.streams ?? []
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -264,7 +267,7 @@ const HelixOrgStreams: FC = () => {
                         )}
                       </Stack>
                     </Paper>
-                    <LiveEventTail streamId={selected.id} />
+                    <LiveEventTail orgID={orgID} streamId={selected.id} />
                     <PublishForm stream={selected} />
                   </>
                 ) : (

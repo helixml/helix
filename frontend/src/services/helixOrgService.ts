@@ -9,6 +9,7 @@
 // the rest of the React app gates these routes too.
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
+import useRouter from '../hooks/useRouter'
 
 // ---- Wire types ----------------------------------------------------------
 
@@ -132,76 +133,91 @@ export interface PublishResponse {
 
 // ---- Query keys ----------------------------------------------------------
 
+// Query keys are now per-org so cross-org navigation doesn't reuse
+// the wrong tenant's cached data.
 export const QUERY_KEYS = {
-  chart: ['helix-org', 'chart'] as const,
-  workers: ['helix-org', 'workers'] as const,
-  worker: (id: string) => ['helix-org', 'workers', id] as const,
-  settings: ['helix-org', 'settings'] as const,
-  streams: ['helix-org', 'streams'] as const,
+  chart: (orgID: string) => ['helix-org', orgID, 'chart'] as const,
+  workers: (orgID: string) => ['helix-org', orgID, 'workers'] as const,
+  worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
+  settings: (orgID: string) => ['helix-org', orgID, 'settings'] as const,
+  streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
 }
 
-const BASE = '/api/v1/org'
+// useHelixOrgBase resolves the current `:org_id` URL param into the
+// `/api/v1/orgs/<org>/helix-org` prefix. Returns empty string when no
+// org segment is present — callers gate their queries on that.
+export function useHelixOrgBase(): { base: string; orgID: string } {
+  const { params } = useRouter()
+  const orgID = (params.org_id as string) || ''
+  const base = orgID ? `/api/v1/orgs/${encodeURIComponent(orgID)}/helix-org` : ''
+  return { base, orgID }
+}
 
 // ---- Queries -------------------------------------------------------------
 
 export function useHelixOrgChart(options?: { enabled?: boolean }) {
   const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.chart,
+    queryKey: QUERY_KEYS.chart(orgID),
     queryFn: async () => {
-      const data = await api.get<Chart>(`${BASE}/chart`)
+      const data = await api.get<Chart>(`${base}/chart`)
       return data
     },
-    enabled: options?.enabled ?? true,
+    enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
 export function useHelixOrgWorkers(options?: { enabled?: boolean }) {
   const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.workers,
+    queryKey: QUERY_KEYS.workers(orgID),
     queryFn: async () => {
-      const data = await api.get<WorkerDTO[]>(`${BASE}/workers`)
+      const data = await api.get<WorkerDTO[]>(`${base}/workers`)
       return data ?? []
     },
-    enabled: options?.enabled ?? true,
+    enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
 export function useHelixOrgWorker(workerId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.worker(workerId ?? ''),
+    queryKey: QUERY_KEYS.worker(orgID, workerId ?? ''),
     queryFn: async () => {
       if (!workerId) return null
-      const data = await api.get<WorkerDetailDTO>(`${BASE}/workers/${encodeURIComponent(workerId)}`)
+      const data = await api.get<WorkerDetailDTO>(`${base}/workers/${encodeURIComponent(workerId)}`)
       return data
     },
-    enabled: !!workerId && (options?.enabled ?? true),
+    enabled: !!orgID && !!workerId && (options?.enabled ?? true),
   })
 }
 
 export function useHelixOrgSettings(options?: { enabled?: boolean }) {
   const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.settings,
+    queryKey: QUERY_KEYS.settings(orgID),
     queryFn: async () => {
-      const data = await api.get<SettingsResponse>(`${BASE}/settings`)
+      const data = await api.get<SettingsResponse>(`${base}/settings`)
       return data
     },
-    enabled: options?.enabled ?? true,
+    enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
 export function useHelixOrgStreams(options?: { enabled?: boolean }) {
   const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.streams,
+    queryKey: QUERY_KEYS.streams(orgID),
     queryFn: async () => {
-      const data = await api.get<StreamsResponse>(`${BASE}/streams`)
+      const data = await api.get<StreamsResponse>(`${base}/streams`)
       return data
     },
-    enabled: options?.enabled ?? true,
+    enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
@@ -213,17 +229,18 @@ export function useHelixOrgStreams(options?: { enabled?: boolean }) {
 export function useHireHelixOrgWorker() {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: HireWorkerRequest) => {
       const data = await api.post<HireWorkerRequest, HireWorkerResponse>(
-        `${BASE}/workers`,
+        `${base}/workers`,
         payload,
       )
       return data
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },
   })
 }
@@ -235,13 +252,14 @@ export function useHireHelixOrgWorker() {
 export function useFireHelixOrgWorker() {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (workerId: string) => {
-      await api.delete(`${BASE}/workers/${encodeURIComponent(workerId)}`)
+      await api.delete(`${base}/workers/${encodeURIComponent(workerId)}`)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },
   })
 }
@@ -249,13 +267,14 @@ export function useFireHelixOrgWorker() {
 export function useUpdateHelixOrgWorkerIdentity(workerId: string) {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (identity: string) => {
-      await api.post(`${BASE}/workers/${encodeURIComponent(workerId)}/identity`, { identity })
+      await api.post(`${base}/workers/${encodeURIComponent(workerId)}/identity`, { identity })
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(workerId) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
     },
   })
 }
@@ -263,12 +282,13 @@ export function useUpdateHelixOrgWorkerIdentity(workerId: string) {
 export function useUpdateHelixOrgWorkerRole(workerId: string) {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (content: string) => {
-      await api.post(`${BASE}/workers/${encodeURIComponent(workerId)}/role`, { content })
+      await api.post(`${base}/workers/${encodeURIComponent(workerId)}/role`, { content })
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(workerId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
     },
   })
 }
@@ -276,12 +296,13 @@ export function useUpdateHelixOrgWorkerRole(workerId: string) {
 export function useSetHelixOrgSetting() {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (input: { key: string; value: string }) => {
-      await api.put(`${BASE}/settings/${encodeURIComponent(input.key)}`, { value: input.value })
+      await api.put(`${base}/settings/${encodeURIComponent(input.key)}`, { value: input.value })
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.settings })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.settings(orgID) })
     },
   })
 }
@@ -289,12 +310,13 @@ export function useSetHelixOrgSetting() {
 export function useDeleteHelixOrgSetting() {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (key: string) => {
-      await api.delete(`${BASE}/settings/${encodeURIComponent(key)}`)
+      await api.delete(`${base}/settings/${encodeURIComponent(key)}`)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.settings })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.settings(orgID) })
     },
   })
 }
@@ -302,26 +324,26 @@ export function useDeleteHelixOrgSetting() {
 export function usePublishHelixOrgStream(streamId: string) {
   const api = useApi()
   const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: PublishRequest) => {
       const data = await api.post<PublishRequest, PublishResponse>(
-        `${BASE}/streams/${encodeURIComponent(streamId)}/publish`,
+        `${base}/streams/${encodeURIComponent(streamId)}/publish`,
         payload,
       )
       return data
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }
 
 // ---- SSE helpers ---------------------------------------------------------
 
-// helixOrgStreamEventsUrl returns the SSE URL for a given stream id. Callers
-// instantiate an EventSource themselves — EventSource doesn't accept custom
-// headers, but it sends cookies on same-origin, so the session cookie carries
-// the auth.
-export function helixOrgStreamEventsUrl(streamId: string): string {
-  return `${BASE}/streams/${encodeURIComponent(streamId)}/events`
+// helixOrgStreamEventsUrl returns the SSE URL for a given stream id within
+// the current org scope. Callers instantiate EventSource themselves — they
+// already know the orgID from the URL.
+export function helixOrgStreamEventsUrl(orgID: string, streamId: string): string {
+  return `/api/v1/orgs/${encodeURIComponent(orgID)}/helix-org/streams/${encodeURIComponent(streamId)}/events`
 }

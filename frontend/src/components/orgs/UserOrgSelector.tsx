@@ -787,11 +787,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               React /helix-org/* pages (Phase B); the JSON API the
               pages consume is gated by requireFeature middleware
               server-side. */}
-          {account.user?.alpha_features?.includes('helix-org') && (
+          {account.user?.alpha_features?.includes('helix-org') && currentOrgSlug && (
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                router.navigate('helix_org_chart', {})
+                router.navigate('helix_org_chart', { org_id: currentOrgSlug })
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
                 }

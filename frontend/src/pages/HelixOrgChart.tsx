@@ -429,7 +429,7 @@ const WorkerDrawer: FC<{
               variant="outlined"
               size="small"
               startIcon={<OpenInNewIcon />}
-              onClick={() => router.navigate('helix_org_worker_detail', { worker_id: workerId })}
+              onClick={() => router.navigate('helix_org_worker_detail', { org_id: router.params.org_id, worker_id: workerId })}
             >
               Open editor
             </Button>

@@ -787,12 +787,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 			// canonical orgID, authorises org-membership, bootstraps
 			// the tenant on first request, and stashes orgID on ctx
 			// so downstream handlers and the store layer scope to it.
-			orgScopedPrefix := APIPrefix + "/orgs/"
-			orgPathRegexp := "{org}"
-			authRouter.PathPrefix(orgScopedPrefix + orgPathRegexp + "/helix-org/").Handler(
+			// authRouter is a sub-mux of /api/v1, so paths registered
+			// against it are matched as full request paths.
+			authRouter.PathPrefix("/orgs/{org}/helix-org/").Handler(
 				requireFeature(alphaFeatureHelixOrg)(
 					apiServer.withHelixOrgScope(orgHandlers.scope,
-						stripOrgScopedPrefix(orgScopedPrefix, "/helix-org", orgHandlers.api),
+						stripOrgScopedPrefix(APIPrefix+"/orgs/", "/helix-org", orgHandlers.api),
 					),
 				),
 			)
