@@ -44,10 +44,10 @@ func TestRunStampsOwnerWorkerWithOrganizationID(t *testing.T) {
 	}
 }
 
-// TestRunOmitsOrgIDWhenUnspecified pins the back-compat path: a
-// caller that doesn't set OrganizationID gets today's behaviour —
-// the owner Worker has no OrgID, single-tenant alpha-mode.
-func TestRunOmitsOrgIDWhenUnspecified(t *testing.T) {
+// TestRunRequiresOrganizationID pins H5.3: bootstrap is multi-tenant
+// and the caller MUST pass OrganizationID. The single-tenant
+// back-compat that returned a Worker with empty OrgID is gone.
+func TestRunRequiresOrganizationID(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
 	envDir := filepath.Join(t.TempDir(), "w-owner")
@@ -56,13 +56,8 @@ func TestRunOmitsOrgIDWhenUnspecified(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result, err := bootstrap.Run(ctx, s, bootstrap.Params{EnvironmentPath: envDir})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	owner, _ := s.Workers.Get(ctx, "", result.WorkerID)
-	if owner.OrganizationID() != "" {
-		t.Errorf("owner.OrganizationID() = %q, want empty (single-tenant default)", owner.OrganizationID())
+	if _, err := bootstrap.Run(ctx, s, bootstrap.Params{EnvironmentPath: envDir}); err == nil {
+		t.Fatal("Run with empty OrganizationID: expected error, got nil")
 	}
 }
 
