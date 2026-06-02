@@ -794,7 +794,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 			authRouter.PathPrefix("/orgs/{org}/").Handler(
 				requireFeature(alphaFeatureHelixOrg)(
 					apiServer.withHelixOrgScope(orgHandlers.scope,
-						stripOrgScopedPrefix(APIPrefix+"/orgs/", "", orgHandlers.api),
+						stripOrgScopedPrefix(orgHandlers.api),
 					),
 				),
 			)

@@ -140,24 +140,15 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 	})
 }
 
-// helixOrgURLPrefix returns the per-org URL prefix the router serves
-// the helix-org JSON / MCP / webhook surface under.
-func helixOrgURLPrefix(orgIDOrSlug string) string {
-	return strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgIDOrSlug
-}
-
-// stripOrgScopedPrefix strips the leading /api/v1/orgs/<org>/<suffix>
-// segment off the request URL before forwarding to next, so the
-// downstream helix-org handler sees the same flat paths it served
-// from the old /api/v1/org/* mount. <orgScopedPrefix> is "/api/v1/orgs/";
-// <innerPrefix> is "/helix-org".
-func stripOrgScopedPrefix(orgScopedPrefix, innerPrefix string, next http.Handler) http.Handler {
+// stripOrgScopedPrefix strips "/api/v1/orgs/{org}" off the request
+// URL before forwarding to next, so the downstream helix-org handler
+// sees the same flat paths it serves from the standalone server's
+// own mux (/chart, /workers, /roles, …). The {org} segment is
+// captured by gorilla mux and stitched back into the prefix here.
+func stripOrgScopedPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Strip "/api/v1/orgs/{org}" up to (but not including)
-		// innerPrefix. mux captures the {org} segment for us; we
-		// rebuild the suffix from there.
 		orgSeg := mux.Vars(r)["org"]
-		fullPrefix := orgScopedPrefix + orgSeg + innerPrefix
+		fullPrefix := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSeg
 		if !strings.HasPrefix(r.URL.Path, fullPrefix) {
 			http.NotFound(w, r)
 			return

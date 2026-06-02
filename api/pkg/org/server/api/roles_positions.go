@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -307,5 +306,3 @@ func toStreamIDs(in []string) []stream.ID {
 	return out
 }
 
-// Keep context import non-stale.
-var _ = context.Background

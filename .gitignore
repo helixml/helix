@@ -137,7 +137,12 @@ api/settings-sync-daemon
 /scanout-stream-test
 core.*
 nohup.out
-# CI validation Mon Mar 30 17:38:01 BST 2026
-chart-*.png
-workers-*.png
+
+# Browser screenshots (Playwright runs, ad-hoc debug captures). The
+# tracked PNGs under design/cloud-smoke-screenshots/ and for-mac/ are
+# already in git; *.png only excludes new untracked ones.
 *.png
+
+# Playwright MCP trace dir (per-session screenshots, console logs,
+# accessibility snapshots). Local only — never check in.
+.playwright-mcp/

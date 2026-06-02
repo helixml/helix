@@ -27,13 +27,14 @@ import (
 )
 
 // resolveOrgID returns the orgID stashed on ctx by the helix-org
-// middleware. Empty orgID means no scope was set — handlers respond
-// 400 and bail rather than silently scoping to "".
+// middleware (withHelixOrgScope in api/pkg/server). Empty orgID
+// means no scope was set — handlers respond 400 and bail rather
+// than silently scoping to "".
 func resolveOrgID(r *http.Request) (string, error) {
 	if orgID := helixorgserver.OrgIDFromContext(r.Context()); orgID != "" {
 		return orgID, nil
 	}
-	return "", errors.New("helix-org scope missing — request did not pass through /orgs/{org}/helix-org middleware")
+	return "", errors.New("helix-org scope missing — request did not pass through /orgs/{org} middleware")
 }
 
 // Dispatcher is the dispatcher port the publish handler invokes when
@@ -94,8 +95,8 @@ type Route struct {
 // land on the same mux as MCP/webhooks (and pick up the same
 // request-logging middleware).
 //
-// Patterns are flat (no /api/v1/org prefix) because the host strips
-// that prefix before dispatching.
+// Patterns are flat (no /api/v1/orgs/{org}/ prefix) because the
+// host strips that prefix via stripOrgScopedPrefix before dispatching.
 func Routes(deps Deps) []Route {
 	a := &apiHandler{deps: deps}
 	return []Route{
@@ -148,7 +149,7 @@ type apiHandler struct {
 // @Produce json
 // @Success 200 {object} api.Chart
 // @Security ApiKeyAuth
-// @Router /api/v1/org/chart [get]
+// @Router /api/v1/orgs/{org}/chart [get]
 func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -242,7 +243,7 @@ func buildChart(positions []domain.Position, workers []domain.Worker) Chart {
 // @Produce json
 // @Success 200 {array} api.PositionDTO
 // @Security ApiKeyAuth
-// @Router /api/v1/org/positions [get]
+// @Router /api/v1/orgs/{org}/positions [get]
 func (a *apiHandler) listPositions(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -276,7 +277,7 @@ func positionDTO(p domain.Position) PositionDTO {
 // @Produce json
 // @Success 200 {array} api.RoleDTO
 // @Security ApiKeyAuth
-// @Router /api/v1/org/roles [get]
+// @Router /api/v1/orgs/{org}/roles [get]
 func (a *apiHandler) listRoles(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -319,7 +320,7 @@ func roleDTO(r role.Role) RoleDTO {
 // @Produce json
 // @Success 200 {array} api.WorkerDTO
 // @Security ApiKeyAuth
-// @Router /api/v1/org/workers [get]
+// @Router /api/v1/orgs/{org}/workers [get]
 func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -353,7 +354,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 // @Failure 400 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/workers [post]
+// @Router /api/v1/orgs/{org}/workers [post]
 func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 	if a.deps.HireWorker == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("hire is not wired in this deployment"))
@@ -444,7 +445,7 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 // @Failure 409 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/workers/{id} [delete]
+// @Router /api/v1/orgs/{org}/workers/{id} [delete]
 func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 	if a.deps.Lifecycle == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("fire is not wired in this deployment"))
@@ -492,7 +493,7 @@ func workerDTO(wk domain.Worker, tools []string) WorkerDTO {
 // @Success 200 {object} api.WorkerDetailDTO
 // @Failure 404 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/workers/{id} [get]
+// @Router /api/v1/orgs/{org}/workers/{id} [get]
 func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -549,7 +550,7 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 // @Success 204
 // @Failure 404 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/workers/{id}/identity [post]
+// @Router /api/v1/orgs/{org}/workers/{id}/identity [post]
 func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -596,7 +597,7 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 // @Failure 404 {object} api.ErrorResponse
 // @Failure 409 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/workers/{id}/role [post]
+// @Router /api/v1/orgs/{org}/workers/{id}/role [post]
 func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -651,7 +652,7 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Success 200 {object} api.SettingsResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/settings [get]
+// @Router /api/v1/orgs/{org}/settings [get]
 func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -710,7 +711,7 @@ func settingsSpecDTO(ctx context.Context, orgID string, reg *config.Registry, st
 // @Success 204
 // @Failure 400 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/settings/{key} [put]
+// @Router /api/v1/orgs/{org}/settings/{key} [put]
 func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -742,7 +743,7 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 // @Success 204
 // @Failure 400 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/settings/{key} [delete]
+// @Router /api/v1/orgs/{org}/settings/{key} [delete]
 func (a *apiHandler) deleteSetting(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -770,7 +771,7 @@ func (a *apiHandler) deleteSetting(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Success 200 {object} api.StreamsResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/streams [get]
+// @Router /api/v1/orgs/{org}/streams [get]
 func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -863,7 +864,7 @@ func eventCard(ev domain.Event) EventCard {
 // @Param id path string true "Stream ID"
 // @Success 200 {string} string "SSE: event: message / data: [EventCard,...]"
 // @Security ApiKeyAuth
-// @Router /api/v1/org/streams/{id}/events [get]
+// @Router /api/v1/orgs/{org}/streams/{id}/events [get]
 func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -950,7 +951,7 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 // @Failure 400 {object} api.ErrorResponse
 // @Failure 409 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/org/streams/{id}/publish [post]
+// @Router /api/v1/orgs/{org}/streams/{id}/publish [post]
 func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)

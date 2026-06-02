@@ -1,8 +1,7 @@
-// Package api exposes the org-graph state as JSON over the same
-// /api/v1/org/ surface the MCP / webhook routes already live on. The
-// React pages at /helix-org/* (Phase B of the UI migration) consume
-// these endpoints. Phase C deleted the htmx SSR that used to live
-// alongside this package; the JSON shape is now the sole UI surface.
+// Package api exposes the org-graph state as JSON under
+// /api/v1/orgs/{org}/, alongside the MCP and webhook handlers in the
+// sibling server package. The React pages at /orgs/:org_id/helix-org/*
+// consume these endpoints.
 //
 // DTOs carry only the data — predicates the React client derives
 // client-side.

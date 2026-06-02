@@ -34,9 +34,8 @@ import (
 
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
 // the JSON-RPC MCP / webhook / org-graph / settings / streams endpoints
-// mounted under /api/v1/org/. The React UI at /helix-org/* consumes
-// those endpoints. (Phase C of the UI migration deleted the htmx SSR
-// that used to live at /ui/*.)
+// mounted under /api/v1/orgs/{org}/. The React UI at
+// /orgs/:org_id/helix-org/* consumes those endpoints.
 type helixOrgHandlers struct {
 	api   http.Handler
 	scope *helixOrgScope
@@ -50,8 +49,8 @@ type helixOrgHandlers struct {
 const alphaFeatureHelixOrg = "helix-org"
 
 // initHelixOrgHandler builds the in-process helix-org HTTP handler;
-// mounted at /api/v1/org/, gated per-user by the `helix-org` alpha
-// feature flag.
+// mounted at /api/v1/orgs/{org}/, gated per-user by the `helix-org`
+// alpha feature flag.
 //
 // Storage: the org-graph rows land in the same Postgres database
 // helix uses for its primary state — no separate connection pool,
@@ -111,12 +110,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	// Bootstrap is now lazy: the helix-org middleware calls
-	// ensureHelixOrgBootstrap(ctx, orgID) on first request for an
-	// org, materialising the owner Worker + structural grants then.
-	// Each helix Organization gets its own helix-org tenant; bootstrap
-	// rows carry org_id and the FK to organizations(id) reaps them on
-	// org delete.
+	// Bootstrap is lazy: withHelixOrgScope calls
+	// helixOrgScope.ensureBootstrap(ctx, orgID) on first request for
+	// each org, materialising the owner Worker + structural grants
+	// then. Bootstrap rows carry org_id and the FK to
+	// organizations(id) reaps them on org delete.
 
 	// Wake-only stream notifier. Backed by the host API server's
 	// pubsub.PubSub (the canonical Helix NATS instance) — the
@@ -131,15 +129,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Operational config registry — chat backend creds, model
 	// selection, etc. Backed by the same Postgres rows so settings
 	// survive restarts. Surfaced via the React settings page at
-	// /helix-org/settings (backed by /api/v1/org/settings).
-	// Constructed before the spawner so the spawner can read
-	// chat.app_id / helix.url at activation time.
+	// /orgs/:org_id/helix-org/settings (backed by
+	// /api/v1/orgs/{org}/settings). Constructed before the spawner
+	// so the spawner can read chat.app_id / helix.url at activation
+	// time.
 	configReg := config.New(st.Configs)
 	registerHelixOrgConfigSpecs(configReg)
 
-	// The Helix service api_key is now per-org and provisioned
-	// lazily by ensureHelixOrgBootstrap on the first request for an
-	// org. See helix_org_middleware.go.
+	// The Helix service api_key is per-org and provisioned lazily by
+	// helixOrgScope.ensureBootstrap on the first request for an org.
+	// See helix_org_middleware.go.
 
 	// In-process adapter satisfying runtimehelix.ProjectService,
 	// runtimehelix.SpawnerClient, and chat.ChatBridgeClient — the three
@@ -215,12 +214,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
-	// JSON handlers (Phase A of the UI migration) — consumed by the
-	// React pages at /helix-org/* (Phase B). They mount under
-	// /api/v1/org/ via the orgServer's extras list.
-	// REST hire shares the exact tool the MCP registry exposes — same
-	// Deps, same Invocation shape. The chat-driven and chart-driven
-	// hire paths can't drift because there is only one implementation.
+	// JSON handlers consumed by the React pages at
+	// /orgs/:org_id/helix-org/*. They mount under
+	// /api/v1/orgs/{org}/ via the orgServer's extras list. REST hire
+	// shares the exact tool the MCP registry exposes — same Deps,
+	// same Invocation shape, so chat-driven and chart-driven hires
+	// can't drift.
 	hireTool := tools.NewHireWorker(deps)
 
 	// Fire (DELETE /workers/{id}) cascades Helix-side teardown
