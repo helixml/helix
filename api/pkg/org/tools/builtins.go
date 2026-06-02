@@ -34,7 +34,7 @@ type EventDispatcher interface {
 	// reuses the existing row instead of writing a sibling. Empty
 	// activationID is allowed for callers that don't pre-allocate
 	// (legacy code paths, tests that don't wire activation.Repository).
-	DispatchHire(ctx context.Context, workerID worker.ID, envPath string, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, workerID worker.ID, envPath string, activationID activation.ID)
 }
 
 // Deps bundles the stores, clocks, and configuration tools need.

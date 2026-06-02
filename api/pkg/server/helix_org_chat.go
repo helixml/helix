@@ -91,8 +91,8 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // Worker (design note: shared Worker risk), so co-tenanting on one
 // service identity is consistent — multi-tenant attribution is a
 // future change.
-func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *config.Registry) (string, error) {
-	if existing, _ := reg.GetString(ctx, "helix.api_key"); existing != "" {
+func ensureHelixOrgServiceAPIKey(ctx context.Context, orgID string, st helixstore.Store, reg *config.Registry) (string, error) {
+	if existing, _ := reg.GetString(ctx, orgID, "helix.api_key"); existing != "" {
 		if _, err := st.GetAPIKey(ctx, &types.ApiKey{Key: existing}); err == nil {
 			return existing, nil
 		}
@@ -146,7 +146,7 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, st helixstore.Store, reg *
 	if err != nil {
 		return "", fmt.Errorf("encode api key: %w", err)
 	}
-	if err := reg.Set(ctx, "helix.api_key", string(payload), worker.ID("w-owner")); err != nil {
+	if err := reg.Set(ctx, orgID, "helix.api_key", string(payload), worker.ID("w-owner")); err != nil {
 		return "", fmt.Errorf("save api key to config: %w", err)
 	}
 	log.Info().

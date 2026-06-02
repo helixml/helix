@@ -107,8 +107,8 @@ func (d *Dispatcher) SetEmailEmitter(e EmailEmitter) { d.emailEmitter = e }
 // case.
 //
 // No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath string, activationID activation.ID) {
-	d.queue.Enqueue(workerID, envPath, activation.Trigger{
+func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID worker.ID, envPath string, activationID activation.ID) {
+	d.queue.Enqueue(orgID, workerID, envPath, activation.Trigger{
 		Kind:         activation.TriggerHire,
 		ActivationID: activationID,
 	})
@@ -125,6 +125,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID worker.ID, envPath
 // overlapping subscriber activations within a Worker; outbound POSTs
 // have no such ordering guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
+	orgID := e.OrganizationID
 	d.emitOutbound(ctx, e)
 	// Parse the canonical Message envelope. Every production write
 	// goes through Message.Encode via domain.NewMessageEvent, so a
@@ -138,7 +139,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 		d.logger.Error("dispatch: parse message — skipping fan-out", "event", e.ID, "err", err)
 		return
 	}
-	subs, err := d.store.Subscriptions.ListForStream(ctx, e.StreamID)
+	subs, err := d.store.Subscriptions.ListForStream(ctx, orgID, e.StreamID)
 	if err != nil {
 		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
 		return
@@ -149,7 +150,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	// as human-origin by default.
 	var sourceKind worker.Kind
 	if e.Source != "" {
-		if sourceWorker, err := d.store.Workers.Get(ctx, e.Source); err == nil {
+		if sourceWorker, err := d.store.Workers.Get(ctx, orgID, e.Source); err == nil {
 			sourceKind = sourceWorker.Kind()
 		}
 	}
@@ -157,7 +158,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 		if sub.WorkerID == e.Source {
 			continue // do not deliver the event back to its publisher
 		}
-		w, err := d.store.Workers.Get(ctx, sub.WorkerID)
+		w, err := d.store.Workers.Get(ctx, orgID, sub.WorkerID)
 		if err != nil {
 			d.logger.Warn("dispatch: get worker", "worker", sub.WorkerID, "err", err)
 			continue
@@ -165,7 +166,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 		if w.Kind() != worker.KindAI {
 			continue // human Workers are not activated by the runtime
 		}
-		env, err := d.store.Environments.Get(ctx, sub.WorkerID)
+		env, err := d.store.Environments.Get(ctx, orgID, sub.WorkerID)
 		if err != nil {
 			d.logger.Warn("dispatch: get environment", "worker", sub.WorkerID, "err", err)
 			continue
@@ -179,7 +180,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
 			CreatedAt:  e.CreatedAt,
 		}
-		d.queue.Enqueue(sub.WorkerID, env.Path, trigger)
+		d.queue.Enqueue(orgID, sub.WorkerID, env.Path, trigger)
 	}
 }
 
@@ -202,7 +203,7 @@ func (d *Dispatcher) emitOutbound(ctx context.Context, e domain.Event) {
 	if e.Source == "" {
 		return
 	}
-	stream, err := d.store.Streams.Get(ctx, e.StreamID)
+	stream, err := d.store.Streams.Get(ctx, e.OrganizationID, e.StreamID)
 	if err != nil {
 		// Stream was deleted, or store error. Either way nothing to emit;
 		// the append-side code path has already logged anything material.

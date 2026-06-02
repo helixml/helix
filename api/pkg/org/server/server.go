@@ -73,7 +73,7 @@ type Route struct {
 func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/workers/{id}/mcp", s.mcpHandler())
-	mux.Handle("POST /webhooks/{streamID}", s.webhookHandler())
+	mux.Handle("POST /webhooks/{org}/{streamID}", s.webhookHandler())
 	for _, r := range extras {
 		mux.Handle(r.Pattern, r.Handler)
 	}

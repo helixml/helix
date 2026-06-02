@@ -101,6 +101,7 @@ type Dispatcher interface {
 // running helix-org server. Both the inbound HTTP handler and the
 // outbound emitter are methods on it.
 type Transport struct {
+	orgID       string
 	registry    *config.Registry
 	store       *store.Store
 	broadcaster *streamhub.Hub
@@ -119,8 +120,9 @@ const DefaultSendURL = "https://api.postmarkapp.com/email"
 // dispatcher (for activating subscribed Workers on inbound).
 // dispatcher and broadcaster may be nil for tests that don't exercise
 // those paths.
-func New(reg *config.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
+func New(orgID string, reg *config.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
 	return &Transport{
+		orgID:       orgID,
 		registry:    reg,
 		store:       st,
 		broadcaster: bc,
@@ -141,7 +143,7 @@ func (t *Transport) SetSendURL(u string) { t.sendURL = u }
 
 func (t *Transport) config(ctx context.Context) (Config, error) {
 	var c Config
-	if err := t.registry.GetObject(ctx, "transport.postmark", &c); err != nil {
+	if err := t.registry.GetObject(ctx, t.orgID, "transport.postmark", &c); err != nil {
 		return Config{}, err
 	}
 	if err := c.Validate(); err != nil {
@@ -155,7 +157,7 @@ func (t *Transport) config(ctx context.Context) (Config, error) {
 // ever grow many email streams a denormalised alias column on the
 // streams table is the obvious follow-on.
 func (t *Transport) findStreamByAlias(ctx context.Context, alias string) (domain.Stream, error) {
-	streams, err := t.store.Streams.List(ctx)
+	streams, err := t.store.Streams.List(ctx, t.orgID)
 	if err != nil {
 		return domain.Stream{}, fmt.Errorf("list streams: %w", err)
 	}
@@ -299,6 +301,7 @@ func (t *Transport) HandleInbound() http.Handler {
 			"", // system-emitted: external sender, no helix Worker source
 			msg,
 			time.Now().UTC(),
+			t.orgID,
 		)
 		if err != nil {
 			http.Error(w, "build event: "+err.Error(), http.StatusBadRequest)
@@ -378,7 +381,7 @@ func (t *Transport) Emit(ctx context.Context, e domain.Event) error {
 	if err != nil {
 		return err
 	}
-	stream, err := t.store.Streams.Get(ctx, e.StreamID)
+	stream, err := t.store.Streams.Get(ctx, e.OrganizationID, e.StreamID)
 	if err != nil {
 		return fmt.Errorf("get stream: %w", err)
 	}

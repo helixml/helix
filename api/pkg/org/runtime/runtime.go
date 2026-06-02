@@ -73,7 +73,7 @@ type Spawner func(ctx context.Context, orgID string, workerID worker.ID, envPath
 // Naming: see ADR-0001 §7 — MirrorFile, not PublishFile. "Publish"
 // is reserved for the MCP-tool sense ("append an Event to a Stream").
 type WorkspaceSync interface {
-	MirrorFile(ctx context.Context, workerID worker.ID, name, content, message string) error
+	MirrorFile(ctx context.Context, orgID string, workerID worker.ID, name, content, message string) error
 }
 
 // NoopWorkspaceSync is a WorkspaceSync that does nothing. Useful for
@@ -81,7 +81,7 @@ type WorkspaceSync interface {
 type NoopWorkspaceSync struct{}
 
 // MirrorFile is the no-op WorkspaceSync: ignore the call and return nil.
-func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ worker.ID, _, _, _ string) error {
+func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ string, _ worker.ID, _, _, _ string) error {
 	return nil
 }
 
@@ -131,4 +131,6 @@ type HireHook interface {
 type NoopHireHook struct{}
 
 // OnHire is the no-op HireHook: ignore the call and return nil.
-func (NoopHireHook) OnHire(_ context.Context, _ worker.ID, _ string) error { return nil }
+func (NoopHireHook) OnHire(_ context.Context, _ string, _ worker.ID, _ string) error {
+	return nil
+}

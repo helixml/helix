@@ -113,7 +113,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		cfg.MaxInflight = 8
 	}
 	sem := make(chan struct{}, cfg.MaxInflight)
-	return func(ctx context.Context, workerID worker.ID, _ string, triggers []activation.Trigger) (retErr error) {
+	return func(ctx context.Context, orgID string, workerID worker.ID, _ string, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -144,7 +144,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// (next block) is still the primary record until callers depend
 		// on the row. Once B5.7 lands worker_log's activation_id filter,
 		// a Create failure becomes a hard error.
-		act := newActivationRecord(cfg, workerID, triggers)
+		act := newActivationRecord(cfg, orgID, workerID, triggers)
 		if act != nil {
 			// Skip Create when hire_worker pre-allocated the row (B5.8) —
 			// the row exists from the caller's request; this path just
@@ -158,7 +158,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 				}
 			}
 			defer func() {
-				if completeErr := cfg.Store.Activations.Complete(ctx, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
+				if completeErr := cfg.Store.Activations.Complete(ctx, orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: complete activation row", "worker", workerID, "activation", act.ID, "err", completeErr)
 				}
 			}()
@@ -169,7 +169,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			if body == "" {
 				return
 			}
-			publishActivationEvent(ctx, cfg, workerID, streamID, body)
+			publishActivationEvent(ctx, cfg, orgID, workerID, streamID, body)
 		}
 		publish(fmt.Sprintf("=== activation: %s ===", agent.DescribeTriggers(triggers)))
 
@@ -185,7 +185,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// user, not the service account. Empty / nil / error all
 		// degrade to "use the static client api_key".
 		if cfg.BearerForUser != nil {
-			if state, err := LoadState(actCtx, cfg.Store, workerID); err == nil && state.HiringUserID != "" {
+			if state, err := LoadState(actCtx, cfg.Store, orgID, workerID); err == nil && state.HiringUserID != "" {
 				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
 					actCtx = WithBearerToken(actCtx, bearer)
 				} else if berr != nil && cfg.Logger != nil {
@@ -197,12 +197,12 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// Make sure the Worker has a Helix project. First activation
 		// (activation.TriggerHire, or a activation.TriggerEvent before hire fully ran)
 		// applies one and persists the IDs.
-		if err := cfg.ensureProject(actCtx, workerID); err != nil {
+		if err := cfg.ensureProject(actCtx, orgID, workerID); err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 
-		sessionID, err := cfg.ensureSession(actCtx, workerID, prompt, publish)
+		sessionID, err := cfg.ensureSession(actCtx, orgID, workerID, prompt, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -235,7 +235,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // caller (Spawner) skips Create — the row already exists in the
 // store. The Complete path still runs at end-of-activation to set
 // EndedAt/Outcome on the pre-existing row.
-func newActivationRecord(cfg SpawnerConfig, workerID worker.ID, triggers []activation.Trigger) *activation.Activation {
+func newActivationRecord(cfg SpawnerConfig, orgID string, workerID worker.ID, triggers []activation.Trigger) *activation.Activation {
 	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
 		return nil
 	}
@@ -243,7 +243,7 @@ func newActivationRecord(cfg SpawnerConfig, workerID worker.ID, triggers []activ
 	if id == "" {
 		id = activation.ID("a-" + cfg.NewID())
 	}
-	act, err := activation.New(id, workerID, triggers, cfg.Now())
+	act, err := activation.New(id, workerID, triggers, cfg.Now(), orgID)
 	if err != nil {
 		if cfg.Logger != nil {
 			cfg.Logger.Warn("helix spawner: build activation record", "worker", workerID, "err", err)
@@ -294,7 +294,7 @@ After meaningful work, persist state on helix-specs:
 // ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
-func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) error {
+func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID worker.ID) error {
 	a := &WorkerProject{
 		Service:       c.ProjectService,
 		Workspace:     c.Workspace,
@@ -309,7 +309,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) er
 		MCPAuthBearer: c.MCPAuthBearer,
 		Logger:        c.Logger,
 	}
-	_, _, _, err := a.Ensure(ctx, workerID)
+	_, _, _, err := a.Ensure(ctx, orgID, workerID)
 	return err
 }
 
@@ -336,8 +336,8 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, workerID worker.ID) er
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, prompt string, _ func(string)) (string, error) {
-	state, err := LoadState(ctx, c.Store, workerID)
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID worker.ID, prompt string, _ func(string)) (string, error) {
+	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", err
 	}
@@ -375,7 +375,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, workerID worker.ID, pr
 			c.Logger.Info("spawner: persisted session unusable, opened fresh",
 				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
 		}
-		if err := SaveSession(ctx, c.Store, workerID, sid); err != nil {
+		if err := SaveSession(ctx, c.Store, orgID, workerID, sid); err != nil {
 			return "", fmt.Errorf("persist session id: %w", err)
 		}
 	}
@@ -506,6 +506,6 @@ func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
 // stay terse. The owner-chat bridge uses the same shared helper
 // directly — both paths produce identical event shapes on
 // s-activations-<workerID>.
-func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID worker.ID, _ stream.ID, body string) {
-	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, workerID, body)
+func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, orgID string, workerID worker.ID, _ stream.ID, body string) {
+	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, orgID, workerID, body)
 }

@@ -88,6 +88,7 @@ type Dispatcher interface {
 // Transport is the long-lived inbound webhook handler. One instance
 // per running helix-org server.
 type Transport struct {
+	orgID       string
 	registry    *config.Registry
 	store       *store.Store
 	broadcaster *streamhub.Hub
@@ -100,8 +101,9 @@ type Transport struct {
 // dispatcher (for activating subscribed Workers on inbound).
 // dispatcher and broadcaster may be nil for tests that don't
 // exercise those paths.
-func New(reg *config.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
+func New(orgID string, reg *config.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
 	return &Transport{
+		orgID:       orgID,
 		registry:    reg,
 		store:       st,
 		broadcaster: bc,
@@ -112,7 +114,7 @@ func New(reg *config.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher,
 
 func (t *Transport) config(ctx context.Context) (Config, error) {
 	var c Config
-	if err := t.registry.GetObject(ctx, "transport.github", &c); err != nil {
+	if err := t.registry.GetObject(ctx, t.orgID, "transport.github", &c); err != nil {
 		return Config{}, err
 	}
 	if err := c.Validate(); err != nil {
@@ -229,6 +231,7 @@ func (t *Transport) HandleInbound() http.Handler {
 				"", // system-emitted: external sender, no helix Worker source
 				msg,
 				now,
+				t.orgID,
 			)
 			if err != nil {
 				t.logger.Error("github.inbound: build event", "stream", s.ID, "err", err)
@@ -259,7 +262,7 @@ func (t *Transport) HandleInbound() http.Handler {
 // indexed lookups are an obvious follow-on if installations ever
 // grow many github streams.
 func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string) ([]domain.Stream, error) {
-	all, err := t.store.Streams.List(ctx)
+	all, err := t.store.Streams.List(ctx, t.orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list streams: %w", err)
 	}

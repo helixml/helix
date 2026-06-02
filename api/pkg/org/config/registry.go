@@ -144,7 +144,7 @@ func (r *Registry) Specs() []Spec {
 //
 // updatedBy is the WorkerID for the audit column; empty is allowed
 // today (auth not yet wired) but reserved.
-func (r *Registry) Set(ctx context.Context, key, value string, updatedBy worker.ID) error {
+func (r *Registry) Set(ctx context.Context, orgID, key, value string, updatedBy worker.ID) error {
 	spec, ok := r.Spec(key)
 	if !ok {
 		return fmt.Errorf("unknown config key %q (no subsystem has registered it)", key)
@@ -152,7 +152,7 @@ func (r *Registry) Set(ctx context.Context, key, value string, updatedBy worker.
 	if err := validateValue(spec, value); err != nil {
 		return fmt.Errorf("validate %q: %w", key, err)
 	}
-	cfg, err := domain.NewConfig(key, value, time.Now().UTC(), updatedBy)
+	cfg, err := domain.NewConfig(key, value, time.Now().UTC(), updatedBy, orgID)
 	if err != nil {
 		return err
 	}
@@ -161,11 +161,11 @@ func (r *Registry) Set(ctx context.Context, key, value string, updatedBy worker.
 
 // Delete removes the row. Subsequent reads fall back to the registered
 // default (if any), or error (if Required).
-func (r *Registry) Delete(ctx context.Context, key string) error {
+func (r *Registry) Delete(ctx context.Context, orgID, key string) error {
 	if _, ok := r.Spec(key); !ok {
 		return fmt.Errorf("unknown config key %q", key)
 	}
-	return r.store.Delete(ctx, key)
+	return r.store.Delete(ctx, orgID, key)
 }
 
 // GetRaw returns the raw JSON value — the row's value if set,
@@ -173,12 +173,12 @@ func (r *Registry) Delete(ctx context.Context, key string) error {
 // row exists, no default is set, and the spec is not Required (caller
 // can treat as "feature disabled"). Returns a wrapped error when
 // Required and missing.
-func (r *Registry) GetRaw(ctx context.Context, key string) (string, error) {
+func (r *Registry) GetRaw(ctx context.Context, orgID, key string) (string, error) {
 	spec, ok := r.Spec(key)
 	if !ok {
 		return "", fmt.Errorf("unknown config key %q", key)
 	}
-	cfg, err := r.store.Get(ctx, key)
+	cfg, err := r.store.Get(ctx, orgID, key)
 	if err == nil {
 		return cfg.Value, nil
 	}
@@ -199,8 +199,8 @@ func (r *Registry) GetRaw(ctx context.Context, key string) (string, error) {
 // values where Secrets is set, returns valid JSON with the redacted
 // fields. For non-object values or empty Secrets, returns the raw
 // value.
-func (r *Registry) GetRedacted(ctx context.Context, key string) (string, error) {
-	raw, err := r.GetRaw(ctx, key)
+func (r *Registry) GetRedacted(ctx context.Context, orgID, key string) (string, error) {
+	raw, err := r.GetRaw(ctx, orgID, key)
 	if err != nil {
 		return "", err
 	}
@@ -210,8 +210,8 @@ func (r *Registry) GetRedacted(ctx context.Context, key string) (string, error) 
 
 // GetString reads a string-typed config and returns its Go value.
 // Errors if the spec isn't string-typed or the value doesn't parse.
-func (r *Registry) GetString(ctx context.Context, key string) (string, error) {
-	raw, err := r.GetRaw(ctx, key)
+func (r *Registry) GetString(ctx context.Context, orgID, key string) (string, error) {
+	raw, err := r.GetRaw(ctx, orgID, key)
 	if err != nil {
 		return "", err
 	}
@@ -227,8 +227,8 @@ func (r *Registry) GetString(ctx context.Context, key string) (string, error) {
 }
 
 // GetInt reads an int-typed config and returns its Go value.
-func (r *Registry) GetInt(ctx context.Context, key string) (int64, error) {
-	raw, err := r.GetRaw(ctx, key)
+func (r *Registry) GetInt(ctx context.Context, orgID, key string) (int64, error) {
+	raw, err := r.GetRaw(ctx, orgID, key)
 	if err != nil {
 		return 0, err
 	}
@@ -245,8 +245,8 @@ func (r *Registry) GetInt(ctx context.Context, key string) (int64, error) {
 
 // GetObject decodes the value into the given destination, which must
 // be a pointer. Errors if the spec isn't object-typed.
-func (r *Registry) GetObject(ctx context.Context, key string, dst any) error {
-	raw, err := r.GetRaw(ctx, key)
+func (r *Registry) GetObject(ctx context.Context, orgID, key string, dst any) error {
+	raw, err := r.GetRaw(ctx, orgID, key)
 	if err != nil {
 		return err
 	}

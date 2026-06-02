@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/streamhub"
 	"github.com/helixml/helix/api/pkg/org/config"
 	"github.com/helixml/helix/api/pkg/org/dispatch"
@@ -40,7 +38,8 @@ import (
 // those endpoints. (Phase C of the UI migration deleted the htmx SSR
 // that used to live at /ui/*.)
 type helixOrgHandlers struct {
-	api http.Handler
+	api   http.Handler
+	scope *helixOrgScope
 }
 
 // alphaFeatureHelixOrg is the alpha-feature flag that gates the
@@ -112,19 +111,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	switch result, err := bootstrap.Run(context.Background(), st, bootstrap.Params{EnvironmentPath: ownerEnvPath}); {
-	case err == nil:
-		log.Info().
-			Str("worker_id", string(result.WorkerID)).
-			Str("role_id", string(result.RoleID)).
-			Str("position_id", string(result.PositionID)).
-			Str("env_path", result.EnvironmentPath).
-			Msg("helix-org bootstrap created owner")
-	case errors.Is(err, bootstrap.ErrAlreadyInitialised):
-		log.Info().Str("root", orgRoot).Msg("helix-org bootstrap skipped: already initialised")
-	default:
-		return nil, fmt.Errorf("helix-org bootstrap: %w", err)
-	}
+	// Bootstrap is now lazy: the helix-org middleware calls
+	// ensureHelixOrgBootstrap(ctx, orgID) on first request for an
+	// org, materialising the owner Worker + structural grants then.
+	// Each helix Organization gets its own helix-org tenant; bootstrap
+	// rows carry org_id and the FK to organizations(id) reaps them on
+	// org delete.
 
 	// Wake-only stream notifier. Backed by the host API server's
 	// pubsub.PubSub (the canonical Helix NATS instance) — the
@@ -145,13 +137,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	configReg := config.New(st.Configs)
 	registerHelixOrgConfigSpecs(configReg)
 
-	// Auto-provision a Helix API key for the embedded helix-org's
-	// loopback HTTP client BEFORE building the spawner — the spawner
-	// re-uses this client to provision per-Worker clone apps and to
-	// open activation chat sessions.
-	if _, err := ensureHelixOrgServiceAPIKey(context.Background(), helixStore, configReg); err != nil {
-		log.Warn().Err(err).Msg("helix-org service api key not provisioned — chat will stay disabled")
-	}
+	// The Helix service api_key is now per-org and provisioned
+	// lazily by ensureHelixOrgBootstrap on the first request for an
+	// org. See helix_org_middleware.go.
 
 	// In-process adapter satisfying runtimehelix.ProjectService,
 	// runtimehelix.SpawnerClient, and chat.ChatBridgeClient — the three
@@ -270,8 +258,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Str("root", orgRoot).
 		Str("envs", envsDir).
 		Int("json_api_routes", len(extras)).
-		Msg("helix-org mounted at /api/v1/org/")
-	return &helixOrgHandlers{api: orgServer.Handler(extras...)}, nil
+		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
+	scope := newHelixOrgScope(configReg, st, envsDir, helixStore)
+	return &helixOrgHandlers{api: orgServer.Handler(extras...), scope: scope}, nil
 }
 
 // helixOrgConfig is just enough of the surrounding config to bring
@@ -317,12 +306,12 @@ type dynamicProjectApplier struct {
 // runtimehelix.WorkerProject from the current registry state and
 // delegates. WorkerProject.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
-func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
-	applier, err := buildHelixOrgProjectApplier(ctx, d.cfg, d.projectSvc, d.Store, d.logger)
+func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
+	applier, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
-	return applier.Ensure(ctx, workerID)
+	return applier.Ensure(ctx, orgID, workerID)
 }
 
 // buildHelixOrgProjectApplier constructs the WorkerProject that
@@ -340,26 +329,28 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, workerID worker.ID) 
 // and short-lived — one apply call, then discarded.
 func buildHelixOrgProjectApplier(
 	ctx context.Context,
+	orgID string,
 	cfg *config.Registry,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
 ) (*runtimehelix.WorkerProject, error) {
-	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
+	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
 	if apiKey == "" {
 		return nil, fmt.Errorf("helix.api_key not set")
 	}
-	baseURL, err := cfg.GetString(ctx, "helix.url")
+	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
 	if err != nil {
 		return nil, fmt.Errorf("read helix.url: %w", err)
 	}
-	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
+	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	return &runtimehelix.WorkerProject{
 		Service:       projectSvc,
 		Workspace:     helixOrgWorkspaceRef,
 		Store:         orgStore,
 		HelixOrgURL:   helixOrgURL,
+		OrgID:         orgID,
 		Runtime:       runtime,
 		Credentials:   credentials,
 		Provider:      provider,
@@ -387,12 +378,12 @@ var helixOrgWorkspaceRef *runtimehelix.Workspace
 // We coerce silly combinations (e.g. zed_agent + subscription) to the
 // only mode that actually works for that runtime, mirroring Helix's
 // per-agent validator.
-func resolveWorkerAgentConfig(ctx context.Context, cfg *config.Registry) (runtime, credentials, provider, model string) {
-	runtime, _ = cfg.GetString(ctx, "worker.runtime")
+func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *config.Registry) (runtime, credentials, provider, model string) {
+	runtime, _ = cfg.GetString(ctx, orgID, "worker.runtime")
 	if runtime == "" {
 		runtime = "claude_code"
 	}
-	credentials, _ = cfg.GetString(ctx, "worker.credentials")
+	credentials, _ = cfg.GetString(ctx, orgID, "worker.credentials")
 	if credentials == "" {
 		credentials = "subscription"
 	}
@@ -400,8 +391,8 @@ func resolveWorkerAgentConfig(ctx context.Context, cfg *config.Registry) (runtim
 		credentials = "api_key" // subscription is only meaningful for claude_code
 	}
 	if credentials == "api_key" {
-		provider, _ = cfg.GetString(ctx, "worker.provider")
-		model, _ = cfg.GetString(ctx, "worker.model")
+		provider, _ = cfg.GetString(ctx, orgID, "worker.provider")
+		model, _ = cfg.GetString(ctx, orgID, "worker.model")
 	}
 	return runtime, credentials, provider, model
 }
@@ -453,6 +444,7 @@ func buildInProcHelixClient(ctx context.Context, apiServer *HelixAPIServer, heli
 // without helix-org ever holding a token at rest.
 func buildHelixOrgSpawnerConfig(
 	ctx context.Context,
+	orgID string,
 	cfg *config.Registry,
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
@@ -462,21 +454,22 @@ func buildHelixOrgSpawnerConfig(
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
-	apiKey, _ := cfg.GetString(ctx, "helix.api_key")
+	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
 	if apiKey == "" {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
 	}
-	baseURL, err := cfg.GetString(ctx, "helix.url")
+	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
 	if err != nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
 	}
 
-	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, cfg)
+	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, cfg)
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
-	specsMandate, _ := cfg.GetString(ctx, "worker.specs_mandate")
+	specsMandate, _ := cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	return runtimehelix.SpawnerConfig{
 		Client:        spawnerClient,
 		HelixOrgURL:   helixOrgURL,
+		OrgID:         orgID,
 		Runtime:       runtime,
 		Credentials:   credentials,
 		Provider:      provider,
@@ -530,14 +523,14 @@ func lazyHelixOrgSpawner(
 		mu      sync.Mutex
 		spawner runtime.Spawner
 	)
-	return func(ctx context.Context, workerID worker.ID, envPath string, triggers []activation.Trigger) error {
+	return func(ctx context.Context, orgID string, workerID worker.ID, envPath string, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating. Without this, the cached
 		// spawner's first activation bakes whatever worker.* values
 		// were live at boot into the project; later edits via the
 		// settings page never propagate.
 		if applier != nil {
-			if _, _, _, err := applier.Ensure(ctx, workerID); err != nil {
+			if _, _, _, err := applier.Ensure(ctx, orgID, workerID); err != nil {
 				return fmt.Errorf("helix-org spawner: pre-apply project for %s: %w", workerID, err)
 			}
 		}
@@ -545,7 +538,7 @@ func lazyHelixOrgSpawner(
 		current := spawner
 		mu.Unlock()
 		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, cfg, helixStore, spawnerClient, orgStore, bc, logger, newID, now)
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, orgStore, bc, logger, newID, now)
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}
@@ -562,7 +555,7 @@ func lazyHelixOrgSpawner(
 				Str("credentials", cfgVal.Credentials).
 				Msg("helix-org spawner built (zed_external workers)")
 		}
-		return current(ctx, workerID, envPath, triggers)
+		return current(ctx, orgID, workerID, envPath, triggers)
 	}
 }
 

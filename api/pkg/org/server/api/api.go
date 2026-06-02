@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/message"
 	"github.com/helixml/helix/api/pkg/org/position"
 	"github.com/helixml/helix/api/pkg/org/role"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
 	"github.com/helixml/helix/api/pkg/org/store"
 	"github.com/helixml/helix/api/pkg/org/stream"
 	"github.com/helixml/helix/api/pkg/org/streamhub"
@@ -24,6 +25,16 @@ import (
 	"github.com/helixml/helix/api/pkg/org/transport"
 	"github.com/helixml/helix/api/pkg/org/worker"
 )
+
+// resolveOrgID returns the orgID stashed on ctx by the helix-org
+// middleware. Empty orgID means no scope was set — handlers respond
+// 400 and bail rather than silently scoping to "".
+func resolveOrgID(r *http.Request) (string, error) {
+	if orgID := helixorgserver.OrgIDFromContext(r.Context()); orgID != "" {
+		return orgID, nil
+	}
+	return "", errors.New("helix-org scope missing — request did not pass through /orgs/{org}/helix-org middleware")
+}
 
 // Dispatcher is the dispatcher port the publish handler invokes when
 // a client posts an event into a stream. Defined here (rather than
@@ -134,12 +145,17 @@ type apiHandler struct {
 // @Router /api/v1/org/chart [get]
 func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	positions, err := a.deps.Store.Positions.List(ctx)
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	positions, err := a.deps.Store.Positions.List(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list positions: %w", err))
 		return
 	}
-	workers, err := a.deps.Store.Workers.List(ctx)
+	workers, err := a.deps.Store.Workers.List(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
@@ -222,7 +238,12 @@ func buildChart(positions []domain.Position, workers []domain.Worker) Chart {
 // @Security ApiKeyAuth
 // @Router /api/v1/org/positions [get]
 func (a *apiHandler) listPositions(w http.ResponseWriter, r *http.Request) {
-	positions, err := a.deps.Store.Positions.List(r.Context())
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	positions, err := a.deps.Store.Positions.List(r.Context(), orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list positions: %w", err))
 		return
@@ -251,7 +272,12 @@ func positionDTO(p domain.Position) PositionDTO {
 // @Security ApiKeyAuth
 // @Router /api/v1/org/roles [get]
 func (a *apiHandler) listRoles(w http.ResponseWriter, r *http.Request) {
-	roles, err := a.deps.Store.Roles.List(r.Context())
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	roles, err := a.deps.Store.Roles.List(r.Context(), orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list roles: %w", err))
 		return
@@ -289,7 +315,12 @@ func roleDTO(r role.Role) RoleDTO {
 // @Security ApiKeyAuth
 // @Router /api/v1/org/workers [get]
 func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
-	workers, err := a.deps.Store.Workers.List(r.Context())
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	workers, err := a.deps.Store.Workers.List(r.Context(), orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
@@ -323,6 +354,11 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	var req HireWorkerRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -341,7 +377,7 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner, err := a.deps.Store.Workers.Get(ctx, worker.ID(a.deps.Owner))
+	owner, err := a.deps.Store.Workers.Get(ctx, orgID, worker.ID(a.deps.Owner))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("load owner %s: %w", a.deps.Owner, err))
 		return
@@ -408,12 +444,17 @@ func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, errors.New("fire is not wired in this deployment"))
 		return
 	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	id := worker.ID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	switch err := a.deps.Lifecycle.Fire(r.Context(), id); {
+	switch err := a.deps.Lifecycle.Fire(r.Context(), orgID, id); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, lifecycle.ErrOwnerProtected):
@@ -448,17 +489,22 @@ func workerDTO(wk domain.Worker, tools []string) WorkerDTO {
 // @Router /api/v1/org/workers/{id} [get]
 func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	id := worker.ID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	wk, err := a.deps.Store.Workers.Get(ctx, id)
+	wk, err := a.deps.Store.Workers.Get(ctx, orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
-	grants, err := a.deps.Store.Grants.ListByWorker(ctx, id)
+	grants, err := a.deps.Store.Grants.ListByWorker(ctx, orgID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list grants: %w", err))
 		return
@@ -471,11 +517,11 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 
 	detail := WorkerDetailDTO{Worker: workerDTO(wk, tools)}
 	if pid := wk.Position(); pid != "" {
-		pos, err := a.deps.Store.Positions.Get(ctx, pid)
+		pos, err := a.deps.Store.Positions.Get(ctx, orgID, pid)
 		if err == nil {
 			pd := positionDTO(pos)
 			detail.Position = &pd
-			ro, err := a.deps.Store.Roles.Get(ctx, pos.RoleID)
+			ro, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID)
 			if err == nil {
 				rd := roleDTO(ro)
 				detail.Role = &rd
@@ -500,6 +546,11 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/org/workers/{id}/identity [post]
 func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	id := worker.ID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
@@ -510,7 +561,7 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	existing, err := a.deps.Store.Workers.Get(ctx, id)
+	existing, err := a.deps.Store.Workers.Get(ctx, orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
@@ -542,6 +593,11 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 // @Router /api/v1/org/workers/{id}/role [post]
 func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	id := worker.ID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
@@ -552,7 +608,7 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	wk, err := a.deps.Store.Workers.Get(ctx, id)
+	wk, err := a.deps.Store.Workers.Get(ctx, orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
@@ -562,12 +618,12 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("worker has no position"))
 		return
 	}
-	pos, err := a.deps.Store.Positions.Get(ctx, pid)
+	pos, err := a.deps.Store.Positions.Get(ctx, orgID, pid)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get position %s: %w", pid, err))
 		return
 	}
-	existing, err := a.deps.Store.Roles.Get(ctx, pos.RoleID)
+	existing, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get role %s: %w", pos.RoleID, err))
 		return
@@ -592,6 +648,11 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/org/settings [get]
 func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	resp := SettingsResponse{
 		Owner:     a.deps.Owner,
 		PublicURL: a.deps.PublicURL,
@@ -602,7 +663,7 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 		specs := a.deps.Configs.Specs()
 		resp.Specs = make([]SettingsSpecDTO, 0, len(specs))
 		for _, sp := range specs {
-			resp.Specs = append(resp.Specs, settingsSpecDTO(ctx, a.deps.Configs, a.deps.Store, sp))
+			resp.Specs = append(resp.Specs, settingsSpecDTO(ctx, orgID, a.deps.Configs, a.deps.Store, sp))
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -611,7 +672,7 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 // settingsSpecDTO resolves the current redacted value + the
 // "configured" bool surfaced on each settings row. Lives outside the
 // handler so a future "GET /settings/{key}" can reuse it.
-func settingsSpecDTO(ctx context.Context, reg *config.Registry, st *store.Store, sp config.Spec) SettingsSpecDTO {
+func settingsSpecDTO(ctx context.Context, orgID string, reg *config.Registry, st *store.Store, sp config.Spec) SettingsSpecDTO {
 	row := SettingsSpecDTO{
 		Key:         sp.Key,
 		Type:        string(sp.Type),
@@ -621,13 +682,13 @@ func settingsSpecDTO(ctx context.Context, reg *config.Registry, st *store.Store,
 	// "Configured" means the configs row exists (not "has a value via
 	// default").
 	if st != nil && st.Configs != nil {
-		if _, err := st.Configs.Get(ctx, sp.Key); err == nil {
+		if _, err := st.Configs.Get(ctx, orgID, sp.Key); err == nil {
 			row.Configured = true
 		}
 	}
 	// GetRedacted falls back to the default when no row is set; an
 	// error means "not configured and no default" — render empty.
-	if v, err := reg.GetRedacted(ctx, sp.Key); err == nil {
+	if v, err := reg.GetRedacted(ctx, orgID, sp.Key); err == nil {
 		row.Value = v
 	}
 	return row
@@ -645,6 +706,11 @@ func settingsSpecDTO(ctx context.Context, reg *config.Registry, st *store.Store,
 // @Security ApiKeyAuth
 // @Router /api/v1/org/settings/{key} [put]
 func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	key := strings.TrimSpace(r.PathValue("key"))
 	if key == "" {
 		writeError(w, http.StatusBadRequest, errors.New("key is required"))
@@ -655,7 +721,7 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := a.deps.Configs.Set(r.Context(), key, req.Value, worker.ID(a.deps.Owner)); err != nil {
+	if err := a.deps.Configs.Set(r.Context(), orgID, key, req.Value, worker.ID(a.deps.Owner)); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -672,12 +738,17 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 // @Security ApiKeyAuth
 // @Router /api/v1/org/settings/{key} [delete]
 func (a *apiHandler) deleteSetting(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	key := strings.TrimSpace(r.PathValue("key"))
 	if key == "" {
 		writeError(w, http.StatusBadRequest, errors.New("key is required"))
 		return
 	}
-	if err := a.deps.Configs.Delete(r.Context(), key); err != nil {
+	if err := a.deps.Configs.Delete(r.Context(), orgID, key); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -696,7 +767,12 @@ func (a *apiHandler) deleteSetting(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/org/streams [get]
 func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	streams, err := a.deps.Store.Streams.List(ctx)
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	streams, err := a.deps.Store.Streams.List(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list streams: %w", err))
 		return
@@ -717,7 +793,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		if !dto.CanPublish {
 			dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
 		}
-		subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, s.ID)
+		subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("list subscriptions for %s: %w", s.ID, err))
 			return
@@ -725,7 +801,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		for _, sub := range subs {
 			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
-		events, err := a.deps.Store.Events.ListForStream(ctx, s.ID, 50)
+		events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("list events for %s: %w", s.ID, err))
 			return
@@ -736,7 +812,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		resp.Streams = append(resp.Streams, dto)
 	}
 
-	recent, err := a.deps.Store.Events.ListAll(ctx, 50)
+	recent, err := a.deps.Store.Events.ListAll(ctx, orgID, 50)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list all events: %w", err))
 		return
@@ -783,6 +859,11 @@ func eventCard(ev domain.Event) EventCard {
 // @Security ApiKeyAuth
 // @Router /api/v1/org/streams/{id}/events [get]
 func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
@@ -808,7 +889,7 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	emit := func() error {
-		events, err := a.deps.Store.Events.ListForStream(r.Context(), stream.ID(streamID), 50)
+		events, err := a.deps.Store.Events.ListForStream(r.Context(), orgID, stream.ID(streamID), 50)
 		if err != nil {
 			return err
 		}
@@ -866,6 +947,11 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/org/streams/{id}/publish [post]
 func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	streamID := stream.ID(r.PathValue("id"))
 	if streamID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
@@ -884,7 +970,7 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("body is required"))
 		return
 	}
-	st, err := a.deps.Store.Streams.Get(ctx, streamID)
+	st, err := a.deps.Store.Streams.Get(ctx, orgID, streamID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
 		return
@@ -906,6 +992,7 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		owner,
 		msg,
 		a.deps.Now(),
+		orgID,
 	)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)

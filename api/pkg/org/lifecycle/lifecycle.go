@@ -66,7 +66,7 @@ var ErrOwnerProtected = errors.New("cannot fire the owner worker")
 // visible source of truth).
 //
 // Activations are intentionally left behind as an audit trail.
-func (s *Service) Fire(ctx context.Context, id worker.ID) error {
+func (s *Service) Fire(ctx context.Context, orgID string, id worker.ID) error {
 	if id == "" {
 		return errors.New("worker id is empty")
 	}
@@ -76,11 +76,11 @@ func (s *Service) Fire(ctx context.Context, id worker.ID) error {
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
 	}
-	if _, err := s.Store.Workers.Get(ctx, id); err != nil {
+	if _, err := s.Store.Workers.Get(ctx, orgID, id); err != nil {
 		return fmt.Errorf("get worker %q: %w", id, err)
 	}
 
-	state, _ := helix.LoadState(ctx, s.Store, id)
+	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
 
 	if s.Helix != nil && state.ProjectID != "" {
 		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {
@@ -93,14 +93,14 @@ func (s *Service) Fire(ctx context.Context, id worker.ID) error {
 		}
 	}
 	if s.Store.WorkerRuntimeState != nil {
-		if err := s.Store.WorkerRuntimeState.Clear(ctx, id, helix.Backend); err != nil {
+		if err := s.Store.WorkerRuntimeState.Clear(ctx, orgID, id, helix.Backend); err != nil {
 			s.logger().Warn("fire: clear runtime state", "worker", id, "err", err)
 		}
 	}
 
-	if subs, err := s.Store.Subscriptions.ListForWorker(ctx, id); err == nil {
+	if subs, err := s.Store.Subscriptions.ListForWorker(ctx, orgID, id); err == nil {
 		for _, sub := range subs {
-			if err := s.Store.Subscriptions.Delete(ctx, id, sub.StreamID); err != nil {
+			if err := s.Store.Subscriptions.Delete(ctx, orgID, id, sub.StreamID); err != nil {
 				s.logger().Warn("fire: delete subscription", "worker", id, "stream", sub.StreamID, "err", err)
 			}
 		}
@@ -108,9 +108,9 @@ func (s *Service) Fire(ctx context.Context, id worker.ID) error {
 		s.logger().Warn("fire: list subscriptions", "worker", id, "err", err)
 	}
 
-	if grants, err := s.Store.Grants.ListByWorker(ctx, id); err == nil {
+	if grants, err := s.Store.Grants.ListByWorker(ctx, orgID, id); err == nil {
 		for _, g := range grants {
-			if err := s.Store.Grants.Delete(ctx, g.ID); err != nil {
+			if err := s.Store.Grants.Delete(ctx, orgID, g.ID); err != nil {
 				s.logger().Warn("fire: delete grant", "worker", id, "grant", g.ID, "err", err)
 			}
 		}
@@ -118,18 +118,18 @@ func (s *Service) Fire(ctx context.Context, id worker.ID) error {
 		s.logger().Warn("fire: list grants", "worker", id, "err", err)
 	}
 
-	if env, err := s.Store.Environments.Get(ctx, id); err == nil {
+	if env, err := s.Store.Environments.Get(ctx, orgID, id); err == nil {
 		if env.Path != "" {
 			if rmErr := os.RemoveAll(env.Path); rmErr != nil {
 				s.logger().Warn("fire: remove env dir", "worker", id, "path", env.Path, "err", rmErr)
 			}
 		}
 	}
-	if err := s.Store.Environments.Delete(ctx, id); err != nil {
+	if err := s.Store.Environments.Delete(ctx, orgID, id); err != nil {
 		s.logger().Warn("fire: delete environment row", "worker", id, "err", err)
 	}
 
-	if err := s.Store.Workers.Delete(ctx, id); err != nil {
+	if err := s.Store.Workers.Delete(ctx, orgID, id); err != nil {
 		return fmt.Errorf("delete worker row %q: %w", id, err)
 	}
 	return nil

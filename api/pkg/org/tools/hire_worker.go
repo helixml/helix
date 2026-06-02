@@ -222,7 +222,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	// (claude / dev / test) can no-op without hire_worker knowing
 	// anything about helix-runtime internals.
 	if uid := runtimehelix.UserIDFromContext(ctx); uid != "" && t.deps.HireHook != nil {
-		if err := t.deps.HireHook.OnHire(ctx, id, uid); err != nil {
+		if err := t.deps.HireHook.OnHire(ctx, orgID, id, uid); err != nil {
 			return nil, fmt.Errorf("hire handler: %w", err)
 		}
 	}
@@ -250,7 +250,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	}
 
 	if args.Kind == worker.KindAI && t.deps.Dispatcher != nil {
-		t.deps.Dispatcher.DispatchHire(ctx, id, envPath, hireActID)
+		t.deps.Dispatcher.DispatchHire(ctx, orgID, id, envPath, hireActID)
 	}
 
 	resp := map[string]string{"id": string(id)}

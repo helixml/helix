@@ -782,19 +782,28 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
-			authRouter.PathPrefix("/org/").Handler(
+			// /api/v1/orgs/{org}/helix-org/* — per-tenant surface.
+			// withHelixOrgScope resolves {org} (slug or org_id) to a
+			// canonical orgID, authorises org-membership, bootstraps
+			// the tenant on first request, and stashes orgID on ctx
+			// so downstream handlers and the store layer scope to it.
+			orgScopedPrefix := APIPrefix + "/orgs/"
+			orgPathRegexp := "{org}"
+			authRouter.PathPrefix(orgScopedPrefix + orgPathRegexp + "/helix-org/").Handler(
 				requireFeature(alphaFeatureHelixOrg)(
-					http.StripPrefix(APIPrefix+"/org", orgHandlers.api),
+					apiServer.withHelixOrgScope(orgHandlers.scope,
+						stripOrgScopedPrefix(orgScopedPrefix, "/helix-org", orgHandlers.api),
+					),
 				),
 			)
 
 			// Expose helix-org's owner MCP through the standard Helix MCP
-			// gateway so picked agents can call it without us having to bake
-			// the agent owner's api_key into the agent's app config. The
-			// gateway already auth-checks the api_key via authRouter; the
-			// backend re-checks the alpha-feature flag for defence in depth.
-			// Route: /api/v1/mcp/helix-org/...
-			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(orgHandlers.api))
+			// gateway. Backend identifies tenants by URL prefix
+			// (/api/v1/mcp/helix-org/{org}/...) — the gateway already
+			// auth-checks the api_key via authRouter; the per-org
+			// backend layer resolves orgID from the request before
+			// dispatching to the handler.
+			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(apiServer, orgHandlers))
 		}
 	}
 

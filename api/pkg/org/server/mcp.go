@@ -73,13 +73,18 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 	}
 
 	ctx := r.Context()
-	worker, err := s.store.Workers.Get(ctx, workerID)
+	orgID := OrgIDFromContext(ctx)
+	if orgID == "" {
+		s.logger.Info("mcp.missing_org_scope", "worker", workerID)
+		return nil
+	}
+	worker, err := s.store.Workers.Get(ctx, orgID, workerID)
 	if err != nil {
 		s.logger.Info("mcp.unknown_worker", "worker", workerID, "err", err.Error())
 		return nil
 	}
 
-	grants, err := s.store.Grants.ListByWorker(ctx, workerID)
+	grants, err := s.store.Grants.ListByWorker(ctx, orgID, workerID)
 	if err != nil {
 		s.logger.Info("mcp.grants_lookup_failed", "worker", workerID, "err", err.Error())
 		return nil

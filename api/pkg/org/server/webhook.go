@@ -41,8 +41,19 @@ func (s *Server) webhookHandler() http.Handler {
 			http.Error(w, "missing streamID", http.StatusNotFound)
 			return
 		}
+		// Webhook URL shape: /webhooks/{org}/{streamID}. The org segment
+		// is required under composite (id, org_id) PKs — stream IDs are
+		// not globally unique across helix tenants.
+		orgID := r.PathValue("org")
+		if orgID == "" {
+			orgID = OrgIDFromContext(r.Context())
+		}
+		if orgID == "" {
+			http.Error(w, "missing org", http.StatusNotFound)
+			return
+		}
 
-		stream, err := s.store.Streams.Get(r.Context(), streamID)
+		stream, err := s.store.Streams.Get(r.Context(), orgID, streamID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				http.Error(w, fmt.Sprintf("stream %q: not found", streamID), http.StatusNotFound)
@@ -77,6 +88,7 @@ func (s *Server) webhookHandler() http.Handler {
 			"", // system-emitted; webhooks have no Worker source
 			message.Message{Body: string(body)},
 			nowUTC(),
+			orgID,
 		)
 		if err != nil {
 			http.Error(w, "build event: "+err.Error(), http.StatusBadRequest)

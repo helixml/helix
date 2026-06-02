@@ -22,8 +22,8 @@ type Hire struct {
 
 // OnHire persists hiringUserID via SaveHiringUser. Empty userID is a
 // no-op (preserves SaveHiringUser's existing contract).
-func (h *Hire) OnHire(ctx context.Context, workerID worker.ID, hiringUserID string) error {
-	return SaveHiringUser(ctx, h.Store, workerID, hiringUserID)
+func (h *Hire) OnHire(ctx context.Context, orgID string, workerID worker.ID, hiringUserID string) error {
+	return SaveHiringUser(ctx, h.Store, orgID, workerID, hiringUserID)
 }
 
 // Compile-time check that Hire satisfies the port.
