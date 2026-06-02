@@ -44,17 +44,18 @@ URL slug `?tab=skills` is **not** changed in Phase A — it's purely internal an
 
 ### Verification (Phase A)
 
-- [ ] Type-check / lint the frontend (`pnpm tsc` or equivalent) — no new errors.
-- [ ] Start the frontend dev server. Open **Project Settings**; confirm the tab now reads "MCPs & APIs" and the info notice shows above the editor body.
-- [ ] Open an **Agent (App)**; confirm the same tab name and notice.
-- [ ] Visit a URL with the old slug `?tab=skills`; confirm the URL auto-rewrites to `?tab=mcps-and-apis`.
-- [ ] Take before/after screenshots and commit them under `design/tasks/002066_the-skills-mcp-and-apis/screenshots/`.
+- [x] Frontend builds cleanly inside `helix-frontend-1` container (`yarn build`).
+- [x] Browser check: Project Settings → MCPs & APIs tab renders the new heading, description, search placeholder and the info notice (`screenshots/01-project-settings-mcps-apis-tab.png`).
+- [x] Browser check: Agents table column is "MCPs & APIs" (`screenshots/02-agents-table-column.png`).
+- [x] Browser check: Agent Settings → MCPs & APIs tab renders the new heading and notice (`screenshots/03-agent-settings-mcps-apis-tab.png`).
+- [x] No browser console errors.
+- [ ] Slug-redirect check skipped — the slug `?tab=skills` was deliberately *not* changed in Phase A. (Internal; users won't notice.)
 
 ### Ship Phase A
 
-- [ ] Write PR descriptions (`pull_request_helix.md`, `pull_request_helix-next.md` if applicable).
-- [ ] Merge origin/main into the feature branch.
-- [ ] Push `feature/002066-rename-skills-mcps-apis`.
+- [x] Write PR description (`pull_request_helix.md`). No other repos touched in Phase A, so no other PR descs.
+- [~] Merge origin/main into the feature branch.
+- [~] Push `feature/002066-rename-skills-mcps-apis`.
 - [ ] Tell user: Phase A shipped; ask whether to proceed with B/C in this session or as a follow-up.
 
 ---
