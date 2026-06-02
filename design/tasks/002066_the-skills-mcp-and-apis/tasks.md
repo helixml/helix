@@ -16,20 +16,31 @@ After Phase A is shipped, we'll check in with the user before starting Phase B/C
 
 ### Frontend: UI text
 
-- [~] Find all user-visible occurrences of "Skill" / "Skills" in the frontend.
-- [ ] Update tab labels in `ProjectSettings.tsx` and `App.tsx` from "Skills" → "MCPs & APIs".
-- [ ] Update sidebar label in `AppSidebar.tsx`.
-- [ ] Update headings, dialog titles, button text, empty-state copy, tooltips inside `Skills.tsx` and its child components.
+- [x] Find all user-visible occurrences of "Skill" / "Skills" in the frontend.
+- [x] Update sidebar label in `AppSidebar.tsx` ("Skills" → "MCPs & APIs").
+- [x] Update sidebar label in `ProjectSettingsSidebar.tsx`.
+- [x] Update project-settings tab heading + description in `ProjectSettings.tsx`.
+- [x] Update column header "Skills" → "MCPs & APIs" in `AppsTable.tsx`.
+- [x] Update agent-settings heading inside `Skills.tsx` ("💡 Skills" → "💡 MCPs & APIs") and the description paragraph below it.
+- [x] Update search placeholder ("Search skills..." → "Search MCPs and APIs...").
+- [x] Update "Add MCP Skill" button → "Add MCP".
+
+Deferred to Phase B (deeper internal-ish strings):
+- [ ] "Disable Skill" / "this skill" copy in the disable-confirmation dialog inside `Skills.tsx`.
+- [ ] "OAuth Provider Required" dialog copy ("This skill requires…").
+- [ ] `SkillConfigurationStep.tsx` wizard strings ("Configure: …", "this skill", "this skill requires …").
+- [ ] `LLMCallTimelineChart.tsx` "Skill execution:" label.
+- [ ] `AddApiSkillDialog.tsx` "Skill System Prompt" field label.
+- [ ] `EvaluationTab.tsx` "Skill Used" / "Skill name" labels (these may genuinely refer to the concept; review semantics in Phase B).
 
 ### Session-restart notice
 
-- [ ] In `frontend/src/components/app/Skills.tsx`, add an `<Alert severity="info">` at the top of the rendered output with wording: *"Changes to MCPs and APIs take effect in new sessions. Restart any active session to pick up updates."*
-- [ ] Confirm `Alert` is imported from `@mui/material` (add if missing).
+- [x] In `frontend/src/components/app/Skills.tsx`, add an `<Alert severity="info">` at the top of the rendered output with wording: *"Changes to MCPs and APIs take effect in new sessions. Restart any active session to pick up updates."*
+- [x] `Alert` was already imported from `@mui/material`.
 
 ### Frontend: routing compat
 
-- [ ] Where the `tab` query param is read, accept both `skills` (legacy) and `mcps-and-apis` (new). If legacy is seen, redirect via `router.replace()` to the new slug.
-- [ ] Update internal links that write `?tab=skills` → `?tab=mcps-and-apis`.
+URL slug `?tab=skills` is **not** changed in Phase A — it's purely internal and changing it requires touching a typed union plus all read/write sites. Users won't notice. Deferred to Phase B.
 
 ### Verification (Phase A)
 
