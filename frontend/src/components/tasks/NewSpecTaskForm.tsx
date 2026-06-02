@@ -28,6 +28,7 @@ import {
 import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
 import { ChevronDown, UserCircle2, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
+import GooseRecipeSelector from "./GooseRecipeSelector";
 import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
@@ -135,6 +136,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     string[]
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
+  // Goose recipe selection — only meaningful when the selected agent's runtime
+  // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
+  // backend skips baking and the agent's declared recipes are still available
+  // as runtime /<name> slash commands inside the desktop.
+  const [selectedRecipeName, setSelectedRecipeName] = useState<string>("");
+  const [recipeParams, setRecipeParams] = useState<Record<string, string>>({});
   const [justDoItMode, setJustDoItMode] = useState<boolean>(() => {
     try {
       return JSON.parse(localStorage.getItem(LAST_JUST_DO_IT_KEY) || "false");
@@ -312,6 +319,28 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
+  // Determine whether the selected agent is a goose_code agent. We check
+  // the zed_external assistant's code_agent_runtime — without this gate the
+  // recipe selector would render for non-goose agents and just show "no
+  // recipes" forever, which is noisy.
+  const selectedAgentIsGoose = useMemo(() => {
+    if (!selectedHelixAgent || !apps.apps) return false;
+    const app = apps.apps.find((a) => a.id === selectedHelixAgent);
+    if (!app) return false;
+    const assistant = app.config?.helix?.assistants?.find(
+      (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
+    );
+    return assistant?.code_agent_runtime === "goose_code";
+  }, [selectedHelixAgent, apps.apps]);
+
+  // Reset recipe selection when the chosen agent changes — recipe names are
+  // scoped to the agent, so a leftover selection from a previous agent would
+  // be silently ignored at session start.
+  useEffect(() => {
+    setSelectedRecipeName("");
+    setRecipeParams({});
+  }, [selectedHelixAgent]);
+
   // Load apps on mount
   useEffect(() => {
     if (account.user?.id) {
@@ -376,6 +405,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
+    setSelectedRecipeName("");
+    setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
     // task via localStorage (see handleJustDoItChange / handleAutoStartChange)
     setBranchMode(TypesBranchMode.BranchModeNew);
@@ -443,6 +474,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         working_branch:
           branchMode === TypesBranchMode.BranchModeExisting
             ? workingBranch
+            : undefined,
+        goose_recipe_name: selectedRecipeName || undefined,
+        goose_recipe_params:
+          selectedRecipeName && Object.keys(recipeParams).length > 0
+            ? recipeParams
             : undefined,
       };
 
@@ -1073,6 +1109,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   onChange={setSelectedHelixAgent}
                   agents={sortedApps}
                 />
+                {selectedAgentIsGoose && (
+                  <GooseRecipeSelector
+                    projectId={projectId}
+                    selectedRecipeName={selectedRecipeName}
+                    onSelectedRecipeNameChange={setSelectedRecipeName}
+                    params={recipeParams}
+                    onParamsChange={setRecipeParams}
+                    pendingAttachments={pendingAttachments}
+                  />
+                )}
                 <Button
                   size="small"
                   onClick={() => setShowCreateAgentForm(true)}

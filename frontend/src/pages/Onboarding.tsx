@@ -367,11 +367,23 @@ export default function Onboarding() {
     if (!serverConfig?.billing_enabled) {
       steps = steps.filter((step) => step.type !== "subscription");
     }
-    if (serverConfig?.has_providers) {
+    // Skip the provider step when admin-configured global providers already
+    // cover the user's needs (typical on self-hosted). On cloud we keep it
+    // visible regardless so new signups still see the BYO Claude prompt at
+    // the top of the step, even though SaaS has env-baked Anthropic/OpenAI
+    // keys that would otherwise satisfy has_providers.
+    if (
+      serverConfig?.has_providers &&
+      serverConfig?.edition !== "cloud"
+    ) {
       steps = steps.filter((step) => step.type !== "provider");
     }
     return steps;
-  }, [serverConfig?.billing_enabled, serverConfig?.has_providers]);
+  }, [
+    serverConfig?.billing_enabled,
+    serverConfig?.has_providers,
+    serverConfig?.edition,
+  ]);
 
   // Helper to get step index by type (in the visible steps array)
   const getStepIndexByType = useCallback(
@@ -1447,22 +1459,53 @@ export default function Onboarding() {
                     <AnthropicLogo style={{ width: 24, height: 24 }} />
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography
+                    <Box
                       sx={{
-                        color: palette.TEXT_PRIMARY,
-                        fontWeight: 500,
-                        fontSize: "0.78rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
                       }}
                     >
-                      Claude Subscription
-                    </Typography>
+                      <Typography
+                        sx={{
+                          color: palette.TEXT_PRIMARY,
+                          fontWeight: 500,
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        Claude Subscription
+                      </Typography>
+                      {!hasClaudeSubscription && (
+                        <Box
+                          component="span"
+                          sx={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            fontSize: "0.62rem",
+                            fontWeight: 600,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            color: ACCENT,
+                            bgcolor: ACCENT_DIM,
+                            border: `1px solid ${ACCENT}`,
+                            borderRadius: 999,
+                            px: 0.75,
+                            py: 0.1,
+                          }}
+                        >
+                          Recommended
+                        </Box>
+                      )}
+                    </Box>
                     <Typography
                       sx={{
                         color: palette.TEXT_FADED,
                         fontSize: "0.7rem",
                       }}
                     >
-                      Use your Claude account with Claude Code in desktop agents
+                      {serverConfig?.edition === "cloud"
+                        ? "Connect your Claude Pro or Max account to use Helix with your existing subscription, no Helix credits needed."
+                        : "Connect your Claude Pro or Max account to use Helix with your existing Claude subscription."}
                     </Typography>
                   </Box>
                   {createdOrg && (

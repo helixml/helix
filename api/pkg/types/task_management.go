@@ -155,6 +155,14 @@ const (
 	// Requires Codex CLI to be installed in the container.
 	// Zed agent name: "codex"
 	CodeAgentRuntimeCodexCLI CodeAgentRuntime = "codex_cli"
+
+	// CodeAgentRuntimeGooseCode uses the goose CLI as a custom agent_server.
+	// Requires the goose binary to be installed in the container (see
+	// Dockerfile.ubuntu-helix's goose-build stage). The LLM is configured
+	// via GOOSE_PROVIDER, GOOSE_MODEL, and provider-specific *_API_KEY /
+	// *_BASE_URL env vars passed to the goose command.
+	// Zed agent name: "goose"
+	CodeAgentRuntimeGooseCode CodeAgentRuntime = "goose_code"
 )
 
 // CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.

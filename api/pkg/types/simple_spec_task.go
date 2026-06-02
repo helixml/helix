@@ -100,6 +100,14 @@ type CreateTaskRequest struct {
 	BranchPrefix  string     `json:"branch_prefix,omitempty"`  // For new mode: user-specified prefix (task# appended)
 	WorkingBranch string     `json:"working_branch,omitempty"` // For existing mode: branch to continue working on
 
+	// Goose recipe selection (only meaningful when the chosen agent's runtime
+	// is goose_code). GooseRecipeName must match one of the agent's declared
+	// recipes; GooseRecipeParams are substituted into the recipe at session
+	// start. Recipes declared on the agent but not selected here are still
+	// available as runtime slash-commands inside the desktop.
+	GooseRecipeName   string            `json:"goose_recipe_name,omitempty"`
+	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty"`
+
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
 
@@ -211,6 +219,16 @@ type SpecTask struct {
 
 	// Keep alive — prevent auto-idle-shutdown of desktop container
 	KeepAlive bool `json:"keep_alive" gorm:"default:false"`
+
+	// Goose recipe binding (Phase 2b). When the parent project's agent uses
+	// the goose_code runtime and the user picked a recipe at task-creation
+	// time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+	// GooseRecipeParams holds the parameter values to substitute. The Helix
+	// API bakes these into a CodeAgentBakedRecipe and pushes it to the
+	// settings-sync-daemon, which writes a single slash_command pointing at
+	// the substituted recipe YAML. Empty when no recipe was selected.
+	GooseRecipeName   string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
+	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from

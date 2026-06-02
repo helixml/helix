@@ -871,10 +871,11 @@ type StripeUser struct {
 
 // this is given to the frontend as user context
 type UserStatus struct {
-	Admin  bool       `json:"admin"`
-	User   string     `json:"user"`
-	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
-	Config UserConfig `json:"config"`
+	Admin   bool                 `json:"admin"`
+	User    string               `json:"user"`
+	Slug    string               `json:"slug"` // User slug for GitHub-style URLs
+	Config  UserConfig           `json:"config"`
+	License *FrontendLicenseInfo `json:"license,omitempty"`
 }
 
 // a single envelope that is broadcast to users
@@ -1049,7 +1050,6 @@ type ServerConfigForFrontend struct {
 	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
-	EvalUserID                             string               `json:"eval_user_id"`
 	ToolsEnabled                           bool                 `json:"tools_enabled"`
 	AppsEnabled                            bool                 `json:"apps_enabled"`
 	RudderStackWriteKey                    string               `json:"rudderstack_write_key"`
@@ -1058,7 +1058,6 @@ type ServerConfigForFrontend struct {
 	Version                                string               `json:"version"`
 	LatestVersion                          string               `json:"latest_version"`
 	DeploymentID                           string               `json:"deployment_id"`
-	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
@@ -1066,8 +1065,7 @@ type ServerConfigForFrontend struct {
 	// organisation when the session has an org, per user otherwise.
 	// -1 = unlimited. Note: /config is unauthenticated, so this is the
 	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
-	MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
-	ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
+	MaxConcurrentDesktops int                  `json:"max_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
@@ -1494,6 +1492,16 @@ type AssistantConfig struct {
 	// "subscription": uses OAuth credentials directly (e.g., Claude subscription).
 	CodeAgentCredentialType CodeAgentCredentialType `json:"code_agent_credential_type,omitempty" yaml:"code_agent_credential_type,omitempty"`
 
+	// GooseRecipeRepoURL is the external git URL of the attached repository
+	// that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+	// Resolved against attached GitRepositories at sandbox-start time.
+	// Empty means recipes are looked up under the primary repository.
+	GooseRecipeRepoURL string `json:"goose_recipe_repo_url,omitempty" yaml:"goose_recipe_repo_url,omitempty"`
+
+	// GooseRecipes are the project-declared Goose recipes (slash-command name
+	// + repo-relative path to the recipe YAML).
+	GooseRecipes []AssistantGooseRecipe `json:"goose_recipes,omitempty" yaml:"goose_recipes,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
@@ -1565,6 +1573,14 @@ type AssistantConfig struct {
 type AssistantProjectManager struct {
 	Enabled   bool   `json:"enabled" yaml:"enabled"`
 	ProjectID string `json:"project_id" yaml:"project_id"`
+}
+
+// AssistantGooseRecipe is a project-declared Goose recipe persisted on the
+// agent app config. Path is repo-relative inside GooseRecipeRepoURL (or the
+// primary repo when GooseRecipeRepoURL is empty).
+type AssistantGooseRecipe struct {
+	Name string `json:"name" yaml:"name"`
+	Path string `json:"path" yaml:"path"`
 }
 
 type AssistantBrowser struct {
@@ -2217,6 +2233,37 @@ type CodeAgentConfig struct {
 	// MaxOutputTokens is the model's max completion tokens
 	// Looked up from model_info.json, 0 if not found
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+
+	// GooseRecipes lists project-declared Goose recipes with absolute paths
+	// resolved inside the desktop container. Only set when Runtime is
+	// goose_code; consumed by settings-sync-daemon to write the goose
+	// slash_commands config.
+	GooseRecipes []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
+	// GooseRecipeRootDir is the absolute container path to the root of the
+	// recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+	// resolve relative paths correctly).
+	GooseRecipeRootDir string `json:"goose_recipe_root_dir,omitempty"`
+	// GooseBakedRecipe, when set, holds a single recipe with parameters
+	// pre-substituted, used by Phase 2b spec-task automation. The daemon
+	// writes it to disk and registers a single slash_command so an initial
+	// "/<slug>" prompt fires the recipe.
+	GooseBakedRecipe *CodeAgentBakedRecipe `json:"goose_baked_recipe,omitempty"`
+}
+
+// CodeAgentGooseRecipe is the daemon-facing view of a project-declared
+// Goose recipe — Path has been resolved to an absolute container path.
+type CodeAgentGooseRecipe struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// CodeAgentBakedRecipe is a single Goose recipe with parameters
+// pre-substituted, ready for the daemon to write to disk.
+type CodeAgentBakedRecipe struct {
+	// Name is the slash-command slug (no leading slash).
+	Name string `json:"name"`
+	// Content is the substituted recipe YAML (full file content).
+	Content string `json:"content"`
 }
 
 type RunnerLLMInferenceRequest struct {

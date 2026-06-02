@@ -28,9 +28,6 @@ const (
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
-// ProjectSecretsGetter is a function that retrieves project secrets as environment variables
-type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
-
 // DesktopExecFunc executes a command inside a running desktop container via RevDial.
 type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
 
@@ -57,7 +54,6 @@ type SpecDrivenTaskService struct {
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
 	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
-	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
 	ReadAttachmentBlob       AttachmentBlobReader      // Callback to load attachment bytes from filestore
 	wg                       sync.WaitGroup
@@ -208,6 +204,10 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
 		BranchPrefix: req.BranchPrefix,  // User-specified prefix for new branches
 		BranchName:   req.WorkingBranch, // For existing mode, this is the branch to continue on
+		// Goose recipe selection — bakes parameter values into the agent's
+		// recipe at session start. Skipped silently if the agent isn't goose.
+		GooseRecipeName:   req.GooseRecipeName,
+		GooseRecipeParams: req.GooseRecipeParams,
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -581,19 +581,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
-	// Build env vars (locale + project secrets, API key added in OnBeforeCreate hook)
+	// Build env vars (locale; API key added in OnBeforeCreate hook,
+	// project secrets injected by HydraExecutor.StartDesktop)
 	envVars := buildEnvWithLocale("", task.PlanningOptions)
-
-	// Inject project secrets as environment variables
-	if s.GetProjectSecrets != nil && task.ProjectID != "" {
-		projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets, continuing without them")
-		} else if len(projectSecrets) > 0 {
-			envVars = append(envVars, projectSecrets...)
-			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Injected project secrets into desktop env")
-		}
-	}
 
 	// Inject startup script from project YAML (stored in database).
 	// helix-workspace-setup.sh uses this as a fallback when no .helix/startup.sh
@@ -1020,19 +1010,8 @@ Follow these guidelines when making changes:
 		}
 	}
 
-	// Build env vars (base + locale + project secrets)
+	// Build env vars (base + locale; project secrets injected by HydraExecutor.StartDesktop)
 	envVarsJDI := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
-
-	// Inject project secrets as environment variables
-	if s.GetProjectSecrets != nil && task.ProjectID != "" {
-		projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets for JDI mode, continuing without them")
-		} else if len(projectSecrets) > 0 {
-			envVarsJDI = append(envVarsJDI, projectSecrets...)
-			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Just Do It: Injected project secrets into desktop env")
-		}
-	}
 
 	// Inject startup script from project YAML (same as planning phase)
 	if project.StartupScriptYAML != "" {

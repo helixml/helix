@@ -850,6 +850,89 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/credits": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Grant credits to a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Credits to grant (must be \u003e 0) and the target org_id (required iff user owns ≥1 orgs)",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.GrantCreditsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.GrantCreditsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/users/{id}/owned-orgs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin \"Grant credits\" dialog to populate its org picker.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "List a user's owned organisations (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.OwnedOrgSummary"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}/password": {
             "put": {
                 "security": [
@@ -921,7 +1004,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.",
+                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).",
                 "consumes": [
                     "application/json"
                 ],
@@ -9946,6 +10029,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/goose-recipes": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the parsed Goose recipes declared on the project's\ndefault agent, including each recipe's parameter schema so\nthe spec-task creation form can render dynamic inputs.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List Goose recipes available to a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.ProjectGooseRecipe"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/guidelines-history": {
             "get": {
                 "security": [
@@ -16787,6 +16928,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per-user status: credits, admin flag, slug, user config, plus the\nlicence payload (moved here from /api/v1/config so it is not\ndisclosed unauthenticated).",
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get user status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserStatus"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/subscription/manage": {
             "post": {
                 "security": [
@@ -18627,6 +18790,129 @@ const docTemplate = `{
                 "RuntimeVLLM"
             ]
         },
+        "github_com_mark3labs_mcp-go_mcp.Icon": {
+            "type": "object",
+            "properties": {
+                "mimeType": {
+                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
+                    "type": "string"
+                },
+                "sizes": {
+                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "src": {
+                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_mark3labs_mcp-go_mcp.Meta": {
+            "type": "object",
+            "properties": {
+                "additionalFields": {
+                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "progressToken": {
+                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
+                }
+            }
+        },
+        "github_com_mark3labs_mcp-go_mcp.Tool": {
+            "type": "object",
+            "properties": {
+                "_meta": {
+                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Meta"
+                        }
+                    ]
+                },
+                "annotations": {
+                    "description": "Optional properties describing tool behavior",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolAnnotation"
+                        }
+                    ]
+                },
+                "defer_loading": {
+                    "description": "Support for deferred loading",
+                    "type": "boolean"
+                },
+                "description": {
+                    "description": "A human-readable description of the tool.",
+                    "type": "string"
+                },
+                "execution": {
+                    "description": "Execution describes execution behavior for the tool",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolExecution"
+                        }
+                    ]
+                },
+                "icons": {
+                    "description": "Icons provides visual identifiers for the tool",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Icon"
+                    }
+                },
+                "inputSchema": {
+                    "description": "A JSON Schema object defining the expected parameters for the tool.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolInputSchema"
+                        }
+                    ]
+                },
+                "name": {
+                    "description": "The name of the tool.",
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "description": "A JSON Schema object defining the expected output returned by the tool .",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolOutputSchema"
+                        }
+                    ]
+                }
+            }
+        },
+        "goose.RecipeParameter": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "input_type": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "requirement": {
+                    "type": "string"
+                }
+            }
+        },
         "gorm.DeletedAt": {
             "type": "object",
             "properties": {
@@ -18685,37 +18971,6 @@ const docTemplate = `{
                 "DevContainerTypeUbuntu",
                 "DevContainerTypeHeadless"
             ]
-        },
-        "hydra.GPUInfo": {
-            "type": "object",
-            "properties": {
-                "index": {
-                    "type": "integer"
-                },
-                "memory_free_bytes": {
-                    "type": "integer"
-                },
-                "memory_total_bytes": {
-                    "type": "integer"
-                },
-                "memory_used_bytes": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "temperature_celsius": {
-                    "type": "integer"
-                },
-                "utilization_percent": {
-                    "description": "GPU core utilization",
-                    "type": "integer"
-                },
-                "vendor": {
-                    "description": "\"nvidia\", \"amd\", \"intel\"",
-                    "type": "string"
-                }
-            }
         },
         "hydra.ListSandboxCommandsResponse": {
             "type": "object",
@@ -18812,39 +19067,6 @@ const docTemplate = `{
                 }
             }
         },
-        "mcp.Icon": {
-            "type": "object",
-            "properties": {
-                "mimeType": {
-                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
-                    "type": "string"
-                },
-                "sizes": {
-                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "src": {
-                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
-                    "type": "string"
-                }
-            }
-        },
-        "mcp.Meta": {
-            "type": "object",
-            "properties": {
-                "additionalFields": {
-                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "progressToken": {
-                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
-                }
-            }
-        },
         "mcp.TaskSupport": {
             "type": "string",
             "enum": [
@@ -18857,70 +19079,6 @@ const docTemplate = `{
                 "TaskSupportOptional",
                 "TaskSupportRequired"
             ]
-        },
-        "mcp.Tool": {
-            "type": "object",
-            "properties": {
-                "_meta": {
-                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.Meta"
-                        }
-                    ]
-                },
-                "annotations": {
-                    "description": "Optional properties describing tool behavior",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolAnnotation"
-                        }
-                    ]
-                },
-                "defer_loading": {
-                    "description": "Support for deferred loading",
-                    "type": "boolean"
-                },
-                "description": {
-                    "description": "A human-readable description of the tool.",
-                    "type": "string"
-                },
-                "execution": {
-                    "description": "Execution describes execution behavior for the tool",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolExecution"
-                        }
-                    ]
-                },
-                "icons": {
-                    "description": "Icons provides visual identifiers for the tool",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/mcp.Icon"
-                    }
-                },
-                "inputSchema": {
-                    "description": "A JSON Schema object defining the expected parameters for the tool.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolInputSchema"
-                        }
-                    ]
-                },
-                "name": {
-                    "description": "The name of the tool.",
-                    "type": "string"
-                },
-                "outputSchema": {
-                    "description": "A JSON Schema object defining the expected output returned by the tool .",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/mcp.ToolOutputSchema"
-                        }
-                    ]
-                }
-            }
         },
         "mcp.ToolAnnotation": {
             "type": "object",
@@ -19710,7 +19868,7 @@ const docTemplate = `{
                 "gpus": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/hydra.GPUInfo"
+                        "$ref": "#/definitions/server.GPUInfoWithSandbox"
                     }
                 },
                 "message": {
@@ -20065,6 +20223,65 @@ const docTemplate = `{
                 },
                 "url": {
                     "type": "string"
+                }
+            }
+        },
+        "server.GPUInfoWithSandbox": {
+            "type": "object",
+            "properties": {
+                "index": {
+                    "type": "integer"
+                },
+                "memory_free_bytes": {
+                    "type": "integer"
+                },
+                "memory_total_bytes": {
+                    "type": "integer"
+                },
+                "memory_used_bytes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "temperature_celsius": {
+                    "type": "integer"
+                },
+                "utilization_percent": {
+                    "description": "GPU core utilization",
+                    "type": "integer"
+                },
+                "vendor": {
+                    "description": "\"nvidia\", \"amd\", \"intel\"",
+                    "type": "string"
+                }
+            }
+        },
+        "server.GrantCreditsRequest": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                },
+                "org_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.GrantCreditsResponse": {
+            "type": "object",
+            "properties": {
+                "org_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
                 }
             }
         },
@@ -21067,6 +21284,20 @@ const docTemplate = `{
                 }
             }
         },
+        "server.OwnedOrgSummary": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "server.PhaseProgress": {
             "type": "object",
             "properties": {
@@ -21098,6 +21329,30 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "server.ProjectGooseRecipe": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error, when non-empty, indicates that the recipe was declared on the\nagent but couldn't be loaded — repo not cloned yet, file missing,\nYAML malformed, etc. The UI surfaces this so the user can fix the\nproject YAML before creating a task that would silently fall back to\nvanilla goose.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/goose.RecipeParameter"
+                    }
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
@@ -22343,6 +22598,17 @@ const docTemplate = `{
                 "generation_model_provider": {
                     "type": "string"
                 },
+                "goose_recipe_repo_url": {
+                    "description": "GooseRecipeRepoURL is the external git URL of the attached repository\nthat holds the project's Goose recipes (e.g. https://github.com/foo/bar).\nResolved against attached GitRepositories at sandbox-start time.\nEmpty means recipes are looked up under the primary repository.",
+                    "type": "string"
+                },
+                "goose_recipes": {
+                    "description": "GooseRecipes are the project-declared Goose recipes (slash-command name\n+ repo-relative path to the recipe YAML).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantGooseRecipe"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -22485,6 +22751,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AssistantGooseRecipe": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AssistantKnowledge": {
             "type": "object",
             "properties": {
@@ -22569,7 +22846,7 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/mcp.Tool"
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Tool"
                     }
                 },
                 "transport": {
@@ -22706,6 +22983,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "snoozed_until": {
+                    "type": "string"
+                },
+                "spec_task_description": {
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -23517,6 +23797,19 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CodeAgentBakedRecipe": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "Content is the substituted recipe YAML (full file content).",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the slash-command slug (no leading slash).",
+                    "type": "string"
+                }
+            }
+        },
         "types.CodeAgentConfig": {
             "type": "object",
             "properties": {
@@ -23531,6 +23824,25 @@ const docTemplate = `{
                 "base_url": {
                     "description": "BaseURL is the Helix proxy endpoint URL (e.g., \"https://helix.example.com/v1\")",
                     "type": "string"
+                },
+                "goose_baked_recipe": {
+                    "description": "GooseBakedRecipe, when set, holds a single recipe with parameters\npre-substituted, used by Phase 2b spec-task automation. The daemon\nwrites it to disk and registers a single slash_command so an initial\n\"/\u003cslug\u003e\" prompt fires the recipe.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentBakedRecipe"
+                        }
+                    ]
+                },
+                "goose_recipe_root_dir": {
+                    "description": "GooseRecipeRootDir is the absolute container path to the root of the\nrecipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments\nresolve relative paths correctly).",
+                    "type": "string"
+                },
+                "goose_recipes": {
+                    "description": "GooseRecipes lists project-declared Goose recipes with absolute paths\nresolved inside the desktop container. Only set when Runtime is\ngoose_code; consumed by settings-sync-daemon to write the goose\nslash_commands config.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CodeAgentGooseRecipe"
+                    }
                 },
                 "max_output_tokens": {
                     "description": "MaxOutputTokens is the model's max completion tokens\nLooked up from model_info.json, 0 if not found",
@@ -23569,6 +23881,17 @@ const docTemplate = `{
                 "CodeAgentCredentialTypeSubscription"
             ]
         },
+        "types.CodeAgentGooseRecipe": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CodeAgentRuntime": {
             "type": "string",
             "enum": [
@@ -23576,14 +23899,16 @@ const docTemplate = `{
                 "qwen_code",
                 "claude_code",
                 "gemini_cli",
-                "codex_cli"
+                "codex_cli",
+                "goose_code"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
                 "CodeAgentRuntimeQwenCode",
                 "CodeAgentRuntimeClaudeCode",
                 "CodeAgentRuntimeGeminiCLI",
-                "CodeAgentRuntimeCodexCLI"
+                "CodeAgentRuntimeCodexCLI",
+                "CodeAgentRuntimeGooseCode"
             ]
         },
         "types.CommentQueueStatusResponse": {
@@ -23973,6 +24298,16 @@ const docTemplate = `{
                     "description": "Optional: IDs of tasks this task depends on",
                     "type": "array",
                     "items": {
+                        "type": "string"
+                    }
+                },
+                "goose_recipe_name": {
+                    "description": "Goose recipe selection (only meaningful when the chosen agent's runtime\nis goose_code). GooseRecipeName must match one of the agent's declared\nrecipes; GooseRecipeParams are substituted into the recipe at session\nstart. Recipes declared on the agent but not selected here are still\navailable as runtime slash-commands inside the desktop.",
+                    "type": "string"
+                },
+                "goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
                         "type": "string"
                     }
                 },
@@ -27373,6 +27708,31 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectAgentGoose": {
+            "type": "object",
+            "properties": {
+                "recipe_repo_url": {
+                    "type": "string"
+                },
+                "recipes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProjectAgentGooseRecipe"
+                    }
+                }
+            }
+        },
+        "types.ProjectAgentGooseRecipe": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ProjectAgentSpec": {
             "type": "object",
             "properties": {
@@ -27381,6 +27741,9 @@ const docTemplate = `{
                 },
                 "display": {
                     "$ref": "#/definitions/types.ProjectAgentDisplay"
+                },
+                "goose": {
+                    "$ref": "#/definitions/types.ProjectAgentGoose"
                 },
                 "model": {
                     "type": "string"
@@ -29205,9 +29568,6 @@ const docTemplate = `{
         "types.ServerConfigForFrontend": {
             "type": "object",
             "properties": {
-                "active_concurrent_desktops": {
-                    "type": "integer"
-                },
                 "apps_enabled": {
                     "type": "boolean"
                 },
@@ -29232,9 +29592,6 @@ const docTemplate = `{
                     "description": "\"mac-desktop\", \"server\", \"cloud\", etc.",
                     "type": "string"
                 },
-                "eval_user_id": {
-                    "type": "string"
-                },
                 "filestore_prefix": {
                     "type": "string"
                 },
@@ -29247,9 +29604,6 @@ const docTemplate = `{
                 },
                 "latest_version": {
                     "type": "string"
-                },
-                "license": {
-                    "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
                 "max_concurrent_desktops": {
                     "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
@@ -30354,6 +30708,16 @@ const docTemplate = `{
                     "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                     "type": "string"
                 },
+                "goose_recipe_name": {
+                    "description": "Goose recipe binding (Phase 2b). When the parent project's agent uses\nthe goose_code runtime and the user picked a recipe at task-creation\ntime, GooseRecipeName names the AssistantGooseRecipe to invoke and\nGooseRecipeParams holds the parameter values to substitute. The Helix\nAPI bakes these into a CodeAgentBakedRecipe and pushes it to the\nsettings-sync-daemon, which writes a single slash_command pointing at\nthe substituted recipe YAML. Empty when no recipe was selected.",
+                    "type": "string"
+                },
+                "goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "helix_app_id": {
                     "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
                     "type": "string"
@@ -31125,6 +31489,16 @@ const docTemplate = `{
                 "external_agent_id": {
                     "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                     "type": "string"
+                },
+                "goose_recipe_name": {
+                    "description": "Goose recipe binding (Phase 2b). When the parent project's agent uses\nthe goose_code runtime and the user picked a recipe at task-creation\ntime, GooseRecipeName names the AssistantGooseRecipe to invoke and\nGooseRecipeParams holds the parameter values to substitute. The Helix\nAPI bakes these into a CodeAgentBakedRecipe and pushes it to the\nsettings-sync-daemon, which writes a single slash_command pointing at\nthe substituted recipe YAML. Empty when no recipe was selected.",
+                    "type": "string"
+                },
+                "goose_recipe_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "helix_app_id": {
                     "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
@@ -32175,7 +32549,7 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/mcp.Tool"
+                        "$ref": "#/definitions/github_com_mark3labs_mcp-go_mcp.Tool"
                     }
                 },
                 "transport": {
@@ -32808,6 +33182,13 @@ const docTemplate = `{
                     "description": "if the ID of the user is contained in the env setting",
                     "type": "boolean"
                 },
+                "alpha_features": {
+                    "description": "AlphaFeatures lists the feature flags this user has been granted\naccess to. Server-enforced via requireFeature middleware — the\nfrontend uses it only to decide whether to render the entry\npoint. Granted per-user via SQL (no deploy).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "app_id": {
                     "description": "if the token is associated with an app",
                     "type": "string"
@@ -32850,6 +33231,10 @@ const docTemplate = `{
                 "organization_id": {
                     "description": "Organization this API key is scoped to (ephemeral keys)",
                     "type": "string"
+                },
+                "pending_admin_credits_on_first_org": {
+                    "description": "PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the\n/admin/users/{id}/credits endpoint when the user has no owned org yet.\nConsumed by consumeUserAdminCredits on first owned org, then cleared.\nKept separate from TrialCreditsOnFirstOrg so admins can comp credits\nwithout entangling the grant with trial-state UI or revocation flows.",
+                    "type": "number"
                 },
                 "project_id": {
                     "description": "When running in Helix Code sandbox",
@@ -32955,6 +33340,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UserConfig": {
+            "type": "object",
+            "properties": {
+                "color_scheme": {
+                    "description": "ColorScheme is the user's preferred UI color scheme: \"light\" or \"dark\".\nEmpty string means follow OS preference. Propagated to the GNOME desktop\n(gsettings color-scheme) and Zed editor inside spec-task sessions owned\nby this user.",
+                    "type": "string"
+                },
+                "pinned_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "stripe_customer_id": {
+                    "type": "string"
+                },
+                "stripe_subscription_active": {
+                    "type": "boolean"
+                },
+                "stripe_subscription_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.UserGuidelinesResponse": {
             "type": "object",
             "properties": {
@@ -33016,6 +33425,12 @@ const docTemplate = `{
                 "admin": {
                     "type": "boolean"
                 },
+                "alpha_features": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "email": {
                     "type": "string"
                 },
@@ -33076,6 +33491,27 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.UserStatus": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
+                "config": {
+                    "$ref": "#/definitions/types.UserConfig"
+                },
+                "license": {
+                    "$ref": "#/definitions/types.FrontendLicenseInfo"
+                },
+                "slug": {
+                    "description": "User slug for GitHub-style URLs",
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
                 }
             }
         },

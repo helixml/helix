@@ -16,7 +16,7 @@ import Select from "@mui/material/Select";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import React, { FC, useCallback, useEffect, useRef, useState } from "react";
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import LLMCallsTable from "../components/dashboard/LLMCallsTable";
 import Interaction from "../components/session/Interaction";
@@ -78,8 +78,12 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
 
     const session_id = sessionIdParam;
 
-    // Fetch list of registered sandbox instances for the agent_sandboxes tab
-    const { data: sandboxInstances, isLoading: isLoadingSandboxes } = useQuery({
+    // Fetch list of registered sandbox instances for the agent_sandboxes tab.
+    // v1SandboxesList returns every row including offline ones (good for
+    // /admin/runners/.../assignment use-cases that want history). The
+    // dropdown filters to online-only below so the operator only sees
+    // Runners that can actually be inspected.
+    const { data: allSandboxInstances, isLoading: isLoadingSandboxes } = useQuery({
         queryKey: ["sandbox-instances"],
         queryFn: async () => {
             const response = await apiClient.v1SandboxesList();
@@ -89,7 +93,30 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
         refetchInterval: 10000,
     });
 
-    // Don't auto-select - default to "All Sandboxes" view for aggregate monitoring
+    // Online-only view for the dropdown + downstream AgentSandboxes filter.
+    // The reaper flips stale rows to status="offline"; we hide those from
+    // the picker so the operator isn't confronted with dead-yesterday
+    // Runners they can't actually do anything with. If we ever need the
+    // full historical list (e.g. for an "include offline" toggle), the
+    // raw allSandboxInstances is still available above.
+    const sandboxInstances = useMemo(
+        () => allSandboxInstances?.filter((i) => i.status === "online"),
+        [allSandboxInstances],
+    );
+
+    // Don't auto-select — default to "All Sandboxes" view for aggregate monitoring.
+    // BUT if the currently-selected Runner has disappeared from the list (reaper
+    // flipped it to offline, then it dropped out of the API response, or it was
+    // deleted), reset to empty so the dropdown doesn't render an opaque sbx_…
+    // id with no hostname/icon and the downstream panel doesn't render empty
+    // arrays under a stale id.
+    useEffect(() => {
+        if (!selectedSandboxId || !sandboxInstances) return;
+        const stillExists = sandboxInstances.some((i) => i.id === selectedSandboxId);
+        if (!stillExists) {
+            setSelectedSandboxId("");
+        }
+    }, [sandboxInstances, selectedSandboxId]);
 
     const onViewSession = useCallback((session_id: string) => {
         setSessionIdParam(session_id);
@@ -334,14 +361,21 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                         {/* Sandbox Selector */}
                         <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                             <FormControl size="small" sx={{ minWidth: 400 }}>
-                                <InputLabel id="sandbox-selector-label">Agent Sandbox</InputLabel>
+                                <InputLabel id="sandbox-selector-label" shrink>Agent Sandbox</InputLabel>
                                 <Select
                                     labelId="sandbox-selector-label"
                                     value={selectedSandboxId}
                                     label="Agent Sandbox"
+                                    displayEmpty
                                     onChange={(e) => setSelectedSandboxId(e.target.value)}
                                     disabled={isLoadingSandboxes || !sandboxInstances?.length}
                                     startAdornment={<StorageIcon sx={{ mr: 1, color: "text.secondary" }} />}
+                                    renderValue={(value) => {
+                                        if (!value) return <em>All Sandboxes</em>
+                                        const inst = sandboxInstances?.find((i) => i.id === value)
+                                        if (!inst) return value
+                                        return `${inst.gpu_vendor ? "🖥️" : "💻"} ${inst.hostname || inst.id}`
+                                    }}
                                 >
                                     <MenuItem value="">
                                         <em>All Sandboxes</em>

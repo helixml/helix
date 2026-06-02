@@ -23,6 +23,11 @@ type QuotaManager interface {
 	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
 }
 
+// ProjectSecretsGetter returns project secrets as `KEY=value` env-var strings.
+// Wired to HelixAPIServer.GetProjectSecretsAsEnvVars at startup so HydraExecutor
+// can inject them on every container start without each caller remembering.
+type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
 //
 // Architecture: Helix API -> Hydra -> Docker -> Dev Container
@@ -56,6 +61,10 @@ type HydraExecutor struct {
 
 	// License key for nested Helix instances
 	licenseKey string
+
+	// Callback to fetch project secrets, set via SetProjectSecretsGetter
+	// after HelixAPIServer is constructed (mirrors SetQuotaManager wiring).
+	getProjectSecrets ProjectSecretsGetter
 }
 
 // connmanInterface abstracts the connection manager for RevDial connections to sandboxes
@@ -97,6 +106,10 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 
 func (h *HydraExecutor) SetQuotaManager(quotaManager QuotaManager) {
 	h.quotaManager = quotaManager
+}
+
+func (h *HydraExecutor) SetProjectSecretsGetter(getter ProjectSecretsGetter) {
+	h.getProjectSecrets = getter
 }
 
 // getOrCreateSessionLock returns a per-session mutex, creating one if needed.
@@ -143,6 +156,25 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
 			Status:        "running",
 		}, nil
+	}
+
+	// Inject project secrets onto agent.Env so every fresh container picks up
+	// the project's secrets without each call site (spec task launch, exploratory
+	// session, resume, etc.) having to remember to load them.
+	//
+	// Ordering matters: secrets are appended BEFORE OnBeforeCreate so that the
+	// API-token env vars OnBeforeCreate adds (ANTHROPIC_API_KEY, USER_API_TOKEN,
+	// ...) appear later in agent.Env and therefore win duplicate-key resolution
+	// in Docker. This preserves the long-standing invariant that a user-defined
+	// project secret can't shadow the system-injected agent API tokens.
+	if h.getProjectSecrets != nil && agent.ProjectID != "" {
+		projectSecrets, err := h.getProjectSecrets(ctx, agent.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
+		} else if len(projectSecrets) > 0 {
+			agent.Env = append(agent.Env, projectSecrets...)
+			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+		}
 	}
 
 	// Call OnBeforeCreate hook inside the lock to refresh API keys.

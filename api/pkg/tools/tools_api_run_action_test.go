@@ -67,6 +67,12 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		},
 	}
 
+	// Two LLM calls: parameter extraction, then response interpretation.
+	installLLMMock(suite,
+		`{"petId": "99944"}`,
+		"Here are the details for pet 99944: a brown dog named doggie.",
+	)
+
 	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
@@ -234,6 +240,12 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 		},
 	}
 
+	// Two LLM calls: parameter extraction, then response interpretation.
+	installLLMMock(suite,
+		`{"q": "London"}`,
+		"The weather in London is broken clouds at around 21°C.",
+	)
+
 	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "CurrentWeatherData")
 	suite.NoError(err)
 
@@ -309,6 +321,13 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 			Content: "What's the weather like there?",
 		},
 	}
+
+	// Two LLM calls: parameter extraction (resolving "there" → London from
+	// the preceding history), then response interpretation.
+	installLLMMock(suite,
+		`{"q": "London"}`,
+		"The weather in London is broken clouds at around 21°C.",
+	)
 
 	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getWeatherAPI, history, "CurrentWeatherData")
 	suite.NoError(err)

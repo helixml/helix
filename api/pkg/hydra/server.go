@@ -32,25 +32,44 @@ type Server struct {
 	manager             *Manager
 	devContainerManager *DevContainerManager // Dev container management (desktop container lifecycle)
 	sandboxOps          *SandboxOps          // Sandboxes API: exec/files/terminal helpers
+	logBuffer           *LogBuffer           // In-memory ring of recent log lines for /logs ws endpoint
 	socketPath          string
 	listener            net.Listener
 	server              *http.Server
 	router              *mux.Router
 }
 
-// NewServer creates a new Hydra server
+// NewServer creates a new Hydra server with an internally-allocated log
+// buffer. Use NewServerWithLogBuffer when the caller wants to tee zerolog
+// output (or other line streams) into the same buffer the /logs WS endpoint
+// serves.
 func NewServer(manager *Manager, socketPath string) *Server {
+	return NewServerWithLogBuffer(manager, socketPath, NewLogBuffer(0))
+}
+
+// NewServerWithLogBuffer creates a Hydra server backed by the supplied log
+// buffer. Used by cmd/hydra so the logger can tee into the same buffer the
+// admin /logs WS endpoint exposes. logBuffer must not be nil.
+func NewServerWithLogBuffer(manager *Manager, socketPath string, logBuffer *LogBuffer) *Server {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath
 	}
+	if logBuffer == nil {
+		logBuffer = NewLogBuffer(0)
+	}
 
-	// Create dev container manager for desktop container lifecycle functionality
-	devContainerManager := NewDevContainerManager(manager)
+	// Shared log buffer captures hydra-aggregated runner output: inner
+	// container streams from DevContainerManager.streamContainerLogs plus
+	// (when teed via LogBufferWriter at construction time) hydra's own
+	// zerolog output. Exposed via /logs WS for admin live-tail through
+	// RevDial.
+	devContainerManager := NewDevContainerManagerWithLogBuffer(manager, logBuffer)
 
 	return &Server{
 		manager:             manager,
 		devContainerManager: devContainerManager,
 		sandboxOps:          NewSandboxOps(devContainerManager),
+		logBuffer:           logBuffer,
 		socketPath:          socketPath,
 	}
 }
@@ -190,6 +209,10 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
+
+	// Aggregated runner logs (admin live-tail). WebSocket upgrade; clients
+	// receive a snapshot of recent lines then live-tail.
+	api.HandleFunc("/logs", s.handleLogs).Methods("GET")
 
 	// Version and route listing (for diagnosing version mismatches)
 	api.HandleFunc("/version", s.handleVersion).Methods("GET")
