@@ -14,7 +14,6 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import AddIcon from '@mui/icons-material/Add'
 import AddBoxOutlinedIcon from '@mui/icons-material/AddBoxOutlined'
 import CloseIcon from '@mui/icons-material/Close'
@@ -147,7 +146,6 @@ type RoleNodeData = {
   positionCount: number
   isOwner: boolean
   onAddPosition: (roleId: string) => void
-  onAddRoleBelow: (roleId: string) => void
   onDeleteRole: (roleId: string) => void
 }
 
@@ -220,19 +218,6 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
               <AddBoxOutlinedIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Add a new role reporting into this one">
-            <span>
-              <IconButton
-                className={NO_DRAG_NO_PAN}
-                size="small"
-                onClick={(e) => { e.stopPropagation(); data.onAddRoleBelow(data.roleId) }}
-                disabled={data.positionCount === 0}
-                sx={{ color: muted }}
-              >
-                <AccountTreeOutlinedIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
           {!data.isOwner && (
             <Tooltip title="Delete role (cascade: positions + workers)">
               <IconButton
@@ -294,11 +279,17 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
-        cursor: 'grab',
-        '&:active': { cursor: 'grabbing' },
       }}
     >
-      <Handle type="target" position={RFPosition.Top} style={{ background: handleColor }} />
+      {/* Target handle = where a manager's edge LANDS, marking this
+          position as the subordinate. Source handle = where the user
+          drags FROM when this position becomes the manager. Both are
+          larger than the visual dot so they're easy to grab. */}
+      <Handle
+        type="target"
+        position={RFPosition.Top}
+        style={{ background: handleColor, width: 12, height: 12 }}
+      />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted }}>
           {data.positionId}
@@ -354,7 +345,11 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
           Hire worker
         </Button>
       )}
-      <Handle type="source" position={RFPosition.Bottom} style={{ background: handleColor }} />
+      <Handle
+        type="source"
+        position={RFPosition.Bottom}
+        style={{ background: handleColor, width: 12, height: 12 }}
+      />
     </Box>
   )
 }
@@ -383,7 +378,6 @@ const buildGraph = (
     onSelectWorker: (workerId: string) => void
     onHire: (positionId: string) => void
     onAddPosition: (roleId: string) => void
-    onAddRoleBelow: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
   },
@@ -477,7 +471,6 @@ const buildGraph = (
         positionCount: group.positions.length,
         isOwner: group.roleId === OWNER_ROLE,
         onAddPosition: handlers.onAddPosition,
-        onAddRoleBelow: handlers.onAddRoleBelow,
         onDeleteRole: handlers.onDeleteRole,
       } as RoleNodeData,
       // selectable: true (rather than false) keeps the role's
@@ -495,10 +488,11 @@ const buildGraph = (
     if (!ro) continue
     group.positions.forEach((p, i) => {
       nodes.push({
-        // Position nodes live at the top level (no parentId), so the
-        // user can drag a card freely across role boundaries and the
-        // chart's drop handler re-parents it. The role frame behind
-        // is purely visual.
+        // Positions are top-level so the role-frame layout can be
+        // computed against absolute coords. Layout is dagre-driven —
+        // dragging the card does nothing useful, so it's disabled.
+        // Connectable instead: the user wires manager → subordinate
+        // between position handles, and onConnect PATCHes parent_id.
         id: `pos:${p.position_id}`,
         type: 'position',
         position: {
@@ -513,13 +507,15 @@ const buildGraph = (
           onHire: handlers.onHire,
           onDeletePosition: handlers.onDeletePosition,
         } as PositionNodeData,
-        draggable: true,
+        draggable: false,
+        connectable: true,
       })
     })
   }
 
-  // 5. Edges: worker-to-worker reporting lines, drawn between
-  //    Position nodes via the position parent_id chain.
+  // 5. Edges: manager → subordinate reporting lines, derived from
+  //    position.parent_id. The target carries its own position_id in
+  //    the edge data so onEdgesDelete can clear the right row.
   const edges: Edge[] = []
   for (const p of flat) {
     if (!p.parent_id || !flatByID.has(p.parent_id)) continue
@@ -529,6 +525,7 @@ const buildGraph = (
       target: `pos:${p.position_id}`,
       type: 'smoothstep',
       animated: false,
+      data: { targetPositionId: p.position_id },
       style: {
         stroke: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.35)',
         strokeWidth: 1.5,
@@ -614,8 +611,11 @@ const CreatePositionDialog: FC<{
     }
     if (!roleId) return
     try {
-      await create.mutateAsync({ id: trimmedId, role_id: roleId, parent_id: ROOT_POSITION })
-      snackbar.success(`position ${trimmedId} created`)
+      // Created as an orphan (no parent_id). The user wires it into
+      // the org chart by drawing an edge from a manager's position
+      // to this one.
+      await create.mutateAsync({ id: trimmedId, role_id: roleId })
+      snackbar.success(`position ${trimmedId} created — draw an edge to a manager to set who they report to`)
       setId(''); onClose()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create position failed')
@@ -646,124 +646,6 @@ const CreatePositionDialog: FC<{
         <Button onClick={onClose}>Cancel</Button>
         <Button onClick={submit} variant="contained" disabled={create.isPending}>
           {create.isPending ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
-
-// CreateRoleBelowDialog combines the two-step "create role + drop a
-// position into it" flow into one form. The parent position is the
-// FIRST position of the role the user clicked "Role below" on — that
-// keeps the dialog single-screen. Reparenting via drag-and-drop lets
-// the user move things around afterwards if the default isn't right.
-const CreateRoleBelowDialog: FC<{
-  open: boolean
-  parentRoleId: string | null
-  parentPositionId: string | null
-  onClose: () => void
-}> = ({ open, parentRoleId, parentPositionId, onClose }) => {
-  const snackbar = useSnackbar()
-  const createRole = useCreateHelixOrgRole()
-  const createPosition = useCreateHelixOrgPosition()
-  const [roleId, setRoleId] = useState('')
-  const [content, setContent] = useState('')
-  const [positionId, setPositionId] = useState('')
-
-  // Auto-suggest a position id from the role id (r-design → p-design-1)
-  // the first time the user types. They can override.
-  const [positionTouched, setPositionTouched] = useState(false)
-  const onRoleIdChange = (v: string) => {
-    setRoleId(v)
-    if (!positionTouched) {
-      const suffix = v.replace(/^r-/, '').trim()
-      setPositionId(suffix ? `p-${suffix}-1` : '')
-    }
-  }
-
-  const submit = async () => {
-    const trimmedRole = roleId.trim()
-    const trimmedPos = positionId.trim()
-    if (!trimmedRole) {
-      snackbar.error('Role ID is required')
-      return
-    }
-    if (!trimmedPos) {
-      snackbar.error('Position ID is required')
-      return
-    }
-    if (!parentPositionId) {
-      snackbar.error('Parent role has no positions to attach under')
-      return
-    }
-    try {
-      await createRole.mutateAsync({ id: trimmedRole, content })
-      await createPosition.mutateAsync({
-        id: trimmedPos,
-        role_id: trimmedRole,
-        parent_id: parentPositionId,
-      })
-      snackbar.success(`role ${trimmedRole} added under ${parentRoleId}`)
-      setRoleId(''); setContent(''); setPositionId(''); setPositionTouched(false)
-      onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create failed')
-    }
-  }
-
-  const handleClose = () => {
-    setRoleId(''); setContent(''); setPositionId(''); setPositionTouched(false)
-    onClose()
-  }
-
-  return (
-    <Dialog open={open && !!parentRoleId} onClose={handleClose} fullWidth maxWidth="sm">
-      <DialogTitle>Add role below {parentRoleId}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Reports to position
-            </Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-              {parentPositionId ?? '— (parent role has no positions)'}
-            </Typography>
-          </Box>
-          <TextField
-            label="Role ID"
-            placeholder="r-design"
-            value={roleId}
-            onChange={(e) => onRoleIdChange(e.target.value)}
-            helperText="Convention: r-<kebab-case>."
-            autoFocus
-            fullWidth
-          />
-          <TextField
-            label="Content (markdown)"
-            placeholder="# Designer&#10;Owns UX + visual design."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={4}
-            fullWidth
-          />
-          <TextField
-            label="Position ID"
-            value={positionId}
-            onChange={(e) => { setPositionId(e.target.value); setPositionTouched(true) }}
-            helperText="The first position inside the new role — defaults to p-<role-suffix>-1."
-            fullWidth
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
-        <Button
-          onClick={submit}
-          variant="contained"
-          disabled={createRole.isPending || createPosition.isPending || !parentPositionId}
-        >
-          {createRole.isPending || createPosition.isPending ? 'Creating…' : 'Create'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -987,14 +869,18 @@ const ChartCanvas: FC<{
     onSelectWorker: (workerId: string) => void
     onHire: (positionId: string) => void
     onAddPosition: (roleId: string) => void
-    onAddRoleBelow: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
   }
-  onReparent: (childPositionId: string, newParentPositionId: string) => void
-}> = ({ groups, flat, handlers, onReparent }) => {
+  // onSetParent and onClearParent are how the canvas writes the
+  // hierarchy back to the server. onSetParent fires when the user
+  // wires manager → subordinate (an `onConnect`), onClearParent fires
+  // when they delete an existing edge.
+  onSetParent: (childPositionId: string, newParentPositionId: string) => void
+  onClearParent: (childPositionId: string) => void
+}> = ({ groups, flat, handlers, onSetParent, onClearParent }) => {
   const lightTheme = useLightTheme()
-  const { fitView, getIntersectingNodes } = useReactFlow()
+  const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
     () => buildGraph(groups, flat, handlers, lightTheme.isLight),
@@ -1003,40 +889,43 @@ const ChartCanvas: FC<{
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
 
+  // Local nodes/edges are replaced on every chart re-fetch so the
+  // dagre layout stays canonical. fitView refits the viewport.
   useEffect(() => {
     setNodes(computedNodes)
     setEdges(computedEdges)
     requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
   }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
 
-  // onNodeDragStop runs when the user releases a dragged position
-  // card. If it overlaps another position node, treat the drop as a
-  // re-parent: the dragged position now reports to the position it
-  // was dropped on. Either way we snap the nodes back to the
-  // dagre-computed layout — re-fetched chart data will replace these
-  // with the canonical positions after the mutation completes.
-  const onNodeDragStop = useCallback(
-    (_event: unknown, node: Node) => {
-      if (node.type !== 'position') {
-        setNodes(computedNodes)
-        return
-      }
-      const dragged = node.data as PositionNodeData
-      const intersections = getIntersectingNodes(node).filter(
-        (n) => n.type === 'position' && n.id !== node.id,
-      )
-      const target = intersections[0]
-      if (target && target.data) {
-        const targetData = target.data as PositionNodeData
-        if (dragged.positionId !== targetData.positionId) {
-          onReparent(dragged.positionId, targetData.positionId)
-          return
-        }
-      }
-      // No valid drop target — snap back to the canonical layout.
-      setNodes(computedNodes)
+  // onConnect fires when the user finishes drawing a wire from one
+  // handle to another. Source = manager position, target =
+  // subordinate position. Persist by PATCHing the subordinate's
+  // parent_id.
+  const onConnect = useCallback(
+    ({ source, target }: { source: string | null; target: string | null }) => {
+      if (!source || !target) return
+      const sourceId = source.replace(/^pos:/, '')
+      const targetId = target.replace(/^pos:/, '')
+      if (!sourceId || !targetId || sourceId === targetId) return
+      onSetParent(targetId, sourceId)
     },
-    [computedNodes, getIntersectingNodes, onReparent, setNodes],
+    [onSetParent],
+  )
+
+  // onEdgesDelete is wired up by ReactFlow when an edge is removed
+  // (Delete key on a selected edge, or programmatic removal). We
+  // sever the reporting relationship by clearing the subordinate's
+  // parent_id.
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      for (const e of deleted) {
+        const targetId =
+          (e.data as { targetPositionId?: string } | undefined)?.targetPositionId ??
+          (e.target ?? '').replace(/^pos:/, '')
+        if (targetId) onClearParent(targetId)
+      }
+    },
+    [onClearParent],
   )
 
   return (
@@ -1045,17 +934,18 @@ const ChartCanvas: FC<{
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
-      onNodeDragStop={onNodeDragStop}
+      onConnect={onConnect}
+      onEdgesDelete={onEdgesDelete}
       nodeTypes={nodeTypes}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
       colorMode={lightTheme.isLight ? 'light' : 'dark'}
-      // Per-node flags (set inside buildGraph) win: position cards
-      // are draggable, role frames are not. Selection + edge-drag
-      // stay off — re-parenting is purely position-drag-driven.
-      nodesConnectable={false}
-      elementsSelectable={false}
+      // Per-node connectable flag wins over the canvas default;
+      // selectable is enabled so edges can be picked + deleted with
+      // the Delete key.
+      nodesConnectable
+      elementsSelectable
       panOnDrag
       zoomOnScroll
     >
@@ -1089,7 +979,6 @@ const HelixOrgChart: FC = () => {
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [positionDialogRole, setPositionDialogRole] = useState<string | null>(null)
-  const [roleBelowParent, setRoleBelowParent] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<
     | { kind: 'role'; id: string }
     | { kind: 'position'; id: string }
@@ -1110,7 +999,6 @@ const HelixOrgChart: FC = () => {
     [],
   )
   const onAddPosition = useCallback((roleId: string) => setPositionDialogRole(roleId), [])
-  const onAddRoleBelow = useCallback((roleId: string) => setRoleBelowParent(roleId), [])
   const onDeleteRole = useCallback(
     (roleId: string) => setConfirmDelete({ kind: 'role', id: roleId }),
     [],
@@ -1120,18 +1008,14 @@ const HelixOrgChart: FC = () => {
     [],
   )
   const handlers = useMemo(
-    () => ({
-      onSelectWorker, onHire, onAddPosition, onAddRoleBelow,
-      onDeleteRole, onDeletePosition,
-    }),
-    [onSelectWorker, onHire, onAddPosition, onAddRoleBelow, onDeleteRole, onDeletePosition],
+    () => ({ onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition }),
+    [onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition],
   )
 
-  // onReparent is invoked by the chart canvas when the user drags a
-  // position card onto another. Optimistic UX: snackbar fires before
-  // the mutation settles, the chart query is invalidated on success
-  // so the new edges + dagre layout repaint.
-  const onReparent = useCallback(
+  // onSetParent fires when the chart canvas drew a new wire from a
+  // manager position's source handle to a subordinate position's
+  // target handle. Persist by PATCHing the subordinate's parent_id.
+  const onSetParent = useCallback(
     async (childPositionId: string, newParentPositionId: string) => {
       try {
         await updatePosition.mutateAsync({
@@ -1140,20 +1024,26 @@ const HelixOrgChart: FC = () => {
         })
         snackbar.success(`${childPositionId} now reports to ${newParentPositionId}`)
       } catch (err: any) {
-        const msg = err?.response?.data?.error ?? err?.message ?? 'reparent failed'
-        snackbar.error(msg)
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'reparent failed')
       }
     },
     [updatePosition, snackbar],
   )
 
-  // The parent position picked for the "Role below" dialog: the first
-  // position of the source role. Recomputed when the source changes.
-  const roleBelowParentPosition = useMemo(() => {
-    if (!roleBelowParent) return null
-    const g = groups.find((g) => g.roleId === roleBelowParent)
-    return g?.positions[0]?.position_id ?? null
-  }, [groups, roleBelowParent])
+  // onClearParent fires when the chart canvas deleted an existing
+  // reporting edge. The subordinate becomes a top-level orphan
+  // position until it's wired up again.
+  const onClearParent = useCallback(
+    async (childPositionId: string) => {
+      try {
+        await updatePosition.mutateAsync({ id: childPositionId, parent_id: '' })
+        snackbar.success(`${childPositionId} no longer reports to anyone`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'clear parent failed')
+      }
+    },
+    [updatePosition, snackbar],
+  )
 
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
@@ -1260,7 +1150,8 @@ const HelixOrgChart: FC = () => {
                 groups={groups}
                 flat={flat}
                 handlers={handlers}
-                onReparent={onReparent}
+                onSetParent={onSetParent}
+                onClearParent={onClearParent}
               />
             </ReactFlowProvider>
           )}
@@ -1272,12 +1163,6 @@ const HelixOrgChart: FC = () => {
         open={positionDialogRole !== null}
         roleId={positionDialogRole}
         onClose={() => setPositionDialogRole(null)}
-      />
-      <CreateRoleBelowDialog
-        open={roleBelowParent !== null}
-        parentRoleId={roleBelowParent}
-        parentPositionId={roleBelowParentPosition}
-        onClose={() => setRoleBelowParent(null)}
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
