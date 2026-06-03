@@ -36,6 +36,8 @@ import '@xyflow/react/dist/style.css'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import useAccount from '../hooks/useAccount'
+import useLightTheme from '../hooks/useLightTheme'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   ChartNode,
@@ -109,6 +111,7 @@ const layout = (
   selectedWorkerId: string | undefined,
   onHire: (positionId: string) => void,
   onSelectWorker: (workerId: string) => void,
+  isLight: boolean,
 ): { nodes: Node<PositionNodeData>[]; edges: Edge[] } => {
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 80, marginx: 24, marginy: 24 })
@@ -153,7 +156,7 @@ const layout = (
       target: p.position_id,
       type: 'smoothstep',
       animated: false,
-      style: { stroke: 'rgba(255,255,255,0.25)', strokeWidth: 1.5 },
+      style: { stroke: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.25)', strokeWidth: 1.5 },
     }))
 
   return { nodes, edges }
@@ -163,19 +166,23 @@ const layout = (
 // the node-selection click; worker chips and the hire button
 // stopPropagation so they don't double as a position click.
 const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data, selected }) => {
+  const lightTheme = useLightTheme()
+  const borderIdle = lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.16)'
+  const bgIdle = lightTheme.isLight ? 'rgba(0,0,0,0.015)' : 'rgba(255,255,255,0.03)'
+  const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
   return (
     <Box
       sx={{
         width: NODE_WIDTH,
         border: '1px solid',
-        borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.16)',
+        borderColor: selected ? 'primary.main' : borderIdle,
         borderRadius: 1.5,
-        backgroundColor: selected ? 'rgba(33,150,243,0.05)' : 'rgba(255,255,255,0.03)',
+        backgroundColor: selected ? (lightTheme.isLight ? 'rgba(33,150,243,0.08)' : 'rgba(33,150,243,0.05)') : bgIdle,
         boxShadow: selected ? '0 0 0 1px rgba(33,150,243,0.4)' : 'none',
         transition: 'all 120ms ease',
       }}
     >
-      <Handle type="target" position={RFPosition.Top} style={{ background: 'rgba(255,255,255,0.35)' }} />
+      <Handle type="target" position={RFPosition.Top} style={{ background: handleColor }} />
 
       <Box sx={{ p: 1.5 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -231,7 +238,7 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data, selected })
         )}
       </Box>
 
-      <Handle type="source" position={RFPosition.Bottom} style={{ background: 'rgba(255,255,255,0.35)' }} />
+      <Handle type="source" position={RFPosition.Bottom} style={{ background: handleColor }} />
     </Box>
   )
 }
@@ -462,6 +469,7 @@ const ChartCanvas: FC<{
   setSelection: (sel: Selection) => void
 }> = ({ flat, selection, setSelection }) => {
   const { fitView } = useReactFlow()
+  const lightTheme = useLightTheme()
 
   const selectedWorkerId = selection.kind === 'worker' ? selection.workerId : undefined
 
@@ -479,8 +487,8 @@ const ChartCanvas: FC<{
   )
 
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => layout(flat, selectedWorkerId, openHire, openWorker),
-    [flat, selectedWorkerId, openHire, openWorker],
+    () => layout(flat, selectedWorkerId, openHire, openWorker, lightTheme.isLight),
+    [flat, selectedWorkerId, openHire, openWorker, lightTheme.isLight],
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
@@ -504,18 +512,24 @@ const ChartCanvas: FC<{
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
-      colorMode="dark"
+      colorMode={lightTheme.isLight ? 'light' : 'dark'}
       onNodeClick={(_, node) => setSelection({ kind: 'position', positionId: node.id })}
       onPaneClick={() => setSelection({ kind: 'none' })}
     >
       <Background gap={20} size={1} />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" />
+      <MiniMap
+        pannable
+        zoomable
+        maskColor={lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.6)'}
+      />
     </ReactFlow>
   )
 }
 
 const HelixOrgChart: FC = () => {
+  const account = useAccount()
+  const lightTheme = useLightTheme()
   const { data, isLoading } = useHelixOrgChart()
   const roots = data?.roots ?? []
   const flat = useMemo(() => flattenChart(roots), [roots])
@@ -527,21 +541,49 @@ const HelixOrgChart: FC = () => {
     return flat.find((p) => p.position_id === selection.positionId)
   }, [selection, flat])
 
+  const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
+  const subtitleColor = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const canvasBorder = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+  const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
+
   return (
-    <Page breadcrumbTitle="Org Chart" breadcrumbParent={{ title: 'Helix Org' }}>
-      <Box sx={{ position: 'absolute', inset: 0, top: 64, display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ px: 3, py: 2 }}>
-          <Typography variant="h5">Org Chart</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Positions form the tree. Click <AddIcon sx={{ fontSize: 14, verticalAlign: 'middle' }} /> on a position to hire a worker, or click a worker chip to inspect / fire.
+    <Page
+      breadcrumbTitle="Chart"
+      orgBreadcrumbs={true}
+      organizationId={account.organizationTools.organization?.id}
+      globalSearch={true}
+      notifications={true}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', minHeight: 0 }}>
+        <Box sx={{ px: 4, pt: 4, pb: 2 }}>
+          <Typography
+            variant="h4"
+            sx={{ fontWeight: 700, mb: 1, color: titleColor, letterSpacing: '-0.02em' }}
+          >
+            Chart
+          </Typography>
+          <Typography variant="body2" sx={{ color: subtitleColor }}>
+            Positions form the org tree. Click <AddIcon sx={{ fontSize: 14, verticalAlign: 'middle' }} /> on a position to hire a worker, or click a worker chip to inspect or fire.
           </Typography>
         </Box>
-        <Box sx={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            mx: 4,
+            mb: 4,
+            position: 'relative',
+            border: `1px solid ${canvasBorder}`,
+            borderRadius: 1,
+            backgroundColor: canvasBg,
+            overflow: 'hidden',
+          }}
+        >
           {isLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
           ) : flat.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 6 }}>
-              <Typography variant="body1" color="text.secondary">
+              <Typography variant="body1" sx={{ color: subtitleColor }}>
                 No positions yet. Bootstrap creates the owner position automatically — restart the API if you don't see it.
               </Typography>
             </Box>
