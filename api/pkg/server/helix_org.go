@@ -596,17 +596,20 @@ func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 		return nil, fmt.Errorf("helix-org requires a Postgres-backed helix store; got %T", helixStore)
 	}
 	// Production wiring: install the FK constraint that ties every
-	// org_* table back to organizations(id) ON DELETE CASCADE. The
-	// composite-PK schema is not auto-migratable from the prior
-	// single-tenant shape, so the first deploy of this code wants
-	// ResetSchema=true. Subsequent deploys can flip to false; the
-	// AutoMigrate is idempotent regardless.
+	// org_* table back to organizations(id) ON DELETE CASCADE.
 	//
-	// We always pass ResetSchema=true while this code remains gated by
-	// the `helix-org` alpha feature — losing alpha test data is
-	// acceptable, getting the schema right is essential.
+	// ResetSchema is OFF so org_* rows (workers, roles, positions,
+	// grants, streams, runtime state, …) survive an API restart.
+	// While the helix-org alpha was wiping data each boot was tolerable
+	// — operators were now actually relying on hired workers persisting,
+	// and dropping the tables on restart was indistinguishable from
+	// "we're using some in-memory thing". The composite-PK schema
+	// (id, org_id) is the only shape in production; AutoMigrate is
+	// idempotent against it. If a hand-written breaking migration ever
+	// becomes necessary, prefer an explicit migration script over
+	// flipping this back on.
 	st, err := orggorm.OpenWithDB(accessor.GormDB(), orggorm.Options{
-		ResetSchema:           true,
+		ResetSchema:           false,
 		InstallOrganizationFK: true,
 	})
 	if err != nil {
