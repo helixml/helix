@@ -1184,12 +1184,14 @@ const HelixOrgChart: FC = () => {
     [],
   )
   // Clicking a stream pseudo-node navigates to the Streams list page
-  // (no per-stream detail page yet; the list is the only editing
-  // surface today). Same nav pattern as the role / worker chip click.
+  // with a `focus` query param so the page scrolls the corresponding
+  // row into view and pulses a brief highlight. There is no per-
+  // stream detail page yet; focusing the row in the list is the
+  // closest thing to "navigate to it" today.
   const onSelectStream = useCallback(
-    (_streamId: string) => {
+    (streamId: string) => {
       if (!orgSlug) return
-      router.navigate('helix_org_streams', { org_id: orgSlug })
+      router.navigate('helix_org_streams', { org_id: orgSlug, focus: streamId })
     },
     [router, orgSlug],
   )

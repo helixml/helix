@@ -4,7 +4,7 @@
 // the chart edges (added in the same PR as this page) show which
 // worker pulls from which stream.
 
-import { FC, MouseEvent, useMemo, useState } from 'react'
+import { FC, MouseEvent, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
@@ -32,6 +32,7 @@ import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import useAccount from '../hooks/useAccount'
+import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   StreamDTO,
@@ -47,8 +48,21 @@ const TRANSPORT_KINDS = [
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
 ]
 
+// streamRowId is the canonical HTML id assigned to each row in the
+// streams table. Exported so other components (the chart deep-link,
+// for example) can pin the contract — change the format here and all
+// callers update at once.
+export const streamRowId = (streamId: string) => `stream-row-${streamId}`
+
+// HIGHLIGHT_DURATION_MS is how long the focused-row highlight stays
+// up after the chart deep-links into the streams page. Kept short so
+// the page doesn't feel busy; long enough for the user to register
+// which row they landed on.
+const HIGHLIGHT_DURATION_MS = 2400
+
 const HelixOrgStreams: FC = () => {
   const account = useAccount()
+  const router = useRouter()
   const snackbar = useSnackbar()
   const theme = useTheme()
 
@@ -60,6 +74,28 @@ const HelixOrgStreams: FC = () => {
   const [deleting, setDeleting] = useState<StreamDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentStream, setCurrentStream] = useState<StreamDTO | null>(null)
+
+  const focusId = (router.params.focus as string | undefined) ?? undefined
+  const [highlightId, setHighlightId] = useState<string | undefined>(undefined)
+
+  // When the page lands with `?focus=<streamId>` (the chart's
+  // stream-node click sets this) scroll the matching row into view
+  // and pulse a highlight on it. Runs after every render where the
+  // focus param or the streams list changes, so the deep-link works
+  // even if the API call is still in flight on initial mount.
+  useEffect(() => {
+    if (!focusId) {
+      setHighlightId(undefined)
+      return
+    }
+    if (!streams.some((s) => s.id === focusId)) return
+    const el = document.getElementById(streamRowId(focusId))
+    if (!el) return
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setHighlightId(focusId)
+    const t = setTimeout(() => setHighlightId(undefined), HIGHLIGHT_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [focusId, streams])
 
   const handleMenuOpen = (e: MouseEvent<HTMLElement>, s: StreamDTO) => {
     e.stopPropagation()
@@ -86,12 +122,15 @@ const HelixOrgStreams: FC = () => {
   const tableData = useMemo(() => streams.map((s) => ({
     id: s.id,
     _data: s,
+    _isHighlighted: highlightId === s.id,
     name: (
       <Typography variant="body1">
         <span
           style={{
             fontWeight: 'bold',
-            color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+            color: highlightId === s.id
+              ? theme.palette.warning.main
+              : theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
             fontFamily: 'monospace',
           }}
         >
@@ -113,7 +152,7 @@ const HelixOrgStreams: FC = () => {
         {s.created_at ? new Date(s.created_at).toLocaleString() : '—'}
       </Typography>
     ),
-  })), [streams, theme])
+  })), [streams, theme, highlightId])
 
   const getActions = (row: any) => {
     const s = row._data as StreamDTO
@@ -181,6 +220,7 @@ const HelixOrgStreams: FC = () => {
               ]}
               data={tableData}
               getActions={getActions}
+              getRowId={(row) => streamRowId(row.id as string)}
             />
           )}
         </Stack>
