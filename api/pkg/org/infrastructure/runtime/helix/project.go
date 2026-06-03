@@ -167,6 +167,24 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			}
 		}
 	}
+	runtime := a.Runtime
+	if runtime == "" {
+		runtime = Runtime
+	}
+	applyReq := types.ProjectApplyRequest{
+		OrganizationID: a.OrgID,
+		Name:           string(workerID),
+		Spec: types.ProjectSpec{
+			Description: worker.IdentityContent(),
+			Agent: &types.ProjectAgentSpec{
+				Name:        roleName,
+				Runtime:     runtime,
+				Provider:    a.Provider,
+				Model:       a.Model,
+				Credentials: a.Credentials,
+			},
+		},
+	}
 	if state.ProjectID != "" {
 		if _, err := a.Service.GetProject(ctx, state.ProjectID); err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
@@ -181,35 +199,35 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				return "", "", "", fmt.Errorf("verify project %s for %s: %w", state.ProjectID, workerID, err)
 			}
 		} else {
-			// Project already exists — fast path. Do NOT re-push the
-			// canonical files: republishing on every activation
-			// clobbers any external edits the Worker has made on the
-			// helix-specs branch since the last apply. Canonical-content
-			// updates (update_role / update_identity) go through
-			// Workspace.MirrorFile explicitly; that's the only path
-			// that should touch these files outside the
-			// first-activation provisioning.
+			// Project already exists — fast path.
+			//
+			// We DO re-call ApplyProject so worker.* changes (runtime,
+			// credentials, provider, model) made on the Settings page
+			// after this worker was first provisioned propagate to the
+			// helix-side agent app on the next activation. ApplyProject
+			// is upsert-by-name and idempotent — without this re-apply,
+			// the agent app's Runtime/Credentials/Provider/Model stay
+			// frozen at first-apply time and operators have to fire +
+			// re-hire every worker to pick up settings drift. That gap
+			// surfaced when the chart UI's owner-chat hit
+			// "Authentication required" because the org had been
+			// flipped to api_key mode but w-owner's agent app still
+			// thought it was in subscription mode.
+			//
+			// We do NOT re-push canonical files (role.md / identity.md
+			// / agent.md): republishing on every activation clobbers
+			// any external edits the Worker has made on the
+			// helix-specs branch since the last apply. Canonical-
+			// content updates flow through Workspace.MirrorFile
+			// explicitly; that's the only path that touches these
+			// files outside first-activation provisioning.
+			if _, err := a.Service.ApplyProject(ctx, applyReq); err != nil {
+				return "", "", "", fmt.Errorf("refresh project spec for %s: %w", workerID, err)
+			}
 			return state.ProjectID, state.AgentAppID, state.RepoID, nil
 		}
 	}
-	runtime := a.Runtime
-	if runtime == "" {
-		runtime = Runtime
-	}
-	resp, err := a.Service.ApplyProject(ctx, types.ProjectApplyRequest{
-		OrganizationID: a.OrgID,
-		Name:           string(workerID),
-		Spec: types.ProjectSpec{
-			Description: worker.IdentityContent(),
-			Agent: &types.ProjectAgentSpec{
-				Name:        roleName,
-				Runtime:     runtime,
-				Provider:    a.Provider,
-				Model:       a.Model,
-				Credentials: a.Credentials,
-			},
-		},
-	})
+	resp, err := a.Service.ApplyProject(ctx, applyReq)
 	if err != nil {
 		return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, err)
 	}

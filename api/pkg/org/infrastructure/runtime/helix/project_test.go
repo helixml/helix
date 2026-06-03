@@ -347,6 +347,22 @@ func TestEnsureRequiresRepoToBeAttached(t *testing.T) {
 
 // TestEnsureWithPersistedProjectFastPaths checks the persisted-project
 // fast path.
+//
+// The fast path must:
+//
+//   - return the stored IDs (no fresh provisioning)
+//   - NOT create a new repo or re-publish canonical files (those
+//     would clobber any external edits the operator has made on the
+//     helix-specs branch since the last apply — canonical-content
+//     updates flow through Workspace.MirrorFile)
+//
+// It MUST re-call ApplyProject with the current Runtime/Provider/
+// Model/Credentials, so a change in worker.* via the Settings page
+// propagates to existing workers on the next activation. ApplyProject
+// is upsert-by-name and idempotent — calling it on every Ensure with
+// the fresh spec is the single mechanism that auto-applies settings
+// drift to pre-existing workers. See
+// TestEnsureFastPathRefreshesAgentSpec for the spec assertion.
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role v1")
@@ -362,21 +378,28 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
+	// The fast path returns the STORED ids even though ApplyProject is
+	// re-called. (The fake's applyResp would otherwise overwrite them;
+	// the prod code keeps the persisted state.)
 	if pid != "prj_existing" || aid != "app_existing" || rid != "repo_existing" {
 		t.Errorf("returned ids = (%q,%q,%q)", pid, aid, rid)
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.applyCalls != 0 {
-		t.Errorf("ApplyProject must not be called on fast path; got %d", svc.applyCalls)
+	if svc.applyCalls != 1 {
+		t.Errorf("ApplyProject MUST be called on fast path to refresh worker.* settings drift; got %d", svc.applyCalls)
 	}
 	if svc.getProjectCalls < 1 {
 		t.Errorf("GetProject calls = %d, want >=1", svc.getProjectCalls)
 	}
-	// Fast path must NOT re-push canonical files — that would clobber
-	// any external edits made on the helix-specs branch since the
-	// last apply. Canonical-content updates go through
-	// Workspace.MirrorFile explicitly.
+	// Fast path must NOT create a new repo, change branches, or re-push
+	// canonical files. Repo + files are first-activation provisioning.
+	if svc.createGitRepoCalls != 0 {
+		t.Errorf("fast path must not create a new repo; got %d", svc.createGitRepoCalls)
+	}
+	if svc.attachRepoCalls != 0 {
+		t.Errorf("fast path must not attach a repo; got %d", svc.attachRepoCalls)
+	}
 	if atomic.LoadInt32(&git.branchCalls) != 0 {
 		t.Errorf("fast path must not create-branch; got %d", atomic.LoadInt32(&git.branchCalls))
 	}
@@ -384,6 +407,62 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	defer git.mu.Unlock()
 	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; ok {
 		t.Errorf("fast path must not republish role.md (would clobber external edits)")
+	}
+}
+
+// TestEnsureFastPathRefreshesAgentSpec pins the auto-apply behaviour:
+// on a pre-existing worker, calling Ensure again with a new applier
+// config (different runtime / provider / model / credentials)
+// re-applies the project spec so Helix's per-Worker agent app picks
+// up the new settings.
+//
+// Repro: operator opens /helix-org/settings, flips worker.credentials
+// from subscription to api_key with a provider+model. Without this
+// refresh, the existing w-owner agent app stays in subscription mode
+// forever (its spec was baked at first-apply time) — which is the
+// "how do users update settings for pre-existing workers?" gap.
+func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{ID: "prj_existing", DefaultRepoID: "repo_existing"}
+	git := newFakeGitForProject()
+
+	a := newApplierGit(svc, git, st)
+	// Simulate the operator having flipped worker.credentials → api_key
+	// via the settings page since the worker was first provisioned.
+	a.Runtime = "claude_code"
+	a.Credentials = "api_key"
+	a.Provider = "OpenRouter"
+	a.Model = "anthropic/claude-3-haiku"
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.applyCalls != 1 {
+		t.Fatalf("ApplyProject must be called on the fast path to refresh spec; got %d", svc.applyCalls)
+	}
+	got := svc.lastApplyReq.Spec.Agent
+	if got == nil {
+		t.Fatalf("lastApplyReq has no Agent spec")
+	}
+	if got.Runtime != "claude_code" {
+		t.Errorf("Runtime = %q, want claude_code", got.Runtime)
+	}
+	if got.Credentials != "api_key" {
+		t.Errorf("Credentials = %q, want api_key", got.Credentials)
+	}
+	if got.Provider != "OpenRouter" {
+		t.Errorf("Provider = %q, want OpenRouter", got.Provider)
+	}
+	if got.Model != "anthropic/claude-3-haiku" {
+		t.Errorf("Model = %q, want anthropic/claude-3-haiku", got.Model)
 	}
 }
 
