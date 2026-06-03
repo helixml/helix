@@ -514,8 +514,11 @@ const buildGraph = (
   }
 
   // 5. Edges: manager → subordinate reporting lines, derived from
-  //    position.parent_id. The target carries its own position_id in
-  //    the edge data so onEdgesDelete can clear the right row.
+  //    position.parent_id. Bezier (the default edge type) is used
+  //    deliberately — smoothstep's mid-rank horizontal bus collapses
+  //    on top of itself when multiple sources at the same rank each
+  //    fan out to several targets, while bezier curves give every
+  //    (source, target) pair its own arc and never overlap.
   const edges: Edge[] = []
   for (const p of flat) {
     if (!p.parent_id || !flatByID.has(p.parent_id)) continue
@@ -523,7 +526,7 @@ const buildGraph = (
       id: `pos:${p.parent_id}->pos:${p.position_id}`,
       source: `pos:${p.parent_id}`,
       target: `pos:${p.position_id}`,
-      type: 'smoothstep',
+      type: 'default',
       animated: false,
       data: { targetPositionId: p.position_id },
       style: {
