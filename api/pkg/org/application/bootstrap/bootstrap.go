@@ -70,7 +70,47 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	}
 
 	now := time.Now().UTC()
-	ownerRole, err := orgchart.NewRole("r-owner", ownerRoleContent, nil, nil, now, params.OrganizationID)
+
+	// The same list seeds two things: the owner Role's tools manifest
+	// (what the chart UI shows for r-owner) AND the owner Worker's
+	// actual ToolGrants (the rows the MCP authoriser checks at call
+	// time). The two used to drift — r-owner.Tools was always nil so
+	// the chart's role detail page showed an empty Tools list, even
+	// though w-owner had every tool via grants. Keeping a single
+	// source for both stops that confusion.
+	defaults := []tool.Name{
+		tools.CreateRoleName,
+		tools.UpdateRoleName,
+		tools.UpdateIdentityName,
+		tools.CreatePositionName,
+		tools.HireWorkerName,
+		tools.GrantToolName,
+		tools.RevokeToolName,
+		tools.CreateStreamName,
+		tools.StreamMembersName,
+		tools.SubscribeName,
+		tools.UnsubscribeName,
+		tools.InviteWorkersName,
+		tools.PublishName,
+		tools.DMName,
+		tools.ListRolesName,
+		tools.GetRoleName,
+		tools.ListPositionsName,
+		tools.GetPositionName,
+		tools.ListPositionChildrenName,
+		tools.ListWorkersName,
+		tools.GetWorkerName,
+		tools.ListWorkerGrantsName,
+		tools.GetWorkerEnvironmentName,
+		tools.ListStreamsName,
+		tools.GetStreamName,
+		tools.ListStreamEventsName,
+		tools.GetGrantName,
+		tools.ReadEventsName,
+		tools.WorkerLogName,
+	}
+
+	ownerRole, err := orgchart.NewRole("r-owner", ownerRoleContent, defaults, nil, now, params.OrganizationID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -104,37 +144,6 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create owner environment: %w", err)
 	}
 
-	defaults := []tool.Name{
-		tools.CreateRoleName,
-		tools.UpdateRoleName,
-		tools.UpdateIdentityName,
-		tools.CreatePositionName,
-		tools.HireWorkerName,
-		tools.GrantToolName,
-		tools.RevokeToolName,
-		tools.CreateStreamName,
-		tools.StreamMembersName,
-		tools.SubscribeName,
-		tools.UnsubscribeName,
-		tools.InviteWorkersName,
-		tools.PublishName,
-		tools.DMName,
-		tools.ListRolesName,
-		tools.GetRoleName,
-		tools.ListPositionsName,
-		tools.GetPositionName,
-		tools.ListPositionChildrenName,
-		tools.ListWorkersName,
-		tools.GetWorkerName,
-		tools.ListWorkerGrantsName,
-		tools.GetWorkerEnvironmentName,
-		tools.ListStreamsName,
-		tools.GetStreamName,
-		tools.ListStreamEventsName,
-		tools.GetGrantName,
-		tools.ReadEventsName,
-		tools.WorkerLogName,
-	}
 	if err := tools.EnsureActivationStream(ctx, s, params.OrganizationID, owner.ID(), owner.ID(), now); err != nil {
 		return Result{}, fmt.Errorf("owner activation stream: %w", err)
 	}
