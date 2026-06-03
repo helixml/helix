@@ -13,7 +13,6 @@ import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 
@@ -37,7 +36,6 @@ import '@xyflow/react/dist/style.css'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   ChartNode,
@@ -337,7 +335,6 @@ const WorkerDrawer: FC<{
   workerId: string
   onClose: () => void
 }> = ({ workerId, onClose }) => {
-  const router = useRouter()
   const snackbar = useSnackbar()
   const { data, isLoading } = useHelixOrgWorker(workerId)
   const fire = useFireHelixOrgWorker()
@@ -425,14 +422,6 @@ const WorkerDrawer: FC<{
           <Divider sx={{ my: 1 }} />
 
           <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<OpenInNewIcon />}
-              onClick={() => router.navigate('helix_org_worker_detail', { org_id: router.params.org_id, worker_id: workerId })}
-            >
-              Open editor
-            </Button>
             {confirming ? (
               <>
                 <Button

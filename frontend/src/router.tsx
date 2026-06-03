@@ -46,10 +46,6 @@ import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
-import HelixOrgWorkers from './pages/HelixOrgWorkers'
-import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
-import HelixOrgSettings from './pages/HelixOrgSettings'
-import HelixOrgStreams from './pages/HelixOrgStreams'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -537,11 +533,11 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org React pages — multi-tenant. Each helix Organization
-  // gets its own helix-org tenant; the URL carries :org_id (slug or
-  // canonical id) and the helixOrgService uses it to scope every API
-  // call. Routes mirror the API surface:
-  // GET /api/v1/orgs/{org}/helix-org/{chart,workers,settings,streams}.
+  // helix-org alpha — the org chart is the only surface exposed to
+  // users today. Other resources (workers, roles, positions, streams,
+  // settings) are operated via MCP tools / API; the chart is the
+  // visual entry point. The URL carries :org_id so the helixOrgService
+  // can scope each request to a single tenant.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
   meta: { drawer: true, title: 'Helix Org' },
@@ -557,26 +553,6 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/helix-org/chart',
   meta: { drawer: true, title: 'Helix Org · Chart' },
   render: () => <HelixOrgChart />,
-}, {
-  name: 'helix_org_workers',
-  path: '/orgs/:org_id/helix-org/workers',
-  meta: { drawer: true, title: 'Helix Org · Workers' },
-  render: () => <HelixOrgWorkers />,
-}, {
-  name: 'helix_org_worker_detail',
-  path: '/orgs/:org_id/helix-org/workers/:worker_id',
-  meta: { drawer: true, title: 'Helix Org · Worker' },
-  render: () => <HelixOrgWorkerDetail />,
-}, {
-  name: 'helix_org_settings',
-  path: '/orgs/:org_id/helix-org/settings',
-  meta: { drawer: true, title: 'Helix Org · Settings' },
-  render: () => <HelixOrgSettings />,
-}, {
-  name: 'helix_org_streams',
-  path: '/orgs/:org_id/helix-org/streams',
-  meta: { drawer: true, title: 'Helix Org · Streams' },
-  render: () => <HelixOrgStreams />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
