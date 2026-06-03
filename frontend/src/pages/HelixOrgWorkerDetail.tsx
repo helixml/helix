@@ -35,6 +35,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
+  useEnsureWorkerChat,
   useFireHelixOrgWorker,
   useHelixOrgWorker,
 } from '../services/helixOrgService'
@@ -50,6 +51,7 @@ const HelixOrgWorkerDetail: FC = () => {
 
   const { data, isLoading } = useHelixOrgWorker(workerId)
   const fire = useFireHelixOrgWorker()
+  const ensureChat = useEnsureWorkerChat()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
   const isOwner = workerId === OWNER_WORKER
@@ -58,12 +60,28 @@ const HelixOrgWorkerDetail: FC = () => {
 
   // openChat navigates to the agent app's chat surface WITHOUT pinning
   // a session id, so the agent page renders its empty composer ready
-  // for a fresh conversation. Each click on either button gets a new
-  // session-id from the backend on first message — the URL itself
-  // carries no history.
-  const openChat = () => {
-    if (!orgSlug || !agentAppID) return
-    router.navigate('org_agent', { org_id: orgSlug, app_id: agentAppID })
+  // for a fresh conversation. Bootstrap doesn't provision an agent app
+  // for the owner (the spawner only does it on AI-worker activation),
+  // so on the first click we POST to /workers/{id}/chat which fast-
+  // paths through WorkerProject.Ensure and returns the agent_app_id;
+  // subsequent clicks navigate immediately.
+  const openChat = async () => {
+    if (!orgSlug || !workerId) return
+    let appID = agentAppID
+    if (!appID) {
+      try {
+        const resp = await ensureChat.mutateAsync(workerId)
+        appID = resp.agent_app_id
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'provisioning chat failed')
+        return
+      }
+    }
+    if (!appID) {
+      snackbar.error('no agent app id returned')
+      return
+    }
+    router.navigate('org_agent', { org_id: orgSlug, app_id: appID })
   }
 
   const handleFire = async () => {
@@ -104,9 +122,9 @@ const HelixOrgWorkerDetail: FC = () => {
             color="secondary"
             startIcon={<ChatBubbleOutlineIcon />}
             onClick={openChat}
-            disabled={!agentAppID}
+            disabled={ensureChat.isPending}
           >
-            Start new chat
+            {ensureChat.isPending ? 'Provisioning…' : 'Start new chat'}
           </Button>
         </Stack>
       )}
@@ -140,18 +158,22 @@ const HelixOrgWorkerDetail: FC = () => {
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Opens the worker's agent app in a brand-new chat session. Previous
-                      sessions live on the agent page itself — this surface always lands
-                      you in an empty composer.
+                      Opens the worker's agent app in a brand-new chat session. The first
+                      click on a never-chatted-with worker provisions the agent app on the
+                      fly (takes a couple of seconds); subsequent clicks navigate
+                      immediately. Each click lands you in an empty composer — no
+                      transcript bleed across visits.
                     </Typography>
                     <Button
                       variant="contained"
                       color="secondary"
                       startIcon={<ChatBubbleOutlineIcon />}
                       onClick={openChat}
-                      disabled={!agentAppID}
+                      disabled={ensureChat.isPending}
                     >
-                      {agentAppID ? 'Start new chat' : 'No agent app yet — chat once the worker has activated'}
+                      {ensureChat.isPending
+                        ? 'Provisioning agent app…'
+                        : (agentAppID ? 'Start new chat' : 'Provision + start chat')}
                     </Button>
                   </Stack>
                 </Paper>

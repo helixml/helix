@@ -42,6 +42,15 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, ev streaming.Event)
 }
 
+// ProjectEnsurer provisions (or fast-paths) the per-Worker Helix
+// project + agent app for a Worker. Mirrors
+// runtimehelix.WorkerProject.Ensure. The chart UI's worker detail
+// page calls POST /workers/{id}/chat which routes through this to
+// guarantee an agent_app_id exists before redirecting to /agent/.
+type ProjectEnsurer interface {
+	Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error)
+}
+
 // Deps is the JSON API's wiring.
 //
 // Owner is the WorkerID hardcoded as "w-owner"; plumbed through so
@@ -74,6 +83,15 @@ type Deps struct {
 	// returns an empty list (degrade gracefully on test wirings that
 	// don't bother building a registry).
 	Tools *tools.Registry
+
+	// ProjectEnsurer provisions (or fast-paths) a per-Worker Helix
+	// project + agent app so the worker detail page's "Start new
+	// chat" button can land on /agent/{agent_app_id}. Bootstrap
+	// doesn't run this — first activation does — so the owner worker
+	// has no agent app until someone calls Ensure. The chart's
+	// POST /workers/{id}/chat endpoint exposes the call. nil disables
+	// the endpoint (returns 501).
+	ProjectEnsurer ProjectEnsurer
 
 	// Lifecycle owns the cross-cutting Fire cascade (Helix project +
 	// app teardown, store cleanup, env-dir removal). nil disables
@@ -119,6 +137,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /workers", Handler: http.HandlerFunc(a.hireWorker)},
 		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},
 		{Pattern: "DELETE /workers/{id}", Handler: http.HandlerFunc(a.fireWorker)},
+		{Pattern: "POST /workers/{id}/chat", Handler: http.HandlerFunc(a.ensureWorkerChat)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
@@ -587,6 +606,52 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		detail.AgentAppID = state.AgentAppID
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// ensureWorkerChat provisions (or fast-paths) the Worker's per-Worker
+// Helix project + agent app, then returns the agent_app_id so the
+// chart UI can deep-link to /agent/<app_id>. The owner worker has no
+// agent app on bootstrap (the spawner provisions one only when an AI
+// worker is activated); calling this on first chart visit gets us a
+// chat-able app for the human owner without bootstrap-time changes.
+//
+// Idempotent — WorkerProject.Ensure fast-paths when the project
+// already exists.
+//
+// @Summary Helix-org: provision a per-worker chat app
+// @Tags HelixOrg
+// @Param id path string true "Worker ID"
+// @Success 200 {object} api.WorkerChatDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/workers/{id}/chat [post]
+func (a *apiHandler) ensureWorkerChat(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.ProjectEnsurer == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("project ensurer not wired"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.WorkerID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
+		return
+	}
+	if _, err := a.deps.Store.Workers.Get(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
+		return
+	}
+	_, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure worker chat: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, WorkerChatDTO{AgentAppID: agentAppID})
 }
 
 // updateWorkerIdentity rewrites a Worker's IdentityContent. The

@@ -241,18 +241,19 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 
 	apiDeps := helixorgapi.Deps{
-		Store:      st,
-		Configs:    configReg,
-		Hub:        bc,
-		Dispatcher: dispatcher,
-		Owner:      "w-owner",
-		DBPath:     orgRoot,
-		EnvsDir:    envsDir,
-		HireWorker: hireTool,
-		Lifecycle:  lifecycleSvc,
-		Tools:      reg,
-		NewID:      deps.NewID,
-		Now:        deps.Now,
+		Store:          st,
+		Configs:        configReg,
+		Hub:            bc,
+		Dispatcher:     dispatcher,
+		Owner:          "w-owner",
+		DBPath:         orgRoot,
+		EnvsDir:        envsDir,
+		HireWorker:     hireTool,
+		Lifecycle:      lifecycleSvc,
+		Tools:          reg,
+		ProjectEnsurer: projectApplier,
+		NewID:          deps.NewID,
+		Now:            deps.Now,
 	}
 	apiRoutes := helixorgapi.Routes(apiDeps)
 	extras := make([]helixorgserver.Route, 0, len(apiRoutes))

@@ -138,6 +138,31 @@ export function useHelixOrgChart(options?: { enabled?: boolean }) {
   })
 }
 
+// useEnsureWorkerChat provisions (or fast-paths) the Worker's per-
+// Worker Helix project + agent app, returning the agent_app_id. The
+// chart UI's "Start new chat" button calls this when the worker has
+// no agent app yet (e.g. the human owner on a fresh org), then
+// navigates to /agent/<agent_app_id>. Idempotent.
+export function useEnsureWorkerChat() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (workerId: string) => {
+      const data = await api.post<unknown, { agent_app_id: string }>(
+        `${base}/workers/${encodeURIComponent(workerId)}/chat`,
+        undefined,
+      )
+      return data
+    },
+    onSuccess: (_data, workerId) => {
+      // Invalidate the worker detail cache so the page re-renders
+      // with the freshly-populated agent_app_id.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
+    },
+  })
+}
+
 // useListHelixOrgWorkers fetches every worker in the current org.
 // Drives the Workers list page. Returns WorkerDTO entries (not
 // WorkerDetailDTO — the detail page hydrates that per-worker).

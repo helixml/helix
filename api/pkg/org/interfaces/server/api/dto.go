@@ -81,6 +81,13 @@ type WorkerDTO struct {
 	Tools           []string `json:"tools,omitempty"`
 }
 
+// WorkerChatDTO is the POST /workers/{id}/chat response. AgentAppID
+// is the per-Worker Helix agent app id the chart UI's "Start new
+// chat" button navigates to.
+type WorkerChatDTO struct {
+	AgentAppID string `json:"agent_app_id"`
+}
+
 // WorkerDetailDTO is the full GET /workers/{id} response — Worker
 // fields plus the surrounding context the UI's detail pane needs
 // (the role markdown of the Position the Worker fills, sibling worker
