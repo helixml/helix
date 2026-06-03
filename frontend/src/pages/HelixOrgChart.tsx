@@ -999,6 +999,11 @@ const ChartCanvas: FC<{
       // the Delete key.
       nodesConnectable
       elementsSelectable
+      // @xyflow/react v12's deleteKeyCode defaults to Backspace only,
+      // so Linux/Windows users hitting Delete on a selected edge get
+      // nothing. Accept both so the QA-doc'd contract ("Press Delete
+      // or Backspace") holds on every platform.
+      deleteKeyCode={['Backspace', 'Delete']}
       panOnDrag
       zoomOnScroll
     >
