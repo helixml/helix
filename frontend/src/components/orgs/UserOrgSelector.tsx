@@ -1241,7 +1241,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                       ? 'transparent'
                       : currentOrgSlug === org.name
                         ? 'rgba(0, 229, 255, 0.15)'
-                        : lightTheme.highlightColor,
+                        : 'rgba(0, 229, 255, 0.08)',
                 },
               }}
             >
