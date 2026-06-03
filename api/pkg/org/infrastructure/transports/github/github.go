@@ -63,13 +63,17 @@ type Config struct {
 	WebhookSecret string `json:"webhook_secret"`
 }
 
-// Validate checks the Config has the fields the transport needs.
-// Token validity is opaque (we don't call GitHub from here), but a
-// missing token is a misconfiguration worth surfacing early.
+// Validate checks the Config has the fields the transport needs for
+// inbound delivery handling. webhook_secret is mandatory — without it
+// we can't verify HMAC signatures and would have to drop every
+// delivery. token is optional here: the inbound path never uses it;
+// downstream consumers (worker environments calling `gh`) resolve it
+// via Transport.Token, which falls back to the operator-provided
+// TokenResolver when transport.github.token isn't set. Reusing a
+// per-user GitHub OAuth connection through TokenResolver is the
+// recommended path so ops don't have to paste a PAT into
+// transport.github.
 func (c Config) Validate() error {
-	if c.Token == "" {
-		return errors.New("token is empty")
-	}
 	if c.WebhookSecret == "" {
 		return errors.New("webhook_secret is empty")
 	}
@@ -83,15 +87,25 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, event streaming.Event)
 }
 
+// TokenResolver returns the GitHub access token to use for outbound
+// actions in the org's Worker environments — typically pulled from an
+// existing helix OAuth connection so operators don't have to paste a
+// separate PAT into transport.github.
+//
+// Returning empty string + nil error is treated as "no token
+// available right now"; callers decide whether that's fatal.
+type TokenResolver func(ctx context.Context, orgID string) (string, error)
+
 // Transport is the long-lived inbound webhook handler. One instance
 // per running helix-org server.
 type Transport struct {
-	orgID       string
-	registry    *configregistry.Registry
-	store       *store.Store
-	broadcaster *streamhub.Hub
-	dispatcher  Dispatcher
-	logger      *slog.Logger
+	orgID         string
+	registry      *configregistry.Registry
+	store         *store.Store
+	broadcaster   *streamhub.Hub
+	dispatcher    Dispatcher
+	tokenResolver TokenResolver
+	logger        *slog.Logger
 }
 
 // New returns a Transport bound to the given config registry, store,
@@ -108,6 +122,38 @@ func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *stream
 		dispatcher:  d,
 		logger:      logger,
 	}
+}
+
+// WithTokenResolver installs the operator-side hook for resolving
+// GitHub access tokens when transport.github.token is empty. Returns
+// the same Transport for fluent wiring at construction time. Passing
+// nil clears any previously-installed resolver.
+func (t *Transport) WithTokenResolver(r TokenResolver) *Transport {
+	t.tokenResolver = r
+	return t
+}
+
+// Token returns the GitHub access token the transport's downstream
+// consumers (worker environments running `gh`) should use. Order of
+// precedence:
+//
+//  1. transport.github.token from the operational config registry —
+//     wins so ops can pin a specific PAT.
+//  2. TokenResolver — the recommended path; in production wired to
+//     the helix OAuth manager so the user's existing GitHub login is
+//     reused.
+//
+// Empty string + nil error means "no token configured". Callers
+// decide whether that's fatal.
+func (t *Transport) Token(ctx context.Context) (string, error) {
+	var c Config
+	if err := t.registry.GetObject(ctx, t.orgID, "transport.github", &c); err == nil && c.Token != "" {
+		return c.Token, nil
+	}
+	if t.tokenResolver == nil {
+		return "", nil
+	}
+	return t.tokenResolver(ctx, t.orgID)
 }
 
 func (t *Transport) config(ctx context.Context) (Config, error) {

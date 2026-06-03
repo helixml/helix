@@ -782,6 +782,19 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
+			// /api/v1/orgs/{org}/github/webhook — public, GitHub
+			// deliveries authenticate via HMAC of the per-org
+			// webhook_secret. Registered on the INSECURE router so
+			// the helix session-cookie / api-key auth doesn't 401
+			// inbound deliveries. Must be registered BEFORE the
+			// authRouter PathPrefix("/orgs/{org}/") so this exact
+			// path wins the match.
+			if orgHandlers.publicGitHubWebhook != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
+					Methods(http.MethodPost)
+			}
+
 			// /api/v1/orgs/{org}/* — per-tenant surface for the
 			// org-graph resources (chart, workers, roles, positions,
 			// streams, settings). withHelixOrgScope resolves {org}

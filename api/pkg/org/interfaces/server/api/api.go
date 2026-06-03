@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
@@ -98,6 +101,19 @@ type Deps struct {
 	// DELETE /workers/{id} (returns 501).
 	Lifecycle *lifecycle.Service
 
+	// GitHubTokenResolver is the production hook for "reinstate the
+	// GitHub stream + reuse the existing GitHub integration for
+	// Auth". When transport.github.token is empty, the github
+	// transport calls this to look up a GitHub OAuth connection
+	// owned by an org member and return its access token. nil
+	// disables the fallback — the transport's Token() then returns
+	// empty string and downstream consumers degrade accordingly.
+	//
+	// Signature mirrors githubtransport.TokenResolver to avoid a
+	// dependency cycle; the wiring in api/pkg/server adapts the
+	// helix OAuth manager into this shape.
+	GitHubTokenResolver func(ctx context.Context, orgID string) (string, error)
+
 	// NewID and Now are seams for tests. Production wiring passes
 	// system.GenerateID / time.Now.
 	NewID func() string
@@ -150,6 +166,12 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /streams/{id}", Handler: http.HandlerFunc(a.deleteStream)},
 		{Pattern: "GET /streams/{id}/events", Handler: http.HandlerFunc(a.streamEventsSSE)},
 		{Pattern: "POST /streams/{id}/publish", Handler: http.HandlerFunc(a.publishToStream)},
+		// Inbound webhook for the GitHub transport. The transport
+		// resolves orgID from the request context (set by the org
+		// middleware) and reads transport.github from the org's
+		// config registry on every delivery, so a single mounted
+		// route serves every org without rebinding state.
+		{Pattern: "POST /github/webhook", Handler: http.HandlerFunc(a.githubWebhook)},
 	}
 }
 
@@ -1295,6 +1317,53 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		a.deps.Dispatcher.Dispatch(ctx, ev)
 	}
 	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(ev.ID)})
+}
+
+// githubDispatcher adapts the api.Dispatcher into the
+// github.Dispatcher interface. The two are structurally identical;
+// the adapter exists only so the github package can keep its own
+// Dispatcher type without importing api (would create a cycle).
+type githubDispatcher struct{ inner Dispatcher }
+
+func (d githubDispatcher) Dispatch(ctx context.Context, ev streaming.Event) {
+	if d.inner == nil {
+		return
+	}
+	d.inner.Dispatch(ctx, ev)
+}
+
+// githubWebhook is the per-request dispatcher for POST /github/webhook.
+// Builds a github.Transport bound to the request's orgID (resolved
+// from the org middleware's context) and hands the request off to
+// its HandleInbound. Building per-request keeps the route stateless
+// — a single mounted handler serves every org.
+//
+// @Summary Helix-org: inbound GitHub webhook
+// @Tags HelixOrg
+// @Param payload body object true "Raw GitHub webhook delivery"
+// @Success 204 "Delivery accepted and fanned out"
+// @Success 200 "Delivery accepted but no matching streams"
+// @Failure 401 {object} api.ErrorResponse "Bad or missing X-Hub-Signature-256"
+// @Failure 503 {object} api.ErrorResponse "transport.github not configured"
+// @Router /api/v1/orgs/{org}/github/webhook [post]
+func (a *apiHandler) githubWebhook(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	t := githubtransport.New(
+		orgID,
+		a.deps.Configs,
+		a.deps.Store,
+		a.deps.Hub,
+		githubDispatcher{inner: a.deps.Dispatcher},
+		slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})),
+	)
+	if a.deps.GitHubTokenResolver != nil {
+		t = t.WithTokenResolver(githubtransport.TokenResolver(a.deps.GitHubTokenResolver))
+	}
+	t.HandleInbound().ServeHTTP(w, r)
 }
 
 // ---- helpers ------------------------------------------------------------

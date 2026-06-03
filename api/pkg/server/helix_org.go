@@ -14,6 +14,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
+	"github.com/gorilla/mux"
+
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -25,6 +27,7 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 
@@ -40,6 +43,13 @@ import (
 type helixOrgHandlers struct {
 	api   http.Handler
 	scope *helixOrgScope
+	// publicGitHubWebhook is the inbound /github/webhook handler
+	// mounted on the INSECURE router. GitHub deliveries carry no
+	// helix session cookie or API key — they authenticate via the
+	// per-org HMAC `webhook_secret` checked inside the github
+	// transport. The path is /api/v1/orgs/{org}/github/webhook and
+	// the handler resolves {org} from mux.Vars before dispatching.
+	publicGitHubWebhook http.Handler
 }
 
 // alphaFeatureHelixOrg is the alpha-feature flag that gates the
@@ -253,8 +263,14 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Lifecycle:      lifecycleSvc,
 		Tools:          reg,
 		ProjectEnsurer: projectApplier,
-		NewID:          deps.NewID,
-		Now:            deps.Now,
+		// Production: the github stream transport's Token() falls
+		// back to whatever GitHub OAuth connection the org members
+		// have already authorised, so operators don't have to paste a
+		// PAT into transport.github. The resolver lives in
+		// helix_org_github.go.
+		GitHubTokenResolver: newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore),
+		NewID:               deps.NewID,
+		Now:                 deps.Now,
 	}
 	apiRoutes := helixorgapi.Routes(apiDeps)
 	extras := make([]helixorgserver.Route, 0, len(apiRoutes))
@@ -268,7 +284,40 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
 	scope := newHelixOrgScope(configReg, st, envsDir, helixStore)
-	return &helixOrgHandlers{api: orgServer.Handler(extras...), scope: scope}, nil
+
+	// Public github webhook handler — mounted on the insecure router
+	// because GitHub deliveries authenticate via HMAC, not the helix
+	// session/api-key layer. Per-request: resolve {org} from mux
+	// vars → orgID → build the github.Transport → dispatch.
+	ghLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	tokenResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
+	publicGitHubWebhook := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		orgSlugOrID := mux.Vars(r)["org"]
+		if orgSlugOrID == "" {
+			http.Error(w, "missing org", http.StatusBadRequest)
+			return
+		}
+		org, err := cfg.APIServer.lookupOrg(r.Context(), orgSlugOrID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := scope.ensureBootstrap(r.Context(), org.ID); err != nil {
+			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		t := githubtransport.New(org.ID, configReg, st, bc, dispatcher, ghLogger)
+		if tokenResolver != nil {
+			t = t.WithTokenResolver(githubtransport.TokenResolver(tokenResolver))
+		}
+		t.HandleInbound().ServeHTTP(w, r)
+	})
+
+	return &helixOrgHandlers{
+		api:                 orgServer.Handler(extras...),
+		scope:               scope,
+		publicGitHubWebhook: publicGitHubWebhook,
+	}, nil
 }
 
 // helixOrgConfig is just enough of the surrounding config to bring

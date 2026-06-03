@@ -646,3 +646,76 @@ func TestGitHubConfigRoundTrip(t *testing.T) {
 		t.Fatalf("Events = %v", c.Events)
 	}
 }
+
+// TestTokenFallsBackToOAuthResolver pins the user-facing contract
+// "reinstate the GitHub stream and reuse the existing GitHub
+// integration for Auth". Operators previously had to paste a GitHub
+// PAT into transport.github.token; the recommended path is now to
+// connect a GitHub OAuth provider via Settings → Connected Services
+// and let the transport pick up the token at activation time. The
+// TokenResolver hook is what production wiring uses to plug in the
+// helix OAuth manager.
+//
+// This test covers three cases:
+//
+//  1. transport.github.token set → wins, resolver not consulted (ops
+//     can pin a specific PAT if they really want to).
+//  2. transport.github.token empty + resolver returns a value →
+//     resolver's value is returned.
+//  3. transport.github.token empty + no resolver → empty string,
+//     no error.
+func TestTokenFallsBackToOAuthResolver(t *testing.T) {
+	t.Parallel()
+	t.Run("config token wins over resolver", func(t *testing.T) {
+		tp, _, _, _, reg := newTestTransport(t)
+		setGitHubConfig(t, reg, "from-config", testWebhookSecret)
+		tp.WithTokenResolver(func(_ context.Context, _ string) (string, error) {
+			t.Errorf("resolver consulted despite config token being set")
+			return "from-resolver", nil
+		})
+		got, err := tp.Token(context.Background())
+		if err != nil {
+			t.Fatalf("Token: %v", err)
+		}
+		if got != "from-config" {
+			t.Errorf("Token = %q, want %q", got, "from-config")
+		}
+	})
+
+	t.Run("empty config falls through to resolver", func(t *testing.T) {
+		tp, _, _, _, reg := newTestTransport(t)
+		// Only the webhook_secret is set; token is intentionally empty
+		// to mimic an operator who connected GitHub via OAuth instead
+		// of pasting a PAT.
+		setGitHubConfig(t, reg, "", testWebhookSecret)
+		var called bool
+		tp.WithTokenResolver(func(_ context.Context, orgID string) (string, error) {
+			called = true
+			if orgID != "org-test" {
+				t.Errorf("resolver called with orgID = %q, want %q", orgID, "org-test")
+			}
+			return "from-oauth", nil
+		})
+		got, err := tp.Token(context.Background())
+		if err != nil {
+			t.Fatalf("Token: %v", err)
+		}
+		if !called {
+			t.Error("resolver not consulted")
+		}
+		if got != "from-oauth" {
+			t.Errorf("Token = %q, want %q", got, "from-oauth")
+		}
+	})
+
+	t.Run("no config no resolver returns empty without error", func(t *testing.T) {
+		tp, _, _, _, _ := newTestTransport(t)
+		got, err := tp.Token(context.Background())
+		if err != nil {
+			t.Fatalf("Token: %v", err)
+		}
+		if got != "" {
+			t.Errorf("Token = %q, want empty", got)
+		}
+	})
+}

@@ -44,7 +44,7 @@ import {
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
   { value: 'webhook', label: 'webhook', help: 'HTTP webhook. Inbound by default; outbound URL = bidirectional.' },
-  { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Config: owner/repo, token, webhook_secret.' },
+  { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Stream config: {"repo":"owner/name","events":["issues","pull_request",...]}. Set transport.github.webhook_secret on the Settings page; the GitHub access token is reused from your existing GitHub OAuth connection automatically — no PAT needed.' },
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
 ]
 
@@ -259,6 +259,7 @@ const HelixOrgStreams: FC = () => {
 }
 
 const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+  const account = useAccount()
   const snackbar = useSnackbar()
   const create = useCreateHelixOrgStream()
   const [id, setId] = useState('')
@@ -348,6 +349,22 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary">{helpFor}</Typography>
+          {kind === 'github' && (
+            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                <strong>After Create</strong>, paste this into your GitHub repo's webhook settings (Settings → Webhooks → Add webhook):
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+                Payload URL: <code>{`${window.location.origin}/api/v1/orgs/${(account.organizationTools.organization?.name) || '<org>'}/github/webhook`}</code>
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                Content type: <code>application/json</code>
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                Secret: same value as <code>transport.github.webhook_secret</code> on the Settings page
+              </Typography>
+            </Box>
+          )}
           {kind !== 'local' && (
             <TextField
               label="Transport config (JSON)"

@@ -3,6 +3,9 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +17,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
@@ -271,5 +276,88 @@ func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, 
 	}
 	if err := st.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("create worker: %v", err)
+	}
+}
+
+// TestPostGitHubWebhook_RoutesToInboundHandler pins the regression
+// behind "GitHub streams created but never receive anything": the
+// streams API accepts kind=github and the inbound transport handler
+// exists in infrastructure/transports/github, but the route was
+// never wired into the org-scoped API mux. POSTing a properly-signed
+// GitHub delivery to /github/webhook used to 404; tail the API logs
+// and you'd see nothing — the user thought their webhook was
+// misconfigured when in fact helix was deaf to it.
+//
+// Set up: configure transport.github with a webhook_secret + token,
+// seed a github-kind Stream for repo "owner/name" listening for
+// `issues`, sign a body with that secret, POST it. Expect 204 (the
+// transport's success status for "event appended"), not 404.
+func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
+	deps, st, reg := newDeps(t)
+	// transport.github must be registered before set, otherwise the
+	// registry rejects the key. Spec lives in api/pkg/server but the
+	// shape we need here is the same — register a permissive object
+	// spec locally to keep this test isolated from the helix-org
+	// wiring.
+	reg.Register(configregistry.Spec{
+		Key:         "transport.github",
+		Type:        configregistry.TypeObject,
+		Secrets:     []string{"token", "webhook_secret"},
+		Description: "test",
+	})
+	ctx := context.Background()
+	const (
+		webhookSecret = "test-secret"
+		token         = "test-token"
+		repo          = "octocat/hello-world"
+	)
+	rawCfg, _ := json.Marshal(map[string]any{"token": token, "webhook_secret": webhookSecret})
+	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg), orgchart.WorkerID("")); err != nil {
+		t.Fatalf("set transport.github: %v", err)
+	}
+	streamCfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"issues"}})
+	stream, err := streaming.NewStream(
+		streaming.StreamID("s-gh-issues"), "issues", "",
+		"w-owner", time.Now().UTC(),
+		transport.Transport{Kind: transport.KindGitHub, Config: streamCfg},
+		"org-test",
+	)
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+	if err := st.Streams.Create(ctx, stream); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+
+	h := orgapi.Handler(deps)
+	body, _ := json.Marshal(map[string]any{
+		"action":     "opened",
+		"repository": map[string]any{"full_name": repo},
+		"issue":      map[string]any{"number": 1, "title": "hi"},
+		"sender":     map[string]any{"login": "octocat"},
+	})
+	mac := hmac.New(sha256.New, []byte(webhookSecret))
+	mac.Write(body)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req := httptest.NewRequest("POST", "/github/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-GitHub-Delivery", "del-1")
+	req.Header.Set("X-Hub-Signature-256", sig)
+	req = req.WithContext(helixorgserver.WithOrgID(req.Context(), "org-test"))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("status: got 404 — github webhook route not mounted on org-scoped mux")
+	}
+	// Any 2xx is acceptable: the transport returns 204 on success,
+	// 200 on no-op (no streams). We're only asserting the route
+	// dispatches — semantic correctness of the transport itself is
+	// covered by its own tests.
+	if rec.Code < 200 || rec.Code >= 300 {
+		t.Fatalf("status: got %d, want 2xx; body=%s", rec.Code, rec.Body)
 	}
 }
