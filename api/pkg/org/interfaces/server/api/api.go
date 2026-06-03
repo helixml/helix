@@ -67,6 +67,13 @@ type Deps struct {
 	// store state. nil disables POST /workers (returns 501).
 	HireWorker *tools.HireWorker
 
+	// Tools is the same tools registry the MCP server exposes — used
+	// by GET /tools so the chart UI's role-editor multi-select can
+	// render the catalogue of available grants. nil = endpoint
+	// returns an empty list (degrade gracefully on test wirings that
+	// don't bother building a registry).
+	Tools *tools.Registry
+
 	// Lifecycle owns the cross-cutting Fire cascade (Helix project +
 	// app teardown, store cleanup, env-dir removal). nil disables
 	// DELETE /workers/{id} (returns 501).
@@ -113,6 +120,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /workers/{id}", Handler: http.HandlerFunc(a.fireWorker)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
+		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
 		{Pattern: "DELETE /settings/{key}", Handler: http.HandlerFunc(a.deleteSetting)},
@@ -281,6 +289,28 @@ func positionDTO(p orgchart.Position) PositionDTO {
 		dto.ParentID = string(*p.ParentID)
 	}
 	return dto
+}
+
+// listTools returns the catalogue of available MCP tools the org
+// can grant to its roles. Powers the role editor's multi-select.
+//
+// @Summary Helix-org: list available MCP tools
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {array} api.ToolDTO
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/tools [get]
+func (a *apiHandler) listTools(w http.ResponseWriter, r *http.Request) {
+	out := make([]ToolDTO, 0)
+	if a.deps.Tools != nil {
+		for _, t := range a.deps.Tools.List() {
+			out = append(out, ToolDTO{
+				Name:        string(t.Name()),
+				Description: t.Description(),
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // listRoles returns every Role row.

@@ -48,6 +48,15 @@ type PositionDTO struct {
 	ParentID string `json:"parent_id,omitempty"`
 }
 
+// ToolDTO is one entry in GET /tools — the catalogue of every grant
+// the org can hand to a Role. Powers the chart-UI role editor's
+// multi-select. Description is the human-readable one-liner the
+// underlying tool surfaces to LLM callers via MCP.
+type ToolDTO struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 // RoleDTO is one row in GET /roles. Content is the canonical
 // role.md markdown.
 type RoleDTO struct {

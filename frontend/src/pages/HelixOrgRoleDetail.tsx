@@ -11,8 +11,10 @@
 // autocomplete once the catalogue stabilises.
 
 import { FC, useEffect, useMemo, useState } from 'react'
+import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
@@ -22,6 +24,8 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import CheckBoxIcon from '@mui/icons-material/CheckBox'
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
 
@@ -34,8 +38,10 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
+  ToolDTO,
   useDeleteHelixOrgRole,
   useHelixOrgRole,
+  useListHelixOrgTools,
   useUpdateHelixOrgRole,
 } from '../services/helixOrgService'
 
@@ -54,11 +60,12 @@ const HelixOrgRoleDetail: FC = () => {
   const roleId = router.params.role_id as string | undefined
 
   const { data, isLoading } = useHelixOrgRole(roleId)
+  const { data: toolCatalogue } = useListHelixOrgTools()
   const updateRole = useUpdateHelixOrgRole()
   const deleteRole = useDeleteHelixOrgRole()
 
   const [content, setContent] = useState('')
-  const [toolsText, setToolsText] = useState('')
+  const [tools, setTools] = useState<string[]>([])
   const [streamsText, setStreamsText] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
@@ -66,12 +73,26 @@ const HelixOrgRoleDetail: FC = () => {
   useEffect(() => {
     if (!data) return
     setContent(data.content ?? '')
-    setToolsText((data.tools ?? []).join(', '))
+    setTools(data.tools ?? [])
     setStreamsText((data.streams ?? []).join(', '))
   }, [data])
 
-  const tools = useMemo(() => parseList(toolsText), [toolsText])
   const streams = useMemo(() => parseList(streamsText), [streamsText])
+
+  // The Autocomplete needs Option objects, but the role's grant
+  // shape is just a string[] of names. We render every catalogue
+  // entry plus any role-held names the catalogue didn't return
+  // (defensive — if a tool was unregistered but the grant still
+  // exists, we keep showing it as selected so the operator can
+  // explicitly remove it).
+  const toolOptions = useMemo<ToolDTO[]>(() => {
+    const cat = toolCatalogue ?? []
+    const known = new Set(cat.map((t) => t.name))
+    const extras = tools
+      .filter((name) => !known.has(name))
+      .map<ToolDTO>((name) => ({ name, description: '(not in current catalogue)' }))
+    return [...cat, ...extras]
+  }, [toolCatalogue, tools])
 
   const dirty = useMemo(() => {
     if (!data) return false
@@ -184,22 +205,53 @@ const HelixOrgRoleDetail: FC = () => {
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Tools</Typography>
-                  <TextField
-                    fullWidth
-                    value={toolsText}
-                    onChange={(e) => setToolsText(e.target.value)}
-                    placeholder="hire_worker, fire_worker, … (comma- or newline-separated)"
-                    helperText="MCP tool names the Workers in this role are granted. Empty = role-default."
-                    multiline
-                    minRows={2}
+                  <Autocomplete
+                    multiple
+                    disableCloseOnSelect
+                    options={toolOptions}
+                    value={toolOptions.filter((o) => tools.includes(o.name))}
+                    onChange={(_e, value) => setTools(value.map((v) => v.name))}
+                    getOptionLabel={(o) => o.name}
+                    isOptionEqualToValue={(a, b) => a.name === b.name}
+                    renderOption={(props, option, { selected }) => (
+                      <li {...props} key={option.name}>
+                        <Checkbox
+                          icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                          checkedIcon={<CheckBoxIcon fontSize="small" />}
+                          style={{ marginRight: 8 }}
+                          checked={selected}
+                        />
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                            {option.name}
+                          </Typography>
+                          {option.description && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              {option.description}
+                            </Typography>
+                          )}
+                        </Box>
+                      </li>
+                    )}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => (
+                        <Chip
+                          {...getTagProps({ index })}
+                          key={option.name}
+                          label={option.name}
+                          size="small"
+                          sx={{ fontFamily: 'monospace' }}
+                        />
+                      ))
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder={tools.length === 0 ? 'Pick the tools to grant to workers in this role' : ''}
+                        helperText="MCP tools the Workers in this role can call. Empty = no tools (workers can still receive owner-chat)."
+                      />
+                    )}
                   />
-                  {tools.length > 0 && (
-                    <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 1 }}>
-                      {tools.map((t) => (
-                        <Chip key={t} label={t} size="small" sx={{ fontFamily: 'monospace' }} />
-                      ))}
-                    </Stack>
-                  )}
                 </Box>
 
                 <Box>

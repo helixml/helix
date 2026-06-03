@@ -5,6 +5,7 @@ package tools
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -42,4 +43,16 @@ func (r *Registry) Get(name tool.Name) (tool.Tool, error) {
 		return nil, fmt.Errorf("tool %q not registered", name)
 	}
 	return tool, nil
+}
+
+// List returns every registered tool, sorted by name for stable
+// rendering. Used by the chart UI's role editor to populate the
+// "Tools" multi-select with the catalogue of available grants.
+func (r *Registry) List() []tool.Tool {
+	out := make([]tool.Tool, 0, len(r.tools))
+	for _, t := range r.tools {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	return out
 }

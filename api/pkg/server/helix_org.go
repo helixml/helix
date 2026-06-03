@@ -250,6 +250,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		EnvsDir:    envsDir,
 		HireWorker: hireTool,
 		Lifecycle:  lifecycleSvc,
+		Tools:      reg,
 		NewID:      deps.NewID,
 		Now:        deps.Now,
 	}

@@ -98,6 +98,12 @@ export const QUERY_KEYS = {
   worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
   role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
   roles: (orgID: string) => ['helix-org', orgID, 'roles'] as const,
+  tools: (orgID: string) => ['helix-org', orgID, 'tools'] as const,
+}
+
+export interface ToolDTO {
+  name: string
+  description?: string
 }
 
 // useHelixOrgBase resolves the current `:org_id` URL param into the
@@ -145,6 +151,25 @@ export function useHelixOrgWorker(workerId: string | undefined, options?: { enab
 }
 
 // ---- Mutations -----------------------------------------------------------
+
+// useListHelixOrgTools returns the catalogue of every MCP tool the
+// org can grant to a Role. Drives the role-editor multi-select.
+// Cached aggressively because the catalogue only changes when the
+// server registers a new built-in (i.e. on deploy), not in response
+// to operator actions.
+export function useListHelixOrgTools(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.tools(orgID),
+    queryFn: async () => {
+      const data = await api.get<ToolDTO[]>(`${base}/tools`)
+      return data ?? []
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
 
 // useListHelixOrgRoles fetches every role in the current org. Drives
 // the Roles list page in the helix-org middle-nav. Cached separately
