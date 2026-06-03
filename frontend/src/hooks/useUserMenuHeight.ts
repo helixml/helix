@@ -17,18 +17,15 @@ export const useUserMenuHeight = () => {
     // Find the parent container that overlays the sidebar bottom.
     // The floating user menu is rendered position: absolute on a `bottom: 0`
     // container inside the LEFT rail, with `right: -312px` so it extends to
-    // overlay the secondary sidebar. We MUST restrict the walk to
-    // `position: absolute` only — on mobile the MUI Drawer paper itself is
-    // `position: fixed; bottom: 0` (full viewport height), and matching it
-    // here would set userMenuHeight to the viewport height and collapse the
-    // secondary sidebar to `calc(100% - 100vh) = 0` (no nav links visible).
+    // overlay the secondary sidebar. (It's NOT position: fixed.)
     for (const menu of floatingMenus) {
       if (menu instanceof HTMLElement) {
         let parent = menu.parentElement
         while (parent) {
           const computedStyle = window.getComputedStyle(parent)
           const isOverlay =
-            computedStyle.position === 'absolute' && computedStyle.bottom === '0px'
+            (computedStyle.position === 'absolute' || computedStyle.position === 'fixed') &&
+            computedStyle.bottom === '0px'
           if (isOverlay) {
             const isVisible = computedStyle.opacity === '1' && computedStyle.pointerEvents === 'auto'
             if (isVisible) {
