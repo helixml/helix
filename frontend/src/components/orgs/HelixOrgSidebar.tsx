@@ -1,5 +1,5 @@
 import { FC } from 'react'
-import { Network, ScrollText, Users } from 'lucide-react'
+import { Network, ScrollText, Settings, Users } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -51,6 +51,13 @@ const HelixOrgSidebar: FC = () => {
           icon: <Users size={18} />,
           isActive: isWorkersRoute,
           onClick: () => navigateTo('helix_org_workers'),
+        },
+        {
+          id: 'settings',
+          label: 'Settings',
+          icon: <Settings size={18} />,
+          isActive: currentRouteName === 'helix_org_settings',
+          onClick: () => navigateTo('helix_org_settings'),
         },
       ],
     },

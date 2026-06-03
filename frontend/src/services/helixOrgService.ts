@@ -104,6 +104,39 @@ export const QUERY_KEYS = {
   role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
   roles: (orgID: string) => ['helix-org', orgID, 'roles'] as const,
   tools: (orgID: string) => ['helix-org', orgID, 'tools'] as const,
+  settings: (orgID: string) => ['helix-org', orgID, 'settings'] as const,
+  providers: () => ['helix-org', 'providers'] as const,
+  modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
+}
+
+export interface SettingsSpecDTO {
+  key: string
+  type: string
+  required: boolean
+  description: string
+  configured: boolean
+  // value is the current REDACTED value — secrets are masked. Treat
+  // as display-only; to update, send a fresh value via setSetting.
+  value: string
+}
+
+export interface SettingsResponse {
+  owner: string
+  public_url?: string
+  db_path?: string
+  envs_dir?: string
+  specs: SettingsSpecDTO[]
+}
+
+// HelixModelInfo is the subset of /v1/models response shape the
+// settings page renders for the model dropdown. /v1/models returns
+// the OpenAI-compat envelope { data: [...] } with extra fields like
+// name + description we surface in the dropdown label/help.
+export interface HelixModelInfo {
+  id: string
+  name?: string
+  description?: string
+  context_length?: number
 }
 
 export interface ToolDTO {
@@ -394,5 +427,90 @@ export function useDeleteHelixOrgPosition() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },
+  })
+}
+
+// useHelixOrgSettings reads every registered config spec + its
+// redacted current value. Drives the helix-org Settings page.
+export function useHelixOrgSettings(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.settings(orgID),
+    queryFn: async () => {
+      const data = await api.get<SettingsResponse>(`${base}/settings`)
+      return data
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+// useSetHelixOrgSetting writes a single config row. The backend
+// expects the raw JSON wire form per the spec's Type (string specs
+// expect a JSON-encoded string, etc.) — the page is responsible for
+// quoting strings before calling this hook.
+export function useSetHelixOrgSetting() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: { key: string; value: string }) => {
+      await api.put(`${base}/settings/${encodeURIComponent(payload.key)}`, { value: payload.value })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.settings(orgID) })
+    },
+  })
+}
+
+// useDeleteHelixOrgSetting clears the explicit row — the registry then
+// falls back to the spec's default (or empty if no default).
+export function useDeleteHelixOrgSetting() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (key: string) => {
+      await api.delete(`${base}/settings/${encodeURIComponent(key)}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.settings(orgID) })
+    },
+  })
+}
+
+// useHelixProviders fetches the catalogue of providers configured on
+// this Helix instance. Powers the worker.provider dropdown on the
+// settings page. Cached across orgs because the catalogue is a
+// Helix-instance-wide setting, not per-org.
+export function useHelixProviders(options?: { enabled?: boolean }) {
+  const api = useApi()
+  return useQuery({
+    queryKey: QUERY_KEYS.providers(),
+    queryFn: async () => {
+      const data = await api.get<string[]>('/api/v1/providers')
+      return data ?? []
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: options?.enabled ?? true,
+  })
+}
+
+// useHelixModelsForProvider fetches the list of models a provider
+// exposes. Backs the worker.model dropdown — re-fetched whenever the
+// provider changes. /v1/models uses the OpenAI-compatible envelope
+// ({data: [...]}). Returns an empty array on error so the dropdown
+// can render a "no models" placeholder.
+export function useHelixModelsForProvider(provider: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  return useQuery({
+    queryKey: QUERY_KEYS.modelsForProvider(provider ?? ''),
+    queryFn: async () => {
+      if (!provider) return [] as HelixModelInfo[]
+      const data = await api.get<{ data: HelixModelInfo[] }>(`/v1/models?provider=${encodeURIComponent(provider)}`)
+      return data?.data ?? []
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!provider && (options?.enabled ?? true),
   })
 }
