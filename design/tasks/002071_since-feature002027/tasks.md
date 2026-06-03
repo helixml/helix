@@ -5,8 +5,8 @@
 - [x] Heartbeat blocks below the auto-launch in both files: leave untouched. They're correct.
 - [x] `bash -n desktop/sway-config/startup-app.sh` passes; also ran `bash -n desktop/ubuntu-config/startup-app.sh`.
 - [x] For the Ubuntu file: verify the modified heredoc body still expands to syntactically valid bash. Extracted heredoc body, applied the `\$` → `$` unescaping that bash does at heredoc-write time, then `bash -n` on the result — passes.
-- [~] Add a one-line breadcrumb at the top of `design/tasks/002027_can-we-persist-browser/design.md` pointing at this task: "See [002071](../002071_since-feature002027/) for the auto-relaunch fix — the 5-minute freshness check on the marker mtime was wrong across container restarts." Optional but cheap.
-- [ ] Write per-repo PR description in `pull_request_helix.md` inside this task directory, mirroring the 002027 format.
+- [x] Add a one-line breadcrumb at the top of `design/tasks/002027_can-we-persist-browser/design.md` pointing at this task.
+- [~] Write per-repo PR description in `pull_request_helix.md` inside this task directory, mirroring the 002027 format.
 - [ ] **Deferred to reviewer (cannot self-test — restart kills the implementing agent's own session):** end-to-end test on `helix-sway`: open Chrome with tabs → stop session → wait > 5 min → resume → expect Chrome with tabs.
 - [ ] **Deferred to reviewer:** same E2E test on `helix-ubuntu`.
 - [ ] **Deferred to reviewer (arm64):** same E2E test on an arm64 sandbox running Chromium (which the Dockerfiles already symlink to `google-chrome-stable`, so this code path covers it with no additional changes) — confirm Chromium auto-relaunches with tabs and that `pgrep -x chromium` in the unchanged heartbeat block keeps the marker fresh.

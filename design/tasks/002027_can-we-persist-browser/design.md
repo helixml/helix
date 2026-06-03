@@ -1,5 +1,7 @@
 # Design: Persist Browser State and Auto-Restore on Session Resume
 
+> **Follow-up:** see [002071](../002071_since-feature002027/) for the auto-relaunch fix — the 5-minute marker-mtime freshness check in this design was wrong across container restarts (the marker's mtime is frozen at "last heartbeat before previous container stopped", not "when Chrome was closed"), so the relaunch branch was effectively dead. 002071 replaces it with a bare existence check.
+
 ## Approach
 
 Follow the **existing `.claude-state` pattern** (`desktop/shared/helix-workspace-setup.sh:535-567`): symlink the ephemeral profile path under `~/.config/` into a directory under `/home/retro/work/`, which is the one and only persistent bind-mount in the container.
