@@ -107,6 +107,38 @@ export const QUERY_KEYS = {
   settings: (orgID: string) => ['helix-org', orgID, 'settings'] as const,
   providers: () => ['helix-org', 'providers'] as const,
   modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
+  streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
+  stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
+}
+
+export interface StreamDTO {
+  id: string
+  name: string
+  description?: string
+  kind: string
+  created_by: string
+  created_at: string
+  // Subscribers are worker IDs subscribed to this stream. Drives the
+  // chart's stream-subscription edges.
+  subscribers?: string[]
+  can_publish: boolean
+  disable_reason?: string
+  recent_events?: unknown[]
+}
+
+export interface StreamsResponse {
+  streams: StreamDTO[]
+  recent?: unknown[]
+}
+
+export interface CreateStreamRequest {
+  id?: string
+  name: string
+  description?: string
+  transport?: {
+    kind: string
+    config?: Record<string, unknown>
+  }
 }
 
 export interface SettingsSpecDTO {
@@ -512,5 +544,57 @@ export function useHelixModelsForProvider(provider: string | undefined, options?
     },
     staleTime: 5 * 60 * 1000,
     enabled: !!provider && (options?.enabled ?? true),
+  })
+}
+
+// useListHelixOrgStreams fetches every stream + its current
+// subscribers + recent events. Drives the Streams list page AND the
+// chart's stream-subscription edges.
+export function useListHelixOrgStreams(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.streams(orgID),
+    queryFn: async () => {
+      const data = await api.get<StreamsResponse>(`${base}/streams`)
+      return data
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+// useCreateHelixOrgStream creates a new Stream. Server falls back to
+// s-<uuid> if `id` is omitted; pass an explicit id for stable handles.
+export function useCreateHelixOrgStream() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: CreateStreamRequest) => {
+      const data = await api.post<CreateStreamRequest, StreamDTO>(`${base}/streams`, payload)
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// useDeleteHelixOrgStream tears a stream down. Subscriptions and
+// events are NOT cascade-deleted in this iteration; the operator
+// is expected to drain them first.
+export function useDeleteHelixOrgStream() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (streamId: string) => {
+      await api.delete(`${base}/streams/${encodeURIComponent(streamId)}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
   })
 }

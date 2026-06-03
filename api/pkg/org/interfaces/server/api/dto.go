@@ -192,6 +192,26 @@ type StreamDTO struct {
 	RecentEvents  []EventCard `json:"recent_events,omitempty"`
 }
 
+// CreateStreamRequest is the body of POST /streams. Mirrors the
+// MCP create_stream tool's args so the same Stream + Transport
+// shape works from the React UI. `id` is optional — the server
+// falls back to s-<uuid> when empty.
+type CreateStreamRequest struct {
+	ID          string                 `json:"id,omitempty"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Transport   *TransportRequestField `json:"transport,omitempty"`
+}
+
+// TransportRequestField mirrors the MCP create_stream tool's
+// `transport` sub-object: a Kind string ("local", "webhook",
+// "github", "postmark") and a kind-specific Config map shipped
+// through as raw JSON for the domain validator to typecheck.
+type TransportRequestField struct {
+	Kind   string                 `json:"kind"`
+	Config map[string]interface{} `json:"config,omitempty"`
+}
+
 // StreamsResponse is the body of GET /streams.
 type StreamsResponse struct {
 	Streams []StreamDTO `json:"streams"`

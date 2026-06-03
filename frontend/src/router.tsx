@@ -49,6 +49,7 @@ import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgRoles from './pages/HelixOrgRoles'
 import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
 import HelixOrgSettings from './pages/HelixOrgSettings'
+import HelixOrgStreams from './pages/HelixOrgStreams'
 import HelixOrgWorkers from './pages/HelixOrgWorkers'
 import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
 import useRouter from './hooks/useRouter'
@@ -583,6 +584,11 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/helix-org/settings',
   meta: { drawer: true, title: 'Helix Org · Settings' },
   render: () => <HelixOrgSettings />,
+}, {
+  name: 'helix_org_streams',
+  path: '/orgs/:org_id/helix-org/streams',
+  meta: { drawer: true, title: 'Helix Org · Streams' },
+  render: () => <HelixOrgStreams />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

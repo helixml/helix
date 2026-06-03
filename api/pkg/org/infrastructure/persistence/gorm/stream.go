@@ -76,3 +76,7 @@ func (r *streamsRepo) Get(ctx context.Context, orgID string, id streaming.Stream
 func (r *streamsRepo) List(ctx context.Context, orgID string) ([]streaming.Stream, error) {
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
+
+func (r *streamsRepo) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
+	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}

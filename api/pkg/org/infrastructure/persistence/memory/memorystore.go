@@ -418,6 +418,17 @@ func (s *streamsRepo) List(_ context.Context, orgID string) ([]streaming.Stream,
 	return out, nil
 }
 
+func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.StreamID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := orgKey{OrgID: orgID, ID: string(id)}
+	if _, ok := s.rows[key]; !ok {
+		return fmt.Errorf("stream %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	delete(s.rows, key)
+	return nil
+}
+
 // ---- Subscriptions ------------------------------------------------------
 
 type subKey struct {

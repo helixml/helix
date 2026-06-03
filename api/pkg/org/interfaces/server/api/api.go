@@ -145,6 +145,9 @@ func Routes(deps Deps) []Route {
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
 		{Pattern: "DELETE /settings/{key}", Handler: http.HandlerFunc(a.deleteSetting)},
 		{Pattern: "GET /streams", Handler: http.HandlerFunc(a.listStreams)},
+		{Pattern: "POST /streams", Handler: http.HandlerFunc(a.createStream)},
+		{Pattern: "GET /streams/{id}", Handler: http.HandlerFunc(a.getStream)},
+		{Pattern: "DELETE /streams/{id}", Handler: http.HandlerFunc(a.deleteStream)},
 		{Pattern: "GET /streams/{id}/events", Handler: http.HandlerFunc(a.streamEventsSSE)},
 		{Pattern: "POST /streams/{id}/publish", Handler: http.HandlerFunc(a.publishToStream)},
 	}
@@ -944,6 +947,164 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		resp.Recent = append(resp.Recent, eventCard(ev))
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// createStream creates a new Stream. Mirrors the MCP create_stream
+// tool — same Transport shape, same "id auto-falls-back-to-s-<uuid>"
+// behaviour. CreatedBy is set to the embedded owner worker so REST
+// + chat creations are attributable.
+//
+// @Summary Helix-org: create a stream
+// @Tags HelixOrg
+// @Accept json
+// @Produce json
+// @Param payload body api.CreateStreamRequest true "Stream spec"
+// @Success 201 {object} api.StreamDTO
+// @Failure 400 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/streams [post]
+func (a *apiHandler) createStream(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var req CreateStreamRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("name is required"))
+		return
+	}
+	id := streaming.StreamID(strings.TrimSpace(req.ID))
+	if id == "" {
+		if a.deps.NewID == nil {
+			writeError(w, http.StatusInternalServerError, errors.New("NewID not wired"))
+			return
+		}
+		id = streaming.StreamID("s-" + a.deps.NewID())
+	}
+	tr := transport.Transport{}
+	if req.Transport != nil {
+		tr.Kind = transport.Kind(req.Transport.Kind)
+		if len(req.Transport.Config) > 0 {
+			raw, err := json.Marshal(req.Transport.Config)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("encode transport config: %w", err))
+				return
+			}
+			tr.Config = raw
+		}
+	}
+	now := time.Now().UTC()
+	if a.deps.Now != nil {
+		now = a.deps.Now()
+	}
+	owner := orgchart.WorkerID(a.deps.Owner)
+	s, err := streaming.NewStream(id, req.Name, req.Description, owner, now, tr, orgID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := a.deps.Store.Streams.Create(ctx, s); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("create stream: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, StreamDTO{
+		ID:          string(s.ID),
+		Name:        s.Name,
+		Description: s.Description,
+		Kind:        string(s.Transport.Kind),
+		CreatedBy:   string(s.CreatedBy),
+		CreatedAt:   s.CreatedAt.Format(time.RFC3339),
+	})
+}
+
+// getStream returns a single stream + its current subscribers and
+// recent events. Powers the stream detail page.
+//
+// @Summary Helix-org: get a stream
+// @Tags HelixOrg
+// @Produce json
+// @Param id path string true "Stream ID"
+// @Success 200 {object} api.StreamDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/streams/{id} [get]
+func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := streaming.StreamID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+		return
+	}
+	s, err := a.deps.Store.Streams.Get(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", id, err))
+		return
+	}
+	dto := StreamDTO{
+		ID:          string(s.ID),
+		Name:        s.Name,
+		Description: s.Description,
+		Kind:        string(s.Transport.Kind),
+		CreatedBy:   string(s.CreatedBy),
+		CreatedAt:   s.CreatedAt.Format(time.RFC3339),
+	}
+	dto.CanPublish = s.Transport.Kind != transport.KindGitHub
+	if !dto.CanPublish {
+		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+	}
+	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID); err == nil {
+		for _, sub := range subs {
+			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
+		}
+	}
+	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50); err == nil {
+		for _, ev := range events {
+			dto.RecentEvents = append(dto.RecentEvents, eventCard(ev))
+		}
+	}
+	writeJSON(w, http.StatusOK, dto)
+}
+
+// deleteStream removes a stream row. Subscriptions and events are
+// NOT cascade-deleted in this iteration — the caller is expected to
+// drain them first via unsubscribe / publish flows. Empty stream
+// rows are idempotent (404 → 404, no error).
+//
+// @Summary Helix-org: delete a stream
+// @Tags HelixOrg
+// @Param id path string true "Stream ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/streams/{id} [delete]
+func (a *apiHandler) deleteStream(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := streaming.StreamID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+		return
+	}
+	if err := a.deps.Store.Streams.Delete(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("delete stream: %w", err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // eventCard converts a streaming.Event into its wire shape, expanding the

@@ -55,6 +55,7 @@ import {
   useDeleteHelixOrgRole,
   useHelixOrgChart,
   useHireHelixOrgWorker,
+  useListHelixOrgStreams,
   useUpdateHelixOrgPosition,
 } from '../services/helixOrgService'
 
@@ -156,6 +157,18 @@ type PositionNodeData = {
   onSelectWorker: (workerId: string) => void
   onHire: (positionId: string) => void
   onDeletePosition: (positionId: string) => void
+}
+
+// StreamNodeData drives the small pseudo-nodes the chart renders for
+// each Stream below the org tree. Edges from worker positions to
+// these nodes (subscriptions) are styled distinctly from the
+// accountability edges between positions.
+type StreamNodeData = {
+  streamId: string
+  name: string
+  kind: string
+  subscriberCount: number
+  onSelectStream: (streamId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
@@ -361,7 +374,51 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
   )
 }
 
-const nodeTypes = { role: RoleNode, position: PositionNode }
+// StreamNode is a small pseudo-node — narrower than a Position card —
+// rendered below the org tree to anchor subscription edges. Clicking
+// it navigates to the Streams list. (A dedicated detail page is on
+// the roadmap; for now the list page is the single editing surface.)
+const STREAM_W = 180
+const STREAM_H = 80
+const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
+  const lightTheme = useLightTheme()
+  const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+  const bg = lightTheme.isLight ? 'rgba(255,180,80,0.06)' : 'rgba(255,180,80,0.06)'
+  const accent = lightTheme.isLight ? 'rgba(180,100,0,0.85)' : 'rgba(255,180,80,0.85)'
+  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const handleColor = lightTheme.isLight ? 'rgba(180,100,0,0.55)' : 'rgba(255,180,80,0.55)'
+  return (
+    <Box
+      onClick={(e) => { e.stopPropagation(); data.onSelectStream(data.streamId) }}
+      sx={{
+        width: STREAM_W,
+        height: STREAM_H,
+        border: `1px dashed ${accent}`,
+        borderRadius: 1.5,
+        backgroundColor: bg,
+        p: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0.25,
+        cursor: 'pointer',
+        '&:hover': { backgroundColor: lightTheme.isLight ? 'rgba(255,180,80,0.12)' : 'rgba(255,180,80,0.12)' },
+      }}
+    >
+      <Handle type="target" position={RFPosition.Top} style={{ background: handleColor, width: 8, height: 8 }} />
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted }}>
+        {data.streamId}
+      </Typography>
+      <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {data.name}
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, mt: 'auto' }}>
+        {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
+      </Typography>
+    </Box>
+  )
+}
+
+const nodeTypes = { role: RoleNode, position: PositionNode, stream: StreamNode }
 
 // ---- dagre layout ------------------------------------------------------
 
@@ -378,6 +435,17 @@ const nodeTypes = { role: RoleNode, position: PositionNode }
 //      sibling roles via nodesep, so we never overlap.
 //   3. Worker-to-worker edges are drawn between Position nodes using
 //      the original position.parent_id chain (across or within roles).
+// StreamSummary is the minimal stream-shape buildGraph needs to lay out
+// stream pseudo-nodes + the worker→stream subscription edges. The
+// concrete StreamDTO from helixOrgService satisfies this shape via
+// structural typing.
+type StreamSummary = {
+  id: string
+  name: string
+  kind: string
+  subscribers?: string[]
+}
+
 const buildGraph = (
   groups: RoleGroup[],
   flat: FlatPosition[],
@@ -388,8 +456,10 @@ const buildGraph = (
     onAddPosition: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
+    onSelectStream: (streamId: string) => void
   },
   isLight: boolean,
+  streams: StreamSummary[],
 ): { nodes: Node[]; edges: Edge[] } => {
   const flatByID = new Map<string, FlatPosition>()
   for (const p of flat) flatByID.set(p.position_id, p)
@@ -543,6 +613,85 @@ const buildGraph = (
         strokeWidth: 1.5,
       },
     })
+  }
+
+  // 6. Stream pseudo-nodes + subscription edges.
+  //
+  // Streams live below the org tree in a horizontal row. Each
+  // subscription (worker → stream) is rendered as a dashed orange
+  // edge from the worker's Position node to the Stream pseudo-node,
+  // visually distinct from the solid accountability edges between
+  // positions.
+  if (streams.length > 0) {
+    // Worker ID → owning Position ID, derived from flat positions.
+    const workerToPos = new Map<string, string>()
+    for (const p of flat) {
+      for (const w of p.workers) workerToPos.set(w.id, p.position_id)
+    }
+    // Find the chart's bottom edge so streams sit below it.
+    let maxY = 0
+    for (const ro of roleOrigin.values()) {
+      const bottom = ro.y + ro.h
+      if (bottom > maxY) maxY = bottom
+    }
+    const STREAM_GAP_X = 32
+    const STREAM_VERTICAL_GAP = 120
+    // Centre the strip of streams horizontally under the chart.
+    let minLeft = Infinity, maxRight = -Infinity
+    for (const ro of roleOrigin.values()) {
+      if (ro.x < minLeft) minLeft = ro.x
+      if (ro.x + ro.w > maxRight) maxRight = ro.x + ro.w
+    }
+    if (!isFinite(minLeft)) minLeft = 0
+    if (!isFinite(maxRight)) maxRight = 0
+    const stripWidth = streams.length * STREAM_W + (streams.length - 1) * STREAM_GAP_X
+    const chartCenterX = (minLeft + maxRight) / 2
+    let cursorX = chartCenterX - stripWidth / 2
+
+    for (const s of streams) {
+      const x = cursorX
+      const y = maxY + STREAM_VERTICAL_GAP
+      cursorX += STREAM_W + STREAM_GAP_X
+      nodes.push({
+        id: `stream:${s.id}`,
+        type: 'stream',
+        position: { x, y },
+        data: {
+          streamId: s.id,
+          name: s.name,
+          kind: s.kind,
+          subscriberCount: s.subscribers?.length ?? 0,
+          onSelectStream: handlers.onSelectStream,
+        } as StreamNodeData,
+        draggable: false,
+        connectable: false,
+        selectable: true,
+      })
+      // Subscription edges — one per (worker → stream) pair.
+      const seen = new Set<string>()
+      for (const workerId of s.subscribers ?? []) {
+        const pid = workerToPos.get(workerId)
+        if (!pid) continue
+        const key = `${pid}::${s.id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        edges.push({
+          id: `sub:${pid}->${s.id}`,
+          source: `pos:${pid}`,
+          target: `stream:${s.id}`,
+          type: 'default',
+          animated: false,
+          style: {
+            // Dashed amber line, distinct from solid grey accountability
+            // edges; thinner stroke + dasharray pulls the eye off the
+            // hierarchy and onto the I/O routing.
+            stroke: isLight ? 'rgba(180,100,0,0.7)' : 'rgba(255,180,80,0.7)',
+            strokeWidth: 1.25,
+            strokeDasharray: '6 4',
+          },
+        })
+      }
+    }
   }
 
   return { nodes, edges }
@@ -773,6 +922,7 @@ const ChartCanvas: FC<{
     onAddPosition: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
+    onSelectStream: (streamId: string) => void
   }
   // onSetParent and onClearParent are how the canvas writes the
   // hierarchy back to the server. onSetParent fires when the user
@@ -780,13 +930,14 @@ const ChartCanvas: FC<{
   // when they delete an existing edge.
   onSetParent: (childPositionId: string, newParentPositionId: string) => void
   onClearParent: (childPositionId: string) => void
-}> = ({ groups, flat, handlers, onSetParent, onClearParent }) => {
+  streams: StreamSummary[]
+}> = ({ groups, flat, handlers, onSetParent, onClearParent, streams }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, flat, handlers, lightTheme.isLight),
-    [groups, flat, handlers, lightTheme.isLight],
+    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams),
+    [groups, flat, handlers, lightTheme.isLight, streams],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -870,6 +1021,7 @@ const HelixOrgChart: FC = () => {
   const snackbar = useSnackbar()
   const router = useRouter()
   const { data, isLoading } = useHelixOrgChart()
+  const { data: streamsData } = useListHelixOrgStreams()
   const deleteRole = useDeleteHelixOrgRole()
   const deletePosition = useDeleteHelixOrgPosition()
   const updatePosition = useUpdateHelixOrgPosition()
@@ -877,6 +1029,15 @@ const HelixOrgChart: FC = () => {
   const flat = useMemo(() => flatten(data?.roots ?? []), [data])
   const knownRoles = useMemo(() => (data?.roles ?? []).map((r) => r.id), [data])
   const groups = useMemo(() => groupByRole(flat, knownRoles), [flat, knownRoles])
+  const streams = useMemo<StreamSummary[]>(
+    () => (streamsData?.streams ?? []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      kind: s.kind,
+      subscribers: s.subscribers,
+    })),
+    [streamsData],
+  )
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
@@ -928,9 +1089,19 @@ const HelixOrgChart: FC = () => {
     (positionId: string) => setConfirmDelete({ kind: 'position', id: positionId }),
     [],
   )
+  // Clicking a stream pseudo-node navigates to the Streams list page
+  // (no per-stream detail page yet; the list is the only editing
+  // surface today). Same nav pattern as the role / worker chip click.
+  const onSelectStream = useCallback(
+    (_streamId: string) => {
+      if (!orgSlug) return
+      router.navigate('helix_org_streams', { org_id: orgSlug })
+    },
+    [router, orgSlug],
+  )
   const handlers = useMemo(
-    () => ({ onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition }),
-    [onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition],
+    () => ({ onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition, onSelectStream }),
+    [onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition, onSelectStream],
   )
 
   // onSetParent fires when the chart canvas drew a new wire from a
@@ -1073,6 +1244,7 @@ const HelixOrgChart: FC = () => {
                 handlers={handlers}
                 onSetParent={onSetParent}
                 onClearParent={onClearParent}
+                streams={streams}
               />
             </ReactFlowProvider>
           )}
