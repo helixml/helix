@@ -131,6 +131,28 @@ func TestSubscribeSessionUpdatesNoSnapshotter(t *testing.T) {
 	}
 }
 
+// TestSubscribeSessionUpdatesNilPubSubReturnsError pins the regression
+// behind the panic that crashed the helix-org-spawned bridge goroutine
+// whenever buildHelixOrgSpawnerConfig forgot to wire PubSub. Before
+// the fix, calling SubscribeSessionUpdates with a nil ps did
+// `ps.Subscribe(...)` and segfaulted the API process; the bridge runs
+// in a goroutine and the panic took the whole process down on every
+// AI-worker activation. SubscribeSessionUpdates must return a regular
+// error instead, so the caller's reconnect loop logs and backs off
+// instead of crashing the host.
+func TestSubscribeSessionUpdatesNilPubSubReturnsError(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := SubscribeSessionUpdates(ctx, nil, NoopSessionPreamble{}, "u-test", "ses_nil")
+	if err == nil {
+		t.Fatal("SubscribeSessionUpdates(nil pubsub): expected error, got nil")
+	}
+	if ch != nil {
+		t.Errorf("SubscribeSessionUpdates(nil pubsub): expected nil channel, got %v", ch)
+	}
+}
+
 // TestSubscribeSessionUpdatesUnsubscribesOnCtxDone — closing ctx must
 // drain the subscription and close the channel.
 func TestSubscribeSessionUpdatesUnsubscribesOnCtxDone(t *testing.T) {

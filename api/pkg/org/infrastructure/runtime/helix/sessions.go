@@ -252,6 +252,14 @@ func (NoopSessionPreamble) Snapshot(_ context.Context, _ string) ([]byte, error)
 // Topic format: pubsub.GetSessionQueue(ownerID, sessionID) — the
 // same topic websocket_server_user.go subscribes the browser WS to.
 func SubscribeSessionUpdates(ctx context.Context, ps pubsub.PubSub, snapshotter SessionPreamble, ownerID, sessionID string) (<-chan types.WebsocketEvent, error) {
+	// Defensive guard against a mis-wired SpawnerConfig handing us a
+	// nil PubSub. The bridge runs in its own goroutine, so a segfault
+	// here used to take the whole API process down on every AI-worker
+	// activation; a regular error lets the caller's reconnect loop log
+	// and back off instead.
+	if ps == nil {
+		return nil, fmt.Errorf("helix subscribe: pubsub is nil — SpawnerConfig.PubSub not wired")
+	}
 	out := make(chan types.WebsocketEvent, 64)
 	topic := pubsub.GetSessionQueue(ownerID, sessionID)
 	sub, err := ps.Subscribe(ctx, topic, func(payload []byte) error {

@@ -29,6 +29,7 @@ import (
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
@@ -198,7 +199,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// a nil-deref. (Reproducer: hire AI worker via chart → click the
 	// chip → API panics at project.go:156 inside the cached spawner's
 	// ensureProject before this argument existed.)
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, deps.NewID, deps.Now)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -464,10 +465,19 @@ func buildHelixOrgSpawnerConfig(
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	bc *streamhub.Hub,
+	// ps is the host API's NATS pubsub. The spawner's per-activation
+	// bridge calls SubscribeSessionUpdates on it to stream the helix
+	// session's events into the org-graph transcript. Without it (the
+	// bug behind the segfault that took the whole API process down on
+	// every AI activation), the bridge panicked at sessions.go:257.
+	ps pubsub.PubSub,
 	logger *slog.Logger,
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
+	if ps == nil {
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: PubSub is required")
+	}
 	if projectSvc == nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: ProjectService is required")
 	}
@@ -496,9 +506,16 @@ func buildHelixOrgSpawnerConfig(
 		SpecsMandate:   specsMandate,
 		Store:          orgStore,
 		Hub:            bc,
-		Logger:         logger,
-		NewID:          newID,
-		Now:            now,
+		// PubSub is the helix-host NATS pubsub; Snapshotter is the
+		// noop preamble — helix-org spawned sessions originate inside
+		// the spawner so there is no separately-tracked browser-WS
+		// snapshot to replay. Subscriber sees live frames only, which
+		// is correct for the bridge.
+		PubSub:      ps,
+		Snapshotter: runtimehelix.NoopSessionPreamble{},
+		Logger:      logger,
+		NewID:       newID,
+		Now:         now,
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return resolveUserHelixAPIKey(ctx, helixStore, userID)
 		},
@@ -533,6 +550,7 @@ func lazyHelixOrgSpawner(
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	bc *streamhub.Hub,
+	ps pubsub.PubSub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
 	newID func() string,
@@ -557,7 +575,7 @@ func lazyHelixOrgSpawner(
 		current := spawner
 		mu.Unlock()
 		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, logger, newID, now)
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, newID, now)
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}

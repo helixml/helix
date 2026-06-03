@@ -52,7 +52,9 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 		nil,        // spawnerClient — not exercised here
 		projectSvc, // projectSvc — the field we're pinning
 		orgStore,
-		hub, logger,
+		hub,
+		pubsub.NewNoop(), // PubSub — required since spawner.bridge.run calls SubscribeSessionUpdates
+		logger,
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)
@@ -84,7 +86,9 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 		ctx, orgID, reg, nil,
 		nil, // spawnerClient
 		nil, // projectSvc — explicitly nil
-		orgStore, streamhub.New(pubsub.NewNoop()), slog.Default(),
+		orgStore, streamhub.New(pubsub.NewNoop()),
+		pubsub.NewNoop(),
+		slog.Default(),
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)
