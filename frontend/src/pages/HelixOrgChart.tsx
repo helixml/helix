@@ -1,4 +1,4 @@
-import { FC, useMemo, useState } from 'react'
+import { FC, useCallback, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -20,6 +20,24 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 
+import dagre from 'dagre'
+import {
+  Background,
+  Controls,
+  Edge,
+  Handle,
+  MiniMap,
+  Node,
+  NodeProps,
+  Position as RFPosition,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useAccount from '../hooks/useAccount'
@@ -39,21 +57,33 @@ import {
   useHireHelixOrgWorker,
 } from '../services/helixOrgService'
 
-// The chart visualises a two-level hierarchy:
-//   Role (group container)
-//   └── Position (card; holds 0 or 1 Worker)
+// The chart visualises a two-level hierarchy as a classic top-down
+// org chart laid out with dagre:
 //
-// Multiple Positions can share a Role. The owner Role + owner
-// Position + owner Worker are server-side protected from deletion.
+//   [Role]    [Role]
+//     |     /  |  \
+//   [Pos]  [Pos][Pos][Pos]
+//
+// Role nodes sit at the top, Position nodes hang underneath, edges
+// link each Role to every Position whose role_id matches. ReactFlow
+// gives us pan / zoom / MiniMap / Controls / themed edges. dagre
+// computes the coordinates so siblings line up.
+//
+// Workers are NOT nodes — each Position card holds at most one
+// Worker chip inline. The owner Role + root Position + owner Worker
+// are server-side protected from deletion.
 
 const OWNER_ROLE = 'r-owner'
 const OWNER_WORKER = 'w-owner'
 const ROOT_POSITION = 'p-root'
 
-// flatten walks the chart tree into a flat list of (position, workers)
-// pairs. The chart can come back nested (Children) when positions
-// have a parent_id chain — for the new Role-grouped view we ignore
-// that hierarchy and flatten everything.
+const ROLE_W = 280
+const ROLE_H = 80
+const POSITION_W = 240
+const POSITION_H = 140
+
+// ---- Flatten + group ---------------------------------------------------
+
 type FlatPosition = ChartNode & { workers: WorkerBadge[] }
 
 const flatten = (roots: ChartNode[]): FlatPosition[] => {
@@ -66,10 +96,6 @@ const flatten = (roots: ChartNode[]): FlatPosition[] => {
   return out
 }
 
-// groupByRole returns one entry per known role (from the chart's
-// roles list, falling back to whatever role_ids appear on positions
-// when the payload is older). Each entry carries every position whose
-// role_id matches, sorted by position id.
 type RoleGroup = { roleId: string; positions: FlatPosition[] }
 
 const groupByRole = (positions: FlatPosition[], knownRoles: string[]): RoleGroup[] => {
@@ -89,7 +115,6 @@ const groupByRole = (positions: FlatPosition[], knownRoles: string[]): RoleGroup
       positions: positions.slice().sort((a, b) => a.position_id.localeCompare(b.position_id)),
     })
   })
-  // Owner role first, then alphabetical.
   out.sort((a, b) => {
     if (a.roleId === OWNER_ROLE) return -1
     if (b.roleId === OWNER_ROLE) return 1
@@ -98,45 +123,133 @@ const groupByRole = (positions: FlatPosition[], knownRoles: string[]): RoleGroup
   return out
 }
 
-// ---- Position card ------------------------------------------------------
+// ---- Node renderers ----------------------------------------------------
 
-const PositionCard: FC<{
-  position: FlatPosition
+type RoleNodeData = {
+  roleId: string
+  positionCount: number
+  isOwner: boolean
+  onAddPosition: (roleId: string) => void
+  onDeleteRole: (roleId: string) => void
+}
+
+type PositionNodeData = {
+  positionId: string
+  workers: WorkerBadge[]
+  isRoot: boolean
   onSelectWorker: (workerId: string) => void
   onHire: (positionId: string) => void
   onDeletePosition: (positionId: string) => void
-}> = ({ position, onSelectWorker, onHire, onDeletePosition }) => {
-  const lightTheme = useLightTheme()
-  const worker = position.workers[0]
-  const isRoot = position.position_id === ROOT_POSITION
+}
 
+const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
+  const lightTheme = useLightTheme()
+  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)'
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.16)'
   const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.04)'
-  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+  const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
 
   return (
     <Box
       sx={{
-        minWidth: 220,
-        maxWidth: 260,
+        width: ROLE_W,
+        height: ROLE_H,
         border: `1px solid ${border}`,
         borderRadius: 1.5,
         backgroundColor: bg,
+        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+        p: 1.5,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+      }}
+    >
+      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ minWidth: 0 }}>
+        <Typography
+          variant="subtitle1"
+          sx={{
+            fontWeight: 700,
+            color: titleColor,
+            fontFamily: 'monospace',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            minWidth: 0,
+            flexShrink: 1,
+          }}
+        >
+          {data.roleId}
+        </Typography>
+        <Typography variant="caption" sx={{ color: muted, whiteSpace: 'nowrap' }}>
+          {data.positionCount} {data.positionCount === 1 ? 'pos.' : 'pos.'}
+        </Typography>
+      </Stack>
+      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+        <Tooltip title="Add a position under this role">
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            onClick={(e) => { e.stopPropagation(); data.onAddPosition(data.roleId) }}
+            sx={{ textTransform: 'none' }}
+          >
+            Position
+          </Button>
+        </Tooltip>
+        {!data.isOwner && (
+          <Tooltip title="Delete role (cascade: positions + workers)">
+            <IconButton
+              size="small"
+              onClick={(e) => { e.stopPropagation(); data.onDeleteRole(data.roleId) }}
+              sx={{ color: muted }}
+            >
+              <DeleteOutlineIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
+      <Handle type="source" position={RFPosition.Bottom} style={{ background: handleColor }} />
+    </Box>
+  )
+}
+
+const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
+  const lightTheme = useLightTheme()
+  const worker = data.workers[0]
+  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+  const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)'
+  const innerBorder = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)'
+  const innerBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)'
+  const innerHover = lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)'
+  const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+
+  return (
+    <Box
+      sx={{
+        width: POSITION_W,
+        height: POSITION_H,
+        border: `1px solid ${border}`,
+        borderRadius: 1.5,
+        backgroundColor: bg,
+        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
         p: 1.5,
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
       }}
     >
+      <Handle type="target" position={RFPosition.Top} style={{ background: handleColor }} />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted }}>
-          {position.position_id}
+          {data.positionId}
         </Typography>
-        {!isRoot && (
+        {!data.isRoot && (
           <Tooltip title="Delete position (fires its worker)">
             <IconButton
               size="small"
-              onClick={() => onDeletePosition(position.position_id)}
+              onClick={(e) => { e.stopPropagation(); data.onDeletePosition(data.positionId) }}
               sx={{ p: 0.25, color: muted }}
             >
               <DeleteOutlineIcon sx={{ fontSize: 16 }} />
@@ -147,7 +260,7 @@ const PositionCard: FC<{
 
       {worker ? (
         <Box
-          onClick={() => onSelectWorker(worker.id)}
+          onClick={(e) => { e.stopPropagation(); data.onSelectWorker(worker.id) }}
           sx={{
             cursor: 'pointer',
             display: 'flex',
@@ -155,11 +268,9 @@ const PositionCard: FC<{
             gap: 1,
             p: 1,
             borderRadius: 1,
-            border: `1px solid ${border}`,
-            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)',
-            '&:hover': {
-              backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
-            },
+            border: `1px solid ${innerBorder}`,
+            backgroundColor: innerBg,
+            '&:hover': { backgroundColor: innerHover },
           }}
         >
           {worker.kind === 'ai' ? (
@@ -176,8 +287,8 @@ const PositionCard: FC<{
           variant="outlined"
           size="small"
           startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-          onClick={() => onHire(position.position_id)}
-          sx={{ textTransform: 'none', justifyContent: 'flex-start' }}
+          onClick={(e) => { e.stopPropagation(); data.onHire(data.positionId) }}
+          sx={{ textTransform: 'none', justifyContent: 'flex-start', mt: 'auto' }}
         >
           Hire worker
         </Button>
@@ -186,98 +297,95 @@ const PositionCard: FC<{
   )
 }
 
-// ---- Role group --------------------------------------------------------
+const nodeTypes = { role: RoleNode, position: PositionNode }
 
-const RoleGroupCard: FC<{
-  group: RoleGroup
-  onSelectWorker: (workerId: string) => void
-  onHire: (positionId: string) => void
-  onAddPosition: (roleId: string) => void
-  onDeletePosition: (positionId: string) => void
-  onDeleteRole: (roleId: string) => void
-}> = ({ group, onSelectWorker, onHire, onAddPosition, onDeletePosition, onDeleteRole }) => {
-  const lightTheme = useLightTheme()
-  const isOwner = group.roleId === OWNER_ROLE
+// ---- dagre layout ------------------------------------------------------
 
-  const border = lightTheme.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'
-  const bg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)'
-  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)'
-  const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)'
+const buildGraph = (
+  groups: RoleGroup[],
+  handlers: {
+    onSelectWorker: (workerId: string) => void
+    onHire: (positionId: string) => void
+    onAddPosition: (roleId: string) => void
+    onDeleteRole: (roleId: string) => void
+    onDeletePosition: (positionId: string) => void
+  },
+  isLight: boolean,
+): { nodes: Node[]; edges: Edge[] } => {
+  const g = new dagre.graphlib.Graph()
+  g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 80, marginx: 40, marginy: 40 })
+  g.setDefaultEdgeLabel(() => ({}))
 
-  return (
-    <Box
-      sx={{
-        border: `1px solid ${border}`,
-        borderRadius: 2,
-        backgroundColor: bg,
-        p: 2.5,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-      }}
-    >
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Stack direction="row" spacing={1.5} alignItems="baseline">
-          <Typography variant="h6" sx={{ fontWeight: 700, color: titleColor, fontFamily: 'monospace' }}>
-            {group.roleId}
-          </Typography>
-          <Typography variant="caption" sx={{ color: muted }}>
-            {group.positions.length} {group.positions.length === 1 ? 'position' : 'positions'}
-          </Typography>
-        </Stack>
-        <Stack direction="row" spacing={0.5}>
-          <Tooltip title="Add a position under this role">
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-              onClick={() => onAddPosition(group.roleId)}
-              sx={{ textTransform: 'none' }}
-            >
-              Position
-            </Button>
-          </Tooltip>
-          {!isOwner && (
-            <Tooltip title="Delete role (cascade: positions + workers)">
-              <IconButton
-                size="small"
-                onClick={() => onDeleteRole(group.roleId)}
-                sx={{ color: muted }}
-              >
-                <DeleteOutlineIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Stack>
-      </Stack>
+  // Synthetic edges only — no parentId grouping; pure top-down tree.
+  const edges: Edge[] = []
+  for (const group of groups) {
+    const roleNodeId = `role:${group.roleId}`
+    g.setNode(roleNodeId, { width: ROLE_W, height: ROLE_H })
+    for (const p of group.positions) {
+      const posNodeId = `pos:${p.position_id}`
+      g.setNode(posNodeId, { width: POSITION_W, height: POSITION_H })
+      g.setEdge(roleNodeId, posNodeId)
+      edges.push({
+        id: `${roleNodeId}->${posNodeId}`,
+        source: roleNodeId,
+        target: posNodeId,
+        type: 'smoothstep',
+        animated: false,
+        style: {
+          stroke: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)',
+          strokeWidth: 1.5,
+        },
+      })
+    }
+  }
+  dagre.layout(g)
 
-      {group.positions.length === 0 ? (
-        <Typography variant="body2" sx={{ color: muted, fontStyle: 'italic' }}>
-          No positions yet — click <strong>Position</strong> to add one.
-        </Typography>
-      ) : (
-        <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5 }}>
-          {group.positions.map((p) => (
-            <PositionCard
-              key={p.position_id}
-              position={p}
-              onSelectWorker={onSelectWorker}
-              onHire={onHire}
-              onDeletePosition={onDeletePosition}
-            />
-          ))}
-        </Stack>
-      )}
-    </Box>
-  )
+  const nodes: Node[] = []
+  for (const group of groups) {
+    const roleNodeId = `role:${group.roleId}`
+    const layoutNode = g.node(roleNodeId)
+    nodes.push({
+      id: roleNodeId,
+      type: 'role',
+      position: { x: layoutNode.x - ROLE_W / 2, y: layoutNode.y - ROLE_H / 2 },
+      data: {
+        roleId: group.roleId,
+        positionCount: group.positions.length,
+        isOwner: group.roleId === OWNER_ROLE,
+        onAddPosition: handlers.onAddPosition,
+        onDeleteRole: handlers.onDeleteRole,
+      } as RoleNodeData,
+      draggable: false,
+    })
+    for (const p of group.positions) {
+      const posNodeId = `pos:${p.position_id}`
+      const layoutPos = g.node(posNodeId)
+      nodes.push({
+        id: posNodeId,
+        type: 'position',
+        position: {
+          x: layoutPos.x - POSITION_W / 2,
+          y: layoutPos.y - POSITION_H / 2,
+        },
+        data: {
+          positionId: p.position_id,
+          workers: p.workers,
+          isRoot: p.position_id === ROOT_POSITION,
+          onSelectWorker: handlers.onSelectWorker,
+          onHire: handlers.onHire,
+          onDeletePosition: handlers.onDeletePosition,
+        } as PositionNodeData,
+        draggable: false,
+      })
+    }
+  }
+
+  return { nodes, edges }
 }
 
-// ---- Create-Role dialog -------------------------------------------------
+// ---- Dialogs (Create role, Create position, Confirm delete) ------------
 
-const CreateRoleDialog: FC<{
-  open: boolean
-  onClose: () => void
-}> = ({ open, onClose }) => {
+const CreateRoleDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
   const snackbar = useSnackbar()
   const create = useCreateHelixOrgRole()
   const [id, setId] = useState('')
@@ -292,9 +400,7 @@ const CreateRoleDialog: FC<{
     try {
       await create.mutateAsync({ id: trimmedId, content })
       snackbar.success(`role ${trimmedId} created`)
-      setId('')
-      setContent('')
-      onClose()
+      setId(''); setContent(''); onClose()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
     }
@@ -335,8 +441,6 @@ const CreateRoleDialog: FC<{
   )
 }
 
-// ---- Create-Position dialog --------------------------------------------
-
 const CreatePositionDialog: FC<{
   open: boolean
   roleId: string | null
@@ -356,8 +460,7 @@ const CreatePositionDialog: FC<{
     try {
       await create.mutateAsync({ id: trimmedId, role_id: roleId, parent_id: ROOT_POSITION })
       snackbar.success(`position ${trimmedId} created`)
-      setId('')
-      onClose()
+      setId(''); onClose()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create position failed')
     }
@@ -393,8 +496,6 @@ const CreatePositionDialog: FC<{
   )
 }
 
-// ---- Confirm-delete dialog ---------------------------------------------
-
 const ConfirmDeleteDialog: FC<{
   open: boolean
   title: string
@@ -417,12 +518,9 @@ const ConfirmDeleteDialog: FC<{
   </Dialog>
 )
 
-// ---- Hire drawer --------------------------------------------------------
+// ---- Hire + Worker drawers ---------------------------------------------
 
-const HireDrawer: FC<{
-  positionId: string
-  onClose: () => void
-}> = ({ positionId, onClose }) => {
+const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionId, onClose }) => {
   const snackbar = useSnackbar()
   const hire = useHireHelixOrgWorker()
   const [id, setId] = useState('')
@@ -443,9 +541,7 @@ const HireDrawer: FC<{
     try {
       const res = await hire.mutateAsync(body)
       snackbar.success(`hired ${res.id}`)
-      setId('')
-      setIdentity('')
-      onClose()
+      setId(''); setIdentity(''); onClose()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'hire failed')
     }
@@ -497,17 +593,11 @@ const HireDrawer: FC<{
   )
 }
 
-// ---- Worker drawer ------------------------------------------------------
-
-const WorkerDrawer: FC<{
-  workerId: string
-  onClose: () => void
-}> = ({ workerId, onClose }) => {
+const WorkerDrawer: FC<{ workerId: string; onClose: () => void }> = ({ workerId, onClose }) => {
   const snackbar = useSnackbar()
   const { data, isLoading } = useHelixOrgWorker(workerId)
   const fire = useFireHelixOrgWorker()
   const [confirming, setConfirming] = useState(false)
-
   const isOwner = workerId === OWNER_WORKER
 
   const fireWorker = async () => {
@@ -614,7 +704,59 @@ const WorkerDrawer: FC<{
   )
 }
 
-// ---- Page ---------------------------------------------------------------
+// ---- ReactFlow canvas --------------------------------------------------
+
+const ChartCanvas: FC<{
+  groups: RoleGroup[]
+  handlers: {
+    onSelectWorker: (workerId: string) => void
+    onHire: (positionId: string) => void
+    onAddPosition: (roleId: string) => void
+    onDeleteRole: (roleId: string) => void
+    onDeletePosition: (positionId: string) => void
+  }
+}> = ({ groups, handlers }) => {
+  const lightTheme = useLightTheme()
+  const { fitView } = useReactFlow()
+
+  const { nodes: computedNodes, edges: computedEdges } = useMemo(
+    () => buildGraph(groups, handlers, lightTheme.isLight),
+    [groups, handlers, lightTheme.isLight],
+  )
+  const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
+
+  useEffect(() => {
+    setNodes(computedNodes)
+    setEdges(computedEdges)
+    requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
+  }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
+
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      nodeTypes={nodeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.2 }}
+      proOptions={{ hideAttribution: true }}
+      colorMode={lightTheme.isLight ? 'light' : 'dark'}
+      nodesDraggable={false}
+      nodesConnectable={false}
+      elementsSelectable={false}
+      panOnDrag
+      zoomOnScroll
+    >
+      <Background gap={20} size={1} />
+      <Controls showInteractive={false} />
+      <MiniMap pannable zoomable maskColor={lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.6)'} />
+    </ReactFlow>
+  )
+}
+
+// ---- Page --------------------------------------------------------------
 
 type Selection =
   | { kind: 'none' }
@@ -644,6 +786,30 @@ const HelixOrgChart: FC = () => {
 
   const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
   const subtitleColor = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const canvasBorder = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+  const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
+
+  const onSelectWorker = useCallback(
+    (workerId: string) => setSelection({ kind: 'worker', workerId }),
+    [],
+  )
+  const onHire = useCallback(
+    (positionId: string) => setSelection({ kind: 'hire', positionId }),
+    [],
+  )
+  const onAddPosition = useCallback((roleId: string) => setPositionDialogRole(roleId), [])
+  const onDeleteRole = useCallback(
+    (roleId: string) => setConfirmDelete({ kind: 'role', id: roleId }),
+    [],
+  )
+  const onDeletePosition = useCallback(
+    (positionId: string) => setConfirmDelete({ kind: 'position', id: positionId }),
+    [],
+  )
+  const handlers = useMemo(
+    () => ({ onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition }),
+    [onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition],
+  )
 
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
@@ -673,24 +839,22 @@ const HelixOrgChart: FC = () => {
       const group = groups.find((g) => g.roleId === confirmDelete.id)
       const positions = group?.positions ?? []
       const workers = positions.flatMap((p) => p.workers.map((w) => w.id))
-      const lines = [
+      return [
         `Deleting role ${confirmDelete.id} will cascade:`,
         `  • ${positions.length} position${positions.length === 1 ? '' : 's'} (${positions.map((p) => p.position_id).join(', ') || 'none'})`,
         `  • ${workers.length} worker${workers.length === 1 ? '' : 's'} (${workers.join(', ') || 'none'})`,
         '',
         'This is irreversible.',
-      ]
-      return lines.join('\n')
+      ].join('\n')
     }
     const pos = flat.find((p) => p.position_id === confirmDelete.id)
     const worker = pos?.workers[0]
-    const lines = [
+    return [
       `Deleting position ${confirmDelete.id} will cascade:`,
       worker ? `  • fire worker ${worker.id}` : '  • no worker to fire',
       '',
       'This is irreversible.',
-    ]
-    return lines.join('\n')
+    ].join('\n')
   }, [confirmDelete, groups, flat])
 
   return (
@@ -701,7 +865,7 @@ const HelixOrgChart: FC = () => {
       globalSearch={true}
       notifications={true}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', minHeight: 0 }}>
         <Box sx={{ px: 4, pt: 4, pb: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
             <Box>
@@ -725,27 +889,31 @@ const HelixOrgChart: FC = () => {
           </Stack>
         </Box>
 
-        <Box sx={{ px: 4, pb: 4, flex: 1, minHeight: 0 }}>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            mx: 4,
+            mb: 4,
+            position: 'relative',
+            border: `1px solid ${canvasBorder}`,
+            borderRadius: 1,
+            backgroundColor: canvasBg,
+            overflow: 'hidden',
+          }}
+        >
           {isLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
           ) : groups.length === 0 ? (
-            <Typography variant="body1" sx={{ color: subtitleColor }}>
-              No roles yet. Click <strong>New role</strong> to get started.
-            </Typography>
+            <Box sx={{ p: 4 }}>
+              <Typography variant="body1" sx={{ color: subtitleColor }}>
+                No roles yet. Click <strong>New role</strong> to get started.
+              </Typography>
+            </Box>
           ) : (
-            <Stack spacing={2.5}>
-              {groups.map((g) => (
-                <RoleGroupCard
-                  key={g.roleId}
-                  group={g}
-                  onSelectWorker={(workerId) => setSelection({ kind: 'worker', workerId })}
-                  onHire={(positionId) => setSelection({ kind: 'hire', positionId })}
-                  onAddPosition={(roleId) => setPositionDialogRole(roleId)}
-                  onDeletePosition={(positionId) => setConfirmDelete({ kind: 'position', id: positionId })}
-                  onDeleteRole={(roleId) => setConfirmDelete({ kind: 'role', id: roleId })}
-                />
-              ))}
-            </Stack>
+            <ReactFlowProvider>
+              <ChartCanvas groups={groups} handlers={handlers} />
+            </ReactFlowProvider>
           )}
         </Box>
       </Box>
