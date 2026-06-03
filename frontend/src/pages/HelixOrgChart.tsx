@@ -57,30 +57,46 @@ import {
   useHireHelixOrgWorker,
 } from '../services/helixOrgService'
 
-// The chart visualises a two-level hierarchy as a classic top-down
-// org chart laid out with dagre:
+// The chart visualises the org as a ReactFlow subflow:
 //
-//   [Role]    [Role]
-//     |     /  |  \
-//   [Pos]  [Pos][Pos][Pos]
+//   ┌─[Role: r-owner]──────────────────┐
+//   │  [Position: p-root]              │
+//   │     • w-owner                    │
+//   └────────│───────────────────────────┘
+//            ↓ (worker-to-worker reporting edge,
+//            ↓  derived from position.parent_id chain)
+//   ┌─[Role: r-engineer]───────────────────────────────────┐
+//   │  [p-eng-1: w-alice]  [p-eng-2: w-bob]  [p-eng-3: …] │
+//   └──────────────────────────────────────────────────────┘
 //
-// Role nodes sit at the top, Position nodes hang underneath, edges
-// link each Role to every Position whose role_id matches. ReactFlow
-// gives us pan / zoom / MiniMap / Controls / themed edges. dagre
-// computes the coordinates so siblings line up.
+// Roles are parent group nodes that VISUALLY CONTAIN their Position
+// child nodes. Edges link Position → Position based on the position
+// parent_id chain; since each Position holds at most one Worker, the
+// edge reads as a worker-to-worker reporting line (e.g. w-owner →
+// w-alice means alice's position is a child of root, which w-owner
+// occupies).
 //
-// Workers are NOT nodes — each Position card holds at most one
-// Worker chip inline. The owner Role + root Position + owner Worker
-// are server-side protected from deletion.
+// Layout: dagre runs over the position parent tree to get global
+// (x, y) for each Position. We then derive each Role group's bounding
+// box from its child Positions, and translate the children to be
+// parent-relative coords for ReactFlow's subflow.
+//
+// Empty roles (no positions yet) get a placeholder slot at the right
+// edge of the canvas so they're still discoverable + editable.
 
 const OWNER_ROLE = 'r-owner'
 const OWNER_WORKER = 'w-owner'
 const ROOT_POSITION = 'p-root'
 
-const ROLE_W = 280
-const ROLE_H = 80
 const POSITION_W = 240
 const POSITION_H = 140
+const POSITION_GAP_X = 40
+const POSITION_GAP_Y = 80
+const ROLE_PAD_X = 24
+const ROLE_PAD_TOP = 56
+const ROLE_PAD_BOTTOM = 24
+const EMPTY_ROLE_W = 320
+const EMPTY_ROLE_H = 140
 
 // ---- Flatten + group ---------------------------------------------------
 
@@ -142,74 +158,100 @@ type PositionNodeData = {
   onDeletePosition: (positionId: string) => void
 }
 
+// RoleNode is a parent group — ReactFlow renders the child Position
+// nodes inside its rect. The Box is sized to fill the node's frame
+// (ReactFlow sets style.width/height on the node itself), and just
+// paints the header band along the top edge with the role id + the
+// add-position / delete-role affordances.
 const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)'
-  const border = lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.16)'
-  const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.04)'
-  const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
-  const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
+  const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)'
 
   return (
     <Box
       sx={{
-        width: ROLE_W,
-        height: ROLE_H,
-        border: `1px solid ${border}`,
-        borderRadius: 1.5,
-        backgroundColor: bg,
-        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
-        p: 1.5,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
       }}
     >
-      <Stack direction="row" alignItems="baseline" spacing={1} sx={{ minWidth: 0 }}>
-        <Typography
-          variant="subtitle1"
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0,
+          height: ROLE_PAD_TOP - 8,
+          px: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          pointerEvents: 'auto',
+        }}
+      >
+        <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ minWidth: 0, flex: 1 }}>
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontWeight: 700,
+              color: titleColor,
+              fontFamily: 'monospace',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {data.roleId}
+          </Typography>
+          <Typography variant="caption" sx={{ color: muted, whiteSpace: 'nowrap' }}>
+            {data.positionCount} {data.positionCount === 1 ? 'position' : 'positions'}
+          </Typography>
+        </Stack>
+        <Stack direction="row" spacing={0.5}>
+          <Tooltip title="Add a position under this role">
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+              onClick={(e) => { e.stopPropagation(); data.onAddPosition(data.roleId) }}
+              sx={{ textTransform: 'none' }}
+            >
+              Position
+            </Button>
+          </Tooltip>
+          {!data.isOwner && (
+            <Tooltip title="Delete role (cascade: positions + workers)">
+              <IconButton
+                size="small"
+                onClick={(e) => { e.stopPropagation(); data.onDeleteRole(data.roleId) }}
+                sx={{ color: muted }}
+              >
+                <DeleteOutlineIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Stack>
+      </Box>
+      {data.positionCount === 0 && (
+        <Box
           sx={{
-            fontWeight: 700,
-            color: titleColor,
-            fontFamily: 'monospace',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            minWidth: 0,
-            flexShrink: 1,
+            position: 'absolute',
+            top: ROLE_PAD_TOP,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: muted,
+            fontStyle: 'italic',
+            fontSize: '0.85rem',
+            pointerEvents: 'none',
           }}
         >
-          {data.roleId}
-        </Typography>
-        <Typography variant="caption" sx={{ color: muted, whiteSpace: 'nowrap' }}>
-          {data.positionCount} {data.positionCount === 1 ? 'pos.' : 'pos.'}
-        </Typography>
-      </Stack>
-      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-        <Tooltip title="Add a position under this role">
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-            onClick={(e) => { e.stopPropagation(); data.onAddPosition(data.roleId) }}
-            sx={{ textTransform: 'none' }}
-          >
-            Position
-          </Button>
-        </Tooltip>
-        {!data.isOwner && (
-          <Tooltip title="Delete role (cascade: positions + workers)">
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onDeleteRole(data.roleId) }}
-              sx={{ color: muted }}
-            >
-              <DeleteOutlineIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Tooltip>
-        )}
-      </Stack>
-      <Handle type="source" position={RFPosition.Bottom} style={{ background: handleColor }} />
+          No positions yet — click <strong style={{ fontStyle: 'normal', margin: '0 0.25em' }}>Position</strong> to add one
+        </Box>
+      )}
     </Box>
   )
 }
@@ -293,6 +335,7 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
           Hire worker
         </Button>
       )}
+      <Handle type="source" position={RFPosition.Bottom} style={{ background: handleColor }} />
     </Box>
   )
 }
@@ -301,8 +344,23 @@ const nodeTypes = { role: RoleNode, position: PositionNode }
 
 // ---- dagre layout ------------------------------------------------------
 
+// buildGraph computes nodes + edges for the subflow:
+//
+//   1. Run dagre on the position-parent tree to get global (x, y) for
+//      every Position.
+//   2. For each Role, compute the bbox of its Positions; that
+//      becomes the Role parent node's rect.
+//   3. Translate each Position to be parent-relative — ReactFlow
+//      subflow children expect coords relative to their parent.
+//   4. Edges link position → position based on position.parent_id.
+//      They cross role-group boundaries naturally — a Position in
+//      r-engineer reporting to one in r-owner draws a worker-to-
+//      worker line down the page.
+//   5. Empty Roles (no Positions) get a fixed-size slot appended to
+//      the right of the connected layout.
 const buildGraph = (
   groups: RoleGroup[],
+  flat: FlatPosition[],
   handlers: {
     onSelectWorker: (workerId: string) => void
     onHire: (positionId: string) => void
@@ -312,42 +370,88 @@ const buildGraph = (
   },
   isLight: boolean,
 ): { nodes: Node[]; edges: Edge[] } => {
+  // 1. dagre on the position tree.
   const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 80, marginx: 40, marginy: 40 })
+  g.setGraph({
+    rankdir: 'TB',
+    nodesep: POSITION_GAP_X,
+    ranksep: POSITION_GAP_Y + ROLE_PAD_TOP + ROLE_PAD_BOTTOM,
+    marginx: 0,
+    marginy: 0,
+  })
   g.setDefaultEdgeLabel(() => ({}))
 
-  // Synthetic edges only — no parentId grouping; pure top-down tree.
-  const edges: Edge[] = []
-  for (const group of groups) {
-    const roleNodeId = `role:${group.roleId}`
-    g.setNode(roleNodeId, { width: ROLE_W, height: ROLE_H })
-    for (const p of group.positions) {
-      const posNodeId = `pos:${p.position_id}`
-      g.setNode(posNodeId, { width: POSITION_W, height: POSITION_H })
-      g.setEdge(roleNodeId, posNodeId)
-      edges.push({
-        id: `${roleNodeId}->${posNodeId}`,
-        source: roleNodeId,
-        target: posNodeId,
-        type: 'smoothstep',
-        animated: false,
-        style: {
-          stroke: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)',
-          strokeWidth: 1.5,
-        },
-      })
+  const flatByID = new Map<string, FlatPosition>()
+  for (const p of flat) flatByID.set(p.position_id, p)
+
+  for (const p of flat) {
+    g.setNode(`pos:${p.position_id}`, { width: POSITION_W, height: POSITION_H })
+  }
+  for (const p of flat) {
+    if (p.parent_id && flatByID.has(p.parent_id)) {
+      g.setEdge(`pos:${p.parent_id}`, `pos:${p.position_id}`)
     }
   }
   dagre.layout(g)
 
-  const nodes: Node[] = []
+  // 2. Compute each role's bbox over its dagre-positioned positions.
+  type Box = { x: number; y: number; w: number; h: number }
+  const roleBoxes = new Map<string, Box>()
   for (const group of groups) {
-    const roleNodeId = `role:${group.roleId}`
-    const layoutNode = g.node(roleNodeId)
+    if (group.positions.length === 0) continue
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const p of group.positions) {
+      const ln = g.node(`pos:${p.position_id}`)
+      if (!ln) continue
+      const left = ln.x - POSITION_W / 2
+      const top = ln.y - POSITION_H / 2
+      const right = left + POSITION_W
+      const bottom = top + POSITION_H
+      if (left < minX) minX = left
+      if (top < minY) minY = top
+      if (right > maxX) maxX = right
+      if (bottom > maxY) maxY = bottom
+    }
+    roleBoxes.set(group.roleId, {
+      x: minX - ROLE_PAD_X,
+      y: minY - ROLE_PAD_TOP,
+      w: (maxX - minX) + 2 * ROLE_PAD_X,
+      h: (maxY - minY) + ROLE_PAD_TOP + ROLE_PAD_BOTTOM,
+    })
+  }
+
+  // 3. Append empty-role placeholder slots in a column to the right
+  //    of the connected layout, so they're discoverable + editable.
+  const layoutMaxX = Math.max(0, ...Array.from(roleBoxes.values()).map((b) => b.x + b.w))
+  let emptyCursorY = 0
+  for (const group of groups) {
+    if (group.positions.length > 0) continue
+    roleBoxes.set(group.roleId, {
+      x: layoutMaxX + POSITION_GAP_X,
+      y: emptyCursorY,
+      w: EMPTY_ROLE_W,
+      h: EMPTY_ROLE_H,
+    })
+    emptyCursorY += EMPTY_ROLE_H + POSITION_GAP_Y / 2
+  }
+
+  // 4. Emit nodes — role parents first, position children second
+  //    (ReactFlow needs parents before children in the array).
+  const nodes: Node[] = []
+  const roleStyle = {
+    backgroundColor: isLight ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.03)',
+    border: `1px solid ${isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'}`,
+    borderRadius: 12,
+    boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+  }
+  for (const group of groups) {
+    const box = roleBoxes.get(group.roleId)
+    if (!box) continue
     nodes.push({
-      id: roleNodeId,
+      id: `role:${group.roleId}`,
       type: 'role',
-      position: { x: layoutNode.x - ROLE_W / 2, y: layoutNode.y - ROLE_H / 2 },
+      position: { x: box.x, y: box.y },
+      style: { ...roleStyle, width: box.w, height: box.h },
       data: {
         roleId: group.roleId,
         positionCount: group.positions.length,
@@ -356,17 +460,23 @@ const buildGraph = (
         onDeleteRole: handlers.onDeleteRole,
       } as RoleNodeData,
       draggable: false,
+      selectable: false,
     })
+  }
+  for (const group of groups) {
+    const box = roleBoxes.get(group.roleId)
+    if (!box) continue
     for (const p of group.positions) {
-      const posNodeId = `pos:${p.position_id}`
-      const layoutPos = g.node(posNodeId)
+      const ln = g.node(`pos:${p.position_id}`)
+      if (!ln) continue
+      const globalX = ln.x - POSITION_W / 2
+      const globalY = ln.y - POSITION_H / 2
       nodes.push({
-        id: posNodeId,
+        id: `pos:${p.position_id}`,
         type: 'position',
-        position: {
-          x: layoutPos.x - POSITION_W / 2,
-          y: layoutPos.y - POSITION_H / 2,
-        },
+        parentId: `role:${group.roleId}`,
+        extent: 'parent',
+        position: { x: globalX - box.x, y: globalY - box.y },
         data: {
           positionId: p.position_id,
           workers: p.workers,
@@ -378,6 +488,24 @@ const buildGraph = (
         draggable: false,
       })
     }
+  }
+
+  // 5. Edges: worker-to-worker reporting lines, drawn between
+  //    Position nodes via the position parent_id chain.
+  const edges: Edge[] = []
+  for (const p of flat) {
+    if (!p.parent_id || !flatByID.has(p.parent_id)) continue
+    edges.push({
+      id: `pos:${p.parent_id}->pos:${p.position_id}`,
+      source: `pos:${p.parent_id}`,
+      target: `pos:${p.position_id}`,
+      type: 'smoothstep',
+      animated: false,
+      style: {
+        stroke: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.35)',
+        strokeWidth: 1.5,
+      },
+    })
   }
 
   return { nodes, edges }
@@ -708,6 +836,7 @@ const WorkerDrawer: FC<{ workerId: string; onClose: () => void }> = ({ workerId,
 
 const ChartCanvas: FC<{
   groups: RoleGroup[]
+  flat: FlatPosition[]
   handlers: {
     onSelectWorker: (workerId: string) => void
     onHire: (positionId: string) => void
@@ -715,13 +844,13 @@ const ChartCanvas: FC<{
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
   }
-}> = ({ groups, handlers }) => {
+}> = ({ groups, flat, handlers }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, handlers, lightTheme.isLight),
-    [groups, handlers, lightTheme.isLight],
+    () => buildGraph(groups, flat, handlers, lightTheme.isLight),
+    [groups, flat, handlers, lightTheme.isLight],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -912,7 +1041,7 @@ const HelixOrgChart: FC = () => {
             </Box>
           ) : (
             <ReactFlowProvider>
-              <ChartCanvas groups={groups} handlers={handlers} />
+              <ChartCanvas groups={groups} flat={flat} handlers={handlers} />
             </ReactFlowProvider>
           )}
         </Box>
