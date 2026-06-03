@@ -9,5 +9,6 @@
 - [ ] Write per-repo PR description in `pull_request_helix.md` inside this task directory, mirroring the 002027 format.
 - [ ] **Deferred to reviewer (cannot self-test — restart kills the implementing agent's own session):** end-to-end test on `helix-sway`: open Chrome with tabs → stop session → wait > 5 min → resume → expect Chrome with tabs.
 - [ ] **Deferred to reviewer:** same E2E test on `helix-ubuntu`.
+- [ ] **Deferred to reviewer (arm64):** same E2E test on an arm64 sandbox running Chromium (which the Dockerfiles already symlink to `google-chrome-stable`, so this code path covers it with no additional changes) — confirm Chromium auto-relaunches with tabs and that `pgrep -x chromium` in the unchanged heartbeat block keeps the marker fresh.
 - [ ] **Deferred to reviewer:** close Chrome cleanly mid-session, wait > 30 s for heartbeat, stop, resume → expect Chrome stays closed.
 - [ ] **Deferred to reviewer:** inspect `/tmp/chrome-autolaunch.log` after each resume to confirm the script logged whether it tried to launch and what (if anything) Chrome wrote.

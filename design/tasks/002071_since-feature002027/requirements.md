@@ -68,10 +68,11 @@ This matches the symptom the user reports: persistence works, auto-launch never 
 
 - [ ] On a Sway sandbox with Chrome open at session stop, resuming the session **any** amount of time later (1 minute, 1 hour, 1 week) results in Chrome being launched automatically with the previous tabs visible.
 - [ ] Same on a `helix-ubuntu` (GNOME) sandbox.
-- [ ] On either runtime, deliberately closing Chrome before stopping the session results in Chrome **not** being launched on the next resume.
-- [ ] On either runtime, a log line is emitted on every session start saying one of: `auto-launching Chrome`, `marker absent, skipping`, or `auto-launch failed: <reason>`. Log location must be readable from inside a running session (e.g. `/tmp/chrome-autolaunch.log` or appended to the existing `start_gnome` / `sway-session` stream).
-- [ ] No regression for users who have never opened Chrome — the very first session still gets the default desktop with no Chrome window and no error log noise.
-- [ ] No regression for users who close Chrome cleanly mid-session and re-open it before stopping — the marker should reflect "Chrome currently running" by the next heartbeat tick.
+- [ ] Same on an **arm64** sandbox running Chromium (invoked via the existing `google-chrome-stable` symlink from 002027) — Chromium auto-relaunches with tabs restored, identical mechanics.
+- [ ] On any runtime / arch, deliberately closing the browser before stopping the session results in it **not** being launched on the next resume.
+- [ ] On any runtime / arch, a log line is emitted on every session start saying one of: `auto-launching Chrome`, `marker absent, skipping`, or `auto-launch failed: <reason>`. Log location must be readable from inside a running session (e.g. `/tmp/chrome-autolaunch.log` or appended to the existing `start_gnome` / `sway-session` stream).
+- [ ] No regression for users who have never opened the browser — the very first session still gets the default desktop with no browser window and no error log noise.
+- [ ] No regression for users who close the browser cleanly mid-session and re-open it before stopping — the marker should reflect "browser currently running" by the next heartbeat tick.
 
 ## Out of scope
 

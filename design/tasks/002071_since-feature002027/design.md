@@ -104,6 +104,17 @@ Yes, but lightly. Add a one-paragraph "Known issue fixed in 002071" note to `002
 - The marker file is in `/home/retro/work/.chrome-state/`. That dir is created and seeded by `helix-workspace-setup.sh` before either startup script runs, so the `[ -f ... ]` check can never see a half-created tree.
 - The Singleton lock cleanup runs only when we are about to launch, so we don't accidentally yank a lock from a Chrome instance the user started by hand.
 
+## Arch coverage: this fix works for Chromium on ARM as well
+
+The same code path covers Chrome on amd64 and Chromium on arm64, with no arch-specific branching needed:
+
+- **Launch invocation.** Both startup scripts call `google-chrome-stable`. On arm64 the `Dockerfile.sway-helix` / `Dockerfile.ubuntu-helix` already symlink `chromium-browser` → `google-chrome-stable`, so the same binary name resolves correctly on both architectures (this was the design choice from 002027 — see `Dockerfile.sway-helix:683-684`).
+- **Marker path.** `/home/retro/work/.chrome-state/.was-running` is arch-agnostic — same path on both. The persistence symlink set up by `helix-workspace-setup.sh:691-693` already covers both `~/.config/google-chrome` and `~/.config/chromium`, so on arm64 Chromium reads its profile from the same persistent dir that touches the marker.
+- **Process detection.** The heartbeat check is `pgrep -x chrome ... || pgrep -x chromium`, so the marker is correctly maintained whether the running browser registers as `chrome` (amd64) or `chromium` (arm64). The fix doesn't touch this block, so it stays correct.
+- **RestoreOnStartup policy.** Both the Chrome managed policy and the Chromium managed policy were set to `1` in 002027 (`/etc/opt/chrome/policies/managed/helix.json` and `/etc/chromium/policies/managed/helix.json`), so tabs restore on the next launch regardless of arch.
+
+Net effect: the `[ -f "$CHROME_MARKER" ]` change makes auto-relaunch start working on **both** amd64 (Chrome) and arm64 (Chromium) sandboxes from the same line of code.
+
 ## Verification
 
 The implementation agent cannot self-test for the same reason 002027's couldn't (see 002027 design.md "Why manual verification can't run from the implementing agent" — restarting kills the session). Reviewer to:
