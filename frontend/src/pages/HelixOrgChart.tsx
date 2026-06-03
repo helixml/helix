@@ -420,6 +420,28 @@ const buildGraph = (
     })
   }
 
+  // 2b. Resolve horizontal overlap between role frames. dagre spaces
+  //     positions by POSITION_GAP_X, which is smaller than 2*ROLE_PAD_X,
+  //     so adjacent roles at the same rank visually overlap. Sweep
+  //     left-to-right and shift each role (and, implicitly via subflow
+  //     coords, its child positions) so frames are separated by
+  //     ROLE_GAP_X. Vertical bands at different ranks are left alone.
+  const ROLE_GAP_X = POSITION_GAP_X
+  const filled = groups
+    .filter((g) => g.positions.length > 0 && roleBoxes.has(g.roleId))
+    .map((g) => ({ roleId: g.roleId, box: roleBoxes.get(g.roleId)! }))
+    .sort((a, b) => a.box.x - b.box.x)
+  for (let i = 0; i < filled.length; i++) {
+    for (let j = i + 1; j < filled.length; j++) {
+      const a = filled[i].box
+      const b = filled[j].box
+      const yOverlap = !(b.y >= a.y + a.h || a.y >= b.y + b.h)
+      if (!yOverlap) continue
+      const minLeft = a.x + a.w + ROLE_GAP_X
+      if (b.x < minLeft) b.x = minLeft
+    }
+  }
+
   // 3. Append empty-role placeholder slots in a column to the right
   //    of the connected layout, so they're discoverable + editable.
   const layoutMaxX = Math.max(0, ...Array.from(roleBoxes.values()).map((b) => b.x + b.w))
