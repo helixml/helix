@@ -790,16 +790,27 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
     done
 fi
 
-# FAIL if no folders found - don't start Zed with empty workspace
+# FAIL if no folders found AND repositories were requested (clone failure).
+# But: chat-only sessions (helix-org agent apps, ad-hoc chats) legitimately
+# arrive with no HELIX_REPOSITORIES at all — those should still launch Zed
+# so the external agent can WebSocket-connect back to the API. Falling back
+# to $WORK_DIR as the workspace folder gives Zed a valid root.
 if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
+    if [ -n "$HELIX_REPOSITORIES" ]; then
+        echo ""
+        echo "❌ ERROR: No repositories were cloned successfully"
+        echo ""
+        echo "Cannot start Zed without a proper workspace."
+        echo "Check the errors above and fix the issue."
+        echo ""
+        echo "The terminal will stay open so you can debug."
+        exit 1
+    fi
+
     echo ""
-    echo "❌ ERROR: No repositories were cloned successfully"
-    echo ""
-    echo "Cannot start Zed without a proper workspace."
-    echo "Check the errors above and fix the issue."
-    echo ""
-    echo "The terminal will stay open so you can debug."
-    exit 1
+    echo "  No repositories configured — opening $WORK_DIR as workspace root"
+    echo "  (chat-only session; Zed still needs a folder to launch)"
+    ZED_FOLDERS+=("$WORK_DIR")
 fi
 
 # Write folders to file for main script to read
