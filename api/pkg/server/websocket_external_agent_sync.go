@@ -2605,7 +2605,22 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// If the response is empty, something went wrong — either the agent bounced the
 	// message (busy with another turn) or content was lost during the streaming flush.
 	// Mark as error and re-queue the prompt so it will be retried.
+	//
+	// EXCEPTION: if a prior chat_response_error event already moved the
+	// interaction into Error state with a non-empty error message, the
+	// agent's verbatim cause is more useful than the generic stand-in we
+	// would otherwise paint. Preserve it. (Authentication required,
+	// model not found, rate-limit etc. all flow through this path.)
 	if targetInteraction.ResponseMessage == "" && len(responseEntries) == 0 {
+		if targetInteraction.State == types.InteractionStateError && targetInteraction.Error != "" {
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", targetInteraction.ID).
+				Str("preserved_error", targetInteraction.Error).
+				Msg("⏭️ [HELIX] message_completed with empty response — preserving prior agent error from chat_response_error (no generic overwrite)")
+			return nil
+		}
+
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteraction.ID).
@@ -3416,7 +3431,25 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	return nil
 }
 
-// handleChatResponseError processes error from external agent
+// handleChatResponseError processes error from external agent.
+//
+// Two delivery paths, used in different runtimes:
+//
+//  1. WebSocket-driven chat (Zed + helix-org, agent app chat surface):
+//     the request_id maps to a pending Interaction row via
+//     requestToInteractionMapping. We persist the agent's verbatim error
+//     message onto that interaction so the chat UI shows the real cause
+//     instead of the generic "Agent returned empty response" stand-in
+//     that handleMessageCompleted would otherwise paint on top.
+//
+//  2. Legacy HTTP-streaming chat completion: the request_id is on a
+//     getResponseChannel; the same error is forwarded to the channel so
+//     the in-flight HTTP response surfaces it.
+//
+// Both paths are best-effort and the function returns nil for missing
+// mappings — chat_response_error events for unknown request_ids are a
+// no-op, not an error, because a desktop replay during reconnection
+// can legitimately re-emit events the API has already retired.
 func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, ok := syncMsg.Data["request_id"].(string)
 	if !ok {
@@ -3425,22 +3458,51 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 	}
 
 	errorMsg, ok := syncMsg.Data["error"].(string)
-	if !ok {
+	if !ok || errorMsg == "" {
 		errorMsg = "Unknown error from external agent"
 	}
 
-	// Handle response error via legacy channel handling
-	_, _, errorChan, exists := apiServer.getResponseChannel(sessionID, requestID)
-	if !exists {
-		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for error")
-		return nil
+	// Path 1: WebSocket-driven chat — persist to the matched Interaction.
+	apiServer.contextMappingsMutex.RLock()
+	interactionID, hasInteractionMapping := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if hasInteractionMapping && interactionID != "" {
+		interaction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), interactionID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Str("request_id", requestID).
+				Str("interaction_id", interactionID).
+				Msg("chat_response_error: failed to load interaction — surface skipped")
+		} else if interaction != nil {
+			interaction.State = types.InteractionStateError
+			interaction.Error = errorMsg
+			interaction.Updated = time.Now()
+			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
+				log.Warn().
+					Err(err).
+					Str("interaction_id", interactionID).
+					Msg("chat_response_error: failed to persist interaction error")
+			} else {
+				log.Info().
+					Str("interaction_id", interactionID).
+					Str("agent_error", errorMsg).
+					Msg("✅ [HELIX] Persisted agent error to interaction (chat UI will now show the actual cause, not the generic stand-in)")
+			}
+		}
 	}
 
-	// Send error
-	select {
-	case errorChan <- fmt.Errorf("%s", errorMsg):
-	default:
-		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
+	// Path 2: legacy HTTP-streaming chat completion — forward to the
+	// response channel if one exists. Missing channels are not an error.
+	if _, _, errorChan, exists := apiServer.getResponseChannel(sessionID, requestID); exists {
+		select {
+		case errorChan <- fmt.Errorf("%s", errorMsg):
+		default:
+			log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
+		}
+	} else if !hasInteractionMapping {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel or interaction mapping found for chat_response_error")
 	}
 
 	return nil
