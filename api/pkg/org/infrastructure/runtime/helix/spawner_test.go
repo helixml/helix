@@ -419,7 +419,7 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	topic := pubsub.GetSessionQueue("", "ses_y")
 	for time.Now().Before(deadline) {
-		if len(ps.handlers[topic]) > 0 {
+		if ps.handlerCount(topic) > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

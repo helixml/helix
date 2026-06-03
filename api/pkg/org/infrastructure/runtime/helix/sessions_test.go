@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,8 +15,17 @@ import (
 // fakePubSub is a minimal in-process pubsub for SubscribeSessionUpdates
 // tests. Only the methods SubscribeSessionUpdates uses are implemented;
 // the rest return zero values and would panic if exercised.
+//
+// The Spawner spawns the SubscribeSessionUpdates handler in its own
+// goroutine and unsubscribes from a deferred path, so concurrent
+// Subscribe/Unsubscribe/publish calls land on the same map from
+// different goroutines (most visibly under TestSpawnerSemaphoreSerialises,
+// which intentionally runs two spawners in parallel). Guard the handlers
+// map with a sync.Mutex so the race detector and Go's concurrent-map-
+// write check stay happy under -count / -parallel stress and in CI.
 type fakePubSub struct {
 	pubsub.PubSub
+	mu       sync.Mutex
 	handlers map[string][]func(payload []byte) error
 }
 
@@ -29,18 +39,38 @@ type fakeSubscription struct {
 }
 
 func (s *fakeSubscription) Unsubscribe() error {
+	s.ps.mu.Lock()
+	defer s.ps.mu.Unlock()
 	delete(s.ps.handlers, s.topic)
 	return nil
 }
 
 func (f *fakePubSub) Subscribe(_ context.Context, topic string, handler func(payload []byte) error) (pubsub.Subscription, error) {
+	f.mu.Lock()
 	f.handlers[topic] = append(f.handlers[topic], handler)
+	f.mu.Unlock()
 	return &fakeSubscription{ps: f, topic: topic}, nil
+}
+
+// handlerCount returns the number of handlers currently subscribed to
+// topic. Tests use this to wait for a bridge goroutine to attach
+// before publishing — racing on the raw map is unsafe under
+// concurrent Subscribe/Unsubscribe.
+func (f *fakePubSub) handlerCount(topic string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.handlers[topic])
 }
 
 func (f *fakePubSub) publish(t *testing.T, topic string, payload []byte) {
 	t.Helper()
-	for _, h := range f.handlers[topic] {
+	f.mu.Lock()
+	// Copy the handler slice under the lock so callers can't observe
+	// torn state if a concurrent Subscribe/Unsubscribe mutates the map
+	// while we're iterating.
+	handlers := append([]func(payload []byte) error(nil), f.handlers[topic]...)
+	f.mu.Unlock()
+	for _, h := range handlers {
 		_ = h(payload)
 	}
 }
