@@ -1,6 +1,6 @@
 # Implementation Tasks: Fix Chrome Auto-Relaunch on Session Resume
 
-- [ ] In `desktop/sway-config/startup-app.sh` (around line 597-603), replace the `[ ... -lt 300 ]` freshness check with a plain `[ -f "$CHROME_MARKER" ]` existence check. Route the auto-launch decision and Chrome's own stdout/stderr to `/tmp/chrome-autolaunch.log` (append both branches: launching and skipping).
+- [~] In `desktop/sway-config/startup-app.sh` (around line 597-603), replace the `[ ... -lt 300 ]` freshness check with a plain `[ -f "$CHROME_MARKER" ]` existence check. Route the auto-launch decision and Chrome's own stdout/stderr to `/tmp/chrome-autolaunch.log` (append both branches: launching and skipping).
 - [ ] In `desktop/ubuntu-config/startup-app.sh` (around line 313-335, **inside** the `<<GNOME_EOF` heredoc), make the same change, preserving the `\$` / `\${...}` / `\$(...)` heredoc escapes. Emit a `gow_log` line in both branches so the result also lands in the standard start log.
 - [ ] Heartbeat blocks below the auto-launch in both files: leave untouched. They're correct.
 - [ ] `bash -n desktop/sway-config/startup-app.sh` passes.
