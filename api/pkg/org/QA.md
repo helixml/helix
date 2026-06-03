@@ -387,59 +387,56 @@ the third item in the helix-org middle-nav. Mirrors the Roles list.
 6. Click `w-owner` (either the monospace id link or the Open menu
    item). URL becomes `…/helix-org/workers/w-owner`.
 
-## 19. Chat with the owner (provisioning + send "hello")
+## 19. Chat with the owner via the Human Desktop
 
-The most critical worker flow: drive a brand-new chat session against
-the owner worker, including on-the-fly provisioning of the agent app
-that bootstrap doesn't create.
+The most critical worker flow. Chat happens **inside the per-Worker
+project's Human Desktop session** — the same surface a normal project
+uses for ad-hoc Zed/Claude work — so the operator gets the full IDE
+context (terminal, file tree, browser preview) instead of a bare LLM
+composer. Bootstrap does not provision a project for the human owner;
+the first chat click is what creates it.
 
 **Pre-condition**: a `zed_external` runtime is wired up on this host
-(the embedded SaaS alpha). Without it the user message is accepted
-and a session row is created, but the LLM response stays
-`waiting for external agent to connect` — that's a runtime
-infrastructure issue, not a chart bug.
+(the embedded SaaS alpha). Without it the desktop session is created
+but the Zed agent never connects.
 
 1. From the chart or the Workers list, navigate to the `w-owner`
    detail page (`…/helix-org/workers/w-owner`).
-2. Verify the top-right **Start new chat** button is **enabled**
-   even though the right rail shows no `Agent app` field yet (the
-   owner is a human, bootstrap doesn't run the spawner, so the
-   per-Worker Helix project + agent app don't exist yet). The
-   button is labelled either **Start new chat** or **Provision +
-   start chat** depending on whether the right-rail "Agent app"
-   value is populated.
+2. Verify the top-right chat button is **enabled** even though the
+   right rail shows no `Project` field yet (the owner is a human,
+   bootstrap doesn't run the spawner, so the per-Worker Helix
+   project + agent app don't exist yet). The button label is
+   either **Open Human Desktop** (project already provisioned) or
+   **Provision + open Human Desktop** (right-rail "Project" empty).
 3. Click the button. The label flips to **Provisioning agent app…**
    for a couple of seconds while the frontend POSTs to
    `/api/v1/orgs/<org>/workers/w-owner/chat` and the backend runs
-   `dynamicProjectApplier.Ensure` to create the project + app.
+   `dynamicProjectApplier.Ensure` to create the project + app, then
+   POSTs `/api/v1/projects/<project_id>/exploratory-session` to
+   start the Human Desktop session.
 4. On success, the page redirects to
-   `/orgs/<org>/agent/<agent_app_id>` — the standard Helix agent
-   page for the worker's new agent app. The composer placeholder
-   reads `Message r-owner`.
-5. Type `hello` into the composer. Press Enter.
-6. The URL gains a `?session_id=ses_…` query and a user bubble for
-   "hello" appears in the right-side transcript pane.
-7. Wait up to 30 seconds for the assistant response. The composer
+   `/orgs/<org>/projects/<project_id>/desktop/<session_id>` — the
+   same Human Desktop surface the rest of the app uses for project
+   chat. **The page MUST NOT land on `/orgs/<org>/agent/<id>`** —
+   that route is the legacy bare-agent composer and is no longer
+   reachable from this button; landing there is a regression of the
+   wiring done in this section.
+5. The desktop viewer renders; the right rail's chat pane is the
+   Zed agent. Type `hello` and submit. A user bubble appears in the
+   transcript.
+6. Wait up to 30 seconds for the assistant response. The composer
    shows a loading state.
    - **Happy path** (`zed_external` runtime connected): an
-     assistant reply renders below the user bubble. The owner is
-     now chat-able from anywhere in the UI.
+     assistant reply renders. The owner is now chat-able from
+     anywhere in the UI.
    - **Infra-not-ready path**: the API logs read
-     `Still waiting for external agent to connect` repeatedly. The
-     UI shows the user bubble but no assistant reply. This is
-     `helixml/helix#2397` (auto-wake stuck interactions) territory
-     — not a chart regression. Confirm the session was created
-     correctly:
-     ```bash
-     curl -sH "Cookie: …" "http://localhost:8080/api/v1/sessions/<session_id>" \
-       | jq '{status, interaction_count: (.interactions|length), first_state: .interactions[0].state}'
-     ```
-     should return `interaction_count: 1` with `first_state: "waiting"`.
-8. Refresh the worker detail page. The right rail's **Agent app**
-   field now shows the agent app uuid that was provisioned. Clicking
-   **Start new chat** again navigates straight to
-   `/orgs/<org>/agent/<id>` (no provisioning step — Ensure
-   fast-paths).
+     `Still waiting for external agent to connect` repeatedly. This
+     is `helixml/helix#2397` territory — not a chart regression.
+7. Refresh the worker detail page. The right rail's **Project**
+   field now shows the project id that was provisioned. Clicking
+   **Open Human Desktop** again navigates straight to the desktop
+   route (no provisioning step — Ensure fast-paths and the
+   exploratory-session GET returns the existing session).
 
 ## Pass criteria
 
@@ -452,6 +449,9 @@ infrastructure issue, not a chart bug.
 - Section 16 reports `tools | length == 29` on `r-owner` (bootstrap
   regression — guards against a future refactor dropping the manifest
   seed).
+- Section 19 step 4 — chat button lands on
+  `/orgs/<org>/projects/<project_id>/desktop/<session_id>` (Human
+  Desktop), never `/orgs/<org>/agent/<id>` (legacy bare composer).
 - Section 19 step 6 — user message reaches the session DB row, even
   if the LLM reply is gated on `zed_external` runtime availability.
 

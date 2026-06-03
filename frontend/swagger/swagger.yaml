@@ -1,4 +1,357 @@
 definitions:
+  api.Chart:
+    properties:
+      roles:
+        items:
+          $ref: '#/definitions/api.RoleBadge'
+        type: array
+      roots:
+        items:
+          $ref: '#/definitions/api.ChartNode'
+        type: array
+    type: object
+  api.ChartNode:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/api.ChartNode'
+        type: array
+      parent_id:
+        type: string
+      position_id:
+        type: string
+      role_id:
+        type: string
+      workers:
+        items:
+          $ref: '#/definitions/api.WorkerBadge'
+        type: array
+    type: object
+  api.CreatePositionRequest:
+    properties:
+      id:
+        type: string
+      parent_id:
+        type: string
+      role_id:
+        type: string
+    type: object
+  api.CreateRoleRequest:
+    properties:
+      content:
+        type: string
+      id:
+        type: string
+      streams:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  api.CreateStreamRequest:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      transport:
+        $ref: '#/definitions/api.TransportRequestField'
+    type: object
+  api.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  api.EventCard:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      from:
+        type: string
+      has_message:
+        type: boolean
+      id:
+        type: string
+      message_body:
+        type: string
+      source:
+        type: string
+      stream_id:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  api.HireGrantInput:
+    properties:
+      tool_name:
+        type: string
+    type: object
+  api.HireWorkerRequest:
+    properties:
+      grants:
+        items:
+          $ref: '#/definitions/api.HireGrantInput'
+        type: array
+      id:
+        type: string
+      identity_content:
+        type: string
+      kind:
+        type: string
+      position_id:
+        type: string
+    type: object
+  api.HireWorkerResponse:
+    properties:
+      activation_id:
+        type: string
+      id:
+        type: string
+    type: object
+  api.PositionDTO:
+    properties:
+      id:
+        type: string
+      parent_id:
+        type: string
+      role_id:
+        type: string
+    type: object
+  api.PublishRequest:
+    properties:
+      body:
+        type: string
+      subject:
+        type: string
+      to:
+        items:
+          type: string
+        type: array
+    type: object
+  api.PublishResponse:
+    properties:
+      event_id:
+        type: string
+    type: object
+  api.RoleBadge:
+    properties:
+      id:
+        type: string
+    type: object
+  api.RoleDTO:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      streams:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
+  api.SetSettingRequest:
+    properties:
+      value:
+        type: string
+    type: object
+  api.SettingsResponse:
+    properties:
+      db_path:
+        type: string
+      envs_dir:
+        type: string
+      owner:
+        type: string
+      public_url:
+        type: string
+      specs:
+        items:
+          $ref: '#/definitions/api.SettingsSpecDTO'
+        type: array
+    type: object
+  api.SettingsSpecDTO:
+    properties:
+      configured:
+        type: boolean
+      description:
+        type: string
+      key:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+      value:
+        description: |-
+          Value is the current REDACTED value — secrets in object configs
+          are masked per the registry's redaction rules. Frontend MUST
+          treat this as display-only.
+        type: string
+    type: object
+  api.StreamDTO:
+    properties:
+      can_publish:
+        type: boolean
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      disable_reason:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      recent_events:
+        items:
+          $ref: '#/definitions/api.EventCard'
+        type: array
+      subscribers:
+        items:
+          type: string
+        type: array
+    type: object
+  api.StreamsResponse:
+    properties:
+      recent:
+        description: |-
+          Recent is the unified firehose across every Stream rendered as
+          the "All streams" landing view. Capped at 50 newest-first.
+        items:
+          $ref: '#/definitions/api.EventCard'
+        type: array
+      streams:
+        items:
+          $ref: '#/definitions/api.StreamDTO'
+        type: array
+    type: object
+  api.ToolDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  api.TransportRequestField:
+    properties:
+      config:
+        additionalProperties: true
+        type: object
+      kind:
+        type: string
+    type: object
+  api.UpdatePositionRequest:
+    properties:
+      parent_id:
+        type: string
+      role_id:
+        type: string
+    type: object
+  api.UpdateRoleRequest:
+    properties:
+      content:
+        type: string
+      streams:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  api.UpdateWorkerIdentityRequest:
+    properties:
+      identity:
+        type: string
+    type: object
+  api.UpdateWorkerRoleRequest:
+    properties:
+      content:
+        type: string
+    type: object
+  api.WorkerBadge:
+    properties:
+      id:
+        type: string
+      kind:
+        type: string
+    type: object
+  api.WorkerChatDTO:
+    properties:
+      agent_app_id:
+        type: string
+      project_id:
+        type: string
+    type: object
+  api.WorkerDTO:
+    properties:
+      id:
+        type: string
+      identity_content:
+        type: string
+      kind:
+        type: string
+      organization_id:
+        type: string
+      position_id:
+        type: string
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  api.WorkerDetailDTO:
+    properties:
+      agent_app_id:
+        description: |-
+          AgentAppID is the Helix agent app this Worker chats through.
+          Empty until the Worker has been activated at least once. The
+          chart UI deep-links a "chat with this worker" button to
+          /orgs/<org>/agent/<agent_app_id> when set.
+        type: string
+      position:
+        allOf:
+        - $ref: '#/definitions/api.PositionDTO'
+        description: Position the Worker fills (nil if unassigned).
+      project_id:
+        description: |-
+          ProjectID is the Helix project the per-Worker agent app lives
+          in. The chart UI uses this to open the Human Desktop session
+          (/orgs/<org>/projects/<project_id>/desktop/<session_id>) rather
+          than the bare agent app, so the chat happens in the same
+          Zed/desktop context as a regular project.
+        type: string
+      role:
+        allOf:
+        - $ref: '#/definitions/api.RoleDTO'
+        description: |-
+          Role of the Position this Worker fills (nil if the Worker is
+          unassigned or the position/role is gone).
+      worker:
+        $ref: '#/definitions/api.WorkerDTO'
+    type: object
   filestore.Config:
     properties:
       folders:
@@ -16660,6 +17013,703 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/orgs/{org}/chart:
+    get:
+      description: Returns the positions+workers tree rendered by the helix-org React
+        UI
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Chart'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get org chart'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/positions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.PositionDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list positions'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Position spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreatePositionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.PositionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a position'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/positions/{id}:
+    delete:
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Position ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a position (cascade-fires its workers)'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Position ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PositionDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get a position'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Position ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch fields
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdatePositionRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PositionDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update a position'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/roles:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.RoleDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list roles'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.RoleDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a role'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/roles/{id}:
+    delete:
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a role (cascade-deletes positions + fires workers)'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.RoleDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get a role'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch fields
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateRoleRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.RoleDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update a role'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/settings:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SettingsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list settings'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/settings/{key}:
+    delete:
+      parameters:
+      - description: Setting key
+        in: path
+        name: key
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a setting'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Setting key
+        in: path
+        name: key
+        required: true
+        type: string
+      - description: Setting value (raw JSON per spec type)
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.SetSettingRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: set a setting'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.StreamsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list streams'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Stream spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateStreamRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.StreamDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}:
+    delete:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a stream'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.StreamDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/events:
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'SSE: event: message / data: [EventCard,...]'
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: SSE stream of events for one stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/publish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message body+optional subject/to
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.PublishRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.PublishResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: publish a message to a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/tools:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.ToolDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list available MCP tools'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.WorkerDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list workers'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      description: Create a Worker in the given Position. Wraps the hire_worker MCP
+        tool so REST + chat hires share semantics (env dir, activation stream, hire
+        dispatch).
+      parameters:
+      - description: Hire request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.HireWorkerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.HireWorkerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: hire worker'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}:
+    delete:
+      description: 'Delete a Worker. Cascades: stops sessions, deletes the Helix project
+        + agent app, clears runtime state, deletes subscriptions + grants + env dir
+        + env row, then the worker row. Activations are preserved as audit.'
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: fire worker'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerDetailDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get worker detail'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/chat:
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerChatDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: provision a per-worker chat app'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/identity:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New identity content
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateWorkerIdentityRequest'
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update worker identity'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/role:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New role content
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateWorkerRoleRequest'
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update worker role'
+      tags:
+      - HelixOrg
   /api/v1/projects:
     get:
       consumes:

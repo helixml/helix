@@ -32,6 +32,7 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import useAccount from '../hooks/useAccount'
+import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
@@ -46,6 +47,7 @@ const HelixOrgWorkerDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const snackbar = useSnackbar()
+  const api = useApi()
   const orgSlug = router.params.org_id as string | undefined
   const workerId = router.params.worker_id as string | undefined
 
@@ -56,32 +58,67 @@ const HelixOrgWorkerDetail: FC = () => {
 
   const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
-  const agentAppID = data?.agent_app_id
+  const projectID = data?.project_id
 
-  // openChat navigates to the agent app's chat surface WITHOUT pinning
-  // a session id, so the agent page renders its empty composer ready
-  // for a fresh conversation. Bootstrap doesn't provision an agent app
-  // for the owner (the spawner only does it on AI-worker activation),
-  // so on the first click we POST to /workers/{id}/chat which fast-
-  // paths through WorkerProject.Ensure and returns the agent_app_id;
-  // subsequent clicks navigate immediately.
+  // openChat takes the operator to the Human Desktop for the Worker's
+  // per-Worker Helix project, matching how chat works for regular
+  // projects in the rest of the app (the desktop session IS the chat
+  // surface — Zed talks to Claude Code inside it). The owner Worker
+  // has no project on bootstrap (the spawner provisions one only on
+  // AI-Worker activation), so the first click POSTs /workers/{id}/chat
+  // to fast-path through WorkerProject.Ensure and get the project_id
+  // back; later clicks already have it from the worker detail fetch.
+  //
+  // The exploratory session is the project's single long-lived "Human
+  // Desktop" — we start it on demand (idempotent server-side when
+  // already running) and resume from a paused state if needed, then
+  // navigate to /orgs/<org>/projects/<projectID>/desktop/<sessionID>.
   const openChat = async () => {
     if (!orgSlug || !workerId) return
-    let appID = agentAppID
-    if (!appID) {
+    let pid = projectID
+    if (!pid) {
       try {
         const resp = await ensureChat.mutateAsync(workerId)
-        appID = resp.agent_app_id
+        pid = resp.project_id
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'provisioning chat failed')
         return
       }
     }
-    if (!appID) {
-      snackbar.error('no agent app id returned')
+    if (!pid) {
+      snackbar.error('no project id returned for worker')
       return
     }
-    router.navigate('org_agent', { org_id: orgSlug, app_id: appID })
+
+    const apiClient = api.getApiClient()
+    try {
+      let session: { id?: string; config?: { external_agent_status?: string } } | null = null
+      try {
+        const resp = await apiClient.v1ProjectsExploratorySessionDetail(pid)
+        session = resp.data ?? null
+      } catch (err: any) {
+        if (err?.response?.status !== 204) throw err
+      }
+      if (!session?.id) {
+        const created = await apiClient.v1ProjectsExploratorySessionCreate(pid)
+        session = created.data
+      } else if (session.config?.external_agent_status === 'stopped') {
+        // Paused desktop — kick it back to running before navigating so
+        // the user doesn't land on a dead viewer.
+        await apiClient.v1SessionsResumeCreate(session.id)
+      }
+      if (!session?.id) {
+        snackbar.error('failed to open Human Desktop session')
+        return
+      }
+      router.navigate('org_project-team-desktop', {
+        org_id: orgSlug,
+        id: pid,
+        sessionId: session.id,
+      })
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'failed to open Human Desktop')
+    }
   }
 
   const handleFire = async () => {
@@ -173,7 +210,7 @@ const HelixOrgWorkerDetail: FC = () => {
                     >
                       {ensureChat.isPending
                         ? 'Provisioning agent app…'
-                        : (agentAppID ? 'Start new chat' : 'Provision + start chat')}
+                        : (projectID ? 'Open Human Desktop' : 'Provision + open Human Desktop')}
                     </Button>
                   </Stack>
                 </Paper>
@@ -253,11 +290,11 @@ const HelixOrgWorkerDetail: FC = () => {
                       </Button>
                     </Box>
                   )}
-                  {agentAppID && (
+                  {projectID && (
                     <Box>
-                      <Typography variant="caption" color="text.secondary">Agent app</Typography>
+                      <Typography variant="caption" color="text.secondary">Project</Typography>
                       <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
-                        {agentAppID}
+                        {projectID}
                       </Typography>
                     </Box>
                   )}

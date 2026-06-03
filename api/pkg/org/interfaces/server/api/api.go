@@ -601,12 +601,14 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Populate the agent app id from the helix-runtime sidecar so the
-	// chart UI can link "chat with worker" to /agent/<app_id>. Missing
-	// state = the worker hasn't activated yet; we leave the field
-	// empty and the UI shows a disabled button.
+	// Populate the agent app id + project id from the helix-runtime
+	// sidecar so the chart UI can deep-link "chat with worker" to the
+	// per-project Human Desktop session. Missing state = the worker
+	// hasn't activated yet; we leave the fields empty and the UI
+	// shows a disabled button.
 	if state, err := runtimehelix.LoadState(ctx, a.deps.Store, orgID, id); err == nil {
 		detail.AgentAppID = state.AgentAppID
+		detail.ProjectID = state.ProjectID
 	}
 	writeJSON(w, http.StatusOK, detail)
 }
@@ -649,12 +651,12 @@ func (a *apiHandler) ensureWorkerChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
-	_, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
+	projectID, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure worker chat: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, WorkerChatDTO{AgentAppID: agentAppID})
+	writeJSON(w, http.StatusOK, WorkerChatDTO{AgentAppID: agentAppID, ProjectID: projectID})
 }
 
 // updateWorkerIdentity rewrites a Worker's IdentityContent. The

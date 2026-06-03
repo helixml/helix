@@ -76,6 +76,10 @@ export interface WorkerDetailDTO {
   // until the Worker has been activated at least once. The Worker
   // detail page disables the "Chat" button when missing.
   agent_app_id?: string
+  // ProjectID is the Helix project that owns the per-Worker agent app.
+  // The Worker detail page deep-links the chat button to the project's
+  // Human Desktop session rather than the bare agent app.
+  project_id?: string
 }
 
 export interface HireGrantInput {
@@ -214,7 +218,7 @@ export function useEnsureWorkerChat() {
   const { base, orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (workerId: string) => {
-      const data = await api.post<unknown, { agent_app_id: string }>(
+      const data = await api.post<unknown, { agent_app_id: string; project_id?: string }>(
         `${base}/workers/${encodeURIComponent(workerId)}/chat`,
         undefined,
       )

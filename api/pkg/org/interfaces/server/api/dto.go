@@ -82,10 +82,14 @@ type WorkerDTO struct {
 }
 
 // WorkerChatDTO is the POST /workers/{id}/chat response. AgentAppID
-// is the per-Worker Helix agent app id the chart UI's "Start new
-// chat" button navigates to.
+// is the per-Worker Helix agent app id and ProjectID is the Helix
+// project that owns it — the chart UI prefers ProjectID for the
+// "chat via Human Desktop" deep-link (/orgs/<org>/projects/<id>/desktop/<session>),
+// falling back to /agent/<agent_app_id> only when the project's
+// exploratory session can't be reached.
 type WorkerChatDTO struct {
 	AgentAppID string `json:"agent_app_id"`
+	ProjectID  string `json:"project_id,omitempty"`
 }
 
 // WorkerDetailDTO is the full GET /workers/{id} response — Worker
@@ -104,6 +108,12 @@ type WorkerDetailDTO struct {
 	// chart UI deep-links a "chat with this worker" button to
 	// /orgs/<org>/agent/<agent_app_id> when set.
 	AgentAppID string `json:"agent_app_id,omitempty"`
+	// ProjectID is the Helix project the per-Worker agent app lives
+	// in. The chart UI uses this to open the Human Desktop session
+	// (/orgs/<org>/projects/<project_id>/desktop/<session_id>) rather
+	// than the bare agent app, so the chat happens in the same
+	// Zed/desktop context as a regular project.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // HireWorkerRequest is the body of POST /workers. Mirrors the MCP
