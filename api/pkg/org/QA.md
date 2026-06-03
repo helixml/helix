@@ -368,9 +368,82 @@ remove during testing.
    Save. The role's tools is back to `[]`.
 8. (Cleanup) Delete `r-test-dm` via the right-rail Delete button.
 
+## 18. Workers list page
+
+The Workers surface lives at `/orgs/<org>/helix-org/workers` and is
+the third item in the helix-org middle-nav. Mirrors the Roles list.
+
+1. Click **Workers** in the helix-org sidebar.
+2. URL becomes `…/helix-org/workers`. Breadcrumb reads
+   `<org> / Workers`.
+3. Table renders one row per worker: ID, Kind (with human/AI icon),
+   Position, Identity preview, Tools count.
+4. Hiring is **not** done from this page — there's no "+ New Worker"
+   button. New workers come from the chart's position cards
+   (Hire-worker button), so the role + position context is explicit
+   at hire time. The list is a read+navigate surface.
+5. Vertical-dot row menu offers **Open** and **Fire** (disabled on
+   `w-owner` with "Owner — protected" label).
+6. Click `w-owner` (either the monospace id link or the Open menu
+   item). URL becomes `…/helix-org/workers/w-owner`.
+
+## 19. Chat with the owner (provisioning + send "hello")
+
+The most critical worker flow: drive a brand-new chat session against
+the owner worker, including on-the-fly provisioning of the agent app
+that bootstrap doesn't create.
+
+**Pre-condition**: a `zed_external` runtime is wired up on this host
+(the embedded SaaS alpha). Without it the user message is accepted
+and a session row is created, but the LLM response stays
+`waiting for external agent to connect` — that's a runtime
+infrastructure issue, not a chart bug.
+
+1. From the chart or the Workers list, navigate to the `w-owner`
+   detail page (`…/helix-org/workers/w-owner`).
+2. Verify the top-right **Start new chat** button is **enabled**
+   even though the right rail shows no `Agent app` field yet (the
+   owner is a human, bootstrap doesn't run the spawner, so the
+   per-Worker Helix project + agent app don't exist yet). The
+   button is labelled either **Start new chat** or **Provision +
+   start chat** depending on whether the right-rail "Agent app"
+   value is populated.
+3. Click the button. The label flips to **Provisioning agent app…**
+   for a couple of seconds while the frontend POSTs to
+   `/api/v1/orgs/<org>/workers/w-owner/chat` and the backend runs
+   `dynamicProjectApplier.Ensure` to create the project + app.
+4. On success, the page redirects to
+   `/orgs/<org>/agent/<agent_app_id>` — the standard Helix agent
+   page for the worker's new agent app. The composer placeholder
+   reads `Message r-owner`.
+5. Type `hello` into the composer. Press Enter.
+6. The URL gains a `?session_id=ses_…` query and a user bubble for
+   "hello" appears in the right-side transcript pane.
+7. Wait up to 30 seconds for the assistant response. The composer
+   shows a loading state.
+   - **Happy path** (`zed_external` runtime connected): an
+     assistant reply renders below the user bubble. The owner is
+     now chat-able from anywhere in the UI.
+   - **Infra-not-ready path**: the API logs read
+     `Still waiting for external agent to connect` repeatedly. The
+     UI shows the user bubble but no assistant reply. This is
+     `helixml/helix#2397` (auto-wake stuck interactions) territory
+     — not a chart regression. Confirm the session was created
+     correctly:
+     ```bash
+     curl -sH "Cookie: …" "http://localhost:8080/api/v1/sessions/<session_id>" \
+       | jq '{status, interaction_count: (.interactions|length), first_state: .interactions[0].state}'
+     ```
+     should return `interaction_count: 1` with `first_state: "waiting"`.
+8. Refresh the worker detail page. The right rail's **Agent app**
+   field now shows the agent app uuid that was provisioned. Clicking
+   **Start new chat** again navigates straight to
+   `/orgs/<org>/agent/<id>` (no provisioning step — Ensure
+   fast-paths).
+
 ## Pass criteria
 
-- All 17 sections complete without error.
+- All 19 sections complete without error.
 - No console errors in the browser dev tools beyond the three Vite WS
   errors at startup (those come from the dev-server proxy, not the app).
 - DB-level checks in sections 10 and 11 return 0 rows where expected.
@@ -379,6 +452,8 @@ remove during testing.
 - Section 16 reports `tools | length == 29` on `r-owner` (bootstrap
   regression — guards against a future refactor dropping the manifest
   seed).
+- Section 19 step 6 — user message reaches the session DB row, even
+  if the LLM reply is gated on `zed_external` runtime availability.
 
 ## Known limitations (today)
 
