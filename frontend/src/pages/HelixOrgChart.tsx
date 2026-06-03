@@ -14,7 +14,9 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import AddIcon from '@mui/icons-material/Add'
+import AddBoxOutlinedIcon from '@mui/icons-material/AddBoxOutlined'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
@@ -55,6 +57,7 @@ import {
   useHelixOrgChart,
   useHelixOrgWorker,
   useHireHelixOrgWorker,
+  useUpdateHelixOrgPosition,
 } from '../services/helixOrgService'
 
 // The chart visualises the org as a ReactFlow subflow:
@@ -144,6 +147,7 @@ type RoleNodeData = {
   positionCount: number
   isOwner: boolean
   onAddPosition: (roleId: string) => void
+  onAddRoleBelow: (roleId: string) => void
   onDeleteRole: (roleId: string) => void
 }
 
@@ -156,6 +160,13 @@ type PositionNodeData = {
   onDeletePosition: (positionId: string) => void
 }
 
+// ReactFlow uses these CSS class names internally — children of a node
+// that carry `nodrag` won't start a node-drag, and `nopan` won't pan
+// the canvas. The combination is the documented way to make buttons,
+// menus and form inputs inside custom nodes work correctly. See
+// https://reactflow.dev/learn/customization/custom-nodes#interactive-children.
+const NO_DRAG_NO_PAN = 'nodrag nopan'
+
 // RoleNode is a parent group — ReactFlow renders the child Position
 // nodes inside its rect. The Box is sized to fill the node's frame
 // (ReactFlow sets style.width/height on the node itself), and just
@@ -167,15 +178,9 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
   const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)'
 
   return (
-    <Box
-      sx={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-      }}
-    >
+    <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
       <Box
+        className={NO_DRAG_NO_PAN}
         sx={{
           position: 'absolute',
           top: 0, left: 0, right: 0,
@@ -184,7 +189,6 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          pointerEvents: 'auto',
         }}
       >
         <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ minWidth: 0, flex: 1 }}>
@@ -205,21 +209,34 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
             {data.positionCount} {data.positionCount === 1 ? 'position' : 'positions'}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={0.5}>
+        <Stack direction="row" spacing={0.25}>
           <Tooltip title="Add a position under this role">
-            <Button
+            <IconButton
+              className={NO_DRAG_NO_PAN}
               size="small"
-              variant="outlined"
-              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
               onClick={(e) => { e.stopPropagation(); data.onAddPosition(data.roleId) }}
-              sx={{ textTransform: 'none' }}
+              sx={{ color: muted }}
             >
-              Position
-            </Button>
+              <AddBoxOutlinedIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Add a new role reporting into this one">
+            <span>
+              <IconButton
+                className={NO_DRAG_NO_PAN}
+                size="small"
+                onClick={(e) => { e.stopPropagation(); data.onAddRoleBelow(data.roleId) }}
+                disabled={data.positionCount === 0}
+                sx={{ color: muted }}
+              >
+                <AccountTreeOutlinedIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
           </Tooltip>
           {!data.isOwner && (
             <Tooltip title="Delete role (cascade: positions + workers)">
               <IconButton
+                className={NO_DRAG_NO_PAN}
                 size="small"
                 onClick={(e) => { e.stopPropagation(); data.onDeleteRole(data.roleId) }}
                 sx={{ color: muted }}
@@ -244,7 +261,6 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
             color: muted,
             fontStyle: 'italic',
             fontSize: '0.85rem',
-            pointerEvents: 'none',
           }}
         >
           No positions yet — click <strong style={{ fontStyle: 'normal', margin: '0 0.25em' }}>Position</strong> to add one
@@ -278,10 +294,8 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
-        // ReactFlow disables pointer-events on non-interactive nodes
-        // (selectable+draggable+connectable all false). Re-enable so
-        // the Hire / Delete buttons inside actually receive clicks.
-        pointerEvents: 'auto',
+        cursor: 'grab',
+        '&:active': { cursor: 'grabbing' },
       }}
     >
       <Handle type="target" position={RFPosition.Top} style={{ background: handleColor }} />
@@ -292,6 +306,7 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         {!data.isRoot && (
           <Tooltip title="Delete position (fires its worker)">
             <IconButton
+              className={NO_DRAG_NO_PAN}
               size="small"
               onClick={(e) => { e.stopPropagation(); data.onDeletePosition(data.positionId) }}
               sx={{ p: 0.25, color: muted }}
@@ -304,6 +319,7 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
 
       {worker ? (
         <Box
+          className={NO_DRAG_NO_PAN}
           onClick={(e) => { e.stopPropagation(); data.onSelectWorker(worker.id) }}
           sx={{
             cursor: 'pointer',
@@ -328,6 +344,7 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         </Box>
       ) : (
         <Button
+          className={NO_DRAG_NO_PAN}
           variant="outlined"
           size="small"
           startIcon={<AddIcon sx={{ fontSize: 16 }} />}
@@ -366,6 +383,7 @@ const buildGraph = (
     onSelectWorker: (workerId: string) => void
     onHire: (positionId: string) => void
     onAddPosition: (roleId: string) => void
+    onAddRoleBelow: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
   },
@@ -429,36 +447,63 @@ const buildGraph = (
     borderRadius: 12,
     boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
   }
+  // Precompute each role's top-left in global coords. Position nodes
+  // are top-level (not subflow children), so they need absolute coords
+  // — having them at the top level keeps drag-and-drop simple.
+  type RoleOrigin = { x: number; y: number; w: number; h: number }
+  const roleOrigin = new Map<string, RoleOrigin>()
   for (const group of groups) {
     const ln = g.node(`role:${group.roleId}`)
     const sz = roleSize.get(group.roleId)!
     if (!ln) continue
+    roleOrigin.set(group.roleId, {
+      x: ln.x - sz.w / 2,
+      y: ln.y - sz.h / 2,
+      w: sz.w,
+      h: sz.h,
+    })
+  }
+
+  for (const group of groups) {
+    const ro = roleOrigin.get(group.roleId)
+    if (!ro) continue
     nodes.push({
       id: `role:${group.roleId}`,
       type: 'role',
-      position: { x: ln.x - sz.w / 2, y: ln.y - sz.h / 2 },
-      style: { ...roleStyle, width: sz.w, height: sz.h },
+      position: { x: ro.x, y: ro.y },
+      style: { ...roleStyle, width: ro.w, height: ro.h },
       data: {
         roleId: group.roleId,
         positionCount: group.positions.length,
         isOwner: group.roleId === OWNER_ROLE,
         onAddPosition: handlers.onAddPosition,
+        onAddRoleBelow: handlers.onAddRoleBelow,
         onDeleteRole: handlers.onDeleteRole,
       } as RoleNodeData,
+      // selectable: true (rather than false) keeps the role's
+      // pointer-events on — without it, ReactFlow disables clicks for
+      // any node where selectable+draggable+connectable are all false,
+      // which would dead-button the Position / Role-below / Delete
+      // header controls. The canvas-level `elementsSelectable={false}`
+      // still prevents visual selection.
       draggable: false,
-      selectable: false,
+      selectable: true,
     })
   }
   for (const group of groups) {
+    const ro = roleOrigin.get(group.roleId)
+    if (!ro) continue
     group.positions.forEach((p, i) => {
       nodes.push({
+        // Position nodes live at the top level (no parentId), so the
+        // user can drag a card freely across role boundaries and the
+        // chart's drop handler re-parents it. The role frame behind
+        // is purely visual.
         id: `pos:${p.position_id}`,
         type: 'position',
-        parentId: `role:${group.roleId}`,
-        extent: 'parent',
         position: {
-          x: ROLE_PAD_X + i * (POSITION_W + POSITION_GAP_X),
-          y: ROLE_PAD_TOP,
+          x: ro.x + ROLE_PAD_X + i * (POSITION_W + POSITION_GAP_X),
+          y: ro.y + ROLE_PAD_TOP,
         },
         data: {
           positionId: p.position_id,
@@ -468,7 +513,7 @@ const buildGraph = (
           onHire: handlers.onHire,
           onDeletePosition: handlers.onDeletePosition,
         } as PositionNodeData,
-        draggable: false,
+        draggable: true,
       })
     })
   }
@@ -601,6 +646,124 @@ const CreatePositionDialog: FC<{
         <Button onClick={onClose}>Cancel</Button>
         <Button onClick={submit} variant="contained" disabled={create.isPending}>
           {create.isPending ? 'Creating…' : 'Create'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+// CreateRoleBelowDialog combines the two-step "create role + drop a
+// position into it" flow into one form. The parent position is the
+// FIRST position of the role the user clicked "Role below" on — that
+// keeps the dialog single-screen. Reparenting via drag-and-drop lets
+// the user move things around afterwards if the default isn't right.
+const CreateRoleBelowDialog: FC<{
+  open: boolean
+  parentRoleId: string | null
+  parentPositionId: string | null
+  onClose: () => void
+}> = ({ open, parentRoleId, parentPositionId, onClose }) => {
+  const snackbar = useSnackbar()
+  const createRole = useCreateHelixOrgRole()
+  const createPosition = useCreateHelixOrgPosition()
+  const [roleId, setRoleId] = useState('')
+  const [content, setContent] = useState('')
+  const [positionId, setPositionId] = useState('')
+
+  // Auto-suggest a position id from the role id (r-design → p-design-1)
+  // the first time the user types. They can override.
+  const [positionTouched, setPositionTouched] = useState(false)
+  const onRoleIdChange = (v: string) => {
+    setRoleId(v)
+    if (!positionTouched) {
+      const suffix = v.replace(/^r-/, '').trim()
+      setPositionId(suffix ? `p-${suffix}-1` : '')
+    }
+  }
+
+  const submit = async () => {
+    const trimmedRole = roleId.trim()
+    const trimmedPos = positionId.trim()
+    if (!trimmedRole) {
+      snackbar.error('Role ID is required')
+      return
+    }
+    if (!trimmedPos) {
+      snackbar.error('Position ID is required')
+      return
+    }
+    if (!parentPositionId) {
+      snackbar.error('Parent role has no positions to attach under')
+      return
+    }
+    try {
+      await createRole.mutateAsync({ id: trimmedRole, content })
+      await createPosition.mutateAsync({
+        id: trimmedPos,
+        role_id: trimmedRole,
+        parent_id: parentPositionId,
+      })
+      snackbar.success(`role ${trimmedRole} added under ${parentRoleId}`)
+      setRoleId(''); setContent(''); setPositionId(''); setPositionTouched(false)
+      onClose()
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create failed')
+    }
+  }
+
+  const handleClose = () => {
+    setRoleId(''); setContent(''); setPositionId(''); setPositionTouched(false)
+    onClose()
+  }
+
+  return (
+    <Dialog open={open && !!parentRoleId} onClose={handleClose} fullWidth maxWidth="sm">
+      <DialogTitle>Add role below {parentRoleId}</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ pt: 1 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Reports to position
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {parentPositionId ?? '— (parent role has no positions)'}
+            </Typography>
+          </Box>
+          <TextField
+            label="Role ID"
+            placeholder="r-design"
+            value={roleId}
+            onChange={(e) => onRoleIdChange(e.target.value)}
+            helperText="Convention: r-<kebab-case>."
+            autoFocus
+            fullWidth
+          />
+          <TextField
+            label="Content (markdown)"
+            placeholder="# Designer&#10;Owns UX + visual design."
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            multiline
+            minRows={4}
+            fullWidth
+          />
+          <TextField
+            label="Position ID"
+            value={positionId}
+            onChange={(e) => { setPositionId(e.target.value); setPositionTouched(true) }}
+            helperText="The first position inside the new role — defaults to p-<role-suffix>-1."
+            fullWidth
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleClose}>Cancel</Button>
+        <Button
+          onClick={submit}
+          variant="contained"
+          disabled={createRole.isPending || createPosition.isPending || !parentPositionId}
+        >
+          {createRole.isPending || createPosition.isPending ? 'Creating…' : 'Create'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -824,12 +987,14 @@ const ChartCanvas: FC<{
     onSelectWorker: (workerId: string) => void
     onHire: (positionId: string) => void
     onAddPosition: (roleId: string) => void
+    onAddRoleBelow: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
   }
-}> = ({ groups, flat, handlers }) => {
+  onReparent: (childPositionId: string, newParentPositionId: string) => void
+}> = ({ groups, flat, handlers, onReparent }) => {
   const lightTheme = useLightTheme()
-  const { fitView } = useReactFlow()
+  const { fitView, getIntersectingNodes } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
     () => buildGraph(groups, flat, handlers, lightTheme.isLight),
@@ -844,18 +1009,51 @@ const ChartCanvas: FC<{
     requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
   }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
 
+  // onNodeDragStop runs when the user releases a dragged position
+  // card. If it overlaps another position node, treat the drop as a
+  // re-parent: the dragged position now reports to the position it
+  // was dropped on. Either way we snap the nodes back to the
+  // dagre-computed layout — re-fetched chart data will replace these
+  // with the canonical positions after the mutation completes.
+  const onNodeDragStop = useCallback(
+    (_event: unknown, node: Node) => {
+      if (node.type !== 'position') {
+        setNodes(computedNodes)
+        return
+      }
+      const dragged = node.data as PositionNodeData
+      const intersections = getIntersectingNodes(node).filter(
+        (n) => n.type === 'position' && n.id !== node.id,
+      )
+      const target = intersections[0]
+      if (target && target.data) {
+        const targetData = target.data as PositionNodeData
+        if (dragged.positionId !== targetData.positionId) {
+          onReparent(dragged.positionId, targetData.positionId)
+          return
+        }
+      }
+      // No valid drop target — snap back to the canonical layout.
+      setNodes(computedNodes)
+    },
+    [computedNodes, getIntersectingNodes, onReparent, setNodes],
+  )
+
   return (
     <ReactFlow
       nodes={nodes}
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onNodeDragStop={onNodeDragStop}
       nodeTypes={nodeTypes}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
       colorMode={lightTheme.isLight ? 'light' : 'dark'}
-      nodesDraggable={false}
+      // Per-node flags (set inside buildGraph) win: position cards
+      // are draggable, role frames are not. Selection + edge-drag
+      // stay off — re-parenting is purely position-drag-driven.
       nodesConnectable={false}
       elementsSelectable={false}
       panOnDrag
@@ -882,6 +1080,7 @@ const HelixOrgChart: FC = () => {
   const { data, isLoading } = useHelixOrgChart()
   const deleteRole = useDeleteHelixOrgRole()
   const deletePosition = useDeleteHelixOrgPosition()
+  const updatePosition = useUpdateHelixOrgPosition()
 
   const flat = useMemo(() => flatten(data?.roots ?? []), [data])
   const knownRoles = useMemo(() => (data?.roles ?? []).map((r) => r.id), [data])
@@ -890,6 +1089,7 @@ const HelixOrgChart: FC = () => {
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [positionDialogRole, setPositionDialogRole] = useState<string | null>(null)
+  const [roleBelowParent, setRoleBelowParent] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<
     | { kind: 'role'; id: string }
     | { kind: 'position'; id: string }
@@ -910,6 +1110,7 @@ const HelixOrgChart: FC = () => {
     [],
   )
   const onAddPosition = useCallback((roleId: string) => setPositionDialogRole(roleId), [])
+  const onAddRoleBelow = useCallback((roleId: string) => setRoleBelowParent(roleId), [])
   const onDeleteRole = useCallback(
     (roleId: string) => setConfirmDelete({ kind: 'role', id: roleId }),
     [],
@@ -919,9 +1120,40 @@ const HelixOrgChart: FC = () => {
     [],
   )
   const handlers = useMemo(
-    () => ({ onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition }),
-    [onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition],
+    () => ({
+      onSelectWorker, onHire, onAddPosition, onAddRoleBelow,
+      onDeleteRole, onDeletePosition,
+    }),
+    [onSelectWorker, onHire, onAddPosition, onAddRoleBelow, onDeleteRole, onDeletePosition],
   )
+
+  // onReparent is invoked by the chart canvas when the user drags a
+  // position card onto another. Optimistic UX: snackbar fires before
+  // the mutation settles, the chart query is invalidated on success
+  // so the new edges + dagre layout repaint.
+  const onReparent = useCallback(
+    async (childPositionId: string, newParentPositionId: string) => {
+      try {
+        await updatePosition.mutateAsync({
+          id: childPositionId,
+          parent_id: newParentPositionId,
+        })
+        snackbar.success(`${childPositionId} now reports to ${newParentPositionId}`)
+      } catch (err: any) {
+        const msg = err?.response?.data?.error ?? err?.message ?? 'reparent failed'
+        snackbar.error(msg)
+      }
+    },
+    [updatePosition, snackbar],
+  )
+
+  // The parent position picked for the "Role below" dialog: the first
+  // position of the source role. Recomputed when the source changes.
+  const roleBelowParentPosition = useMemo(() => {
+    if (!roleBelowParent) return null
+    const g = groups.find((g) => g.roleId === roleBelowParent)
+    return g?.positions[0]?.position_id ?? null
+  }, [groups, roleBelowParent])
 
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
@@ -1024,7 +1256,12 @@ const HelixOrgChart: FC = () => {
             </Box>
           ) : (
             <ReactFlowProvider>
-              <ChartCanvas groups={groups} flat={flat} handlers={handlers} />
+              <ChartCanvas
+                groups={groups}
+                flat={flat}
+                handlers={handlers}
+                onReparent={onReparent}
+              />
             </ReactFlowProvider>
           )}
         </Box>
@@ -1035,6 +1272,12 @@ const HelixOrgChart: FC = () => {
         open={positionDialogRole !== null}
         roleId={positionDialogRole}
         onClose={() => setPositionDialogRole(null)}
+      />
+      <CreateRoleBelowDialog
+        open={roleBelowParent !== null}
+        parentRoleId={roleBelowParent}
+        parentPositionId={roleBelowParentPosition}
+        onClose={() => setRoleBelowParent(null)}
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}

@@ -212,6 +212,25 @@ export function useCreateHelixOrgPosition() {
   })
 }
 
+// useUpdateHelixOrgPosition rewires a Position. Today only parent_id
+// matters — the chart's drag-and-drop hands a position a new parent
+// so the org reporting structure changes without losing the position
+// itself.
+export function useUpdateHelixOrgPosition() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: { id: string; parent_id?: string; role_id?: string }) => {
+      const { id, ...body } = payload
+      await api.put(`${base}/positions/${encodeURIComponent(id)}`, body)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
 // useDeleteHelixOrgRole cascades — every Position under the Role is
 // deleted, every Worker in those Positions is fired. The owner Role
 // is server-side protected (409).
