@@ -33,12 +33,13 @@ var ErrNoExternalAgentWS = errors.New("no external agent WebSocket connection")
 // the Claude Agent ACP wrapper inside Zed having exited. Once the wrapper
 // process is gone, every subsequent follow-up the user sends bounces with
 // "Session not found" — Zed's THREAD_SERVICE has no agent to dispatch to and
-// no first-class way to respawn one for an existing thread. Helix's only
-// recovery is to abandon the dead acp_thread_id and create a fresh thread,
-// which we don't do silently because the user loses the chat history kept in
-// the dead process. Instead the queue surfaces a Restart button; the handler
-// wired up by ResetCrashedPromptsForSession clears ZedThreadID and re-sends
-// the prompt so the next dispatch creates a new thread.
+// no first-class way to respawn one for an existing thread. We don't auto-retry
+// silently because the half-dead container needs to be torn down and rebuilt.
+// Instead the queue surfaces a Restart button; restartCrashedAgentThread tears
+// down the desktop container and brings up a fresh one via the resume path,
+// preserving ZedThreadID so Zed reloads the existing thread from threads.db on
+// reconnect and the agent reloads its session from the persistent workspace
+// volume — full conversation context is restored.
 var agentCrashErrorMarkers = []string{
 	"Claude Agent process exited",
 	"Session not found",
