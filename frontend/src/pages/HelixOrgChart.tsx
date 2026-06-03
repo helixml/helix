@@ -95,8 +95,6 @@ const POSITION_GAP_Y = 80
 const ROLE_PAD_X = 24
 const ROLE_PAD_TOP = 56
 const ROLE_PAD_BOTTOM = 24
-const EMPTY_ROLE_W = 320
-const EMPTY_ROLE_H = 140
 
 // ---- Flatten + group ---------------------------------------------------
 
@@ -280,6 +278,10 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
+        // ReactFlow disables pointer-events on non-interactive nodes
+        // (selectable+draggable+connectable all false). Re-enable so
+        // the Hire / Delete buttons inside actually receive clicks.
+        pointerEvents: 'auto',
       }}
     >
       <Handle type="target" position={RFPosition.Top} style={{ background: handleColor }} />
@@ -344,20 +346,19 @@ const nodeTypes = { role: RoleNode, position: PositionNode }
 
 // ---- dagre layout ------------------------------------------------------
 
-// buildGraph computes nodes + edges for the subflow:
+// buildGraph computes nodes + edges for the chart:
 //
-//   1. Run dagre on the position-parent tree to get global (x, y) for
-//      every Position.
-//   2. For each Role, compute the bbox of its Positions; that
-//      becomes the Role parent node's rect.
-//   3. Translate each Position to be parent-relative — ReactFlow
-//      subflow children expect coords relative to their parent.
-//   4. Edges link position → position based on position.parent_id.
-//      They cross role-group boundaries naturally — a Position in
-//      r-engineer reporting to one in r-owner draws a worker-to-
-//      worker line down the page.
-//   5. Empty Roles (no Positions) get a fixed-size slot appended to
-//      the right of the connected layout.
+//   1. Each Role's frame size is a function of its position count:
+//      width = n*POSITION_W + (n-1)*POSITION_GAP_X + 2*ROLE_PAD_X.
+//      Positions sit in a horizontal row inside, padded by ROLE_PAD_X
+//      on each side — so a single position is centered by construction.
+//   2. Roles are laid out by dagre on a *role-level* graph. The edges
+//      come from position.parent_id chains that cross role boundaries:
+//      if pos A (in role X) reports to pos B (in role Y), Y is the
+//      parent of X in the role tree. dagre handles spacing between
+//      sibling roles via nodesep, so we never overlap.
+//   3. Worker-to-worker edges are drawn between Position nodes using
+//      the original position.parent_id chain (across or within roles).
 const buildGraph = (
   groups: RoleGroup[],
   flat: FlatPosition[],
@@ -370,95 +371,57 @@ const buildGraph = (
   },
   isLight: boolean,
 ): { nodes: Node[]; edges: Edge[] } => {
-  // 1. dagre on the position tree.
+  const flatByID = new Map<string, FlatPosition>()
+  for (const p of flat) flatByID.set(p.position_id, p)
+
+  const posToRole = new Map<string, string>()
+  for (const group of groups) {
+    for (const p of group.positions) posToRole.set(p.position_id, group.roleId)
+  }
+
+  // 1. Size each role frame from its position count. Empty roles get
+  //    a one-slot-wide placeholder so they're still discoverable.
+  type Size = { w: number; h: number }
+  const roleSize = new Map<string, Size>()
+  for (const group of groups) {
+    const n = Math.max(1, group.positions.length)
+    roleSize.set(group.roleId, {
+      w: n * POSITION_W + (n - 1) * POSITION_GAP_X + 2 * ROLE_PAD_X,
+      h: POSITION_H + ROLE_PAD_TOP + ROLE_PAD_BOTTOM,
+    })
+  }
+
+  // 2. Role-level dagre graph. Edges: any position.parent_id that
+  //    crosses a role boundary contributes a role→role edge.
   const g = new dagre.graphlib.Graph()
   g.setGraph({
     rankdir: 'TB',
     nodesep: POSITION_GAP_X,
-    ranksep: POSITION_GAP_Y + ROLE_PAD_TOP + ROLE_PAD_BOTTOM,
+    ranksep: POSITION_GAP_Y,
     marginx: 0,
     marginy: 0,
   })
   g.setDefaultEdgeLabel(() => ({}))
-
-  const flatByID = new Map<string, FlatPosition>()
-  for (const p of flat) flatByID.set(p.position_id, p)
-
-  for (const p of flat) {
-    g.setNode(`pos:${p.position_id}`, { width: POSITION_W, height: POSITION_H })
+  for (const group of groups) {
+    const sz = roleSize.get(group.roleId)!
+    g.setNode(`role:${group.roleId}`, { width: sz.w, height: sz.h })
   }
+  const seenEdge = new Set<string>()
   for (const p of flat) {
-    if (p.parent_id && flatByID.has(p.parent_id)) {
-      g.setEdge(`pos:${p.parent_id}`, `pos:${p.position_id}`)
-    }
+    if (!p.parent_id || !flatByID.has(p.parent_id)) continue
+    const childRole = posToRole.get(p.position_id)
+    const parentRole = posToRole.get(p.parent_id)
+    if (!childRole || !parentRole || childRole === parentRole) continue
+    const key = `${parentRole}->${childRole}`
+    if (seenEdge.has(key)) continue
+    seenEdge.add(key)
+    g.setEdge(`role:${parentRole}`, `role:${childRole}`)
   }
   dagre.layout(g)
 
-  // 2. Compute each role's bbox over its dagre-positioned positions.
-  type Box = { x: number; y: number; w: number; h: number }
-  const roleBoxes = new Map<string, Box>()
-  for (const group of groups) {
-    if (group.positions.length === 0) continue
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    for (const p of group.positions) {
-      const ln = g.node(`pos:${p.position_id}`)
-      if (!ln) continue
-      const left = ln.x - POSITION_W / 2
-      const top = ln.y - POSITION_H / 2
-      const right = left + POSITION_W
-      const bottom = top + POSITION_H
-      if (left < minX) minX = left
-      if (top < minY) minY = top
-      if (right > maxX) maxX = right
-      if (bottom > maxY) maxY = bottom
-    }
-    roleBoxes.set(group.roleId, {
-      x: minX - ROLE_PAD_X,
-      y: minY - ROLE_PAD_TOP,
-      w: (maxX - minX) + 2 * ROLE_PAD_X,
-      h: (maxY - minY) + ROLE_PAD_TOP + ROLE_PAD_BOTTOM,
-    })
-  }
-
-  // 2b. Resolve horizontal overlap between role frames. dagre spaces
-  //     positions by POSITION_GAP_X, which is smaller than 2*ROLE_PAD_X,
-  //     so adjacent roles at the same rank visually overlap. Sweep
-  //     left-to-right and shift each role (and, implicitly via subflow
-  //     coords, its child positions) so frames are separated by
-  //     ROLE_GAP_X. Vertical bands at different ranks are left alone.
-  const ROLE_GAP_X = POSITION_GAP_X
-  const filled = groups
-    .filter((g) => g.positions.length > 0 && roleBoxes.has(g.roleId))
-    .map((g) => ({ roleId: g.roleId, box: roleBoxes.get(g.roleId)! }))
-    .sort((a, b) => a.box.x - b.box.x)
-  for (let i = 0; i < filled.length; i++) {
-    for (let j = i + 1; j < filled.length; j++) {
-      const a = filled[i].box
-      const b = filled[j].box
-      const yOverlap = !(b.y >= a.y + a.h || a.y >= b.y + b.h)
-      if (!yOverlap) continue
-      const minLeft = a.x + a.w + ROLE_GAP_X
-      if (b.x < minLeft) b.x = minLeft
-    }
-  }
-
-  // 3. Append empty-role placeholder slots in a column to the right
-  //    of the connected layout, so they're discoverable + editable.
-  const layoutMaxX = Math.max(0, ...Array.from(roleBoxes.values()).map((b) => b.x + b.w))
-  let emptyCursorY = 0
-  for (const group of groups) {
-    if (group.positions.length > 0) continue
-    roleBoxes.set(group.roleId, {
-      x: layoutMaxX + POSITION_GAP_X,
-      y: emptyCursorY,
-      w: EMPTY_ROLE_W,
-      h: EMPTY_ROLE_H,
-    })
-    emptyCursorY += EMPTY_ROLE_H + POSITION_GAP_Y / 2
-  }
-
-  // 4. Emit nodes — role parents first, position children second
-  //    (ReactFlow needs parents before children in the array).
+  // 3. Emit nodes — role parents first, then their children. Position
+  //    children get fixed relative offsets inside the role frame, so
+  //    a single position sits centered (left pad + right pad = equal).
   const nodes: Node[] = []
   const roleStyle = {
     backgroundColor: isLight ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.03)',
@@ -467,13 +430,14 @@ const buildGraph = (
     boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
   }
   for (const group of groups) {
-    const box = roleBoxes.get(group.roleId)
-    if (!box) continue
+    const ln = g.node(`role:${group.roleId}`)
+    const sz = roleSize.get(group.roleId)!
+    if (!ln) continue
     nodes.push({
       id: `role:${group.roleId}`,
       type: 'role',
-      position: { x: box.x, y: box.y },
-      style: { ...roleStyle, width: box.w, height: box.h },
+      position: { x: ln.x - sz.w / 2, y: ln.y - sz.h / 2 },
+      style: { ...roleStyle, width: sz.w, height: sz.h },
       data: {
         roleId: group.roleId,
         positionCount: group.positions.length,
@@ -486,19 +450,16 @@ const buildGraph = (
     })
   }
   for (const group of groups) {
-    const box = roleBoxes.get(group.roleId)
-    if (!box) continue
-    for (const p of group.positions) {
-      const ln = g.node(`pos:${p.position_id}`)
-      if (!ln) continue
-      const globalX = ln.x - POSITION_W / 2
-      const globalY = ln.y - POSITION_H / 2
+    group.positions.forEach((p, i) => {
       nodes.push({
         id: `pos:${p.position_id}`,
         type: 'position',
         parentId: `role:${group.roleId}`,
         extent: 'parent',
-        position: { x: globalX - box.x, y: globalY - box.y },
+        position: {
+          x: ROLE_PAD_X + i * (POSITION_W + POSITION_GAP_X),
+          y: ROLE_PAD_TOP,
+        },
         data: {
           positionId: p.position_id,
           workers: p.workers,
@@ -509,7 +470,7 @@ const buildGraph = (
         } as PositionNodeData,
         draggable: false,
       })
-    }
+    })
   }
 
   // 5. Edges: worker-to-worker reporting lines, drawn between
