@@ -370,6 +370,22 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         position={RFPosition.Bottom}
         style={{ background: handleColor, width: 12, height: 12 }}
       />
+      {/* Dedicated source handle for stream/subscription edges, anchored
+          on the right side of the card. Decoupling stream edges from
+          the bottom-center reporting handle means an activation-stream
+          edge and a manager→subordinate edge can never share the same
+          (start_x, start_y) — without this, a stream sitting directly
+          below a reporting subordinate produced two perfectly
+          overlapping beziers. id="stream" is what buildGraph passes as
+          sourceHandle when emitting subscription edges. Not user-
+          connectable; only the data-driven layout uses it. */}
+      <Handle
+        id="stream"
+        type="source"
+        position={RFPosition.Right}
+        isConnectable={false}
+        style={{ background: 'transparent', border: 'none', width: 1, height: 1 }}
+      />
     </Box>
   )
 }
@@ -436,13 +452,20 @@ const nodeTypes = { role: RoleNode, position: PositionNode, stream: StreamNode }
 //   3. Worker-to-worker edges are drawn between Position nodes using
 //      the original position.parent_id chain (across or within roles).
 // StreamSummary is the minimal stream-shape buildGraph needs to lay out
-// stream pseudo-nodes + the worker→stream subscription edges. The
-// concrete StreamDTO from helixOrgService satisfies this shape via
-// structural typing.
+// stream pseudo-nodes + the subject→stream edges. The concrete StreamDTO
+// from helixOrgService satisfies this shape via structural typing.
+//
+// `created_by` is the Worker that owns the stream — used as the visual
+// anchor for non-activation streams. Activation streams ignore it and
+// derive their subject from the `s-activations-<workerID>` id pattern
+// (the subscriber is whoever the stream was created on behalf of, e.g.
+// the hiring caller, which is NOT where the user expects to see the
+// stream visually attached).
 type StreamSummary = {
   id: string
   name: string
   kind: string
+  created_by?: string
   subscribers?: string[]
 }
 
@@ -615,43 +638,113 @@ const buildGraph = (
     })
   }
 
-  // 6. Stream pseudo-nodes + subscription edges.
+  // 6. Stream pseudo-nodes + subject edges.
   //
-  // Streams live below the org tree in a horizontal row. Each
-  // subscription (worker → stream) is rendered as a dashed orange
-  // edge from the worker's Position node to the Stream pseudo-node,
-  // visually distinct from the solid accountability edges between
-  // positions.
+  // Anchoring: each stream is visually attached to a SINGLE source
+  // worker — the one a user reading the chart would say "this stream
+  // belongs to". For activation streams (id = `s-activations-<workerID>`)
+  // the subject is encoded in the id and that is what the user expects
+  // to see — NOT the subscriber list, which holds whoever-asked-to-
+  // tail-it (typically w-owner after every AI hire, which produced the
+  // bug where every activation stream looked like it dangled off the
+  // owner). For non-activation streams we fall back to `created_by`,
+  // which is the closest we have to "owner of the stream".
+  //
+  // Layout: each stream sits in a column attached to its source
+  // position's RIGHT side. Multiple streams sharing a source stack
+  // vertically. Edges leave from the new "stream" source handle on
+  // the position card, which is anchored on the right edge — so
+  // stream edges and reporting (manager→subordinate) edges can never
+  // perfectly overlap, even when a stream node lands directly below a
+  // subordinate position.
+  //
+  // Orphan streams (subject worker no longer on the chart) collapse
+  // into a fallback strip below the org tree.
   if (streams.length > 0) {
+    const ACTIVATION_PREFIX = 's-activations-'
     // Worker ID → owning Position ID, derived from flat positions.
     const workerToPos = new Map<string, string>()
     for (const p of flat) {
       for (const w of p.workers) workerToPos.set(w.id, p.position_id)
     }
-    // Find the chart's bottom edge so streams sit below it.
+
+    // Stream column lives to the right of the entire org tree so it
+    // can't collide with positions added to a role's grid. Each stream
+    // is vertically aligned with its source position. Streams whose
+    // source positions share a Y (same role-grid row) stack
+    // vertically — the bucket key is the integer-rounded Y so float
+    // jitter from dagre doesn't split a row.
+    const STREAM_VERTICAL_GAP = 16
+    const STREAM_COLUMN_GAP = 120
+    const stackByYRow = new Map<number, number>()
+
+    // Bounding box of the org tree — determines where the stream
+    // column starts and where orphan streams park.
     let maxY = 0
+    let minLeft = Infinity, maxRight = -Infinity
     for (const ro of roleOrigin.values()) {
       const bottom = ro.y + ro.h
       if (bottom > maxY) maxY = bottom
-    }
-    const STREAM_GAP_X = 32
-    const STREAM_VERTICAL_GAP = 120
-    // Centre the strip of streams horizontally under the chart.
-    let minLeft = Infinity, maxRight = -Infinity
-    for (const ro of roleOrigin.values()) {
       if (ro.x < minLeft) minLeft = ro.x
       if (ro.x + ro.w > maxRight) maxRight = ro.x + ro.w
     }
     if (!isFinite(minLeft)) minLeft = 0
     if (!isFinite(maxRight)) maxRight = 0
-    const stripWidth = streams.length * STREAM_W + (streams.length - 1) * STREAM_GAP_X
-    const chartCenterX = (minLeft + maxRight) / 2
-    let cursorX = chartCenterX - stripWidth / 2
+    const STREAM_GAP_X = 32
+    const ORPHAN_VERTICAL_GAP = 120
+    // X for every attached stream — the column sits to the right of
+    // the rightmost role frame.
+    const streamColumnX = maxRight + STREAM_COLUMN_GAP
+    let orphanCursorX = (minLeft + maxRight) / 2
 
+    // First pass: resolve each stream's source position so we know how
+    // many to centre in the orphan strip.
+    const resolved: { stream: StreamSummary; sourcePid: string | null }[] = []
     for (const s of streams) {
-      const x = cursorX
-      const y = maxY + STREAM_VERTICAL_GAP
-      cursorX += STREAM_W + STREAM_GAP_X
+      let subjectWorker: string | undefined
+      if (s.id.startsWith(ACTIVATION_PREFIX)) {
+        subjectWorker = s.id.slice(ACTIVATION_PREFIX.length)
+      } else if (s.created_by) {
+        subjectWorker = s.created_by
+      }
+      const pid = subjectWorker ? workerToPos.get(subjectWorker) ?? null : null
+      resolved.push({ stream: s, sourcePid: pid })
+    }
+    const orphans = resolved.filter((r) => !r.sourcePid)
+    if (orphans.length > 0) {
+      const stripWidth = orphans.length * STREAM_W + (orphans.length - 1) * STREAM_GAP_X
+      orphanCursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+    }
+
+    // We need each position's absolute (x, y) to vertically align
+    // attached streams.
+    const positionAbs = new Map<string, { x: number; y: number }>()
+    for (const group of groups) {
+      const ro = roleOrigin.get(group.roleId)
+      if (!ro) continue
+      group.positions.forEach((p, i) => {
+        positionAbs.set(p.position_id, {
+          x: ro.x + ROLE_PAD_X + i * (POSITION_W + POSITION_GAP_X),
+          y: ro.y + ROLE_PAD_TOP,
+        })
+      })
+    }
+
+    for (const { stream: s, sourcePid } of resolved) {
+      let x: number
+      let y: number
+      if (sourcePid) {
+        const anchor = positionAbs.get(sourcePid)!
+        const yRow = Math.round(anchor.y)
+        const stackIndex = stackByYRow.get(yRow) ?? 0
+        x = streamColumnX
+        y = anchor.y + stackIndex * (STREAM_H + STREAM_VERTICAL_GAP)
+        stackByYRow.set(yRow, stackIndex + 1)
+      } else {
+        x = orphanCursorX
+        y = maxY + ORPHAN_VERTICAL_GAP
+        orphanCursorX += STREAM_W + STREAM_GAP_X
+      }
       nodes.push({
         id: `stream:${s.id}`,
         type: 'stream',
@@ -667,17 +760,13 @@ const buildGraph = (
         connectable: false,
         selectable: true,
       })
-      // Subscription edges — one per (worker → stream) pair.
-      const seen = new Set<string>()
-      for (const workerId of s.subscribers ?? []) {
-        const pid = workerToPos.get(workerId)
-        if (!pid) continue
-        const key = `${pid}::${s.id}`
-        if (seen.has(key)) continue
-        seen.add(key)
+      if (sourcePid) {
         edges.push({
-          id: `sub:${pid}->${s.id}`,
-          source: `pos:${pid}`,
+          id: `sub:${sourcePid}->${s.id}`,
+          source: `pos:${sourcePid}`,
+          // Right-side handle so stream edges can never share geometry
+          // with the bottom-center reporting edges.
+          sourceHandle: 'stream',
           target: `stream:${s.id}`,
           type: 'default',
           animated: false,
