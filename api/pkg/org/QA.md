@@ -287,14 +287,98 @@ a different manager.
 2. Expect everything you've done — roles, positions, workers, and
    reporting edges — to persist. The chart is server-authoritative.
 
+## 15. Roles list page
+
+The Roles surface lives at `/orgs/<org>/helix-org/roles` and is the
+second item in the helix-org middle-nav.
+
+1. Click **Roles** in the helix-org sidebar.
+2. URL becomes `…/helix-org/roles`. The breadcrumb reads
+   `<org> / Roles`.
+3. Table renders one row per role: ID, Content preview, Tools count,
+   Streams count, Updated. `r-owner` is always present.
+4. Top-right **+ New Role** button opens the same role-create dialog
+   as the chart's toolbar. Roles created here are immediately visible
+   on the chart, and vice versa (shared store).
+5. Vertical-dot row menu offers **Open** (navigates to the detail
+   page) and **Delete** (disabled for `r-owner` with the tooltip
+   "Owner — protected").
+
+## 16. r-owner has all default tools (bootstrap regression)
+
+After org bootstrap, the owner role's tools manifest must list every
+built-in tool. Both the chart UI and the API answer it the same way.
+
+1. Open the **Roles** page and click `r-owner`.
+2. URL becomes `…/helix-org/roles/r-owner`. Page title is `r-owner`.
+3. Tools field renders as a multi-select **populated with chips for
+   every default grant**. The chip count must be **29** (the same
+   number of tools `Registry.List()` returns from
+   `GET /api/v1/orgs/<org>/tools`).
+4. Expected chips (alphabetical, monospace): `create_position`,
+   `create_role`, `create_stream`, `dm`, `get_grant`, `get_position`,
+   `get_role`, `get_stream`, `get_worker`,
+   `get_worker_environment`, `grant_tool`, `hire_worker`,
+   `invite_workers`, `list_position_children`, `list_positions`,
+   `list_roles`, `list_stream_events`, `list_streams`,
+   `list_worker_grants`, `list_workers`, `publish`, `read_events`,
+   `revoke_tool`, `stream_members`, `subscribe`, `unsubscribe`,
+   `update_identity`, `update_role`, `worker_log`.
+5. Verify against the API (no UI):
+   ```bash
+   curl -sH "Cookie: $(grep helix_sess ~/.helix-creds.txt | cut -d= -f2-)" \
+     "http://localhost:8080/api/v1/orgs/<org>/roles/r-owner" \
+     | jq '.tools | length'
+   ```
+   should return `29`. The tools manifest is set by
+   `api/pkg/org/application/bootstrap/bootstrap.go::Run` and the same
+   slice that grants are seeded from, so the two stay in lock-step.
+6. The right-rail "Delete role" button is disabled on `r-owner` —
+   the badge next to the role id reads "owner — protected".
+
+## 17. Add a tool to a role via the multi-select
+
+Demonstrates the role editor's tools dropdown end-to-end. Use the
+`dm` tool — it's a non-structural grant that's safe to add and
+remove during testing.
+
+1. From the Roles list, click **+ New Role**. Create `r-test-dm` with
+   any content. The detail page opens; the Tools field is empty.
+2. Click the empty Tools dropdown. Expect a list of 29 entries, each
+   row showing a checkbox + monospace tool name + greyed
+   one-line description. Selecting an entry must **NOT** close the
+   popper (`disableCloseOnSelect` is on) — verify by clicking one and
+   seeing the list still mounted.
+3. Click the row for **dm**. Description: "Send a direct message
+   (DM/PM/private message) to a single other Worker. …". A chip
+   labelled `dm` appears in the input field above the popper. Click
+   outside or press Escape to close the dropdown.
+4. The top-right **Save** button is now enabled (was disabled when
+   nothing was dirty). Click it.
+5. Snackbar reads "role r-test-dm saved". Save button returns to
+   disabled.
+6. Refresh the page. The `dm` chip persists. The API confirms:
+   ```bash
+   curl -sH "Cookie: …" \
+     "http://localhost:8080/api/v1/orgs/<org>/roles/r-test-dm" \
+     | jq '.tools'
+   ```
+   returns `["dm"]`.
+7. Re-open the dropdown, click `dm` again — the chip disappears.
+   Save. The role's tools is back to `[]`.
+8. (Cleanup) Delete `r-test-dm` via the right-rail Delete button.
+
 ## Pass criteria
 
-- All 14 sections complete without error.
+- All 17 sections complete without error.
 - No console errors in the browser dev tools beyond the three Vite WS
   errors at startup (those come from the dev-server proxy, not the app).
 - DB-level checks in sections 10 and 11 return 0 rows where expected.
 - Parallel reporting lines (section 6) render as distinct bezier
   curves with no visible overlap.
+- Section 16 reports `tools | length == 29` on `r-owner` (bootstrap
+  regression — guards against a future refactor dropping the manifest
+  seed).
 
 ## Known limitations (today)
 
