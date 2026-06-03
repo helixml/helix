@@ -134,7 +134,22 @@ type WorkerProject struct {
 // Ensure applies a Helix project for the given Worker if one
 // doesn't exist yet. Returns the resolved project / agent-app /
 // repo IDs.
+//
+// The receiver's Service / Store / Workspace fields are all
+// required. Misconfiguring any of them used to nil-deref deep
+// inside the activation path (project.go:156 in the original
+// crash); now they're checked up front so the failure is a
+// clear error message instead of a panic.
 func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
+	if a == nil {
+		return "", "", "", errors.New("worker project applier is nil")
+	}
+	if a.Service == nil {
+		return "", "", "", errors.New("worker project applier: Service (ProjectService) is nil — host wiring forgot to pass it through")
+	}
+	if a.Store == nil {
+		return "", "", "", errors.New("worker project applier: Store is nil")
+	}
 	worker, err := a.Store.Workers.Get(ctx, orgID, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get worker: %w", err)

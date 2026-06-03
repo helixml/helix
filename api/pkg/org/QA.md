@@ -127,6 +127,42 @@ created (ReactFlow's standard behaviour) and the chart is unchanged.
    of the Hire button.
 5. Refresh — the worker persists.
 
+## 5a. Hire an AI worker and click the chip (regression: nil-deref)
+
+This is the path that nil-derefed the API on every click before
+[`feat(api): wire ProjectService through helix-org spawner`]
+(`api/pkg/server/helix_org.go` builder + `lazyHelixOrgSpawner`). Run
+it on every backend change touching `api/pkg/server/helix_org*.go` or
+`api/pkg/org/infrastructure/runtime/helix/`.
+
+1. Click the **Hire worker** button on `p-eng-2` (create the position
+   first if needed).
+2. In the drawer, choose **Kind: AI**, set Handle `w-ai-1`, and any
+   identity content (`# w-ai-1 — automation drone.`).
+3. Click **Hire**. The drawer closes and `p-eng-2` shows a `w-ai-1`
+   chip with the robot icon (instead of the human silhouette).
+4. **Click the `w-ai-1` chip** — this opens the worker drawer AND, on
+   the API side, triggers the activation queue (the lazy spawner's
+   first call for this worker).
+5. Expect:
+   - Worker drawer opens with the metadata (handle, kind=AI, identity).
+   - **No API crash.** Check `docker compose logs --tail 50 api`: no
+     `panic:` and no `runtime error: invalid memory address`.
+   - The activation may still surface a runtime error (e.g. missing
+     helix.api_key in the registry, no claude_code subscription, etc.)
+     — that's fine; we're only asserting the spawner reaches the
+     activation path without nil-derefing inside `WorkerProject.Ensure`.
+6. The Go-side guard for this lives at
+   `api/pkg/server/helix_org_spawner_test.go`:
+   - `TestBuildHelixOrgSpawnerConfig_WiresProjectService` pins the
+     builder.
+   - `TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService` pins
+     the builder's nil-check.
+   - `TestWorkerProjectEnsure_NilService_ReturnsError` pins the
+     defensive guard inside the applier.
+   Run `go test ./pkg/server/ -run TestBuildHelixOrgSpawnerConfig`
+   before merging anything that touches this wiring.
+
 ## 6. Parallel positions and parallel edges
 
 Two managers in the same role each having multiple subordinates is

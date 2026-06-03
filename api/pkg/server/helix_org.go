@@ -192,7 +192,13 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Wire helix-org's production Spawner. The owner is a Worker, so
 	// helix-org/server/chat.HelixBridge reuses the same applier; both
 	// drive per-Worker projects through the same default settings.
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
+	// inProcClient satisfies both SpawnerClient AND ProjectService —
+	// passing it as the latter wires the spawner's *internal* fast-
+	// path ensureProject so it can verify per-Worker projects without
+	// a nil-deref. (Reproducer: hire AI worker via chart → click the
+	// chip → API panics at project.go:156 inside the cached spawner's
+	// ensureProject before this argument existed.)
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, logger, projectApplier, deps.NewID, deps.Now)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -447,12 +453,22 @@ func buildHelixOrgSpawnerConfig(
 	cfg *configregistry.Registry,
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
+	// projectSvc lets the spawner's *internal* ensureProject pass
+	// (spawner.go:200 fast-path) verify the Helix project exists
+	// without a nil-deref. Forgetting it caused the chart UI to crash
+	// the API on any AI-worker click; we now require a non-nil value
+	// up front rather than letting the closure discover the missing
+	// dependency mid-activation.
+	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	bc *streamhub.Hub,
 	logger *slog.Logger,
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
+	if projectSvc == nil {
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: ProjectService is required")
+	}
 	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
 	if apiKey == "" {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
@@ -466,20 +482,21 @@ func buildHelixOrgSpawnerConfig(
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
 	specsMandate, _ := cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	return runtimehelix.SpawnerConfig{
-		Client:        spawnerClient,
-		HelixOrgURL:   helixOrgURL,
-		OrgID:         orgID,
-		Runtime:       runtime,
-		Credentials:   credentials,
-		Provider:      provider,
-		Model:         model,
-		MCPAuthBearer: apiKey,
-		SpecsMandate:  specsMandate,
-		Store:         orgStore,
-		Hub:           bc,
-		Logger:        logger,
-		NewID:         newID,
-		Now:           now,
+		Client:         spawnerClient,
+		ProjectService: projectSvc,
+		HelixOrgURL:    helixOrgURL,
+		OrgID:          orgID,
+		Runtime:        runtime,
+		Credentials:    credentials,
+		Provider:       provider,
+		Model:          model,
+		MCPAuthBearer:  apiKey,
+		SpecsMandate:   specsMandate,
+		Store:          orgStore,
+		Hub:            bc,
+		Logger:         logger,
+		NewID:          newID,
+		Now:            now,
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return resolveUserHelixAPIKey(ctx, helixStore, userID)
 		},
@@ -511,6 +528,7 @@ func lazyHelixOrgSpawner(
 	cfg *configregistry.Registry,
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
+	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	bc *streamhub.Hub,
 	logger *slog.Logger,
@@ -537,7 +555,7 @@ func lazyHelixOrgSpawner(
 		current := spawner
 		mu.Unlock()
 		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, orgStore, bc, logger, newID, now)
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, logger, newID, now)
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}
