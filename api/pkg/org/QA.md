@@ -2,26 +2,45 @@
 
 End-to-end manual test for the helix-org chart UI. Lives in
 `api/pkg/org/QA.md` because it's specific to the org-mode alpha; run
-it before merging any change that touches `frontend/src/pages/HelixOrgChart.tsx`,
+it before merging any change that touches
+`frontend/src/pages/HelixOrgChart.tsx`,
 `frontend/src/components/orgs/HelixOrgSidebar.tsx`, `api/pkg/org/`, or
 `api/pkg/server/helix_org*.go`.
 
-The chart visualises **two levels** of grouping:
+## Mental model
+
+The chart has **two kinds of node** and one kind of edge:
+
+- **Role** — a flat, top-level container. Roles have no parent. The
+  role frame visually groups the positions that share the same role
+  id (`r-engineer`, `r-pm`, …). Add positions to it, delete it, move
+  on. There is no "role below" concept — role-to-role hierarchy is
+  not modelled.
+- **Position** — a slot inside one role that holds at most one worker.
+  Positions are what the org graph hangs off — they have two
+  ReactFlow handles (a target dot on the top, a source dot on the
+  bottom).
+- **Edge** — a directed line from a *manager position*'s source
+  handle to a *subordinate position*'s target handle. The edge means
+  "the worker in the subordinate position reports to the worker in
+  the manager position." This is the entire hierarchy.
 
 ```
-Role (group)
-├── Position (slot, holds 0 or 1 worker)
-├── Position
-└── Position
+[r-owner]                       ← flat role, top-level container
+  ┌──────────────────────────┐
+  │ [p-ceo]      [p-cto]     │  ← parallel positions, both top-level
+  └────│────────────│────────┘
+       ↓            ↓             ← edge: manager → subordinate
+[r-engineer]                    ← another flat role, lower only because
+  ┌──────────────────────────┐     dagre routes nodes pointed at by
+  │ [p-eng-a]    [p-eng-b]   │     incoming edges below their parents
+  └──────────────────────────┘
 ```
 
-Multiple positions can share a Role (e.g. several engineers all hold
-`r-engineer`). Each Position holds at most one Worker. The UI must
-let an operator add a Role, add a Position under that Role, hire a
-Worker into an empty Position, fire the Worker, delete a Position,
-and delete a Role. The last two cascade in the backend — deleting a
-Position fires its Worker; deleting a Role removes every Position
-under it and fires every Worker in those Positions.
+Layout is dagre-driven: nodes with no incoming edges sit at the top
+rank, and roles with no edges in or out become orphan roles parked at
+the side. Edges are bezier curves so parallel reporting lines never
+collapse onto each other.
 
 ## Setup
 
@@ -37,118 +56,221 @@ under it and fires every Worker in those Positions.
 ## 1. Open the chart
 
 1. Click **Org** in the primary sidebar.
-2. Expect the URL to become `http://localhost:8080/orgs/<org>/helix-org/chart`.
-3. Expect the page chrome:
+2. URL becomes `http://localhost:8080/orgs/<org>/helix-org/chart`.
+3. Page chrome:
    - breadcrumbs read `<org> / Chart`
-   - title block reads **Chart** with the explanatory subtitle
+   - title **Chart** with the explanatory subtitle
    - middle sidebar shows a single **Chart** entry (highlighted)
-   - canvas is bounded, theme-matched (light/dark), chart fully visible without scrolling
-4. Expect the initial chart to show **one Role group (`r-owner`)** containing **one Position (`p-root`)** with **one Worker chip (`w-owner`)**.
+   - canvas is bounded, theme-matched, the chart fits without scrolling
+4. Initial chart shows **one role (`r-owner`)** containing **one position (`p-root`)** with **one worker chip (`w-owner`)**. No edges yet.
 
-## 2. Add a new Role
+## 2. Add a new role
 
-1. Click **+ Role** in the canvas toolbar.
+1. Click **+ New Role** in the top-right of the page.
 2. Enter ID `r-engineer` and any content (e.g. `# Engineer\nBuilds things.`).
 3. Submit.
-4. Expect a new empty group labelled `r-engineer` to appear on the canvas. No positions inside yet.
+4. Expect a new empty role frame labelled `r-engineer` to appear on the canvas next to `r-owner`.
 
-## 3. Add a Position under that Role
+## 3. Add a position to a role
 
-1. Inside the `r-engineer` group, click **+ Position**.
-2. Enter Position ID `p-eng-1`.
-3. Submit.
-4. Expect an empty Position card to appear inside the `r-engineer` group, with a **Hire** affordance and no Worker chip.
+Each role frame's header has three icon buttons on the right:
 
-## 4. Hire a Worker into the empty Position
+| Icon              | Tooltip                                          | Action                          |
+| ----------------- | ------------------------------------------------ | ------------------------------- |
+| `+` (box outline) | Add a position under this role                   | Opens **New position** dialog   |
+| trash             | Delete role (cascade: positions + workers)       | Opens delete-confirm dialog     |
 
-1. Click the empty `p-eng-1` Position card.
+(`r-owner` only has the `+` icon — the trash is hidden because the
+owner role is server-side protected.)
+
+1. Inside the `r-engineer` frame's header, click the **+** icon.
+2. Enter Position ID `p-eng-1`. Submit.
+3. Expect an empty position card to appear inside the `r-engineer`
+   frame, with:
+   - `p-eng-1` label (top-left)
+   - trash icon (top-right) — delete position
+   - **Hire worker** button (bottom)
+   - small target-handle dot on the top edge and source-handle dot on
+     the bottom edge of the card
+4. **The new position is an orphan** — no incoming edges. The success
+   snackbar reads "position p-eng-1 created — draw an edge to a
+   manager to set who they report to."
+
+## 4. Wire reporting (manager → subordinate)
+
+This is how the hierarchy gets built. There is no automatic parenting.
+
+1. Hover the **bottom dot** of `p-root` (the source handle on the
+   manager position) — the cursor turns into a crosshair.
+2. Press, drag, and release on the **top dot** of `p-eng-1` (the
+   target handle on the subordinate position).
+3. Expect:
+   - A bezier curve to appear connecting `p-root` (top) → `p-eng-1`
+     (bottom).
+   - Snackbar reads "p-eng-1 now reports to p-root".
+   - The chart re-renders with `r-engineer` below `r-owner` in dagre
+     rank.
+4. Refresh the page — the edge persists.
+
+If the user drops the wire outside any target handle, no edge is
+created (ReactFlow's standard behaviour) and the chart is unchanged.
+
+## 5. Hire a worker into a position
+
+1. Click the **Hire worker** button on `p-eng-1`.
 2. The right-side drawer opens. Fill:
    - Handle: `w-alice`
    - Kind: `human`
    - Identity content: `# Alice — software engineer.`
 3. Click **Hire**.
-4. Expect the drawer to close and the `p-eng-1` Position card to now show a `w-alice` Worker chip.
-5. Refresh the page — the Worker should still be there (it's persisted).
+4. Drawer closes; `p-eng-1` now shows a `w-alice` worker chip in place
+   of the Hire button.
+5. Refresh — the worker persists.
 
-## 5. Add a second Position under the same Role
+## 6. Parallel positions and parallel edges
 
-1. Click **+ Position** inside `r-engineer` again.
-2. Enter ID `p-eng-2`. Submit.
-3. Hire another Worker (`w-bob`) into `p-eng-2` the same way as step 4.
-4. Expect the `r-engineer` group now contains two Position cards — `p-eng-1 → w-alice` and `p-eng-2 → w-bob`.
+Two managers in the same role each having multiple subordinates is
+the case that broke smoothstep edges. Verify it renders cleanly.
 
-## 6. Fire a Worker
+1. Add two more positions under `r-owner`:
+   - From the `r-owner` header's **+** icon, create `p-ceo` and
+     `p-cto`. Both are orphans for now (no parent_id).
+2. Add more positions under `r-engineer`:
+   - Create `p-eng-2`, `p-eng-3`, `p-eng-4` (orphans, same flow).
+3. Wire a mix of reporting lines:
+   - `p-ceo → p-eng-2` (drag bottom-of-p-ceo to top-of-p-eng-2)
+   - `p-cto → p-eng-3`
+   - `p-root → p-eng-4`
+   - `p-ceo → p-eng-3` (one subordinate, multiple managers IS allowed
+     — but in practice the last edge wins, since position.parent_id
+     is single-valued. The previous `p-cto → p-eng-3` edge silently
+     drops on the next chart refetch.)
+4. Expect every reporting line to render as its own bezier curve. The
+   trunk-style overlap that smoothstep produces with parallel
+   managers must not appear.
 
-1. Click the `w-bob` chip in `p-eng-2`.
-2. The Worker drawer opens with metadata and a **Fire** button.
+## 7. Re-wire reporting
+
+To change who a position reports to, just draw a new edge to it from
+a different manager.
+
+1. Wire `p-cto → p-eng-1` (manager source → subordinate target).
+2. Expect the snackbar "p-eng-1 now reports to p-cto" and the chart
+   re-renders with `p-eng-1` now hanging off `p-cto` instead of
+   `p-root`. The old `p-root → p-eng-1` edge is gone (replaced, not
+   added — a position has only one parent).
+
+## 8. Sever reporting (delete an edge)
+
+1. Click on the bezier curve from `p-cto` to `p-eng-1` to select it.
+   Expect the line to thicken/colour-shift to indicate selection.
+2. Press **Delete** (or **Backspace** on macOS).
+3. Expect:
+   - The edge disappears.
+   - Snackbar reads "p-eng-1 no longer reports to anyone".
+   - `p-eng-1`'s role frame may reflow as an orphan role if it has no
+     other incoming edges.
+
+## 9. Fire a worker
+
+1. Click the `w-alice` chip in `p-eng-1`.
+2. The worker drawer opens with metadata and a **Fire** button.
 3. Click **Fire**, confirm.
-4. Expect the chip to disappear; the `p-eng-2` Position is now empty (with the Hire affordance back).
-5. The owner Worker (`w-owner`) cannot be fired — clicking Fire returns 409 and surfaces a friendly error.
+4. Expect the chip to disappear; `p-eng-1` shows the **Hire worker**
+   button again.
+5. The owner worker (`w-owner`) cannot be fired — clicking Fire
+   returns 409 and the snackbar surfaces a friendly error. The
+   position card still shows `w-owner`.
 
-## 7. Delete a Position (cascades — fires its Worker if any)
+## 10. Delete a position (cascades — fires its worker)
 
 1. Hire someone into `p-eng-2` again (e.g. `w-carol`).
-2. Click the `p-eng-2` Position to select it.
-3. Click **Delete Position** (in the drawer or a hover affordance).
-4. Confirm the destructive action.
-5. Expect:
-   - `p-eng-2` disappears from the chart
-   - `w-carol` is also gone (the backend fired the Worker as part of position-delete)
-6. Verify in the DB:
+2. Click the **trash** icon in the top-right of the `p-eng-2` card.
+3. Confirm the destructive action in the modal.
+4. Expect:
+   - `p-eng-2` disappears from the chart.
+   - `w-carol` is also gone (the backend fired the worker as part of
+     position-delete).
+   - Any incoming edge to `p-eng-2` disappears with it.
+5. Verify in the DB:
    ```bash
    docker exec helix-postgres-1 psql -U postgres -d postgres -c \
      "SELECT id FROM org_workers WHERE org_id='<orgID>' AND id='w-carol';"
    ```
    should return 0 rows.
+6. `p-root` cannot be deleted — the trash icon on `p-root` is hidden
+   (the protection check sets `isRoot` and suppresses the affordance).
 
-## 8. Delete a Role (cascades — deletes every Position under it and fires every Worker)
+## 11. Delete a role (cascades — deletes every position under it and fires every worker)
 
-1. Make sure `r-engineer` still has at least one Position with a Worker (`p-eng-1 → w-alice`).
-2. Add another quick Position + Worker so it's clear the cascade works for multiple.
-3. Click the `r-engineer` group header.
-4. Click **Delete Role**.
-5. Confirm the destructive action — the modal explicitly enumerates what will be deleted (e.g. "this will delete 2 Positions and fire 2 Workers: w-alice, w-newbie").
-6. Expect:
-   - The `r-engineer` group disappears entirely
-   - All Positions that were inside it are gone
-   - All Workers that filled those Positions are fired
-7. Verify in the DB:
+1. Make sure `r-engineer` still has at least two positions, each with a
+   worker.
+2. Click the **trash** icon in the `r-engineer` role header.
+3. Confirm in the modal — the body explicitly enumerates what will be
+   deleted (e.g. "this will delete 3 positions and fire 2 workers:
+   w-alice, w-newbie").
+4. Expect:
+   - The `r-engineer` frame disappears entirely.
+   - All positions that were inside it are gone.
+   - All workers that filled those positions are fired.
+   - All edges to / from those positions disappear with them.
+5. Verify in the DB:
    ```bash
    docker exec helix-postgres-1 psql -U postgres -d postgres -c \
      "SELECT id FROM org_roles WHERE org_id='<orgID>' AND id='r-engineer';
       SELECT id FROM org_positions WHERE org_id='<orgID>' AND role_id='r-engineer';
       SELECT id FROM org_workers WHERE org_id='<orgID>' AND id IN ('w-alice','w-newbie');"
    ```
-   all three should return 0 rows.
-8. The owner Role (`r-owner`) cannot be deleted — the delete affordance is either disabled or the action returns 409.
+   all three return 0 rows.
+6. The owner role (`r-owner`) has no trash icon. Attempting to delete
+   it via the API returns 409.
 
-## 9. Cross-org isolation
+## 12. Cross-org isolation
 
 1. Switch to a second org via the org switcher in the top-left.
-2. Open the chart for that org. Expect a fresh `r-owner / p-root / w-owner` baseline — none of the Roles, Positions, or Workers from the first org appear.
-3. Hire `w-alice` into `p-root` of the second org. Confirm it appears in the second org's chart only — the first org's chart still shows whatever you left there.
+2. Open the chart for that org. Expect a fresh `r-owner / p-root /
+   w-owner` baseline — none of the roles, positions, workers, or edges
+   from the first org appear.
+3. Hire `w-alice` into `p-root` of the second org. Confirm it appears
+   in the second org's chart only — the first org's chart is unchanged.
 
-## 10. Light + dark theme
+## 13. Light + dark theme
 
 1. Toggle the theme via the top-right sun/moon icon.
 2. Expect both modes to render the chart cleanly:
-   - light: white canvas, dark text, subtle grey grid, light Role group fills
-   - dark: dim grey canvas, light text, darker grid, dim Role group fills
-3. The mini-map, controls, edges, and Position card borders all swap with the theme.
+   - light: white canvas, dark text, subtle grey grid, light role
+     frame fills.
+   - dark: dim grey canvas, light text, darker grid, dim role frame
+     fills.
+3. The minimap, controls, edge strokes, handle dots, and position card
+   borders all swap with the theme.
 
-## 11. Re-load / refresh
+## 14. Re-load / refresh
 
 1. Hard-refresh the page (Ctrl-Shift-R).
-2. Expect everything you've done to persist — the chart is server-authoritative, not client-state.
+2. Expect everything you've done — roles, positions, workers, and
+   reporting edges — to persist. The chart is server-authoritative.
 
 ## Pass criteria
 
-- All 11 sections complete without error.
-- No console errors in the browser dev tools (the three Vite WS errors at startup are expected — those come from the dev-server proxy, not the app).
-- DB-level checks in steps 7 and 8 return 0 rows where expected.
+- All 14 sections complete without error.
+- No console errors in the browser dev tools beyond the three Vite WS
+  errors at startup (those come from the dev-server proxy, not the app).
+- DB-level checks in sections 10 and 11 return 0 rows where expected.
+- Parallel reporting lines (section 6) render as distinct bezier
+  curves with no visible overlap.
 
 ## Known limitations (today)
 
-- The Role group can be empty (zero Positions) — that's allowed and the UI must handle it.
-- The Position card holds at most one Worker. Hiring into an already-filled Position is rejected with an error in the drawer.
-- The owner Worker / Role / Position (`w-owner` / `r-owner` / `p-root`) are protected from deletion at the API layer; the UI must surface that as a friendly error, not a stack trace.
+- A position has at most one parent. Drawing a second incoming edge
+  to the same position replaces the previous one — by design, since
+  `position.parent_id` is single-valued.
+- A role frame can be empty (zero positions); the UI handles that by
+  showing the role with a "No positions yet — click + to add one"
+  hint.
+- A position card holds at most one worker. Hiring into an already-
+  filled position is rejected with an error in the drawer.
+- The owner worker / role / position (`w-owner` / `r-owner` /
+  `p-root`) are protected from deletion at the API layer; the UI
+  hides the relevant trash affordance and surfaces a friendly error
+  if the API is hit directly.
