@@ -48,6 +48,8 @@ import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgRoles from './pages/HelixOrgRoles'
 import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
+import HelixOrgWorkers from './pages/HelixOrgWorkers'
+import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -565,6 +567,16 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/helix-org/roles/:role_id',
   meta: { drawer: true, title: 'Helix Org · Role' },
   render: () => <HelixOrgRoleDetail />,
+}, {
+  name: 'helix_org_workers',
+  path: '/orgs/:org_id/helix-org/workers',
+  meta: { drawer: true, title: 'Helix Org · Workers' },
+  render: () => <HelixOrgWorkers />,
+}, {
+  name: 'helix_org_worker_detail',
+  path: '/orgs/:org_id/helix-org/workers/:worker_id',
+  meta: { drawer: true, title: 'Helix Org · Worker' },
+  render: () => <HelixOrgWorkerDetail />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

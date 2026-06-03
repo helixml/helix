@@ -53,9 +53,7 @@ import {
   useCreateHelixOrgRole,
   useDeleteHelixOrgPosition,
   useDeleteHelixOrgRole,
-  useFireHelixOrgWorker,
   useHelixOrgChart,
-  useHelixOrgWorker,
   useHireHelixOrgWorker,
   useUpdateHelixOrgPosition,
 } from '../services/helixOrgService'
@@ -763,117 +761,6 @@ const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionI
   )
 }
 
-const WorkerDrawer: FC<{ workerId: string; onClose: () => void }> = ({ workerId, onClose }) => {
-  const snackbar = useSnackbar()
-  const { data, isLoading } = useHelixOrgWorker(workerId)
-  const fire = useFireHelixOrgWorker()
-  const [confirming, setConfirming] = useState(false)
-  const isOwner = workerId === OWNER_WORKER
-
-  const fireWorker = async () => {
-    try {
-      await fire.mutateAsync(workerId)
-      snackbar.success(`fired ${workerId}`)
-      onClose()
-    } catch (err: any) {
-      const status = err?.response?.status
-      const msg = err?.response?.data?.error ?? err?.message ?? 'fire failed'
-      if (status === 409) {
-        snackbar.error('owner worker is protected and cannot be fired')
-      } else {
-        snackbar.error(msg)
-      }
-    }
-  }
-
-  return (
-    <Box sx={{ p: 2.5, width: 380 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Worker</Typography>
-        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
-      </Stack>
-      {isLoading || !data ? (
-        <LoadingSpinner />
-      ) : (
-        <Stack spacing={1.5}>
-          <Box>
-            <Typography variant="caption" color="text.secondary">ID</Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{data.worker.id}</Typography>
-          </Box>
-          <Stack direction="row" spacing={2}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Kind</Typography>
-              <Typography variant="body2">{data.worker.kind}</Typography>
-            </Box>
-            {data.position && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Position</Typography>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{data.position.id}</Typography>
-              </Box>
-            )}
-            {data.role && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Role</Typography>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{data.role.id}</Typography>
-              </Box>
-            )}
-          </Stack>
-          {data.worker.identity_content && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Identity</Typography>
-              <Box
-                component="pre"
-                sx={{
-                  mt: 0.5,
-                  p: 1.5,
-                  borderRadius: 1,
-                  backgroundColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
-                  fontSize: '0.75rem',
-                  whiteSpace: 'pre-wrap',
-                  fontFamily: 'monospace',
-                  maxHeight: 220,
-                  overflow: 'auto',
-                }}
-              >
-                {data.worker.identity_content}
-              </Box>
-            </Box>
-          )}
-          <Divider sx={{ my: 1 }} />
-          <Stack direction="row" spacing={1}>
-            {confirming ? (
-              <>
-                <Button
-                  variant="contained"
-                  color="error"
-                  size="small"
-                  startIcon={<DeleteOutlineIcon />}
-                  onClick={fireWorker}
-                  disabled={fire.isPending}
-                >
-                  {fire.isPending ? 'Firing…' : 'Confirm fire'}
-                </Button>
-                <Button size="small" onClick={() => setConfirming(false)}>Cancel</Button>
-              </>
-            ) : (
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                startIcon={<DeleteOutlineIcon />}
-                onClick={() => setConfirming(true)}
-                disabled={isOwner}
-              >
-                {isOwner ? 'Owner — protected' : 'Fire'}
-              </Button>
-            )}
-          </Stack>
-        </Stack>
-      )}
-    </Box>
-  )
-}
-
 // ---- ReactFlow canvas --------------------------------------------------
 
 const ChartCanvas: FC<{
@@ -976,7 +863,6 @@ const ChartCanvas: FC<{
 type Selection =
   | { kind: 'none' }
   | { kind: 'hire'; positionId: string }
-  | { kind: 'worker'; workerId: string }
 
 const HelixOrgChart: FC = () => {
   const account = useAccount()
@@ -1006,15 +892,22 @@ const HelixOrgChart: FC = () => {
   const canvasBorder = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
   const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
 
+  // orgSlug comes from the URL, used to navigate from chart →
+  // role/worker detail pages.
+  const orgSlug = (router.params.org_id as string | undefined) ?? ''
+  // Clicking a worker chip on the chart navigates to its detail page
+  // (chat + fire surface), same pattern as role click → role detail.
   const onSelectWorker = useCallback(
-    (workerId: string) => setSelection({ kind: 'worker', workerId }),
-    [],
+    (workerId: string) => {
+      if (!orgSlug) return
+      router.navigate('helix_org_worker_detail', { org_id: orgSlug, worker_id: workerId })
+    },
+    [router, orgSlug],
   )
   // onSelectRole navigates to the dedicated role detail page rather
   // than opening an inline drawer — the detail page is where Workers
   // edit role content, tools and streams, so deep-linking through to
   // it from the chart is the right call.
-  const orgSlug = (router.params.org_id as string | undefined) ?? ''
   const onSelectRole = useCallback(
     (roleId: string) => {
       if (!orgSlug) return
@@ -1210,12 +1103,6 @@ const HelixOrgChart: FC = () => {
         {selection.kind === 'hire' && (
           <HireDrawer
             positionId={selection.positionId}
-            onClose={() => setSelection({ kind: 'none' })}
-          />
-        )}
-        {selection.kind === 'worker' && (
-          <WorkerDrawer
-            workerId={selection.workerId}
             onClose={() => setSelection({ kind: 'none' })}
           />
         )}

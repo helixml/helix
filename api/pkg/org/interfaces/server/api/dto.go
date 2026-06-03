@@ -92,6 +92,11 @@ type WorkerDetailDTO struct {
 	Role *RoleDTO `json:"role,omitempty"`
 	// Position the Worker fills (nil if unassigned).
 	Position *PositionDTO `json:"position,omitempty"`
+	// AgentAppID is the Helix agent app this Worker chats through.
+	// Empty until the Worker has been activated at least once. The
+	// chart UI deep-links a "chat with this worker" button to
+	// /orgs/<org>/agent/<agent_app_id> when set.
+	AgentAppID string `json:"agent_app_id,omitempty"`
 }
 
 // HireWorkerRequest is the body of POST /workers. Mirrors the MCP

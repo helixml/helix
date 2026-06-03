@@ -72,6 +72,10 @@ export interface WorkerDetailDTO {
   worker: WorkerDTO
   role?: RoleDTO
   position?: PositionDTO
+  // AgentAppID is the Helix agent app the Worker chats through. Empty
+  // until the Worker has been activated at least once. The Worker
+  // detail page disables the "Chat" button when missing.
+  agent_app_id?: string
 }
 
 export interface HireGrantInput {
@@ -96,6 +100,7 @@ export interface HireWorkerResponse {
 export const QUERY_KEYS = {
   chart: (orgID: string) => ['helix-org', orgID, 'chart'] as const,
   worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
+  workers: (orgID: string) => ['helix-org', orgID, 'workers'] as const,
   role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
   roles: (orgID: string) => ['helix-org', orgID, 'roles'] as const,
   tools: (orgID: string) => ['helix-org', orgID, 'tools'] as const,
@@ -128,6 +133,22 @@ export function useHelixOrgChart(options?: { enabled?: boolean }) {
     queryFn: async () => {
       const data = await api.get<Chart>(`${base}/chart`)
       return data
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+// useListHelixOrgWorkers fetches every worker in the current org.
+// Drives the Workers list page. Returns WorkerDTO entries (not
+// WorkerDetailDTO — the detail page hydrates that per-worker).
+export function useListHelixOrgWorkers(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.workers(orgID),
+    queryFn: async () => {
+      const data = await api.get<WorkerDTO[]>(`${base}/workers`)
+      return data ?? []
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
@@ -222,6 +243,7 @@ export function useHireHelixOrgWorker() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
     },
   })
 }
@@ -238,6 +260,7 @@ export function useFireHelixOrgWorker() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
     },
   })
 }

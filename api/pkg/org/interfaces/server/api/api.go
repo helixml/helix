@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
@@ -577,6 +578,13 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 				detail.Role = &rd
 			}
 		}
+	}
+	// Populate the agent app id from the helix-runtime sidecar so the
+	// chart UI can link "chat with worker" to /agent/<app_id>. Missing
+	// state = the worker hasn't activated yet; we leave the field
+	// empty and the UI shows a disabled button.
+	if state, err := runtimehelix.LoadState(ctx, a.deps.Store, orgID, id); err == nil {
+		detail.AgentAppID = state.AgentAppID
 	}
 	writeJSON(w, http.StatusOK, detail)
 }
