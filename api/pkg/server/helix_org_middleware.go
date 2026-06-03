@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
@@ -31,6 +32,17 @@ type helixOrgScope struct {
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
+	// bootstrapFlight dedupes concurrent first-load races on the same
+	// org. The HelixOrgChart page fires several React Query hooks in
+	// parallel (/chart, /workers, /roles, /streams, …) and every one
+	// of those handlers funnels through ensureBootstrap. Without
+	// singleflight the per-org mutex only guarded the `bootstrapped`
+	// map flag, so multiple goroutines could enter bootstrap.Run at
+	// once — the winner created r-owner / w-owner, every loser
+	// returned "create owner role: already exists" (HTTP 500). The
+	// browser then served the 500 on the first paint and only worked
+	// after a refresh (when `bootstrapped[orgID]` was already true).
+	bootstrapFlight singleflight.Group
 }
 
 // newHelixOrgScope wires the data the middleware needs. configs and
@@ -61,38 +73,56 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 	}
 	s.mu.Unlock()
 
-	envsDir := filepath.Join(s.envsRoot, orgID)
-	ownerEnvPath := filepath.Join(envsDir, "w-owner")
-	if err := osMkdirAll(ownerEnvPath); err != nil {
-		return err
-	}
+	// singleflight collapses concurrent first-load callers for the
+	// same orgID into a single bootstrap.Run; losers wait for the
+	// winner and inherit its (err) result. This prevents the
+	// duplicate-key race described on bootstrapFlight.
+	_, err, _ := s.bootstrapFlight.Do(orgID, func() (any, error) {
+		// Re-check under the flight: if a prior flight already
+		// finished and flipped the flag, return immediately so we
+		// don't repeat the work after the singleflight forgot the
+		// key.
+		s.mu.Lock()
+		done := s.bootstrapped[orgID]
+		s.mu.Unlock()
+		if done {
+			return nil, nil
+		}
 
-	switch result, err := bootstrap.Run(ctx, s.orgStore, bootstrap.Params{
-		EnvironmentPath: ownerEnvPath,
-		OrganizationID:  orgID,
-	}); {
-	case err == nil:
-		log.Info().
-			Str("org_id", orgID).
-			Str("worker_id", string(result.WorkerID)).
-			Msg("helix-org bootstrap created owner")
-	case errors.Is(err, bootstrap.ErrAlreadyInitialised):
-		// expected on subsequent boots after a previous bootstrap
-	default:
-		return err
-	}
+		envsDir := filepath.Join(s.envsRoot, orgID)
+		ownerEnvPath := filepath.Join(envsDir, "w-owner")
+		if err := osMkdirAll(ownerEnvPath); err != nil {
+			return nil, err
+		}
 
-	// Provision a per-org Helix service api_key. Tied to the first
-	// admin user found — see ensureHelixOrgServiceAPIKey for the
-	// idempotency story.
-	if _, err := ensureHelixOrgServiceAPIKey(ctx, orgID, s.helixStore, s.configs); err != nil {
-		log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
-	}
+		switch result, err := bootstrap.Run(ctx, s.orgStore, bootstrap.Params{
+			EnvironmentPath: ownerEnvPath,
+			OrganizationID:  orgID,
+		}); {
+		case err == nil:
+			log.Info().
+				Str("org_id", orgID).
+				Str("worker_id", string(result.WorkerID)).
+				Msg("helix-org bootstrap created owner")
+		case errors.Is(err, bootstrap.ErrAlreadyInitialised):
+			// expected on subsequent boots after a previous bootstrap
+		default:
+			return nil, err
+		}
 
-	s.mu.Lock()
-	s.bootstrapped[orgID] = true
-	s.mu.Unlock()
-	return nil
+		// Provision a per-org Helix service api_key. Tied to the
+		// first admin user found — see ensureHelixOrgServiceAPIKey
+		// for the idempotency story.
+		if _, err := ensureHelixOrgServiceAPIKey(ctx, orgID, s.helixStore, s.configs); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
+		}
+
+		s.mu.Lock()
+		s.bootstrapped[orgID] = true
+		s.mu.Unlock()
+		return nil, nil
+	})
+	return err
 }
 
 // osMkdirAll is a tiny indirection so tests can stub if needed; for
