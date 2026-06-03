@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/datatypes"
 )
 
 type ListProjectsQuery struct {
@@ -283,6 +284,20 @@ type Store interface {
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	// UpdateInteractionStreamingFields persists only the columns the
+	// websocket streaming layer owns: response content, the Zed message
+	// offset/id pair, and updated. It deliberately does NOT touch state,
+	// completed, or error so that a streaming flush cannot clobber a
+	// concurrent transition written by handleTurnCancelled /
+	// handleMessageCompleted. See the lost-update fix in
+	// websocket_external_agent_sync.go.
+	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
+	// from Waiting → Complete and sets completed=now. Returns true if the row
+	// was transitioned, false if the row was already in a terminal state (no
+	// change made). Used by the streaming transition handler so it cannot
+	// resurrect a cancelled or errored turn as falsely "complete".
+	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 	// ListStuckWaitingInteractions returns up to `limit` interactions that

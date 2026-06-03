@@ -18,6 +18,7 @@ import (
 	pubsub "github.com/helixml/helix/api/pkg/pubsub"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
+	datatypes "gorm.io/datatypes"
 )
 
 // MockStore is a mock of Store interface.
@@ -5161,6 +5162,21 @@ func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
+// MarkInteractionCompleteIfWaiting mocks base method.
+func (m *MockStore) MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkInteractionCompleteIfWaiting", ctx, interactionID, generationID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkInteractionCompleteIfWaiting indicates an expected call of MarkInteractionCompleteIfWaiting.
+func (mr *MockStoreMockRecorder) MarkInteractionCompleteIfWaiting(ctx, interactionID, generationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkInteractionCompleteIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkInteractionCompleteIfWaiting), ctx, interactionID, generationID)
+}
+
 // MarkPromptAsCrashed mocks base method.
 func (m *MockStore) MarkPromptAsCrashed(ctx context.Context, promptID, errorMsg string) error {
 	m.ctrl.T.Helper()
@@ -5840,6 +5856,20 @@ func (m *MockStore) UpdateInteraction(ctx context.Context, interaction *types.In
 func (mr *MockStoreMockRecorder) UpdateInteraction(ctx, interaction any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteraction", reflect.TypeOf((*MockStore)(nil).UpdateInteraction), ctx, interaction)
+}
+
+// UpdateInteractionStreamingFields mocks base method.
+func (m *MockStore) UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateInteractionStreamingFields", ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateInteractionStreamingFields indicates an expected call of UpdateInteractionStreamingFields.
+func (mr *MockStoreMockRecorder) UpdateInteractionStreamingFields(ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteractionStreamingFields", reflect.TypeOf((*MockStore)(nil).UpdateInteractionStreamingFields), ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID)
 }
 
 // UpdateInteractionSummary mocks base method.

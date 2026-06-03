@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/rs/zerolog/log"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -235,6 +236,55 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	}
 
 	return interaction, nil
+}
+
+// UpdateInteractionStreamingFields persists only the columns the websocket
+// streaming layer owns. State / completed / error are deliberately excluded
+// so a streaming flush cannot clobber a concurrent transition written by
+// handleTurnCancelled or handleMessageCompleted (the lost-update race that
+// turned cancelled turns into spuriously "complete" ones — see
+// websocket_external_agent_sync.go).
+func (s *PostgresStore) UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
+	if interactionID == "" {
+		return errors.New("id is required")
+	}
+
+	responseMessage = sanitize.ForPostgres(responseMessage)
+	responseEntries = sanitize.JSONForPostgres(responseEntries)
+
+	return s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ?", interactionID, generationID).
+		Updates(map[string]interface{}{
+			"response_message":        responseMessage,
+			"response_entries":        responseEntries,
+			"last_zed_message_offset": lastZedMessageOffset,
+			"last_zed_message_id":     lastZedMessageID,
+			"updated":                 time.Now(),
+		}).Error
+}
+
+// MarkInteractionCompleteIfWaiting atomically transitions an interaction from
+// Waiting → Complete. Returns true if the row was transitioned, false if the
+// row was already in a terminal state (Interrupted / Complete / Error). The
+// WHERE clause ensures we cannot clobber a state set by another handler.
+func (s *PostgresStore) MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("id is required")
+	}
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"state":     types.InteractionStateComplete,
+			"completed": now,
+			"updated":   now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // UpdateInteractionSummary updates just the summary field of an interaction
