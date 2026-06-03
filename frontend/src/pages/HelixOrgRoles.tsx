@@ -1,0 +1,342 @@
+// HelixOrgRoles lists every role defined in the current org and is
+// the entry point for the standalone "Roles" page in the helix-org
+// middle-nav. Clicking a row navigates to /helix-org/roles/:role_id,
+// which shows the full role markdown + per-role actions.
+//
+// The chart page (/helix-org/chart) still exists in parallel; the two
+// surfaces both read the same backend `GET /roles` / `GET /roles/{id}`
+// endpoints, so they stay in sync without extra plumbing.
+
+import { FC, MouseEvent, useMemo, useState } from 'react'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
+import useTheme from '@mui/material/styles/useTheme'
+import AddIcon from '@mui/icons-material/Add'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+
+import Page from '../components/system/Page'
+import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import SimpleTable from '../components/widgets/SimpleTable'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+
+import useAccount from '../hooks/useAccount'
+import useRouter from '../hooks/useRouter'
+import useSnackbar from '../hooks/useSnackbar'
+import {
+  RoleDTO,
+  useCreateHelixOrgRole,
+  useDeleteHelixOrgRole,
+  useListHelixOrgRoles,
+} from '../services/helixOrgService'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import TextField from '@mui/material/TextField'
+
+const OWNER_ROLE = 'r-owner'
+
+const HelixOrgRoles: FC = () => {
+  const router = useRouter()
+  const account = useAccount()
+  const snackbar = useSnackbar()
+  const theme = useTheme()
+  const orgSlug = router.params.org_id as string | undefined
+
+  const { data, isLoading } = useListHelixOrgRoles()
+  const deleteRole = useDeleteHelixOrgRole()
+  const createRole = useCreateHelixOrgRole()
+
+  const roles = data ?? []
+  const [createOpen, setCreateOpen] = useState(false)
+  const [deleting, setDeleting] = useState<RoleDTO | undefined>()
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [currentRole, setCurrentRole] = useState<RoleDTO | null>(null)
+
+  const openRole = (roleId: string) => {
+    if (!orgSlug) return
+    router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: roleId })
+  }
+
+  const handleMenuOpen = (e: MouseEvent<HTMLElement>, role: RoleDTO) => {
+    e.stopPropagation()
+    setAnchorEl(e.currentTarget)
+    setCurrentRole(role)
+  }
+  const handleMenuClose = () => {
+    setAnchorEl(null)
+    setCurrentRole(null)
+  }
+
+  const handleDelete = async () => {
+    if (!deleting) return
+    try {
+      await deleteRole.mutateAsync(deleting.id)
+      snackbar.success(`deleted role ${deleting.id}`)
+    } catch (e: any) {
+      const status = e?.response?.status
+      if (status === 409) {
+        snackbar.error('owner role is protected and cannot be deleted')
+      } else {
+        snackbar.error(e?.response?.data?.error ?? e?.message ?? 'delete failed')
+      }
+    } finally {
+      setDeleting(undefined)
+    }
+  }
+
+  const tableData = useMemo(() => roles.map((r) => ({
+    id: r.id,
+    _data: r,
+    name: (
+      <Typography variant="body1">
+        <a
+          style={{
+            textDecoration: 'none',
+            fontWeight: 'bold',
+            color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+            fontFamily: 'monospace',
+          }}
+          href="#"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRole(r.id) }}
+        >
+          {r.id}
+        </a>
+      </Typography>
+    ),
+    contentPreview: (
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: 360,
+        }}
+      >
+        {(r.content || '').split('\n')[0].slice(0, 80) || '—'}
+      </Typography>
+    ),
+    tools: (
+      <Typography variant="body2" color="text.secondary">
+        {r.tools?.length ?? 0}
+      </Typography>
+    ),
+    streams: (
+      <Typography variant="body2" color="text.secondary">
+        {r.streams?.length ?? 0}
+      </Typography>
+    ),
+    updated: (
+      <Typography variant="body2" color="text.secondary">
+        {r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}
+      </Typography>
+    ),
+  })), [roles, theme])
+
+  const getActions = (row: any) => {
+    const role = row._data as RoleDTO
+    return (
+      <IconButton size="small" onClick={(e) => handleMenuOpen(e, role)}>
+        <MoreVertIcon />
+      </IconButton>
+    )
+  }
+
+  return (
+    <Page
+      breadcrumbTitle="Roles"
+      orgBreadcrumbs={true}
+      organizationId={account.organizationTools.organization?.id}
+      topbarContent={(
+        <Button
+          variant="contained"
+          color="secondary"
+          startIcon={<AddIcon />}
+          onClick={() => setCreateOpen(true)}
+        >
+          New Role
+        </Button>
+      )}
+    >
+      <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h5" sx={{ mb: 1 }}>Roles</Typography>
+            <Typography variant="body2" color="text.secondary">
+              A Role defines a job description: the markdown content tells a Worker what they're for, the
+              tools list grants MCP access, and the streams list subscribes to inbound events. Each role
+              groups one or more Positions on the chart.
+            </Typography>
+          </Box>
+
+          {isLoading ? (
+            <LoadingSpinner />
+          ) : roles.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 8 }}>
+              <Typography variant="body1" color="text.secondary" gutterBottom>
+                No roles defined yet.
+              </Typography>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<AddIcon />}
+                onClick={() => setCreateOpen(true)}
+                sx={{ mt: 1 }}
+              >
+                Create your first role
+              </Button>
+            </Box>
+          ) : (
+            <SimpleTable
+              authenticated={true}
+              fields={[
+                { name: 'name', title: 'ID' },
+                { name: 'contentPreview', title: 'Content' },
+                { name: 'tools', title: 'Tools' },
+                { name: 'streams', title: 'Streams' },
+                { name: 'updated', title: 'Updated' },
+              ]}
+              data={tableData}
+              getActions={getActions}
+            />
+          )}
+        </Stack>
+      </Container>
+
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleMenuClose}>
+        <MenuItem
+          onClick={(e) => {
+            e.stopPropagation()
+            handleMenuClose()
+            if (currentRole) openRole(currentRole.id)
+          }}
+        >
+          <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
+          Open
+        </MenuItem>
+        <MenuItem
+          disabled={currentRole?.id === OWNER_ROLE}
+          onClick={(e) => {
+            e.stopPropagation()
+            handleMenuClose()
+            if (currentRole) setDeleting(currentRole)
+          }}
+        >
+          <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+          {currentRole?.id === OWNER_ROLE ? 'Owner — protected' : 'Delete'}
+        </MenuItem>
+      </Menu>
+
+      {deleting && (
+        <DeleteConfirmWindow
+          title="role"
+          submitTitle="Delete"
+          onSubmit={handleDelete}
+          onCancel={() => setDeleting(undefined)}
+        >
+          <Typography variant="body1">
+            Deleting role <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> cascades:
+            every position under it is deleted and every worker in those positions is fired.
+            This is irreversible.
+          </Typography>
+        </DeleteConfirmWindow>
+      )}
+
+      <NewRoleDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(id) => {
+          setCreateOpen(false)
+          snackbar.success(`role ${id} created`)
+          openRole(id)
+        }}
+        creating={createRole.isPending}
+        create={async (payload) => {
+          await createRole.mutateAsync(payload)
+        }}
+      />
+    </Page>
+  )
+}
+
+// NewRoleDialog is a small two-field form: id + markdown content.
+// Inline rather than imported from HelixOrgChart so the two surfaces
+// can evolve independently — e.g. the Roles page could grow tool /
+// stream selectors that the chart's quick-create doesn't need.
+const NewRoleDialog: FC<{
+  open: boolean
+  creating: boolean
+  onClose: () => void
+  onCreated: (id: string) => void
+  create: (payload: { id: string; content: string }) => Promise<void>
+}> = ({ open, creating, onClose, onCreated, create }) => {
+  const snackbar = useSnackbar()
+  const [id, setId] = useState('')
+  const [content, setContent] = useState('')
+
+  const submit = async () => {
+    const trimmed = id.trim()
+    if (!trimmed) {
+      snackbar.error('Role ID is required')
+      return
+    }
+    try {
+      await create({ id: trimmed, content })
+      setId(''); setContent('')
+      onCreated(trimmed)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
+    }
+  }
+
+  const handleClose = () => {
+    setId(''); setContent('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
+      <DialogTitle>New role</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ pt: 1 }}>
+          <TextField
+            label="Role ID"
+            placeholder="r-engineer"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            helperText="Convention: r-<kebab-case>. Stays as-is — the LLM and operator both refer to roles by this handle."
+            autoFocus
+            fullWidth
+          />
+          <TextField
+            label="Content (markdown)"
+            placeholder="# Engineer&#10;Builds and ships software."
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            multiline
+            minRows={6}
+            fullWidth
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleClose}>Cancel</Button>
+        <Button onClick={submit} variant="contained" disabled={creating}>
+          {creating ? 'Creating…' : 'Create'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+export default HelixOrgRoles

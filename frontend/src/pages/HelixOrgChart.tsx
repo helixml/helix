@@ -43,6 +43,7 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
+import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   ChartNode,
@@ -54,7 +55,6 @@ import {
   useDeleteHelixOrgRole,
   useFireHelixOrgWorker,
   useHelixOrgChart,
-  useHelixOrgRole,
   useHelixOrgWorker,
   useHireHelixOrgWorker,
   useUpdateHelixOrgPosition,
@@ -874,112 +874,6 @@ const WorkerDrawer: FC<{ workerId: string; onClose: () => void }> = ({ workerId,
   )
 }
 
-// RoleDrawer renders the role's markdown content + audit metadata.
-// Read-only for now — editing role content lives on its own page (or
-// chat tools); the drawer is purely an inspector that pops up when
-// the user clicks a role header on the chart.
-const RoleDrawer: FC<{ roleId: string; onClose: () => void }> = ({ roleId, onClose }) => {
-  const { data, isLoading } = useHelixOrgRole(roleId)
-  const isOwner = roleId === OWNER_ROLE
-  return (
-    <Box sx={{ p: 2.5, width: 420 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Role</Typography>
-        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
-      </Stack>
-      {isLoading || !data ? (
-        <LoadingSpinner />
-      ) : (
-        <Stack spacing={1.5}>
-          <Box>
-            <Typography variant="caption" color="text.secondary">ID</Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-              {data.id}{isOwner ? ' (owner — protected)' : ''}
-            </Typography>
-          </Box>
-          {data.content && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Content (markdown)</Typography>
-              <Box
-                component="pre"
-                sx={{
-                  mt: 0.5,
-                  p: 1.5,
-                  borderRadius: 1,
-                  backgroundColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
-                  fontSize: '0.75rem',
-                  whiteSpace: 'pre-wrap',
-                  fontFamily: 'monospace',
-                  maxHeight: 320,
-                  overflow: 'auto',
-                }}
-              >
-                {data.content}
-              </Box>
-            </Box>
-          )}
-          {data.tools && data.tools.length > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Tools ({data.tools.length})</Typography>
-              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
-                {data.tools.map((t) => (
-                  <Box
-                    key={t}
-                    sx={{
-                      fontFamily: 'monospace',
-                      fontSize: '0.7rem',
-                      px: 0.75, py: 0.25,
-                      border: (theme) => `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.18)'}`,
-                      borderRadius: 0.75,
-                    }}
-                  >
-                    {t}
-                  </Box>
-                ))}
-              </Stack>
-            </Box>
-          )}
-          {data.streams && data.streams.length > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Streams ({data.streams.length})</Typography>
-              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
-                {data.streams.map((s) => (
-                  <Box
-                    key={s}
-                    sx={{
-                      fontFamily: 'monospace',
-                      fontSize: '0.7rem',
-                      px: 0.75, py: 0.25,
-                      border: (theme) => `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.18)'}`,
-                      borderRadius: 0.75,
-                    }}
-                  >
-                    {s}
-                  </Box>
-                ))}
-              </Stack>
-            </Box>
-          )}
-          <Stack direction="row" spacing={2}>
-            {data.created_at && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Created</Typography>
-                <Typography variant="body2">{new Date(data.created_at).toLocaleString()}</Typography>
-              </Box>
-            )}
-            {data.updated_at && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">Updated</Typography>
-                <Typography variant="body2">{new Date(data.updated_at).toLocaleString()}</Typography>
-              </Box>
-            )}
-          </Stack>
-        </Stack>
-      )}
-    </Box>
-  )
-}
-
 // ---- ReactFlow canvas --------------------------------------------------
 
 const ChartCanvas: FC<{
@@ -1083,12 +977,12 @@ type Selection =
   | { kind: 'none' }
   | { kind: 'hire'; positionId: string }
   | { kind: 'worker'; workerId: string }
-  | { kind: 'role'; roleId: string }
 
 const HelixOrgChart: FC = () => {
   const account = useAccount()
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
+  const router = useRouter()
   const { data, isLoading } = useHelixOrgChart()
   const deleteRole = useDeleteHelixOrgRole()
   const deletePosition = useDeleteHelixOrgPosition()
@@ -1116,9 +1010,17 @@ const HelixOrgChart: FC = () => {
     (workerId: string) => setSelection({ kind: 'worker', workerId }),
     [],
   )
+  // onSelectRole navigates to the dedicated role detail page rather
+  // than opening an inline drawer — the detail page is where Workers
+  // edit role content, tools and streams, so deep-linking through to
+  // it from the chart is the right call.
+  const orgSlug = (router.params.org_id as string | undefined) ?? ''
   const onSelectRole = useCallback(
-    (roleId: string) => setSelection({ kind: 'role', roleId }),
-    [],
+    (roleId: string) => {
+      if (!orgSlug) return
+      router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: roleId })
+    },
+    [router, orgSlug],
   )
   const onHire = useCallback(
     (positionId: string) => setSelection({ kind: 'hire', positionId }),
@@ -1314,12 +1216,6 @@ const HelixOrgChart: FC = () => {
         {selection.kind === 'worker' && (
           <WorkerDrawer
             workerId={selection.workerId}
-            onClose={() => setSelection({ kind: 'none' })}
-          />
-        )}
-        {selection.kind === 'role' && (
-          <RoleDrawer
-            roleId={selection.roleId}
             onClose={() => setSelection({ kind: 'none' })}
           />
         )}

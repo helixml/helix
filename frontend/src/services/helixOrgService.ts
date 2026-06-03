@@ -97,6 +97,7 @@ export const QUERY_KEYS = {
   chart: (orgID: string) => ['helix-org', orgID, 'chart'] as const,
   worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
   role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
+  roles: (orgID: string) => ['helix-org', orgID, 'roles'] as const,
 }
 
 // useHelixOrgBase resolves the current `:org_id` URL param into the
@@ -144,6 +145,23 @@ export function useHelixOrgWorker(workerId: string | undefined, options?: { enab
 }
 
 // ---- Mutations -----------------------------------------------------------
+
+// useListHelixOrgRoles fetches every role in the current org. Drives
+// the Roles list page in the helix-org middle-nav. Cached separately
+// from the chart so the list view doesn't repaint when only
+// position/worker rows change.
+export function useListHelixOrgRoles(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.roles(orgID),
+    queryFn: async () => {
+      const data = await api.get<RoleDTO[]>(`${base}/roles`)
+      return data ?? []
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
 
 // useHelixOrgRole drives the right-rail Role drawer on the chart.
 // Returns the full RoleDTO (id + content + tools + streams + audit
@@ -199,6 +217,28 @@ export function useFireHelixOrgWorker() {
   })
 }
 
+// useUpdateHelixOrgRole patches an existing Role. Body fields are
+// optional — omit to leave untouched. Tools/Streams are REPLACED
+// wholesale when provided (pass `[]` to clear). Invalidates both the
+// list cache and the single-role cache so the detail page repaints
+// immediately on save.
+export function useUpdateHelixOrgRole() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: { id: string; content?: string; tools?: string[]; streams?: string[] }) => {
+      const { id, ...body } = payload
+      await api.put(`${base}/roles/${encodeURIComponent(id)}`, body)
+    },
+    onSuccess: (_data, payload) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.role(orgID, payload.id) })
+    },
+  })
+}
+
 // useCreateHelixOrgRole creates a new Role row in the current org.
 export function useCreateHelixOrgRole() {
   const api = useApi()
@@ -210,6 +250,7 @@ export function useCreateHelixOrgRole() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
     },
   })
 }
@@ -262,6 +303,7 @@ export function useDeleteHelixOrgRole() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
     },
   })
 }

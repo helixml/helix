@@ -431,6 +431,8 @@ const Layout: FC<{
 
       case "helix_org_root":
       case "helix_org_chart":
+      case "helix_org_roles":
+      case "helix_org_role_detail":
         return <HelixOrgSidebar />;
 
       case "org_agent":
