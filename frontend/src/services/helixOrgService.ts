@@ -96,6 +96,7 @@ export interface HireWorkerResponse {
 export const QUERY_KEYS = {
   chart: (orgID: string) => ['helix-org', orgID, 'chart'] as const,
   worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
+  role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
 }
 
 // useHelixOrgBase resolves the current `:org_id` URL param into the
@@ -143,6 +144,23 @@ export function useHelixOrgWorker(workerId: string | undefined, options?: { enab
 }
 
 // ---- Mutations -----------------------------------------------------------
+
+// useHelixOrgRole drives the right-rail Role drawer on the chart.
+// Returns the full RoleDTO (id + content + tools + streams + audit
+// stamps) so the drawer can render the role's markdown and metadata.
+export function useHelixOrgRole(roleId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.role(orgID, roleId ?? ''),
+    queryFn: async () => {
+      if (!roleId) return null
+      const data = await api.get<RoleDTO>(`${base}/roles/${encodeURIComponent(roleId)}`)
+      return data
+    },
+    enabled: !!orgID && !!roleId && (options?.enabled ?? true),
+  })
+}
 
 // useHireHelixOrgWorker hires a Worker from the chart's "+" panel.
 // Wraps the same hire_worker MCP tool the chat surface uses, so REST

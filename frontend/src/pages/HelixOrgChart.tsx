@@ -54,6 +54,7 @@ import {
   useDeleteHelixOrgRole,
   useFireHelixOrgWorker,
   useHelixOrgChart,
+  useHelixOrgRole,
   useHelixOrgWorker,
   useHireHelixOrgWorker,
   useUpdateHelixOrgPosition,
@@ -145,6 +146,7 @@ type RoleNodeData = {
   roleId: string
   positionCount: number
   isOwner: boolean
+  onSelectRole: (roleId: string) => void
   onAddPosition: (roleId: string) => void
   onDeleteRole: (roleId: string) => void
 }
@@ -179,6 +181,7 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
     <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
       <Box
         className={NO_DRAG_NO_PAN}
+        onClick={(e) => { e.stopPropagation(); data.onSelectRole(data.roleId) }}
         sx={{
           position: 'absolute',
           top: 0, left: 0, right: 0,
@@ -187,6 +190,12 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          cursor: 'pointer',
+          borderTopLeftRadius: 12,
+          borderTopRightRadius: 12,
+          '&:hover': {
+            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.03)',
+          },
         }}
       >
         <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ minWidth: 0, flex: 1 }}>
@@ -376,6 +385,7 @@ const buildGraph = (
   flat: FlatPosition[],
   handlers: {
     onSelectWorker: (workerId: string) => void
+    onSelectRole: (roleId: string) => void
     onHire: (positionId: string) => void
     onAddPosition: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
@@ -470,6 +480,7 @@ const buildGraph = (
         roleId: group.roleId,
         positionCount: group.positions.length,
         isOwner: group.roleId === OWNER_ROLE,
+        onSelectRole: handlers.onSelectRole,
         onAddPosition: handlers.onAddPosition,
         onDeleteRole: handlers.onDeleteRole,
       } as RoleNodeData,
@@ -863,6 +874,112 @@ const WorkerDrawer: FC<{ workerId: string; onClose: () => void }> = ({ workerId,
   )
 }
 
+// RoleDrawer renders the role's markdown content + audit metadata.
+// Read-only for now — editing role content lives on its own page (or
+// chat tools); the drawer is purely an inspector that pops up when
+// the user clicks a role header on the chart.
+const RoleDrawer: FC<{ roleId: string; onClose: () => void }> = ({ roleId, onClose }) => {
+  const { data, isLoading } = useHelixOrgRole(roleId)
+  const isOwner = roleId === OWNER_ROLE
+  return (
+    <Box sx={{ p: 2.5, width: 420 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Typography variant="h6">Role</Typography>
+        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
+      </Stack>
+      {isLoading || !data ? (
+        <LoadingSpinner />
+      ) : (
+        <Stack spacing={1.5}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">ID</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {data.id}{isOwner ? ' (owner — protected)' : ''}
+            </Typography>
+          </Box>
+          {data.content && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Content (markdown)</Typography>
+              <Box
+                component="pre"
+                sx={{
+                  mt: 0.5,
+                  p: 1.5,
+                  borderRadius: 1,
+                  backgroundColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
+                  fontSize: '0.75rem',
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: 'monospace',
+                  maxHeight: 320,
+                  overflow: 'auto',
+                }}
+              >
+                {data.content}
+              </Box>
+            </Box>
+          )}
+          {data.tools && data.tools.length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Tools ({data.tools.length})</Typography>
+              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
+                {data.tools.map((t) => (
+                  <Box
+                    key={t}
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.7rem',
+                      px: 0.75, py: 0.25,
+                      border: (theme) => `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.18)'}`,
+                      borderRadius: 0.75,
+                    }}
+                  >
+                    {t}
+                  </Box>
+                ))}
+              </Stack>
+            </Box>
+          )}
+          {data.streams && data.streams.length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Streams ({data.streams.length})</Typography>
+              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
+                {data.streams.map((s) => (
+                  <Box
+                    key={s}
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.7rem',
+                      px: 0.75, py: 0.25,
+                      border: (theme) => `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.18)'}`,
+                      borderRadius: 0.75,
+                    }}
+                  >
+                    {s}
+                  </Box>
+                ))}
+              </Stack>
+            </Box>
+          )}
+          <Stack direction="row" spacing={2}>
+            {data.created_at && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">Created</Typography>
+                <Typography variant="body2">{new Date(data.created_at).toLocaleString()}</Typography>
+              </Box>
+            )}
+            {data.updated_at && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">Updated</Typography>
+                <Typography variant="body2">{new Date(data.updated_at).toLocaleString()}</Typography>
+              </Box>
+            )}
+          </Stack>
+        </Stack>
+      )}
+    </Box>
+  )
+}
+
 // ---- ReactFlow canvas --------------------------------------------------
 
 const ChartCanvas: FC<{
@@ -870,6 +987,7 @@ const ChartCanvas: FC<{
   flat: FlatPosition[]
   handlers: {
     onSelectWorker: (workerId: string) => void
+    onSelectRole: (roleId: string) => void
     onHire: (positionId: string) => void
     onAddPosition: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
@@ -965,6 +1083,7 @@ type Selection =
   | { kind: 'none' }
   | { kind: 'hire'; positionId: string }
   | { kind: 'worker'; workerId: string }
+  | { kind: 'role'; roleId: string }
 
 const HelixOrgChart: FC = () => {
   const account = useAccount()
@@ -997,6 +1116,10 @@ const HelixOrgChart: FC = () => {
     (workerId: string) => setSelection({ kind: 'worker', workerId }),
     [],
   )
+  const onSelectRole = useCallback(
+    (roleId: string) => setSelection({ kind: 'role', roleId }),
+    [],
+  )
   const onHire = useCallback(
     (positionId: string) => setSelection({ kind: 'hire', positionId }),
     [],
@@ -1011,8 +1134,8 @@ const HelixOrgChart: FC = () => {
     [],
   )
   const handlers = useMemo(
-    () => ({ onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition }),
-    [onSelectWorker, onHire, onAddPosition, onDeleteRole, onDeletePosition],
+    () => ({ onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition }),
+    [onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition],
   )
 
   // onSetParent fires when the chart canvas drew a new wire from a
@@ -1191,6 +1314,12 @@ const HelixOrgChart: FC = () => {
         {selection.kind === 'worker' && (
           <WorkerDrawer
             workerId={selection.workerId}
+            onClose={() => setSelection({ kind: 'none' })}
+          />
+        )}
+        {selection.kind === 'role' && (
+          <RoleDrawer
+            roleId={selection.roleId}
             onClose={() => setSelection({ kind: 'none' })}
           />
         )}
