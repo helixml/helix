@@ -34,6 +34,10 @@ type Roles interface {
 	Get(ctx context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error)
 	List(ctx context.Context, orgID string) ([]orgchart.Role, error)
 	Update(ctx context.Context, role orgchart.Role) error
+	// Delete removes the role row. Caller is expected to have torn
+	// down dependent positions; the lifecycle service in
+	// application/lifecycle owns the cascade (positions + workers).
+	Delete(ctx context.Context, orgID string, id orgchart.RoleID) error
 }
 
 // Positions persists slots in the org chart.
@@ -46,6 +50,10 @@ type Positions interface {
 	// change. Returns ErrNotFound when the (orgID, id) pair doesn't
 	// exist.
 	Update(ctx context.Context, pos orgchart.Position) error
+	// Delete removes the position row. Caller is expected to have
+	// already cleared any worker pointing at the position; the
+	// lifecycle service owns the cascade.
+	Delete(ctx context.Context, orgID string, id orgchart.PositionID) error
 }
 
 // Workers persists humans and AIs. Update mutates fields the system

@@ -50,6 +50,15 @@ type Service struct {
 // embedded owner Worker. The REST layer maps it to 409 Conflict.
 var ErrOwnerProtected = errors.New("cannot fire the owner worker")
 
+// ErrRootPositionProtected is returned by DeletePosition when the
+// caller targets the embedded root position (`p-root`). REST maps to
+// 409.
+var ErrRootPositionProtected = errors.New("cannot delete the root position")
+
+// ErrOwnerRoleProtected is returned by DeleteRole when the caller
+// targets the embedded owner role (`r-owner`). REST maps to 409.
+var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
+
 // Fire tears down a Worker end-to-end:
 //
 //  1. Read the Helix-runtime state (project + app IDs) before clearing.
@@ -131,6 +140,114 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 
 	if err := s.Store.Workers.Delete(ctx, orgID, id); err != nil {
 		return fmt.Errorf("delete worker row %q: %w", id, err)
+	}
+	return nil
+}
+
+// DeletePosition tears down a Position end-to-end:
+//
+//  1. Refuse if id is the canonical root position ("p-root").
+//  2. Fire every Worker whose Position() matches id (each Worker
+//     gets the full Fire cascade — project teardown, env removal,
+//     subscriptions, grants, the worker row).
+//  3. Delete the Position row.
+//
+// The Worker fires are best-effort logged; the Position delete error
+// propagates. Use this whenever a Position should disappear from the
+// org chart — calling stores.Positions.Delete directly is a footgun
+// because it leaves dangling workers whose Position() points at a
+// deleted row.
+func (s *Service) DeletePosition(ctx context.Context, orgID string, id orgchart.PositionID) error {
+	if id == "" {
+		return errors.New("position id is empty")
+	}
+	if id == orgchart.PositionID("p-root") {
+		return ErrRootPositionProtected
+	}
+	if s.Store == nil {
+		return errors.New("lifecycle: store is nil")
+	}
+	if _, err := s.Store.Positions.Get(ctx, orgID, id); err != nil {
+		return fmt.Errorf("get position %q: %w", id, err)
+	}
+	if err := s.fireWorkersInPosition(ctx, orgID, id); err != nil {
+		return err
+	}
+	if err := s.Store.Positions.Delete(ctx, orgID, id); err != nil {
+		return fmt.Errorf("delete position %q: %w", id, err)
+	}
+	return nil
+}
+
+// DeleteRole tears down a Role end-to-end:
+//
+//  1. Refuse if id is the canonical owner role ("r-owner").
+//  2. For each Position whose RoleID matches id, fire every Worker
+//     in it and delete the Position (DeletePosition's body, inlined
+//     so one bad position doesn't abort the cascade).
+//  3. Delete the Role row.
+func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.RoleID) error {
+	if id == "" {
+		return errors.New("role id is empty")
+	}
+	if id == orgchart.RoleID("r-owner") {
+		return ErrOwnerRoleProtected
+	}
+	if s.Store == nil {
+		return errors.New("lifecycle: store is nil")
+	}
+	if _, err := s.Store.Roles.Get(ctx, orgID, id); err != nil {
+		return fmt.Errorf("get role %q: %w", id, err)
+	}
+
+	positions, err := s.Store.Positions.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("list positions: %w", err)
+	}
+	for _, pos := range positions {
+		if pos.RoleID != id {
+			continue
+		}
+		if pos.ID == orgchart.PositionID("p-root") {
+			// Defensive — p-root shouldn't carry a deletable role,
+			// but if a caller hand-pokes the DB, we still refuse.
+			continue
+		}
+		if err := s.fireWorkersInPosition(ctx, orgID, pos.ID); err != nil {
+			s.logger().Warn("delete role: fire workers", "role", id, "position", pos.ID, "err", err)
+			continue
+		}
+		if err := s.Store.Positions.Delete(ctx, orgID, pos.ID); err != nil {
+			s.logger().Warn("delete role: delete position", "role", id, "position", pos.ID, "err", err)
+		}
+	}
+
+	if err := s.Store.Roles.Delete(ctx, orgID, id); err != nil {
+		return fmt.Errorf("delete role %q: %w", id, err)
+	}
+	return nil
+}
+
+// fireWorkersInPosition fires every Worker filling the given
+// Position. Honours the owner-protect rule: if the owner Worker
+// occupies the Position we refuse (the caller meant to delete the
+// surrounding Position/Role, but bringing the owner down with it is
+// always wrong).
+func (s *Service) fireWorkersInPosition(ctx context.Context, orgID string, posID orgchart.PositionID) error {
+	workers, err := s.Store.Workers.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("list workers: %w", err)
+	}
+	for _, w := range workers {
+		if w.Position() != posID {
+			continue
+		}
+		if w.ID() == s.Owner {
+			return ErrOwnerProtected
+		}
+		if err := s.Fire(ctx, orgID, w.ID()); err != nil {
+			s.logger().Warn("fire worker for position teardown", "position", posID, "worker", w.ID(), "err", err)
+		}
 	}
 	return nil
 }

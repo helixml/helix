@@ -28,8 +28,17 @@ type WorkerBadge struct {
 
 // Chart is the response body for GET /chart. Roots is the set of
 // top-level positions (ParentID empty); the tree hangs off each.
+// Roles is the full set of Role IDs in the org — surfaced so the
+// React chart can render Role-as-group containers, including empty
+// roles that have no Positions yet.
 type Chart struct {
 	Roots []ChartNode `json:"roots"`
+	Roles []RoleBadge `json:"roles,omitempty"`
+}
+
+// RoleBadge is a compact reference to a Role for the chart payload.
+type RoleBadge struct {
+	ID string `json:"id"`
 }
 
 // PositionDTO is one row in GET /positions.

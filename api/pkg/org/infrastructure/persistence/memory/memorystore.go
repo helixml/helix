@@ -107,6 +107,17 @@ func (r *rolesRepo) Update(_ context.Context, rl orgchart.Role) error {
 	return nil
 }
 
+func (r *rolesRepo) Delete(_ context.Context, orgID string, id orgchart.RoleID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: string(id)}
+	if _, ok := r.rows[k]; !ok {
+		return fmt.Errorf("role %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	delete(r.rows, k)
+	return nil
+}
+
 // ---- Positions ----------------------------------------------------------
 
 type positionsRepo struct {
@@ -169,6 +180,17 @@ func (p *positionsRepo) Update(_ context.Context, pos orgchart.Position) error {
 		return fmt.Errorf("position %q in org %q: %w", pos.ID, pos.OrganizationID, store.ErrNotFound)
 	}
 	p.rows[k] = pos
+	return nil
+}
+
+func (p *positionsRepo) Delete(_ context.Context, orgID string, id orgchart.PositionID) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: string(id)}
+	if _, ok := p.rows[k]; !ok {
+		return fmt.Errorf("position %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	delete(p.rows, k)
 	return nil
 }
 

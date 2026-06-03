@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -274,6 +275,81 @@ func (a *apiHandler) updatePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, positionDTO(existing))
+}
+
+// deletePosition fires every Worker in the Position and removes the
+// Position row. Refuses to act on p-root (409).
+//
+// @Summary Helix-org: delete a position (cascade-fires its workers)
+// @Tags HelixOrg
+// @Param org path string true "Organization slug or id"
+// @Param id path string true "Position ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/positions/{id} [delete]
+func (a *apiHandler) deletePosition(w http.ResponseWriter, r *http.Request) {
+	if a.deps.Lifecycle == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("lifecycle is not wired in this deployment"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.PositionID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("position id is required"))
+		return
+	}
+	switch err := a.deps.Lifecycle.DeletePosition(r.Context(), orgID, id); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, lifecycle.ErrRootPositionProtected), errors.Is(err, lifecycle.ErrOwnerProtected):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, errStatus(err), err)
+	}
+}
+
+// deleteRole cascade-deletes every Position whose RoleID matches —
+// firing each worker in those positions — then removes the Role row.
+// Refuses to act on r-owner (409).
+//
+// @Summary Helix-org: delete a role (cascade-deletes positions + fires workers)
+// @Tags HelixOrg
+// @Param org path string true "Organization slug or id"
+// @Param id path string true "Role ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/roles/{id} [delete]
+func (a *apiHandler) deleteRole(w http.ResponseWriter, r *http.Request) {
+	if a.deps.Lifecycle == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("lifecycle is not wired in this deployment"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.RoleID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("role id is required"))
+		return
+	}
+	switch err := a.deps.Lifecycle.DeleteRole(r.Context(), orgID, id); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, lifecycle.ErrOwnerRoleProtected), errors.Is(err, lifecycle.ErrOwnerProtected):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, errStatus(err), err)
+	}
 }
 
 // ---- helpers ------------------------------------------------------------

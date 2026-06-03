@@ -124,3 +124,9 @@ func (r *rolesRepo) Update(ctx context.Context, ro orgchart.Role) error {
 		}),
 	)
 }
+
+// Delete removes one Role row. Cascading to positions + workers is
+// the lifecycle service's responsibility, not the store layer.
+func (r *rolesRepo) Delete(ctx context.Context, orgID string, id orgchart.RoleID) error {
+	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}

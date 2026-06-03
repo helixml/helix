@@ -101,10 +101,12 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /positions", Handler: http.HandlerFunc(a.createPosition)},
 		{Pattern: "GET /positions/{id}", Handler: http.HandlerFunc(a.getPosition)},
 		{Pattern: "PUT /positions/{id}", Handler: http.HandlerFunc(a.updatePosition)},
+		{Pattern: "DELETE /positions/{id}", Handler: http.HandlerFunc(a.deletePosition)},
 		{Pattern: "GET /roles", Handler: http.HandlerFunc(a.listRoles)},
 		{Pattern: "POST /roles", Handler: http.HandlerFunc(a.createRole)},
 		{Pattern: "GET /roles/{id}", Handler: http.HandlerFunc(a.getRole)},
 		{Pattern: "PUT /roles/{id}", Handler: http.HandlerFunc(a.updateRole)},
+		{Pattern: "DELETE /roles/{id}", Handler: http.HandlerFunc(a.deleteRole)},
 		{Pattern: "GET /workers", Handler: http.HandlerFunc(a.listWorkers)},
 		{Pattern: "POST /workers", Handler: http.HandlerFunc(a.hireWorker)},
 		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},
@@ -163,14 +165,19 @@ func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, buildChart(positions, workers))
+	roles, err := a.deps.Store.Roles.List(ctx, orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("list roles: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, buildChart(positions, workers, roles))
 }
 
 // buildChart walks positions + workers into the tree the chart
 // renders. Exported so it can be reused by future in-process
 // consumers (e.g. an MCP tool surfacing the same shape) without going
 // through HTTP.
-func buildChart(positions []orgchart.Position, workers []orgchart.Worker) Chart {
+func buildChart(positions []orgchart.Position, workers []orgchart.Worker, roles []orgchart.Role) Chart {
 	byPos := make(map[orgchart.PositionID][]orgchart.Worker)
 	for _, w := range workers {
 		if pid := w.Position(); pid != "" {
@@ -226,6 +233,16 @@ func buildChart(positions []orgchart.Position, workers []orgchart.Worker) Chart 
 	out := Chart{Roots: make([]ChartNode, 0, len(roots))}
 	for _, r := range roots {
 		out.Roots = append(out.Roots, build(r))
+	}
+	// Roles list — every role visible to the org, sorted by ID,
+	// surfaced so the React chart can render empty role groups (a
+	// role with no positions yet still appears as a group ready to
+	// receive its first position).
+	sortedRoles := append([]orgchart.Role(nil), roles...)
+	sort.SliceStable(sortedRoles, func(i, j int) bool { return sortedRoles[i].ID < sortedRoles[j].ID })
+	out.Roles = make([]RoleBadge, 0, len(sortedRoles))
+	for _, ro := range sortedRoles {
+		out.Roles = append(out.Roles, RoleBadge{ID: string(ro.ID)})
 	}
 	return out
 }

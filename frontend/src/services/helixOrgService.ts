@@ -22,8 +22,26 @@ export interface ChartNode {
   children?: ChartNode[]
 }
 
+export interface RoleBadge {
+  id: string
+}
+
 export interface Chart {
   roots: ChartNode[]
+  roles?: RoleBadge[]
+}
+
+export interface CreateRoleRequest {
+  id: string
+  content: string
+  tools?: string[]
+  streams?: string[]
+}
+
+export interface CreatePositionRequest {
+  id: string
+  role_id: string
+  parent_id?: string
 }
 
 export interface PositionDTO {
@@ -156,6 +174,70 @@ export function useFireHelixOrgWorker() {
   return useMutation({
     mutationFn: async (workerId: string) => {
       await api.delete(`${base}/workers/${encodeURIComponent(workerId)}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// useCreateHelixOrgRole creates a new Role row in the current org.
+export function useCreateHelixOrgRole() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: CreateRoleRequest) => {
+      await api.post(`${base}/roles`, payload)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// useCreateHelixOrgPosition creates a new Position row in the
+// current org under the given Role.
+export function useCreateHelixOrgPosition() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: CreatePositionRequest) => {
+      await api.post(`${base}/positions`, payload)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// useDeleteHelixOrgRole cascades — every Position under the Role is
+// deleted, every Worker in those Positions is fired. The owner Role
+// is server-side protected (409).
+export function useDeleteHelixOrgRole() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (roleId: string) => {
+      await api.delete(`${base}/roles/${encodeURIComponent(roleId)}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// useDeleteHelixOrgPosition cascades — the Worker in the Position
+// (if any) is fired. The root position is server-side protected (409).
+export function useDeleteHelixOrgPosition() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (positionId: string) => {
+      await api.delete(`${base}/positions/${encodeURIComponent(positionId)}`)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })

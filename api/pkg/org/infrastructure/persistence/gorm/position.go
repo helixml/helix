@@ -84,3 +84,10 @@ func (r *positionsRepo) Update(ctx context.Context, pos orgchart.Position) error
 		}),
 	)
 }
+
+// Delete removes one Position row. Cascading the firing of the
+// Worker (if any) into this Position is the lifecycle service's
+// responsibility, not the store layer.
+func (r *positionsRepo) Delete(ctx context.Context, orgID string, id orgchart.PositionID) error {
+	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
