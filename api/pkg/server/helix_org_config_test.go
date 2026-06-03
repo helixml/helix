@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	helixorgconfig "github.com/helixml/helix/api/pkg/org/config"
-	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
-	"github.com/helixml/helix/api/pkg/org/worker"
+	helixorgconfig "github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
 // TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets pins
@@ -30,7 +30,7 @@ func TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets(t *testing.T)
 	registerHelixOrgConfigSpecs(reg)
 
 	const raw = `{"token":"plaintext-token-leaked","webhook_secret":"plaintext-secret-leaked"}`
-	if err := reg.Set(context.Background(), "org-test", "transport.github", raw, worker.ID("")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.github", raw, orgchart.WorkerID("")); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 

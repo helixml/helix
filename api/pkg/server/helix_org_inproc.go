@@ -28,7 +28,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )

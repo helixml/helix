@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"

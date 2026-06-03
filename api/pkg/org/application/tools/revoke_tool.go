@@ -1,0 +1,44 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/google/jsonschema-go/jsonschema"
+
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/tool"
+)
+
+// RevokeTool deletes an existing ToolGrant. Owner-only.
+type RevokeTool struct {
+	deps Deps
+}
+
+const RevokeToolName tool.Name = "revoke_tool"
+
+var revokeToolSchema = mustSchema[revokeToolArgs]()
+
+func (t *RevokeTool) Name() tool.Name                 { return RevokeToolName }
+func (t *RevokeTool) Description() string             { return "Revoke an existing tool grant by ID." }
+func (t *RevokeTool) InputSchema() *jsonschema.Schema { return revokeToolSchema }
+
+type revokeToolArgs struct {
+	GrantID string `json:"grantId"`
+}
+
+func (t *RevokeTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args revokeToolArgs
+	if err := json.Unmarshal(inv.Args, &args); err != nil {
+		return nil, fmt.Errorf("parse args: %w", err)
+	}
+	orgID := inv.Caller.OrganizationID()
+	if orgID == "" {
+		return nil, fmt.Errorf("revoke_tool: caller has no OrgID")
+	}
+	if err := t.deps.Store.Grants.Delete(ctx, orgID, orgchart.GrantID(args.GrantID)); err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]string{"id": args.GrantID})
+}

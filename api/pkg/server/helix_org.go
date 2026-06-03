@@ -14,21 +14,21 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
-	"github.com/helixml/helix/api/pkg/org/activation"
-	"github.com/helixml/helix/api/pkg/org/streamhub"
-	"github.com/helixml/helix/api/pkg/org/config"
-	"github.com/helixml/helix/api/pkg/org/dispatch"
-	"github.com/helixml/helix/api/pkg/org/lifecycle"
-	"github.com/helixml/helix/api/pkg/org/prompts"
-	"github.com/helixml/helix/api/pkg/org/runtime"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/runtime/helix"
-	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
-	helixorgapi "github.com/helixml/helix/api/pkg/org/server/api"
-	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
-	orggorm "github.com/helixml/helix/api/pkg/org/store/gorm"
-	"github.com/helixml/helix/api/pkg/org/tools"
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/prompts"
+	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 
-	"github.com/helixml/helix/api/pkg/org/worker"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
@@ -119,7 +119,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Wake-only stream notifier. Backed by the host API server's
 	// pubsub.PubSub (the canonical Helix NATS instance) — the
 	// streamhub package is a thin facade preserving the typed
-	// stream.ID API the helix-org call sites used when this was the
+	// streaming.StreamID API the helix-org call sites used when this was the
 	// in-process broadcast.Hub.
 	bc := streamhub.New(cfg.APIServer.pubsub)
 	deps := tools.DefaultDeps(st)
@@ -133,7 +133,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// /api/v1/orgs/{org}/settings). Constructed before the spawner
 	// so the spawner can read chat.app_id / helix.url at activation
 	// time.
-	configReg := config.New(st.Configs)
+	configReg := configregistry.New(st.Configs)
 	registerHelixOrgConfigSpecs(configReg)
 
 	// The Helix service api_key is per-org and provisioned lazily by
@@ -295,7 +295,7 @@ type helixOrgConfig struct {
 // load/save the per-Worker session pointer on the same row the
 // spawner uses (helix-org's WorkerRuntimeState).
 type dynamicProjectApplier struct {
-	cfg        *config.Registry
+	cfg        *configregistry.Registry
 	projectSvc runtimehelix.ProjectService
 	Store      *helixorgstore.Store
 	logger     *slog.Logger
@@ -305,7 +305,7 @@ type dynamicProjectApplier struct {
 // runtimehelix.WorkerProject from the current registry state and
 // delegates. WorkerProject.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
-func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID worker.ID) (projectID, agentAppID, repoID string, err error) {
+func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
 	applier, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
@@ -329,7 +329,7 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	orgID string,
-	cfg *config.Registry,
+	cfg *configregistry.Registry,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
@@ -377,7 +377,7 @@ var helixOrgWorkspaceRef *runtimehelix.Workspace
 // We coerce silly combinations (e.g. zed_agent + subscription) to the
 // only mode that actually works for that runtime, mirroring Helix's
 // per-agent validator.
-func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *config.Registry) (runtime, credentials, provider, model string) {
+func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregistry.Registry) (runtime, credentials, provider, model string) {
 	runtime, _ = cfg.GetString(ctx, orgID, "worker.runtime")
 	if runtime == "" {
 		runtime = "claude_code"
@@ -444,7 +444,7 @@ func buildInProcHelixClient(ctx context.Context, apiServer *HelixAPIServer, heli
 func buildHelixOrgSpawnerConfig(
 	ctx context.Context,
 	orgID string,
-	cfg *config.Registry,
+	cfg *configregistry.Registry,
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
 	orgStore *helixorgstore.Store,
@@ -508,7 +508,7 @@ func buildHelixOrgSpawnerConfig(
 // disturbing the shared MaxInflight semaphore inside the cached
 // spawner.
 func lazyHelixOrgSpawner(
-	cfg *config.Registry,
+	cfg *configregistry.Registry,
 	helixStore helixstore.Store,
 	spawnerClient runtimehelix.SpawnerClient,
 	orgStore *helixorgstore.Store,
@@ -522,7 +522,7 @@ func lazyHelixOrgSpawner(
 		mu      sync.Mutex
 		spawner runtime.Spawner
 	)
-	return func(ctx context.Context, orgID string, workerID worker.ID, envPath string, triggers []activation.Trigger) error {
+	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating. Without this, the cached
 		// spawner's first activation bakes whatever worker.* values

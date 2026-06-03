@@ -12,10 +12,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/bootstrap"
-	"github.com/helixml/helix/api/pkg/org/config"
-	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
-	helixorgstore "github.com/helixml/helix/api/pkg/org/store"
+	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
@@ -24,20 +24,20 @@ import (
 // working-directory root (envs land under <root>/<orgID>/) so two
 // orgs can both have a `w-owner` Worker without clashing on disk.
 type helixOrgScope struct {
-	configs    *config.Registry
+	configs    *configregistry.Registry
 	orgStore   *helixorgstore.Store
 	envsRoot   string
 	helixStore helixstore.Store
 
-	mu            sync.Mutex
-	bootstrapped  map[string]bool
+	mu           sync.Mutex
+	bootstrapped map[string]bool
 }
 
 // newHelixOrgScope wires the data the middleware needs. configs and
 // orgStore are the same instances handed to the helix-org handler;
 // envsRoot is the parent directory under which `<orgID>/w-owner/`
 // will land at bootstrap time.
-func newHelixOrgScope(configs *config.Registry, orgStore *helixorgstore.Store, envsRoot string, hs helixstore.Store) *helixOrgScope {
+func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, envsRoot string, hs helixstore.Store) *helixOrgScope {
 	return &helixOrgScope{
 		configs:      configs,
 		orgStore:     orgStore,

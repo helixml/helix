@@ -7,7 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	helixorgserver "github.com/helixml/helix/api/pkg/org/server"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/types"
 )
 

@@ -7,9 +7,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/config"
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 
-	"github.com/helixml/helix/api/pkg/org/worker"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -21,43 +21,43 @@ import (
 // Worker (owner included) gets provisioned with. Everything else is
 // derived. The `helix.*` keys are auto-managed plumbing the user
 // shouldn't normally touch.
-func registerHelixOrgConfigSpecs(r *config.Registry) {
-	r.Register(config.Spec{
+func registerHelixOrgConfigSpecs(r *configregistry.Registry) {
+	r.Register(configregistry.Spec{
 		Key:         "worker.runtime",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Default:     `"claude_code"`,
 		Description: "Code-agent runtime applied to every Worker's Helix project. `claude_code` (default) is the Anthropic Claude CLI; `zed_agent` is the Helix-routed conversational agent. Other runtimes (e.g. `qwen_code`) work if Helix supports them.",
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "worker.credentials",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Default:     `"subscription"`,
 		Description: "Auth source for the runtime. `subscription` (default) uses the operator's connected Claude OAuth (only valid for `claude_code`). `api_key` routes inference through Helix's anthropic/openai/etc. provider (configured separately in Helix Providers); requires `worker.provider` and `worker.model` to be set. For `zed_agent` and other non-subscription runtimes this is effectively always `api_key`.",
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "worker.provider",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Description: "Helix provider name (e.g. `anthropic`, `openai`) routed-through inference uses. Required when `worker.credentials=api_key` or when `worker.runtime` is anything other than `claude_code`. Must match a provider configured in Helix's Providers panel (or auto-provisioned from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars at startup).",
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "worker.model",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Description: "Model ID for the chosen provider (e.g. `claude-sonnet-4-5`, `gpt-4o-mini`). Required alongside `worker.provider` whenever inference routes through Helix. Ignored for `claude_code`+`subscription` (the CLI picks its own model).",
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "worker.specs_mandate",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Description: "Activation-prompt directive that tells every Worker how to find role.md / identity.md / agent.md on the helix-specs branch and how to checkpoint state back. The default (runtimehelix.DefaultHelixSpecsMandate) handles the standard layout; override when the file paths, the git-pull recipe, or the checkpoint convention change without redeploying. Use an empty string to fall back to the default.",
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "helix.url",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Default:     `"http://localhost:8080"`,
 		Description: "Base URL of the Helix server this org talks to. Defaults to localhost because we're embedded in the api container.",
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "helix.api_key",
-		Type:        config.TypeString,
+		Type:        configregistry.TypeString,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request (rare — most calls forward the user's own api key). Auto-provisioned at startup against the first admin user.",
 	})
 	// Transport-level secrets: every Stream whose transport is `postmark`
@@ -66,15 +66,15 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 	// future refactor that drops one of the entries from the Secrets
 	// list would silently start leaking the value to anyone with shell
 	// access who reads the configs table; the test pins them.
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "transport.postmark",
-		Type:        config.TypeObject,
+		Type:        configregistry.TypeObject,
 		Secrets:     []string{"token"},
 		Description: `Postmark account config: {"token","inbound","from"}. Required only if any Stream uses transport=email.`,
 	})
-	r.Register(config.Spec{
+	r.Register(configregistry.Spec{
 		Key:         "transport.github",
-		Type:        config.TypeObject,
+		Type:        configregistry.TypeObject,
 		Secrets:     []string{"token", "webhook_secret"},
 		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
 	})
@@ -91,7 +91,7 @@ func registerHelixOrgConfigSpecs(r *config.Registry) {
 // Worker (design note: shared Worker risk), so co-tenanting on one
 // service identity is consistent — multi-tenant attribution is a
 // future change.
-func ensureHelixOrgServiceAPIKey(ctx context.Context, orgID string, st helixstore.Store, reg *config.Registry) (string, error) {
+func ensureHelixOrgServiceAPIKey(ctx context.Context, orgID string, st helixstore.Store, reg *configregistry.Registry) (string, error) {
 	if existing, _ := reg.GetString(ctx, orgID, "helix.api_key"); existing != "" {
 		if _, err := st.GetAPIKey(ctx, &types.ApiKey{Key: existing}); err == nil {
 			return existing, nil
@@ -146,7 +146,7 @@ func ensureHelixOrgServiceAPIKey(ctx context.Context, orgID string, st helixstor
 	if err != nil {
 		return "", fmt.Errorf("encode api key: %w", err)
 	}
-	if err := reg.Set(ctx, orgID, "helix.api_key", string(payload), worker.ID("w-owner")); err != nil {
+	if err := reg.Set(ctx, orgID, "helix.api_key", string(payload), orgchart.WorkerID("w-owner")); err != nil {
 		return "", fmt.Errorf("save api key to config: %w", err)
 	}
 	log.Info().
