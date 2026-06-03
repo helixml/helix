@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -322,7 +323,18 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 		// exception") because the message references elements that are no
 		// longer in a valid state. Deterministic Unref keeps the C-side
 		// lifetimes tight.
+		//
+		// CRITICAL: bus.TimedPop returns a *Message wrapped via go-gst's
+		// FromGstMessageUnsafeFull — the wrapper does NOT take an extra ref
+		// (the C call already transferred one) but DOES install a finalizer
+		// that calls gst_message_unref. If we just call msg.Unref() we drop
+		// the only ref to zero and free the C struct, then later the GC
+		// finalizer runs gst_message_unref a second time on freed memory —
+		// either tripping the "REFCOUNT_VALUE > 0" assertion or, worse,
+		// corrupting the heap once GStreamer reuses the slot. Disarm the
+		// finalizer first so only our explicit Unref decrements the refcount.
 		g.handleBusMessage(msg)
+		runtime.SetFinalizer(msg, nil)
 		msg.Unref()
 		if !g.running.Load() {
 			return
