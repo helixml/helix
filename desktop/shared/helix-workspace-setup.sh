@@ -790,27 +790,28 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
     done
 fi
 
-# FAIL if no folders found AND repositories were requested (clone failure).
-# But: chat-only sessions (helix-org agent apps, ad-hoc chats) legitimately
-# arrive with no HELIX_REPOSITORIES at all — those should still launch Zed
-# so the external agent can WebSocket-connect back to the API. Falling back
-# to $WORK_DIR as the workspace folder gives Zed a valid root.
+# FAIL if no folders found — don't start Zed with an empty workspace.
+#
+# Helix-org's per-Worker agent apps used to land here with empty
+# HELIX_REPOSITORIES; the previous incarnation of this script had a
+# fallback that opened $WORK_DIR as a "chat-only" workspace, but that
+# was papering over a real bug — the helix-org application service
+# was silently letting projects come up without an attached repo
+# because CreateGitRepo / AttachRepoToProject failures were warn-and-
+# continue rather than fatal. That contract is now enforced at
+# api/pkg/org/infrastructure/runtime/helix/project.go (see
+# TestEnsureRequiresRepoToBeAttached) so HELIX_REPOSITORIES is always
+# populated when the desktop boots. If we land here it means a real
+# upstream bug — fail loudly so we see it instead of papering over.
 if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
-    if [ -n "$HELIX_REPOSITORIES" ]; then
-        echo ""
-        echo "❌ ERROR: No repositories were cloned successfully"
-        echo ""
-        echo "Cannot start Zed without a proper workspace."
-        echo "Check the errors above and fix the issue."
-        echo ""
-        echo "The terminal will stay open so you can debug."
-        exit 1
-    fi
-
     echo ""
-    echo "  No repositories configured — opening $WORK_DIR as workspace root"
-    echo "  (chat-only session; Zed still needs a folder to launch)"
-    ZED_FOLDERS+=("$WORK_DIR")
+    echo "❌ ERROR: No repositories were cloned successfully"
+    echo ""
+    echo "Cannot start Zed without a proper workspace."
+    echo "Check the errors above and fix the issue."
+    echo ""
+    echo "The terminal will stay open so you can debug."
+    exit 1
 fi
 
 # Write folders to file for main script to read

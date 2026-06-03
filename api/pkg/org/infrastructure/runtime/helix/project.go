@@ -223,34 +223,44 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		repoID = proj.DefaultRepoID
 		projOrgID = proj.OrganizationID
 	}
-	// Helix's project-apply does NOT auto-create a default repo —
-	// create one and attach it as primary so the desktop can launch
-	// Zed.
+	// Helix's project-apply does NOT auto-create a default repo. We
+	// MUST create one and attach it as primary, because:
+	//
+	//   - HELIX_REPOSITORIES is set from the project's attached repos
+	//     when hydra launches the desktop; an empty list means the
+	//     bringup script has nothing for Zed to open.
+	//   - update_role / update_identity write role.md / identity.md
+	//     into the repo on the helix-specs branch — without a repo
+	//     they have nowhere to go.
+	//
+	// Earlier versions of this code logged a warning on failure and
+	// returned a project with empty RepoID, which surfaced as a 5-min
+	// desktop timeout on activation. Now we fail loudly: the caller
+	// gets a clear error at apply time, the activation queue records
+	// it, the operator sees it in the snackbar instead of "Still
+	// waiting for external agent to connect".
 	if repoID == "" {
 		ownerID, _ := a.Service.WhoAmI(ctx)
-		if ownerID != "" {
-			repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
-				Name:           string(workerID),
-				OwnerID:        ownerID,
-				OrganizationID: projOrgID,
-				InitialFiles: map[string]string{
-					"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix Worker `" + string(workerID) + "`. Files in `job/` carry the role + identity prompt.\n",
-				},
-			})
-			if err != nil && a.Logger != nil {
-				a.Logger.Warn("create git repo for project", "worker", workerID, "err", err)
-			} else if err == nil {
-				if err := a.Service.AttachRepoToProject(ctx, resp.ProjectID, repo.ID, true); err != nil {
-					if a.Logger != nil {
-						a.Logger.Warn("attach repo to project", "worker", workerID, "repo", repo.ID, "err", err)
-					}
-				} else {
-					repoID = repo.ID
-					if a.Logger != nil {
-						a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
-					}
-				}
-			}
+		if ownerID == "" {
+			return "", "", "", fmt.Errorf("apply project for %s: cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)", workerID)
+		}
+		repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
+			Name:           string(workerID),
+			OwnerID:        ownerID,
+			OrganizationID: projOrgID,
+			InitialFiles: map[string]string{
+				"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix Worker `" + string(workerID) + "`. Files in `job/` carry the role + identity prompt.\n",
+			},
+		})
+		if err != nil {
+			return "", "", "", fmt.Errorf("apply project for %s: create per-Worker repo: %w", workerID, err)
+		}
+		if err := a.Service.AttachRepoToProject(ctx, resp.ProjectID, repo.ID, true); err != nil {
+			return "", "", "", fmt.Errorf("apply project for %s: attach repo %s to project %s: %w", workerID, repo.ID, resp.ProjectID, err)
+		}
+		repoID = repo.ID
+		if a.Logger != nil {
+			a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
 		}
 	}
 	a.republishWorkerFiles(ctx, workerID, repoID, roleContent, worker.IdentityContent())

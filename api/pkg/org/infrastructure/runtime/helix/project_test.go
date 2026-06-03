@@ -33,6 +33,7 @@ type fakeProjectService struct {
 	putSecretLast      map[string]string
 	createGitRepoCalls int
 	createGitRepoErr   error
+	attachRepoErr      error
 	attachRepoCalls    int
 	getAppCalls        int
 	appConfig          types.AppConfig
@@ -99,7 +100,7 @@ func (f *fakeProjectService) AttachRepoToProject(_ context.Context, _, _ string,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.attachRepoCalls++
-	return nil
+	return f.attachRepoErr
 }
 
 func (f *fakeProjectService) CreateBranch(_ context.Context, _, _, _ string) error {
@@ -265,6 +266,83 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
 		t.Errorf("state = %+v", state)
 	}
+	// RepoID is part of the contract — without it the desktop bringup
+	// has no folder for Zed to open and times out. See
+	// TestEnsureRequiresRepoToBeAttached for the explicit pin and the
+	// historical context that justifies the assertion.
+	if state.RepoID == "" {
+		t.Errorf("state.RepoID is empty — Ensure must attach a repo, otherwise HELIX_REPOSITORIES is empty and the desktop bringup script aborts")
+	}
+	if repoID == "" {
+		t.Errorf("returned repoID is empty — same reasoning")
+	}
+}
+
+// TestEnsureRequiresRepoToBeAttached is the red-then-green test for
+// the workaround-removed-fail-loud refactor.
+//
+// Symptom: zed_external sessions for helix-org workers timed out
+// because HELIX_REPOSITORIES landed empty in the desktop env, and
+// `desktop/shared/helix-workspace-setup.sh` aborts when it has no
+// folders to clone. A first-pass fix in that script papered over the
+// issue by falling back to ~/work, but the actual contract is "every
+// Worker gets its own repo, period" — that's how Helix projects work
+// generally and how the helix-org alpha worked before the
+// infrastructure/runtime refactor.
+//
+// This test pins the contract on the application service side. If
+// CreateGitRepo or AttachRepoToProject fail (or the inProc adapter
+// stops wiring them), Ensure must fail loudly instead of silently
+// returning a project with empty RepoID, so the issue surfaces at
+// activation time with a clear error rather than as a downstream
+// bringup-script timeout.
+func TestEnsureRequiresRepoToBeAttached(t *testing.T) {
+	t.Parallel()
+
+	t.Run("CreateGitRepo failure aborts", func(t *testing.T) {
+		st, wid := newProjectTestStore(t, "# Role: engineer")
+		svc := newFakeProjectService()
+		svc.createGitRepoErr = errors.New("boom")
+		git := newFakeGitForProject()
+		a := newApplierGit(svc, git, st)
+
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		if err == nil {
+			t.Fatal("Ensure returned nil error when CreateGitRepo failed; must propagate so the activation surface knows the worker has no usable workspace")
+		}
+		if !strings.Contains(err.Error(), "boom") {
+			t.Errorf("error does not wrap the underlying cause: %v", err)
+		}
+	})
+
+	t.Run("AttachRepoToProject failure aborts", func(t *testing.T) {
+		st, wid := newProjectTestStore(t, "# Role: engineer")
+		svc := newFakeProjectService()
+		svc.attachRepoErr = errors.New("nope")
+		git := newFakeGitForProject()
+		a := newApplierGit(svc, git, st)
+
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		if err == nil {
+			t.Fatal("Ensure returned nil error when AttachRepoToProject failed; must propagate")
+		}
+		if !strings.Contains(err.Error(), "nope") {
+			t.Errorf("error does not wrap the underlying cause: %v", err)
+		}
+	})
+
+	t.Run("WhoAmI returning empty owner is a configuration error", func(t *testing.T) {
+		st, wid := newProjectTestStore(t, "# Role: engineer")
+		svc := newFakeProjectService()
+		svc.whoAmIResp = ""
+		git := newFakeGitForProject()
+		a := newApplierGit(svc, git, st)
+
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		if err == nil {
+			t.Fatal("Ensure returned nil error when WhoAmI gave an empty owner; without an owner we can't create a repo at all, so this must fail loudly")
+		}
+	})
 }
 
 // TestEnsureWithPersistedProjectFastPaths checks the persisted-project
