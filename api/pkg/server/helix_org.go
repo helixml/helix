@@ -220,7 +220,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// a nil-deref. (Reproducer: hire AI worker via chart → click the
 	// chip → API panics at project.go:156 inside the cached spawner's
 	// ensureProject before this argument existed.)
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, deps.NewID, deps.Now)
+	// gitHubTokenResolver resolves a current GitHub OAuth access token
+	// for an org by walking the org's members + their oauth_connections
+	// (see helix_org_github.go). The helix-org spawner uses it to
+	// inject `GH_TOKEN` into each Worker's desktop env so the
+	// `gh` CLI is authenticated without manual login. Same resolver
+	// the github stream transport already uses — one OAuth pipeline
+	// drives every helix-org GitHub touchpoint.
+	gitHubTokenResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, gitHubTokenResolver, deps.NewID, deps.Now)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -279,7 +287,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// have already authorised, so operators don't have to paste a
 		// PAT into transport.github. The resolver lives in
 		// helix_org_github.go.
-		GitHubTokenResolver: newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore),
+		GitHubTokenResolver: gitHubTokenResolver,
 		// PublicServerURL is the externally-reachable base URL the
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
@@ -569,6 +577,13 @@ func buildHelixOrgSpawnerConfig(
 	// every AI activation), the bridge panicked at sessions.go:257.
 	ps pubsub.PubSub,
 	logger *slog.Logger,
+	// gitHubTokenResolver, when non-nil, is invoked on every
+	// activation by the spawner to refresh the `GH_TOKEN` project
+	// secret. Reuses the existing GitHub OAuth plumbing (see
+	// newGitHubOAuthResolver) so the worker's `gh` CLI authenticates
+	// against the org's connected GitHub app without operators having
+	// to paste a PAT into the worker's environment.
+	gitHubTokenResolver func(ctx context.Context, orgID string) (string, error),
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
@@ -616,6 +631,7 @@ func buildHelixOrgSpawnerConfig(
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return resolveUserHelixAPIKey(ctx, helixStore, userID)
 		},
+		GitHubTokenResolver: gitHubTokenResolver,
 	}, nil
 }
 
@@ -650,6 +666,7 @@ func lazyHelixOrgSpawner(
 	ps pubsub.PubSub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
+	gitHubTokenResolver func(ctx context.Context, orgID string) (string, error),
 	newID func() string,
 	now func() time.Time,
 ) runtime.Spawner {
@@ -672,7 +689,7 @@ func lazyHelixOrgSpawner(
 		current := spawner
 		mu.Unlock()
 		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, newID, now)
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, gitHubTokenResolver, newID, now)
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}

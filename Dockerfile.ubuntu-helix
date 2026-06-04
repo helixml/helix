@@ -763,6 +763,26 @@ RUN apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI (gh) — required for helix-org workers to comment on
+# GitHub issues / PRs via the org's GitHub OAuth token. Helix-org
+# injects the OAuth access token as the GH_TOKEN env var on container
+# start (see api/pkg/org/infrastructure/runtime/helix/spawner.go's
+# injectGitHubToken), so `gh auth status` succeeds out-of-the-box
+# with no `gh auth login` step. Installed from the official
+# cli.github.com apt repo for stable, signed releases.
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update && \
+    apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/* && \
+    gh --version
+
 # ====================================================================
 # Chrome + DevTools MCP Server (stable dependency - installed early)
 # ====================================================================

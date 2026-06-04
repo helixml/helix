@@ -55,6 +55,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 		hub,
 		pubsub.NewNoop(), // PubSub — required since spawner.bridge.run calls SubscribeSessionUpdates
 		logger,
+		nil, // gitHubTokenResolver — not exercised here
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)
@@ -63,6 +64,59 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	// Same pointer round-tripped — confirms the builder copies the
 	// host-provided service, not some other one constructed inside.
 	require.Same(t, projectSvc, cfg.ProjectService.(*inProcHelixClient))
+}
+
+// TestBuildHelixOrgSpawnerConfig_WiresGitHubTokenResolver pins the
+// GitHub-OAuth → spawner wiring. The host (helix_org.go) constructs
+// a resolver via newGitHubOAuthResolver and passes it through to the
+// spawner config. The spawner's per-activation injectGitHubToken
+// path then calls it to refresh `GH_TOKEN` on every activation.
+//
+// Without this assertion the host could silently drop the resolver
+// at the boundary — workers would land in the desktop with `gh`
+// unauthenticated and no clear error pointing at the wiring gap.
+func TestBuildHelixOrgSpawnerConfig_WiresGitHubTokenResolver(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	orgStore := orggorm.GetOrgTestDB(t)
+	reg := helixorgconfig.New(orgStore.Configs)
+	registerHelixOrgConfigSpecs(reg)
+
+	const orgID = "org-test"
+	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
+	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
+
+	_, _, projectSvc, _ := newInProcTestSetup(t)
+	hub := streamhub.New(pubsub.NewNoop())
+
+	var called int
+	resolver := func(_ context.Context, gotOrg string) (string, error) {
+		called++
+		require.Equal(t, orgID, gotOrg)
+		return "gho_test", nil
+	}
+
+	cfg, err := buildHelixOrgSpawnerConfig(
+		ctx, orgID, reg, nil,
+		nil,
+		projectSvc,
+		orgStore,
+		hub,
+		pubsub.NewNoop(),
+		slog.Default(),
+		resolver,
+		func() string { return "id" },
+		func() time.Time { return time.Unix(0, 0).UTC() },
+	)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.GitHubTokenResolver, "GitHubTokenResolver must be wired — without it the worker desktop has no GH_TOKEN")
+	// Round-trip the resolver to confirm it's the host-provided one, not
+	// some intermediate wrapper that drops the value.
+	tok, rerr := cfg.GitHubTokenResolver(ctx, orgID)
+	require.NoError(t, rerr)
+	require.Equal(t, "gho_test", tok)
+	require.Equal(t, 1, called)
 }
 
 // TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService pins the
@@ -89,6 +143,7 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 		orgStore, streamhub.New(pubsub.NewNoop()),
 		pubsub.NewNoop(),
 		slog.Default(),
+		nil, // gitHubTokenResolver
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)

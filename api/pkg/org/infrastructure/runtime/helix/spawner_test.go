@@ -549,6 +549,68 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	}
 }
 
+// TestSpawnerInjectsGHTokenSecret pins the GitHub-OAuth → GH_TOKEN
+// injection. When the spawner is configured with a
+// GitHubTokenResolver that returns a non-empty token, every
+// activation must upsert that token as a project secret named
+// "GH_TOKEN" so the desktop container's `gh` CLI starts already
+// authenticated. The token is resolved on every activation (NOT at
+// hire time) so refreshed OAuth tokens propagate without re-hiring.
+func TestSpawnerInjectsGHTokenSecret(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.GitHubTokenResolver = func(_ context.Context, orgID string) (string, error) {
+		if orgID != "org-test" {
+			t.Errorf("resolver got orgID = %q, want org-test", orgID)
+		}
+		return "gho_token_abc", nil
+	}
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	svc := cfg.ProjectService.(*fakeProjectService)
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.putSecretLast["GH_TOKEN"] != "gho_token_abc" {
+		t.Errorf("GH_TOKEN secret = %q, want %q (set keys: %v)", svc.putSecretLast["GH_TOKEN"], "gho_token_abc", svc.putSecretLast)
+	}
+}
+
+// TestSpawnerSkipsGHTokenWhenResolverEmpty pins the degraded-mode
+// path: when no GitHub OAuth connection is configured (resolver
+// returns "" without error), the spawner MUST NOT set GH_TOKEN to
+// an empty string — that would shadow any pre-existing value and
+// break the worker's `gh` CLI. Other secrets (HELIX_WORKER_ID,
+// HELIX_ORG_URL) are unaffected.
+func TestSpawnerSkipsGHTokenWhenResolverEmpty(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.GitHubTokenResolver = func(_ context.Context, _ string) (string, error) {
+		return "", nil
+	}
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	svc := cfg.ProjectService.(*fakeProjectService)
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if _, set := svc.putSecretLast["GH_TOKEN"]; set {
+		t.Errorf("GH_TOKEN should NOT be set when resolver returns empty; got %q", svc.putSecretLast["GH_TOKEN"])
+	}
+}
+
 // TestSpawnerRecordsActivationRowOnError pins the failure path: a
 // Spawner error still records an activation row with StatusError
 // and the wrapped err.Error() text.
