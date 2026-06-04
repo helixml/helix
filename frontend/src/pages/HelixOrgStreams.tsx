@@ -5,7 +5,10 @@
 // worker pulls from which stream.
 
 import { FC, MouseEvent, useEffect, useMemo, useState } from 'react'
+import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
+import Checkbox from '@mui/material/Checkbox'
+import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Dialog from '@mui/material/Dialog'
@@ -44,9 +47,27 @@ import {
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
   { value: 'webhook', label: 'webhook', help: 'HTTP webhook. Inbound by default; outbound URL = bidirectional.' },
-  { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Stream config: {"repo":"owner/name","events":["issues","pull_request",...]}. Set transport.github.webhook_secret on the Settings page; the GitHub access token is reused from your existing GitHub OAuth connection automatically — no PAT needed.' },
+  { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Scope this stream to a single repo + a whitelist of event types. Webhook secret is set once at the org level on the Settings page; the GitHub access token is reused from your OAuth connection automatically.' },
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
 ]
+
+// GITHUB_EVENT_OPTIONS mirrors the backend's knownGitHubEvents map in
+// api/pkg/org/domain/transport/github.go — the validator rejects any
+// event not in this list. Keep the two in sync; adding a new event is
+// a one-line edit on each side. Order matches GitHub's docs grouping
+// (issue stuff first, then PR stuff).
+const GITHUB_EVENT_OPTIONS: { value: string; help: string }[] = [
+  { value: 'issues', help: 'Issue opened/closed/labeled/etc.' },
+  { value: 'issue_comment', help: 'Comment on an issue or pull request.' },
+  { value: 'pull_request', help: 'PR opened/synced/closed/etc.' },
+  { value: 'pull_request_review', help: 'Submitted PR reviews (approve/changes-requested/comment).' },
+  { value: 'pull_request_review_comment', help: 'Line-level review comments inside a PR diff.' },
+]
+
+// owner/name pattern — exactly one slash, both halves non-empty. Mirrors
+// transport/github.go's Validate; we surface the error before submit
+// rather than after a 400.
+const GITHUB_REPO_PATTERN = /^[^/\s]+\/[^/\s]+$/
 
 // streamRowId is the canonical HTML id assigned to each row in the
 // streams table. Exported so other components (the chart deep-link,
@@ -278,6 +299,12 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   const [kind, setKind] = useState('local')
   const [configText, setConfigText] = useState('')
   const [copied, setCopied] = useState(false)
+  // Structured fields for kind=github. The backend validator rejects
+  // anything missing repo or with an empty/unknown events list, so the
+  // dialog presents them as first-class inputs rather than expecting
+  // the operator to hand-write the JSON.
+  const [ghRepo, setGhRepo] = useState('')
+  const [ghEvents, setGhEvents] = useState<string[]>([])
 
   // The operator-configured public origin is what we want to show in
   // the github-stream URL hint; window.location.origin is the
@@ -304,13 +331,30 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
 
+  const ghRepoValid = ghRepo.trim() !== '' && GITHUB_REPO_PATTERN.test(ghRepo.trim())
+  const ghRepoError = ghRepo.trim() !== '' && !ghRepoValid
+    ? 'Format must be exactly owner/name (e.g. helixml/helix).'
+    : ''
+
   const submit = async () => {
     if (!name.trim()) {
       snackbar.error('Name is required')
       return
     }
     let config: Record<string, unknown> | undefined
-    if (configText.trim()) {
+    if (kind === 'github') {
+      // Structured fields → wire config. Mirror the backend's
+      // GitHubConfig shape exactly so the validator passes first try.
+      if (!ghRepo.trim() || !ghRepoValid) {
+        snackbar.error('GitHub repo is required and must be owner/name')
+        return
+      }
+      if (ghEvents.length === 0) {
+        snackbar.error('Pick at least one GitHub event type')
+        return
+      }
+      config = { repo: ghRepo.trim(), events: ghEvents }
+    } else if (configText.trim()) {
       try {
         config = JSON.parse(configText)
       } catch (e) {
@@ -327,6 +371,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
       })
       snackbar.success('stream created')
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
+      setGhRepo(''); setGhEvents([])
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -335,6 +380,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
+    setGhRepo(''); setGhEvents([])
     onClose()
   }
 
@@ -384,32 +430,92 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
           </FormControl>
           <Typography variant="caption" color="text.secondary">{helpFor}</Typography>
           {kind === 'github' && (
-            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                <strong>After Create</strong>, paste this into your GitHub repo's webhook settings (Settings → Webhooks → Add webhook):
-              </Typography>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all', flex: 1 }}>
-                  <strong>Payload URL:</strong> <code>{webhookURL}</code>
+            <>
+              {/* Scoping fields — backed by the Go validator's
+                  GitHubConfig{Repo, Events}. The validator rejects
+                  missing/invalid values with a 400; we surface the
+                  same rules inline so the user catches the mistake
+                  before submit. */}
+              <TextField
+                label="Repository"
+                placeholder="helixml/helix"
+                value={ghRepo}
+                onChange={(e) => setGhRepo(e.target.value)}
+                error={!!ghRepoError}
+                helperText={ghRepoError || 'Exactly one repo per stream — GitHub `owner/name` (e.g. helixml/helix). Matched case-insensitively against repository.full_name in the payload.'}
+                fullWidth
+                size="small"
+              />
+              <Autocomplete
+                multiple
+                disableCloseOnSelect
+                options={GITHUB_EVENT_OPTIONS}
+                value={GITHUB_EVENT_OPTIONS.filter((o) => ghEvents.includes(o.value))}
+                onChange={(_, next) => setGhEvents(next.map((o) => o.value))}
+                getOptionLabel={(o) => o.value}
+                isOptionEqualToValue={(a, b) => a.value === b.value}
+                renderOption={(props, option, { selected }) => (
+                  <li {...props}>
+                    <Checkbox checked={selected} sx={{ mr: 1 }} />
+                    <Box>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.value}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {option.help}
+                      </Typography>
+                    </Box>
+                  </li>
+                )}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => (
+                    <Chip
+                      {...getTagProps({ index })}
+                      key={option.value}
+                      label={option.value}
+                      size="small"
+                      sx={{ fontFamily: 'monospace' }}
+                    />
+                  ))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Events"
+                    placeholder={ghEvents.length === 0 ? 'Pick the GitHub events this stream consumes…' : ''}
+                    size="small"
+                    helperText="Anything not listed here is dropped at the transport, so subscribed Workers don't activate for events they'd ignore."
+                  />
+                )}
+              />
+              <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  <strong>After Create</strong>, paste this into your GitHub repo's webhook settings (Settings → Webhooks → Add webhook):
                 </Typography>
-                <Button size="small" variant="outlined" onClick={copyWebhookURL} sx={{ minWidth: 56, fontSize: '0.65rem' }}>
-                  {copied ? 'Copied' : 'Copy'}
-                </Button>
-              </Stack>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', mt: 0.5 }}>
-                <strong>Content type:</strong> <code>application/json</code>
-              </Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                <strong>Secret:</strong> same value as <code>transport.github.webhook_secret</code> on the Settings page
-              </Typography>
-              {isLocalhostHint && (
-                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'warning.main', fontFamily: 'monospace', fontSize: '0.65rem' }}>
-                  ⚠ Your helix origin is a loopback address — GitHub's servers cannot reach it. Configure SERVER_URL to your public origin (e.g. behind a reverse proxy or cloudflared tunnel), or expose this listen-port publicly, before pasting into GitHub.
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all', flex: 1 }}>
+                    <strong>Payload URL:</strong> <code>{webhookURL}</code>
+                  </Typography>
+                  <Button size="small" variant="outlined" onClick={copyWebhookURL} sx={{ minWidth: 56, fontSize: '0.65rem' }}>
+                    {copied ? 'Copied' : 'Copy'}
+                  </Button>
+                </Stack>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', mt: 0.5 }}>
+                  <strong>Content type:</strong> <code>application/json</code>
                 </Typography>
-              )}
-            </Box>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                  <strong>Secret:</strong> same value as <code>transport.github.webhook_secret</code> on the Settings page
+                </Typography>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                  <strong>Which events?</strong> Match this stream's selection above when filling GitHub's "Let me select individual events" — extra events GitHub sends but you didn't whitelist here are dropped at the transport.
+                </Typography>
+                {isLocalhostHint && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'warning.main', fontFamily: 'monospace', fontSize: '0.65rem' }}>
+                    ⚠ Your helix origin is a loopback address — GitHub's servers cannot reach it. Configure SERVER_URL to your public origin (e.g. behind a reverse proxy or cloudflared tunnel), or expose this listen-port publicly, before pasting into GitHub.
+                  </Typography>
+                )}
+              </Box>
+            </>
           )}
-          {kind !== 'local' && (
+          {kind !== 'local' && kind !== 'github' && (
             <TextField
               label="Transport config (JSON)"
               placeholder='{"outbound_url": "https://example.com/hook"}'
@@ -418,7 +524,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               multiline
               minRows={4}
               fullWidth
-              helperText="Kind-specific config. Optional for webhook (inbound-only without outbound_url); required for github + postmark."
+              helperText="Kind-specific config. Optional for webhook (inbound-only without outbound_url); required for postmark."
             />
           )}
         </Stack>
