@@ -45,12 +45,25 @@ func EnsureActivationStream(ctx context.Context, s *store.Store, orgID string, w
 	if err := s.Streams.Create(ctx, stream); err != nil {
 		return fmt.Errorf("create activation stream for %q: %w", workerID, err)
 	}
-	sub, err := streaming.NewSubscription(observerID, streamID, now, orgID)
+	// Subscriptions are position-anchored: resolve the observer's
+	// position before creating the subscription. The observer is
+	// either the hiring caller (AI hire) or the owner (bootstrap) —
+	// both have positions. An observer with no position is a wiring
+	// bug; surface it loudly.
+	observer, err := s.Workers.Get(ctx, orgID, observerID)
 	if err != nil {
-		return fmt.Errorf("activation subscription for %q: %w", observerID, err)
+		return fmt.Errorf("get observer worker %q: %w", observerID, err)
+	}
+	observerPosition := observer.Position()
+	if observerPosition == "" {
+		return fmt.Errorf("activation subscription: observer %q has no position", observerID)
+	}
+	sub, err := streaming.NewSubscription(string(observerPosition), streamID, now, orgID)
+	if err != nil {
+		return fmt.Errorf("activation subscription for position %q: %w", observerPosition, err)
 	}
 	if err := s.Subscriptions.Create(ctx, sub); err != nil {
-		return fmt.Errorf("subscribe %q to activation stream %q: %w", observerID, streamID, err)
+		return fmt.Errorf("subscribe position %q to activation stream %q: %w", observerPosition, streamID, err)
 	}
 	return nil
 }

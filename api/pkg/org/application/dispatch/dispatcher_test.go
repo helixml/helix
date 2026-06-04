@@ -181,10 +181,21 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	}
 }
 
-// seedSubscription persists a Worker→Stream subscription.
+// seedSubscription persists a Position→Stream subscription.
+// Subscriptions are position-anchored; tests pass the WorkerID for
+// readability and we look up the worker's position internally so
+// existing call sites need only the worker handle they already have.
 func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, streamID streaming.StreamID) {
 	t.Helper()
-	sub, err := streaming.NewSubscription(workerID, streamID, time.Now().UTC(), "org-test")
+	w, err := s.Workers.Get(context.Background(), "org-test", workerID)
+	if err != nil {
+		t.Fatalf("get worker %q for subscription: %v", workerID, err)
+	}
+	pid := w.Position()
+	if pid == "" {
+		t.Fatalf("worker %q has no position", workerID)
+	}
+	sub, err := streaming.NewSubscription(string(pid), streamID, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}

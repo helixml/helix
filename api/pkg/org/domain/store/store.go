@@ -115,13 +115,18 @@ type Streams interface {
 	Delete(ctx context.Context, orgID string, id streaming.StreamID) error
 }
 
-// Subscriptions persists (Worker, Stream) links. The triple
-// (orgID, workerID, streamID) is the key — there is no synthetic ID.
+// Subscriptions persists (Position, Stream) links. The triple
+// (orgID, positionID, streamID) is the key — there is no synthetic
+// ID. Subscriptions are POSITION-anchored: "whoever fills this slot
+// receives this stream", so hiring or firing a Worker into the
+// position does NOT change which streams it consumes. Dispatch
+// resolves stream → positions → current workers in those positions
+// at delivery time.
 type Subscriptions interface {
 	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error
-	Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error)
-	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) error
+	Find(ctx context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) (streaming.Subscription, error)
+	ListForPosition(ctx context.Context, orgID string, positionID orgchart.PositionID) ([]streaming.Subscription, error)
 	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error)
 }
 

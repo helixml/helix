@@ -57,9 +57,24 @@ func (t *StreamMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}
-	members := make([]orgchart.WorkerID, 0, len(subs))
+	// Subscriptions are position-anchored; "members" means "Worker
+	// IDs filling the subscribed positions right now", which is the
+	// caller's natural mental model ("is the worker I'm about to
+	// message actually listening?"). Resolve positions → current
+	// workers.
+	subscribedPositions := map[string]bool{}
 	for _, sub := range subs {
-		members = append(members, sub.WorkerID)
+		subscribedPositions[string(sub.PositionID)] = true
+	}
+	allWorkers, err := t.deps.Store.Workers.List(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list workers: %w", err)
+	}
+	members := make([]orgchart.WorkerID, 0)
+	for _, w := range allWorkers {
+		if subscribedPositions[string(w.Position())] {
+			members = append(members, w.ID())
+		}
 	}
 	return json.Marshal(map[string]any{
 		"streamId": string(streamID),

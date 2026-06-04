@@ -5,25 +5,31 @@ import (
 	"time"
 )
 
-// Subscription is a Worker's link to a Stream. Events published on the
-// Stream wake the Worker (via the dispatcher, for AI Workers) and show
-// up when they read their events. The (WorkerID, StreamID) pair is the
-// identity — there is no synthetic ID.
+// Subscription is a Position's link to a Stream. The (PositionID,
+// StreamID) pair is the identity — there is no synthetic ID.
 //
-// WorkerID is an orgchart.WorkerID carried as a plain string; the
-// streaming aggregate intentionally does not import orgchart.
+// Subscriptions are POSITION-anchored, not Worker-anchored: the
+// subscription represents "whoever fills this slot in the org chart
+// will see events on this stream". Hiring or firing a Worker into the
+// position doesn't change which Streams the position consumes;
+// dispatch walks (stream → subscribing positions → current workers in
+// those positions) when an event arrives.
+//
+// PositionID is an orgchart.PositionID carried as a plain string; the
+// streaming aggregate intentionally does not import orgchart to keep
+// the dependency DAG one-way.
 type Subscription struct {
 	OrganizationID string
-	WorkerID       string // orgchart.WorkerID
+	PositionID     string // orgchart.PositionID
 	StreamID       StreamID
 	CreatedAt      time.Time
 }
 
 // NewSubscription validates and constructs a Subscription. orgID is
 // required — subscriptions are tenant-scoped.
-func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
-	if workerID == "" {
-		return Subscription{}, errors.New("subscription workerId is empty")
+func NewSubscription(positionID string, streamID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
+	if positionID == "" {
+		return Subscription{}, errors.New("subscription positionId is empty")
 	}
 	if streamID == "" {
 		return Subscription{}, errors.New("subscription streamId is empty")
@@ -36,7 +42,7 @@ func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, or
 	}
 	return Subscription{
 		OrganizationID: orgID,
-		WorkerID:       workerID,
+		PositionID:     positionID,
 		StreamID:       streamID,
 		CreatedAt:      createdAt.UTC(),
 	}, nil

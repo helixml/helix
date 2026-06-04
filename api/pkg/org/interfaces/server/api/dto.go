@@ -246,6 +246,29 @@ type EventCard struct {
 	MessageBody string `json:"message_body,omitempty"`
 }
 
+// PositionSubscriptionDTO is one row in a position's subscription
+// list. created_at is RFC3339 for parsing convenience.
+type PositionSubscriptionDTO struct {
+	StreamID  string `json:"stream_id"`
+	CreatedAt string `json:"created_at"`
+}
+
+// PositionSubscriptionsResponse is the GET /positions/{id}/subscriptions
+// response body. The position id is echoed back so the frontend can
+// match the response to the position it requested (single-fetch
+// concurrency safety).
+type PositionSubscriptionsResponse struct {
+	PositionID    string                    `json:"position_id"`
+	Subscriptions []PositionSubscriptionDTO `json:"subscriptions"`
+}
+
+// SubscribePositionRequest is the POST /positions/{id}/subscriptions
+// body. stream_id is the only field — the position is in the URL,
+// metadata (created_at) is server-stamped.
+type SubscribePositionRequest struct {
+	StreamID string `json:"stream_id"`
+}
+
 // PublishRequest is the body of POST /streams/{id}/publish. Body is
 // required; subject and to are optional.
 type PublishRequest struct {

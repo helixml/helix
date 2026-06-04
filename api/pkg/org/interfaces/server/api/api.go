@@ -144,6 +144,13 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /positions/{id}", Handler: http.HandlerFunc(a.getPosition)},
 		{Pattern: "PUT /positions/{id}", Handler: http.HandlerFunc(a.updatePosition)},
 		{Pattern: "DELETE /positions/{id}", Handler: http.HandlerFunc(a.deletePosition)},
+		// Subscriptions are position-anchored — the Worker Detail page
+		// resolves the worker → position and edits its subscription
+		// set through these endpoints. {position_id} accepts the
+		// canonical position id (e.g. p-eng-1).
+		{Pattern: "GET /positions/{id}/subscriptions", Handler: http.HandlerFunc(a.listPositionSubscriptions)},
+		{Pattern: "POST /positions/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribePosition)},
+		{Pattern: "DELETE /positions/{id}/subscriptions/{stream_id}", Handler: http.HandlerFunc(a.unsubscribePosition)},
 		{Pattern: "GET /roles", Handler: http.HandlerFunc(a.listRoles)},
 		{Pattern: "POST /roles", Handler: http.HandlerFunc(a.createRole)},
 		{Pattern: "GET /roles/{id}", Handler: http.HandlerFunc(a.getRole)},
@@ -949,7 +956,11 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, sub := range subs {
-			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
+			// Subscriptions are position-anchored. The chart UI uses
+			// these to draw subscription edges from the SUBSCRIBED
+			// POSITION to the stream node, so we return position IDs
+			// directly. The Streams page renders them as chips.
+			dto.Subscribers = append(dto.Subscribers, string(sub.PositionID))
 		}
 		events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50)
 		if err != nil {
@@ -1089,7 +1100,11 @@ func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID); err == nil {
 		for _, sub := range subs {
-			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
+			// Subscriptions are position-anchored. The chart UI uses
+			// these to draw subscription edges from the SUBSCRIBED
+			// POSITION to the stream node, so we return position IDs
+			// directly. The Streams page renders them as chips.
+			dto.Subscribers = append(dto.Subscribers, string(sub.PositionID))
 		}
 	}
 	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50); err == nil {
@@ -1317,6 +1332,150 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		a.deps.Dispatcher.Dispatch(ctx, ev)
 	}
 	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(ev.ID)})
+}
+
+// listPositionSubscriptions returns the position's current
+// subscription set. Drives the Worker detail page's Subscriptions
+// panel (resolve worker → position → call this) and the chart's
+// subscription edges (chart already loads all streams + per-stream
+// subscribers; this is the read-side for the position-anchored
+// model).
+//
+// @Summary Helix-org: list a position's subscriptions
+// @Tags HelixOrg
+// @Param id path string true "Position ID"
+// @Success 200 {object} api.PositionSubscriptionsResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/positions/{id}/subscriptions [get]
+func (a *apiHandler) listPositionSubscriptions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	pid := orgchart.PositionID(r.PathValue("id"))
+	if pid == "" {
+		writeError(w, http.StatusBadRequest, errors.New("position id is required"))
+		return
+	}
+	if _, err := a.deps.Store.Positions.Get(ctx, orgID, pid); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get position %s: %w", pid, err))
+		return
+	}
+	subs, err := a.deps.Store.Subscriptions.ListForPosition(ctx, orgID, pid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("list subscriptions: %w", err))
+		return
+	}
+	resp := PositionSubscriptionsResponse{PositionID: string(pid), Subscriptions: make([]PositionSubscriptionDTO, 0, len(subs))}
+	for _, sub := range subs {
+		resp.Subscriptions = append(resp.Subscriptions, PositionSubscriptionDTO{
+			StreamID:  string(sub.StreamID),
+			CreatedAt: sub.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// subscribePosition adds a subscription on the given position to the
+// stream in the request body. Idempotent — re-subscribing returns
+// 200 with the existing row's metadata.
+//
+// @Summary Helix-org: subscribe a position to a stream
+// @Tags HelixOrg
+// @Param id path string true "Position ID"
+// @Param payload body api.SubscribePositionRequest true "stream to subscribe to"
+// @Success 200 {object} api.PositionSubscriptionDTO
+// @Success 201 {object} api.PositionSubscriptionDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/positions/{id}/subscriptions [post]
+func (a *apiHandler) subscribePosition(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	pid := orgchart.PositionID(r.PathValue("id"))
+	if pid == "" {
+		writeError(w, http.StatusBadRequest, errors.New("position id is required"))
+		return
+	}
+	var req SubscribePositionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	streamID := streaming.StreamID(strings.TrimSpace(req.StreamID))
+	if streamID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream_id is required"))
+		return
+	}
+	if _, err := a.deps.Store.Positions.Get(ctx, orgID, pid); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get position %s: %w", pid, err))
+		return
+	}
+	if _, err := a.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
+		return
+	}
+	if existing, err := a.deps.Store.Subscriptions.Find(ctx, orgID, pid, streamID); err == nil {
+		writeJSON(w, http.StatusOK, PositionSubscriptionDTO{
+			StreamID:  string(existing.StreamID),
+			CreatedAt: existing.CreatedAt.Format(time.RFC3339),
+		})
+		return
+	}
+	now := time.Now().UTC()
+	if a.deps.Now != nil {
+		now = a.deps.Now()
+	}
+	sub, err := streaming.NewSubscription(string(pid), streamID, now, orgID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := a.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("create subscription: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, PositionSubscriptionDTO{
+		StreamID:  string(sub.StreamID),
+		CreatedAt: sub.CreatedAt.Format(time.RFC3339),
+	})
+}
+
+// unsubscribePosition drops the (position, stream) subscription row.
+//
+// @Summary Helix-org: unsubscribe a position from a stream
+// @Tags HelixOrg
+// @Param id path string true "Position ID"
+// @Param stream_id path string true "Stream ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id} [delete]
+func (a *apiHandler) unsubscribePosition(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	pid := orgchart.PositionID(r.PathValue("id"))
+	streamID := streaming.StreamID(r.PathValue("stream_id"))
+	if pid == "" || streamID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("position id and stream id are required"))
+		return
+	}
+	if err := a.deps.Store.Subscriptions.Delete(ctx, orgID, pid, streamID); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("delete subscription: %w", err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // githubDispatcher adapts the api.Dispatcher into the

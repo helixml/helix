@@ -41,7 +41,9 @@ import '@xyflow/react/dist/style.css'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import useAccount from '../hooks/useAccount'
+import useApi from '../hooks/useApi'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -58,7 +60,29 @@ import {
   useHireHelixOrgWorker,
   useListHelixOrgStreams,
   useUpdateHelixOrgPosition,
+  QUERY_KEYS,
 } from '../services/helixOrgService'
+
+// useSubscribePositionAtChart drives the chart's drag-to-subscribe
+// flow. Each call carries its own (positionID, streamID) because the
+// chart wires arbitrary positions to arbitrary streams; the
+// services/helixOrgService useSubscribePosition hook is bound to one
+// positionID and so doesn't fit.
+function useSubscribePositionAtChart(orgID: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const base = orgID ? `/api/v1/orgs/${encodeURIComponent(orgID)}` : ''
+  return useMutation({
+    mutationFn: async ({ positionId, streamId }: { positionId: string; streamId: string }) => {
+      await api.post(`${base}/positions/${encodeURIComponent(positionId)}/subscriptions`, { stream_id: streamId })
+    },
+    onSuccess: (_data, { positionId }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.positionSubs(orgID, positionId) })
+    },
+  })
+}
 
 // The chart visualises the org as a ReactFlow subflow:
 //
@@ -372,21 +396,23 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
         position={RFPosition.Bottom}
         style={{ background: handleColor, width: 12, height: 12 }}
       />
-      {/* Dedicated source handle for stream/subscription edges, anchored
-          on the right side of the card. Decoupling stream edges from
-          the bottom-center reporting handle means an activation-stream
-          edge and a manager→subordinate edge can never share the same
-          (start_x, start_y) — without this, a stream sitting directly
-          below a reporting subordinate produced two perfectly
-          overlapping beziers. id="stream" is what buildGraph passes as
-          sourceHandle when emitting subscription edges. Not user-
-          connectable; only the data-driven layout uses it. */}
+      {/* Dedicated source handle for stream/subscription edges,
+          anchored on the right side of the card. Decoupling stream
+          edges from the bottom-center reporting handle means an
+          activation-stream edge and a manager→subordinate edge can
+          never share the same (start_x, start_y). id="stream" is what
+          buildGraph passes as sourceHandle when emitting subscription
+          edges. Connectable so the user can drag from here to a
+          stream pseudo-node to subscribe this position. Visible-but-
+          discrete styling: small amber dot that signals "I'm a port
+          for streams" without competing with the bottom reporting
+          handle. */}
       <Handle
         id="stream"
         type="source"
         position={RFPosition.Right}
-        isConnectable={false}
-        style={{ background: 'transparent', border: 'none', width: 1, height: 1 }}
+        isConnectable
+        style={{ background: 'rgba(180,100,0,0.5)', border: 'none', width: 8, height: 8 }}
       />
     </Box>
   )
@@ -773,13 +799,22 @@ const buildGraph = (
           onDeleteStream: handlers.onDeleteStream,
         } as StreamNodeData,
         draggable: false,
-        connectable: false,
+        // Stream nodes accept connections (from a position's
+        // right-side `stream` source handle); onConnect treats those
+        // as a subscribe request. They never originate connections.
+        connectable: true,
         selectable: true,
       })
-      if (sourcePid) {
+      // Subscriptions are position-anchored, so the chart draws one
+      // dashed edge per subscribed position. `subscribers` carries
+      // the canonical position IDs from the backend; we filter to
+      // positions actually on the chart so an orphaned subscription
+      // doesn't crash the layout.
+      const subscribingPositions = (s.subscribers ?? []).filter((pid) => positionAbs.has(pid))
+      for (const subscribingPid of subscribingPositions) {
         edges.push({
-          id: `sub:${sourcePid}->${s.id}`,
-          source: `pos:${sourcePid}`,
+          id: `sub:${subscribingPid}->${s.id}`,
+          source: `pos:${subscribingPid}`,
           // Right-side handle so stream edges can never share geometry
           // with the bottom-center reporting edges.
           sourceHandle: 'stream',
@@ -1036,8 +1071,13 @@ const ChartCanvas: FC<{
   // when they delete an existing edge.
   onSetParent: (childPositionId: string, newParentPositionId: string) => void
   onClearParent: (childPositionId: string) => void
+  // onSubscribePosition fires when the user wires a position node →
+  // a stream pseudo-node. The handler POSTs a subscription row keyed
+  // on (position, stream) so events on the stream activate the
+  // worker currently filling that position. Idempotent.
+  onSubscribePosition: (positionId: string, streamId: string) => void
   streams: StreamSummary[]
-}> = ({ groups, flat, handlers, onSetParent, onClearParent, streams }) => {
+}> = ({ groups, flat, handlers, onSetParent, onClearParent, onSubscribePosition, streams }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
@@ -1056,19 +1096,36 @@ const ChartCanvas: FC<{
     requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
   }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
 
-  // onConnect fires when the user finishes drawing a wire from one
-  // handle to another. Source = manager position, target =
-  // subordinate position. Persist by PATCHing the subordinate's
-  // parent_id.
+  // onConnect handles both shapes of wire the chart supports:
+  //
+  //   - position→position: manager wires their report. Source =
+  //     manager position, target = subordinate position. Persists by
+  //     PATCHing the subordinate's parent_id.
+  //   - position→stream:   the position consumes a stream. Source =
+  //     position, target = stream pseudo-node. Persists by POSTing a
+  //     subscription row keyed on (position, stream).
+  //
+  // The two cases are distinguished by the target's id prefix
+  // (`pos:` vs `stream:`); ReactFlow gives us the raw handle ids.
   const onConnect = useCallback(
     ({ source, target }: { source: string | null; target: string | null }) => {
       if (!source || !target) return
+      if (!source.startsWith('pos:')) return
       const sourceId = source.replace(/^pos:/, '')
-      const targetId = target.replace(/^pos:/, '')
-      if (!sourceId || !targetId || sourceId === targetId) return
-      onSetParent(targetId, sourceId)
+      if (!sourceId) return
+      if (target.startsWith('stream:')) {
+        const streamId = target.replace(/^stream:/, '')
+        if (!streamId) return
+        onSubscribePosition(sourceId, streamId)
+        return
+      }
+      if (target.startsWith('pos:')) {
+        const targetId = target.replace(/^pos:/, '')
+        if (!targetId || sourceId === targetId) return
+        onSetParent(targetId, sourceId)
+      }
     },
-    [onSetParent],
+    [onSetParent, onSubscribePosition],
   )
 
   // onEdgesDelete is wired up by ReactFlow when an edge is removed
@@ -1256,6 +1313,23 @@ const HelixOrgChart: FC = () => {
     [updatePosition, snackbar],
   )
 
+  // onSubscribePosition fires when the user drags an edge from a
+  // position node to a stream pseudo-node. POSTs the subscription
+  // and invalidates the streams + chart caches so the new dashed
+  // edge renders on the next refetch. Idempotent server-side.
+  const subscribePosition = useSubscribePositionAtChart(orgSlug)
+  const onSubscribePosition = useCallback(
+    async (positionId: string, streamId: string) => {
+      try {
+        await subscribePosition.mutateAsync({ positionId, streamId })
+        snackbar.success(`${positionId} now consumes ${streamId}`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscribe failed')
+      }
+    },
+    [subscribePosition, snackbar],
+  )
+
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
     try {
@@ -1378,6 +1452,7 @@ const HelixOrgChart: FC = () => {
                 handlers={handlers}
                 onSetParent={onSetParent}
                 onClearParent={onClearParent}
+                onSubscribePosition={onSubscribePosition}
                 streams={streams}
               />
             </ReactFlowProvider>

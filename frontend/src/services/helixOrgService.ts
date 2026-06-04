@@ -113,6 +113,10 @@ export const QUERY_KEYS = {
   modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
   streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
+  // Position subscriptions are the canonical surface for "what
+  // streams does this slot consume". The worker detail page resolves
+  // worker → position then loads via this key.
+  positionSubs: (orgID: string, positionID: string) => ['helix-org', orgID, 'positions', positionID, 'subscriptions'] as const,
 }
 
 export interface EventCard {
@@ -135,8 +139,9 @@ export interface StreamDTO {
   kind: string
   created_by: string
   created_at: string
-  // Subscribers are worker IDs subscribed to this stream. Drives the
-  // chart's stream-subscription edges.
+  // Subscribers are POSITION IDs subscribed to this stream
+  // (subscriptions are position-anchored). Drives the chart's dashed
+  // edges from each subscribed position to this stream's pseudo-node.
   subscribers?: string[]
   can_publish: boolean
   disable_reason?: string
@@ -629,6 +634,87 @@ export function useDeleteHelixOrgStream() {
       await api.delete(`${base}/streams/${encodeURIComponent(streamId)}`)
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// ---- Position subscriptions ---------------------------------------------
+
+// PositionSubscription is one row in a position's subscription set —
+// mirror of api.PositionSubscriptionDTO. The Worker detail page lists
+// these for the worker's filling position, the chart's dashed
+// subscription edges hang off them.
+export interface PositionSubscription {
+  stream_id: string
+  created_at: string
+}
+
+export interface PositionSubscriptionsResponse {
+  position_id: string
+  subscriptions: PositionSubscription[]
+}
+
+// useListPositionSubscriptions fetches the canonical "what streams
+// does this position consume" set. The Worker detail page resolves
+// worker → position before calling this; null positionID disables
+// the query so callers don't have to gate at the call site.
+export function useListPositionSubscriptions(positionID: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.positionSubs(orgID, positionID ?? ''),
+    queryFn: async () => {
+      if (!positionID) return null
+      const data = await api.get<PositionSubscriptionsResponse>(`${base}/positions/${encodeURIComponent(positionID)}/subscriptions`)
+      return data
+    },
+    enabled: !!orgID && !!positionID && (options?.enabled ?? true),
+  })
+}
+
+// useSubscribePosition adds a (position, stream) subscription.
+// Idempotent server-side (returns 200 with the existing row); we
+// invalidate the position's sub list + the streams list so the
+// chart's dashed edges and the worker detail panel both refresh.
+export function useSubscribePosition(positionID: string | undefined) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (streamID: string) => {
+      if (!positionID) throw new Error('positionID is required to subscribe')
+      const data = await api.post<{ stream_id: string }, PositionSubscription>(
+        `${base}/positions/${encodeURIComponent(positionID)}/subscriptions`,
+        { stream_id: streamID },
+      )
+      return data
+    },
+    onSuccess: () => {
+      if (positionID) {
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.positionSubs(orgID, positionID) })
+      }
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+// useUnsubscribePosition drops a (position, stream) subscription.
+export function useUnsubscribePosition(positionID: string | undefined) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (streamID: string) => {
+      if (!positionID) throw new Error('positionID is required to unsubscribe')
+      await api.delete(`${base}/positions/${encodeURIComponent(positionID)}/subscriptions/${encodeURIComponent(streamID)}`)
+    },
+    onSuccess: () => {
+      if (positionID) {
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.positionSubs(orgID, positionID) })
+      }
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },

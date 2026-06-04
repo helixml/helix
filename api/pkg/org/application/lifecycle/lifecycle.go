@@ -66,7 +66,7 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 //  2. DeleteProject on Helix — stops any active sessions.
 //  3. DeleteApp on Helix — removes the auto-provisioned agent app.
 //  4. Clear the WorkerRuntimeState sidecar.
-//  5. Delete every Subscription + Grant for this worker.
+//  5. Delete every Grant for this worker.
 //  6. Remove the env directory from disk and delete its row.
 //  7. Delete the per-Worker activation Stream
 //     (`s-activations-<workerID>`) so it stops surfacing as an
@@ -78,6 +78,11 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 // torn worker is better than refusing to clean up partial state.
 // Step 8 is the only step whose error propagates (the row is the
 // user-visible source of truth).
+//
+// Subscriptions are NOT cascaded: they're position-anchored, so
+// they outlive the worker. A new hire into the same position
+// inherits the same set of streams. DeletePosition is the only
+// cascade that drops subscriptions.
 //
 // Activation events themselves are intentionally left behind as an
 // audit trail; only the Stream row is dropped.
@@ -113,15 +118,11 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		}
 	}
 
-	if subs, err := s.Store.Subscriptions.ListForWorker(ctx, orgID, id); err == nil {
-		for _, sub := range subs {
-			if err := s.Store.Subscriptions.Delete(ctx, orgID, id, sub.StreamID); err != nil {
-				s.logger().Warn("fire: delete subscription", "worker", id, "stream", sub.StreamID, "err", err)
-			}
-		}
-	} else {
-		s.logger().Warn("fire: list subscriptions", "worker", id, "err", err)
-	}
+	// Subscriptions are position-anchored — they live on the
+	// position the worker filled, not on the worker itself, so firing
+	// the worker leaves them alone. A new hire into the same position
+	// inherits the same set of streams. DeletePosition is the only
+	// cascade that drops subscriptions.
 
 	if grants, err := s.Store.Grants.ListByWorker(ctx, orgID, id); err == nil {
 		for _, g := range grants {
@@ -190,6 +191,23 @@ func (s *Service) DeletePosition(ctx context.Context, orgID string, id orgchart.
 	}
 	if err := s.fireWorkersInPosition(ctx, orgID, id); err != nil {
 		return err
+	}
+	// Subscriptions are position-anchored — drop them here, before
+	// the position row goes, so dispatch never sees a subscription
+	// pointing at a deleted position. Best-effort + logged: a
+	// half-deleted position with leftover subscriptions is harmless
+	// (events stop dispatching because there's no worker to deliver
+	// to), but having them around makes the streams page confusing.
+	if s.Store.Subscriptions != nil {
+		if subs, err := s.Store.Subscriptions.ListForPosition(ctx, orgID, id); err == nil {
+			for _, sub := range subs {
+				if err := s.Store.Subscriptions.Delete(ctx, orgID, id, sub.StreamID); err != nil {
+					s.logger().Warn("delete position: drop subscription", "position", id, "stream", sub.StreamID, "err", err)
+				}
+			}
+		} else {
+			s.logger().Warn("delete position: list subscriptions", "position", id, "err", err)
+		}
 	}
 	if err := s.Store.Positions.Delete(ctx, orgID, id); err != nil {
 		return fmt.Errorf("delete position %q: %w", id, err)

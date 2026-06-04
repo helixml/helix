@@ -15,6 +15,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -33,15 +34,16 @@ import (
 // for tests and dev paths that don't need Postgres.
 func New() *store.Store {
 	subs := &subscriptionsRepo{rows: map[subKey]streaming.Subscription{}}
+	workers := &workersRepo{rows: map[orgKey]orgchart.Worker{}}
 	return &store.Store{
 		Roles:              &rolesRepo{rows: map[orgKey]orgchart.Role{}},
 		Positions:          &positionsRepo{rows: map[orgKey]orgchart.Position{}},
-		Workers:            &workersRepo{rows: map[orgKey]orgchart.Worker{}},
+		Workers:            workers,
 		WorkerRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
 		Grants:             &grantsRepo{rows: map[orgKey]orgchart.ToolGrant{}},
 		Streams:            &streamsRepo{rows: map[orgKey]streaming.Stream{}},
 		Subscriptions:      subs,
-		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs},
+		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs, workers: workers},
 		Environments:       &environmentsRepo{rows: map[orgKey]environment.Environment{}},
 		Configs:            &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:        &activationsRepo{rows: map[orgKey]*activation.Activation{}},
@@ -432,9 +434,9 @@ func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.Strea
 // ---- Subscriptions ------------------------------------------------------
 
 type subKey struct {
-	OrgID    string
-	WorkerID string
-	StreamID string
+	OrgID      string
+	PositionID string
+	StreamID   string
 }
 
 type subscriptionsRepo struct {
@@ -445,41 +447,41 @@ type subscriptionsRepo struct {
 func (s *subscriptionsRepo) Create(_ context.Context, sub streaming.Subscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: sub.OrganizationID, WorkerID: string(sub.WorkerID), StreamID: string(sub.StreamID)}
+	k := subKey{OrgID: sub.OrganizationID, PositionID: string(sub.PositionID), StreamID: string(sub.StreamID)}
 	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.WorkerID, sub.StreamID, sub.OrganizationID)
+		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.PositionID, sub.StreamID, sub.OrganizationID)
 	}
 	s.rows[k] = sub
 	return nil
 }
 
-func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error {
+func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: orgID, WorkerID: string(workerID), StreamID: string(streamID)}
+	k := subKey{OrgID: orgID, PositionID: string(positionID), StreamID: string(streamID)}
 	if _, ok := s.rows[k]; !ok {
-		return fmt.Errorf("subscription %q→%q in org %q: %w", workerID, streamID, orgID, store.ErrNotFound)
+		return fmt.Errorf("subscription %q→%q in org %q: %w", positionID, streamID, orgID, store.ErrNotFound)
 	}
 	delete(s.rows, k)
 	return nil
 }
 
-func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
+func (s *subscriptionsRepo) Find(_ context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) (streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	k := subKey{OrgID: orgID, WorkerID: string(workerID), StreamID: string(streamID)}
+	k := subKey{OrgID: orgID, PositionID: string(positionID), StreamID: string(streamID)}
 	if sub, ok := s.rows[k]; ok {
 		return sub, nil
 	}
-	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", workerID, streamID, orgID, store.ErrNotFound)
+	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", positionID, streamID, orgID, store.ErrNotFound)
 }
 
-func (s *subscriptionsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
+func (s *subscriptionsRepo) ListForPosition(_ context.Context, orgID string, positionID orgchart.PositionID) ([]streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]streaming.Subscription, 0)
 	for k, sub := range s.rows {
-		if k.OrgID == orgID && k.WorkerID == string(workerID) {
+		if k.OrgID == orgID && k.PositionID == string(positionID) {
 			out = append(out, sub)
 		}
 	}
@@ -496,7 +498,7 @@ func (s *subscriptionsRepo) ListForStream(_ context.Context, orgID string, strea
 			out = append(out, sub)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].WorkerID < out[j].WorkerID })
+	sort.Slice(out, func(i, j int) bool { return out[i].PositionID < out[j].PositionID })
 	return out, nil
 }
 
@@ -505,11 +507,13 @@ func (s *subscriptionsRepo) ListForStream(_ context.Context, orgID string, strea
 type eventsRepo struct {
 	mu   sync.RWMutex
 	rows []streaming.Event // append-only, newest at end
-	// subs is held by reference so ListForWorker can join with the
-	// subscription set the same way the gorm impl does — events on
-	// streams the worker is subscribed to are visible, not just
-	// events sourced by the worker.
-	subs *subscriptionsRepo
+	// subs + workers are held by reference so ListForWorker can join
+	// against subscriptions for the worker's position the same way
+	// the gorm impl does. Subscriptions are position-anchored, so the
+	// join needs the workers repo to resolve worker → position
+	// before filtering.
+	subs    *subscriptionsRepo
+	workers *workersRepo
 }
 
 func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
@@ -538,12 +542,26 @@ func (e *eventsRepo) ListForStream(_ context.Context, orgID string, streamID str
 }
 
 func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
-	// Match gorm's join semantics: events on streams the worker is
-	// subscribed to. Sourced-by-worker events are intentionally NOT
-	// included unless the worker is also subscribed to the stream
-	// (read_events filters its own posts out via the trigger
-	// pipeline, not at the storage layer).
-	subs, err := e.subs.ListForWorker(ctx, orgID, workerID)
+	// Match gorm's join semantics: events on streams the worker's
+	// POSITION is subscribed to. Subscriptions are position-anchored
+	// now (not worker-anchored), so we resolve worker → position
+	// before filtering. Sourced-by-worker events are intentionally
+	// NOT included unless the position is subscribed to the stream.
+	if e.workers == nil {
+		return nil, errors.New("eventsRepo: workers repo not wired")
+	}
+	worker, err := e.workers.Get(ctx, orgID, workerID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("resolve worker for event listing: %w", err)
+	}
+	positionID := worker.Position()
+	if positionID == "" {
+		return nil, nil
+	}
+	subs, err := e.subs.ListForPosition(ctx, orgID, positionID)
 	if err != nil {
 		return nil, err
 	}

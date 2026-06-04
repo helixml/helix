@@ -87,13 +87,26 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		}
 	}
 
+	// Subscriptions are position-anchored. Resolve both DM participants
+	// to their positions and subscribe those positions. A worker with
+	// no position is silently skipped — DMs to unassigned workers are
+	// not a flow we currently support and aborting the whole DM is
+	// worse than leaving one side without a sub row.
 	for _, wid := range []orgchart.WorkerID{sender, recipient} {
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
+		w, err := t.deps.Store.Workers.Get(ctx, orgID, wid)
+		if err != nil {
+			return nil, fmt.Errorf("get worker %q: %w", wid, err)
+		}
+		pid := w.Position()
+		if pid == "" {
+			continue
+		}
+		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, pid, streamID); err == nil {
 			continue
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		sub, err := streaming.NewSubscription(wid, streamID, t.deps.Now(), orgID)
+		sub, err := streaming.NewSubscription(string(pid), streamID, t.deps.Now(), orgID)
 		if err != nil {
 			return nil, err
 		}

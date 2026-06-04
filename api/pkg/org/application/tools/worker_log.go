@@ -138,20 +138,29 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		actWindow = &w
 	}
 
-	// Auto-subscribe the caller. Idempotent; harmless to re-run. After
-	// this, plain read_events will also include this Worker's
-	// transcript, which is usually the desired follow-up behaviour.
+	// Auto-subscribe the caller's POSITION (subscriptions are
+	// position-anchored). Idempotent; harmless to re-run. After this,
+	// plain read_events will also include this Worker's transcript,
+	// which is the desired follow-up behaviour.
 	caller := inv.Caller.ID()
-	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, caller, streamID); err != nil {
+	callerWorker, err := t.deps.Store.Workers.Get(ctx, orgID, caller)
+	if err != nil {
+		return nil, fmt.Errorf("get caller worker %q: %w", caller, err)
+	}
+	callerPosition := callerWorker.Position()
+	if callerPosition == "" {
+		return nil, fmt.Errorf("worker_log: caller %q is unassigned (no position)", caller)
+	}
+	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, callerPosition, streamID); err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		sub, err := streaming.NewSubscription(caller, streamID, t.deps.Now(), orgID)
+		sub, err := streaming.NewSubscription(string(callerPosition), streamID, t.deps.Now(), orgID)
 		if err != nil {
 			return nil, err
 		}
 		if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-			return nil, fmt.Errorf("subscribe %q to %q: %w", caller, streamID, err)
+			return nil, fmt.Errorf("subscribe position %q to %q: %w", callerPosition, streamID, err)
 		}
 	}
 

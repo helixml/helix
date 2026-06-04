@@ -96,15 +96,16 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		}
 	}
 
+	workers := newWorkersRepo(db)
 	return &store.Store{
 		Roles:              newRolesRepo(db),
 		Positions:          newPositionsRepo(db),
-		Workers:            newWorkersRepo(db),
+		Workers:            workers,
 		WorkerRuntimeState: newWorkerRuntimeStateRepo(db),
 		Grants:             newGrantsRepo(db),
 		Streams:            newStreamsRepo(db),
 		Subscriptions:      newSubscriptionsRepo(db),
-		Events:             newEventsRepo(db),
+		Events:             newEventsRepo(db, workers),
 		Environments:       newEnvironmentsRepo(db),
 		Configs:            newConfigsRepo(db),
 		Activations:        newActivationsRepo(db),

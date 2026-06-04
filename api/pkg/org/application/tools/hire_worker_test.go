@@ -229,13 +229,15 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	if _, err := deps.Store.Streams.Get(ctx, "org-test", streamID); err != nil {
 		t.Fatalf("activation stream missing: %v", err)
 	}
-	// Hiring worker (caller) is subscribed.
-	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
-		t.Fatalf("hiring worker not subscribed to activation stream: %v", err)
+	// Hiring worker's POSITION is subscribed (subs are position-anchored).
+	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "p-root", streamID); err != nil {
+		t.Fatalf("hiring worker's position not subscribed to activation stream: %v", err)
 	}
-	// New worker is NOT subscribed (would loop the dispatcher).
-	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-alice", streamID); err == nil {
-		t.Fatalf("new worker must NOT be subscribed to its own activation stream")
+	// New worker's position is NOT subscribed (would loop the
+	// dispatcher when the new worker publishes).
+	newWorkerPos := orgchart.PositionID("p-eng")
+	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", newWorkerPos, streamID); err == nil {
+		t.Fatalf("new worker's position must NOT be subscribed to its own activation stream")
 	}
 	// Dispatcher was called once.
 	if n := dispatcher.hireCount(); n != 1 {

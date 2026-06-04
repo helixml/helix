@@ -11,9 +11,11 @@
 // By avoiding any session_id pinning we guarantee no transcript bleed
 // across worker visits.
 
-import { FC, useState } from 'react'
+import { FC, useMemo, useState } from 'react'
+import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
 import CircularProgress from '@mui/material/CircularProgress'
 import Chip from '@mui/material/Chip'
 import Container from '@mui/material/Container'
@@ -21,6 +23,7 @@ import Divider from '@mui/material/Divider'
 import Grid from '@mui/material/Grid'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
@@ -40,6 +43,10 @@ import {
   useEnsureWorkerChat,
   useFireHelixOrgWorker,
   useHelixOrgWorker,
+  useListHelixOrgStreams,
+  useListPositionSubscriptions,
+  useSubscribePosition,
+  useUnsubscribePosition,
 } from '../services/helixOrgService'
 
 const OWNER_WORKER = 'w-owner'
@@ -270,6 +277,8 @@ const HelixOrgWorkerDetail: FC = () => {
                     </Typography>
                   </Box>
                 )}
+
+                <SubscriptionsPanel positionID={data?.position?.id} />
               </Stack>
             </Grid>
 
@@ -352,6 +361,114 @@ const HelixOrgWorkerDetail: FC = () => {
         </DeleteConfirmWindow>
       )}
     </Page>
+  )
+}
+
+// SubscriptionsPanel surfaces the streams the Worker's filling
+// Position consumes — and the multi-select to change that set.
+// Subscriptions are position-anchored: editing here mutates the
+// position's subscriptions, which automatically applies to whoever
+// fills the position next.
+//
+// Patterned after the role editor's tools multi-select:
+// disableCloseOnSelect so toggling several streams in one pass
+// doesn't bounce the popper closed.
+const SubscriptionsPanel: FC<{ positionID?: string }> = ({ positionID }) => {
+  const snackbar = useSnackbar()
+  const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgStreams()
+  const { data: subsData, isLoading: subsLoading } = useListPositionSubscriptions(positionID)
+  const subscribe = useSubscribePosition(positionID)
+  const unsubscribe = useUnsubscribePosition(positionID)
+
+  const allStreams = streamsData?.streams ?? []
+  const subscribedIDs = useMemo(
+    () => new Set((subsData?.subscriptions ?? []).map((s) => s.stream_id)),
+    [subsData],
+  )
+  const subscribedStreams = useMemo(
+    () => allStreams.filter((s) => subscribedIDs.has(s.id)),
+    [allStreams, subscribedIDs],
+  )
+
+  if (!positionID) {
+    return (
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Subscriptions</Typography>
+        <Typography variant="body2" color="text.secondary">
+          This Worker is unassigned (no position) — there's nothing to subscribe.
+        </Typography>
+      </Box>
+    )
+  }
+
+  const handleChange = async (_e: unknown, next: typeof allStreams) => {
+    const nextIDs = new Set(next.map((s) => s.id))
+    const toAdd = next.filter((s) => !subscribedIDs.has(s.id))
+    const toRemove = (subsData?.subscriptions ?? []).filter((s) => !nextIDs.has(s.stream_id))
+    try {
+      for (const s of toAdd) await subscribe.mutateAsync(s.id)
+      for (const s of toRemove) await unsubscribe.mutateAsync(s.stream_id)
+      if (toAdd.length || toRemove.length) {
+        snackbar.success(`subscriptions updated (${toAdd.length} added, ${toRemove.length} removed)`)
+      }
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscription update failed')
+    }
+  }
+
+  return (
+    <Box>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+        Subscriptions ({subscribedStreams.length})
+      </Typography>
+      <Autocomplete
+        multiple
+        disableCloseOnSelect
+        loading={streamsLoading || subsLoading}
+        options={allStreams}
+        value={subscribedStreams}
+        onChange={handleChange}
+        getOptionLabel={(s) => s.id}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        renderOption={(props, option, { selected }) => (
+          <li {...props}>
+            <Checkbox checked={selected} sx={{ mr: 1 }} />
+            <Box>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
+              {option.description && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  {option.description}
+                </Typography>
+              )}
+            </Box>
+          </li>
+        )}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            placeholder={subscribedStreams.length === 0 ? 'Subscribe this position to a stream…' : ''}
+            variant="outlined"
+            size="small"
+          />
+        )}
+        renderTags={(value, getTagProps) =>
+          value.map((option, index) => (
+            <Chip
+              {...getTagProps({ index })}
+              key={option.id}
+              label={option.id}
+              size="small"
+              sx={{ fontFamily: 'monospace' }}
+            />
+          ))
+        }
+      />
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+        Subscriptions are position-anchored — they outlive the worker. Whoever fills
+        <code style={{ marginLeft: 4, marginRight: 4 }}>{positionID}</code>
+        next inherits this set.
+      </Typography>
+    </Box>
   )
 }
 

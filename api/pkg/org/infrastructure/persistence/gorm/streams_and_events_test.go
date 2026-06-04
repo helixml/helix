@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -37,34 +38,34 @@ func TestStreamsRoundTripAndByName(t *testing.T) {
 	}
 }
 
-func TestSubscriptionsUniqueWorkerStream(t *testing.T) {
+func TestSubscriptionsUniquePositionStream(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	sub, _ := streaming.NewSubscription("w-1", "s-1", now, "org-test")
+	sub, _ := streaming.NewSubscription("p-1", "s-1", now, "org-test")
 	if err := s.Subscriptions.Create(ctx, sub); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	dup, _ := streaming.NewSubscription("w-1", "s-1", now, "org-test")
+	dup, _ := streaming.NewSubscription("p-1", "s-1", now, "org-test")
 	if err := s.Subscriptions.Create(ctx, dup); err == nil {
-		t.Fatalf("Create duplicate (worker,stream) should fail")
+		t.Fatalf("Create duplicate (position,stream) should fail")
 	}
 
-	found, err := s.Subscriptions.Find(ctx, "org-test", "w-1", "s-1")
+	found, err := s.Subscriptions.Find(ctx, "org-test", "p-1", "s-1")
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if found.WorkerID != "w-1" || found.StreamID != "s-1" {
+	if found.PositionID != "p-1" || found.StreamID != "s-1" {
 		t.Fatalf("subscription = %+v", found)
 	}
 
-	if err := s.Subscriptions.Delete(ctx, "org-test", "w-1", "s-1"); err != nil {
+	if err := s.Subscriptions.Delete(ctx, "org-test", "p-1", "s-1"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	_, err = s.Subscriptions.Find(ctx, "org-test", "w-1", "s-1")
+	_, err = s.Subscriptions.Find(ctx, "org-test", "p-1", "s-1")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Find after delete: %v, want ErrNotFound", err)
 	}
@@ -76,8 +77,24 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Two streams, w-1 subscribed only to s-a.
-	sub, _ := streaming.NewSubscription("w-1", "s-a", base, "org-test")
+	// Subscriptions are position-anchored. Seed w-1 in position p-1
+	// and subscribe p-1 to s-a; ListForWorker(w-1) must walk
+	// worker → position → subscribed streams.
+	pos, err := orgchart.NewPosition("p-1", "r-owner", nil, "org-test")
+	if err != nil {
+		t.Fatalf("new position: %v", err)
+	}
+	if err := s.Positions.Create(ctx, pos); err != nil {
+		t.Fatalf("create position: %v", err)
+	}
+	worker, err := orgchart.NewAIWorker("w-1", "p-1", "# w-1", "org-test")
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	if err := s.Workers.Create(ctx, worker); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	sub, _ := streaming.NewSubscription("p-1", "s-a", base, "org-test")
 	if err := s.Subscriptions.Create(ctx, sub); err != nil {
 		t.Fatalf("Create subscription: %v", err)
 	}
