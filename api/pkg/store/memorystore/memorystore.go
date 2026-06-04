@@ -25,6 +25,8 @@ type MemoryStore struct {
 
 	sessions     map[string]*types.Session
 	interactions map[string]*types.Interaction
+	apps         map[string]*types.App
+	projects     map[string]*types.Project
 	mu           sync.RWMutex
 
 	// OnInteractionUpdated is called after every UpdateInteraction call.
@@ -37,6 +39,8 @@ func New() *MemoryStore {
 	return &MemoryStore{
 		sessions:     make(map[string]*types.Session),
 		interactions: make(map[string]*types.Interaction),
+		apps:         make(map[string]*types.App),
+		projects:     make(map[string]*types.Project),
 	}
 }
 
@@ -304,8 +308,8 @@ func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*type
 	return nil, nil
 }
 
-func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error    { return nil }
-func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error       { return nil }
+func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error { return nil }
+func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error    { return nil }
 func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string, _ string) error {
 	return nil
 }
@@ -345,9 +349,54 @@ func (m *MemoryStore) GetSpecTaskExternalAgentByID(_ context.Context, _ string) 
 	return nil, store.ErrNotFound
 }
 
-// App methods — always return "not found" (no apps in test)
-func (m *MemoryStore) GetApp(_ context.Context, _ string) (*types.App, error) {
-	return nil, store.ErrNotFound
+func (m *MemoryStore) GetApp(_ context.Context, id string) (*types.App, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	a, ok := m.apps[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *a
+	return &cp, nil
+}
+
+// SeedApp inserts an app for tests (not part of store.Store).
+func (m *MemoryStore) SeedApp(app *types.App) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *app
+	m.apps[app.ID] = &cp
+}
+
+func (m *MemoryStore) UpdateApp(_ context.Context, app *types.App) (*types.App, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.apps[app.ID]; !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *app
+	cp.Updated = time.Now()
+	m.apps[app.ID] = &cp
+	return &cp, nil
+}
+
+func (m *MemoryStore) GetProject(_ context.Context, id string) (*types.Project, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	p, ok := m.projects[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *p
+	return &cp, nil
+}
+
+// SeedProject inserts a project for tests (not part of store.Store).
+func (m *MemoryStore) SeedProject(p *types.Project) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *p
+	m.projects[p.ID] = &cp
 }
 
 // Zed settings override — always return "not found"

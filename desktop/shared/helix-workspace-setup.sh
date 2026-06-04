@@ -790,7 +790,19 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
     done
 fi
 
-# FAIL if no folders found - don't start Zed with empty workspace
+# FAIL if no folders found — don't start Zed with an empty workspace.
+#
+# Helix-org's per-Worker agent apps used to land here with empty
+# HELIX_REPOSITORIES; the previous incarnation of this script had a
+# fallback that opened $WORK_DIR as a "chat-only" workspace, but that
+# was papering over a real bug — the helix-org application service
+# was silently letting projects come up without an attached repo
+# because CreateGitRepo / AttachRepoToProject failures were warn-and-
+# continue rather than fatal. That contract is now enforced at
+# api/pkg/org/infrastructure/runtime/helix/project.go (see
+# TestEnsureRequiresRepoToBeAttached) so HELIX_REPOSITORIES is always
+# populated when the desktop boots. If we land here it means a real
+# upstream bug — fail loudly so we see it instead of papering over.
 if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
     echo ""
     echo "❌ ERROR: No repositories were cloned successfully"

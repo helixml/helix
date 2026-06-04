@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, ReactNode, useState, useCallback, useEffect } from 'react'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
@@ -11,7 +11,9 @@ import Button from '@mui/material/Button'
 interface DeleteConfirmWindowProps {
   open?: boolean,
   title?: string,
+  submitTitle?: string,
   confirmString?: string,
+  children?: ReactNode,
   onCancel: () => void,
   onSubmit: () => void | Promise<void>,
 }
@@ -19,7 +21,9 @@ interface DeleteConfirmWindowProps {
 const DeleteConfirmWindow: FC<DeleteConfirmWindowProps> = ({
   open = true,
   title = 'this item',
+  submitTitle = 'Delete',
   confirmString = 'delete',
+  children,
   onCancel,
   onSubmit,
 }) => {
@@ -62,7 +66,7 @@ const DeleteConfirmWindow: FC<DeleteConfirmWindowProps> = ({
       fullWidth
     >
       <DialogTitle>
-        Delete {title}
+        {submitTitle} {title}
       </DialogTitle>
       <DialogContent>
         <Box
@@ -81,9 +85,13 @@ const DeleteConfirmWindow: FC<DeleteConfirmWindowProps> = ({
               padding: 1,
             }}
           >
-            <Typography>
-              Are you sure you want to delete {title}?
-            </Typography>
+            {children ? (
+              children
+            ) : (
+              <Typography>
+                Are you sure you want to delete {title}?
+              </Typography>
+            )}
           </Box>
           <Box
             sx={{
@@ -126,7 +134,7 @@ const DeleteConfirmWindow: FC<DeleteConfirmWindowProps> = ({
           color="primary"
           disabled={loading || confirmValue !== confirmString}
         >
-          {loading ? 'Deleting...' : 'Confirm'}
+          {loading ? `${submitTitle}...` : submitTitle}
         </Button>
       </DialogActions>
     </Dialog>

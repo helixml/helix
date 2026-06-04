@@ -1,0 +1,542 @@
+package helix
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/org/application/agent"
+	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/pubsub"
+)
+
+// SpawnerConfig wires the helix-backed Spawner. The Client is
+// injectable so tests can run without HTTP. Defaults are applied for
+// any unset duration / capacity.
+//
+// In the per-Worker-project model, the spawner does not hold a
+// ProjectID of its own — every AI Worker gets its own Helix project,
+// applied at hire time and persisted in the WorkerRuntimeState
+// sidecar under the "helix" backend.
+type SpawnerConfig struct {
+	Client         SpawnerClient
+	ProjectService ProjectService
+	Workspace      *Workspace
+	// PubSub + Snapshotter back SubscribeSessionUpdates, which streams
+	// per-session WebsocketEvent frames to in-process subscribers.
+	PubSub      pubsub.PubSub
+	Snapshotter SessionPreamble
+	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
+	// Runtime overrides the default `zed_agent` runtime. Empty falls
+	// back to helix.Runtime. See WorkerProject.Runtime for the
+	// embedded SaaS use case (`claude_code` + subscription credentials).
+	Runtime string
+	// Provider/Model drive the project's Agent App config when Runtime
+	// routes inference through Helix. Ignored when Runtime is
+	// `claude_code` and Credentials is `"subscription"` — the sandbox
+	// authenticates Anthropic directly via the operator's OAuth.
+	Provider string
+	Model    string
+	// Credentials forwards to WorkerProject.Credentials. See there.
+	Credentials string
+	// AgentMD is the org-wide agent.md policy text pushed to
+	// `.context/agent.md` on each per-Worker project's helix-specs
+	// branch. The spawner's activation prompt tells every Worker to
+	// read it first. Embedded by main.go from agent/policy.md.
+	AgentMD string
+	// MCPAuthBearer is forwarded to WorkerProject so the helix-org
+	// MCP entry on each Worker's agent app carries an Authorization
+	// header. Used when HelixOrgURL routes through an auth-gated
+	// proxy (embedded SaaS alpha). Empty in standalone mode.
+	MCPAuthBearer string
+	// SpecsMandate is the activation-prompt directive that tells the
+	// agent how to find role.md / identity.md / agent.md on the
+	// helix-specs branch. Surfaced as an operator-editable config
+	// (helixSpecsMandate) so changes to the file layout or git-pull
+	// recipe don't require a deploy. Empty falls back to
+	// DefaultHelixSpecsMandate.
+	SpecsMandate string
+	// BearerForUser, when non-nil, is called by the Spawner (and
+	// WorkerProject) on every activation to resolve the api_key that
+	// requests should be issued under. Passed the userID persisted on
+	// the Worker's runtime state at hire time (see
+	// state.go::HiringUserID). Letting the host mint or look up the
+	// bearer on-demand avoids stashing tokens at rest. A nil callback
+	// or empty return means "use the static Client's api_key" — the
+	// service-account fallback.
+	BearerForUser func(ctx context.Context, userID string) (string, error)
+	// SecretInjectors are per-activation hooks every transport (or
+	// other extension) registers to push secrets into the Worker's
+	// per-Worker project. The spawner calls each one after
+	// ensureProject and before ensureSession on every activation,
+	// upserting the returned {name: value} pairs via
+	// ProjectService.PutProjectSecret. Helix's existing
+	// GetProjectSecretsAsEnvVars surfaces those as env vars on
+	// container start so the worker picks them up the next time the
+	// desktop boots.
+	//
+	// The spawner itself is transport-agnostic — it knows nothing
+	// about GitHub, Postmark, or any future transport. Each
+	// transport's infrastructure package exposes a constructor
+	// (e.g. github.NewSecretInjector(resolver)) that returns a
+	// SpawnSecretInjector; the host wires the slice up. Empty map /
+	// nil resolver / errors all soft-skip — see SpawnSecretInjector
+	// docstring for the full contract.
+	SecretInjectors []SpawnSecretInjector
+	// OrgID is the Helix organisation each per-Worker project lives
+	// under. Empty for personal accounts.
+	OrgID             string
+	ActivationTimeout time.Duration
+	MaxInflight       int
+	PollInitial       time.Duration // default 250ms
+	PollMax           time.Duration // default 30s
+	Logger            *slog.Logger
+	Store             *store.Store
+	Hub               *streamhub.Hub
+	Now               func() time.Time
+	NewID             func() string
+}
+
+// Spawner returns an runtime.Spawner that runs each activation as a
+// long-lived Helix chat session. Either a fresh one (first activation
+// or stale pointer) or a follow-up message on the Worker's already-
+// open session.
+//
+// The Spawner does five things, in order: build the prompt, take a
+// global semaphore slot, ensure a live session exists, open the live
+// transcript WebSocket, then poll for completion. New transcript
+// segments arriving on the WebSocket are diffed against a per-call
+// dedup map and republished onto s-activations-<workerID> in the
+// canonical transcript line shape (assistant: …, tool_use foo: …,
+// tool_result: …) so observers see one format regardless of which
+// Worker fired.
+func Spawner(cfg SpawnerConfig) runtime.Spawner {
+	if cfg.PollInitial == 0 {
+		cfg.PollInitial = 250 * time.Millisecond
+	}
+	if cfg.PollMax == 0 {
+		cfg.PollMax = 30 * time.Second
+	}
+	if cfg.ActivationTimeout == 0 {
+		cfg.ActivationTimeout = 5 * time.Minute
+	}
+	if cfg.MaxInflight <= 0 {
+		cfg.MaxInflight = 8
+	}
+	sem := make(chan struct{}, cfg.MaxInflight)
+	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) (retErr error) {
+		if len(triggers) == 0 {
+			return errors.New("spawner invoked with no triggers")
+		}
+		if cfg.Client == nil {
+			return errors.New("helix spawner: client is nil")
+		}
+		if cfg.Store == nil {
+			return errors.New("helix spawner: store is nil")
+		}
+		mandate := cfg.SpecsMandate
+		if mandate == "" {
+			mandate = DefaultHelixSpecsMandate
+		}
+		prompt := agent.BuildPrompt(workerID, mandate, triggers)
+
+		// Acquire global slot. The dispatcher serialises per-Worker, so
+		// blocking here only delays one Worker behind the rest of the
+		// org under burst load.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		defer func() { <-sem }()
+
+		// Record the audit row for this activation. Failures here are
+		// best-effort during the B5 transition — the transcript stream
+		// (next block) is still the primary record until callers depend
+		// on the row. Once B5.7 lands worker_log's activation_id filter,
+		// a Create failure becomes a hard error.
+		act := newActivationRecord(cfg, orgID, workerID, triggers)
+		if act != nil {
+			// Skip Create when hire_worker pre-allocated the row (B5.8) —
+			// the row exists from the caller's request; this path just
+			// Completes it.
+			preallocated := triggers[0].ActivationID != ""
+			if !preallocated {
+				if err := cfg.Store.Activations.Create(ctx, act); err != nil {
+					if cfg.Logger != nil {
+						cfg.Logger.Warn("helix spawner: persist activation row", "worker", workerID, "activation", act.ID, "err", err)
+					}
+				}
+			}
+			defer func() {
+				if completeErr := cfg.Store.Activations.Complete(ctx, orgID, act.ID, activation.OutcomeFromError(retErr), cfg.Now()); completeErr != nil && cfg.Logger != nil {
+					cfg.Logger.Warn("helix spawner: complete activation row", "worker", workerID, "activation", act.ID, "err", completeErr)
+				}
+			}()
+		}
+
+		streamID := activation.StreamID(workerID)
+		publish := func(body string) {
+			if body == "" {
+				return
+			}
+			publishActivationEvent(ctx, cfg, orgID, workerID, streamID, body)
+		}
+		publish(fmt.Sprintf("=== activation: %s ===", agent.DescribeTriggers(triggers)))
+
+		actCtx, cancel := context.WithTimeout(ctx, cfg.ActivationTimeout)
+		defer cancel()
+
+		// Resolve the hiring user's bearer for THIS activation, if a
+		// host-provided callback is wired. The bearer is stashed on
+		// actCtx via the BearerToken context key; every subsequent
+		// client call inside this activation (project apply, session
+		// open, MCP attach, transcript subscribe) picks it up so the
+		// Worker's footprint in Helix is attributed to the hiring
+		// user, not the service account. Empty / nil / error all
+		// degrade to "use the static client api_key".
+		if cfg.BearerForUser != nil {
+			if state, err := LoadState(actCtx, cfg.Store, orgID, workerID); err == nil && state.HiringUserID != "" {
+				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
+					actCtx = WithBearerToken(actCtx, bearer)
+				} else if berr != nil && cfg.Logger != nil {
+					cfg.Logger.Warn("helix spawner: BearerForUser failed; falling back to service key", "worker", workerID, "user_id", state.HiringUserID, "err", berr.Error())
+				}
+			}
+		}
+
+		// Make sure the Worker has a Helix project. First activation
+		// (activation.TriggerHire, or a activation.TriggerEvent before hire fully ran)
+		// applies one and persists the IDs.
+		if err := cfg.ensureProject(actCtx, orgID, workerID); err != nil {
+			publish(activation.OutcomeFromError(err).Marker())
+			return err
+		}
+
+		// Run every registered secret injector. Each transport (or
+		// other extension) plugs in via the SpawnSecretInjector
+		// interface; the spawner stays transport-agnostic. Soft-skips
+		// + best-effort error logging live inside runSecretInjectors,
+		// so a misbehaving injector cannot fail the activation.
+		if len(cfg.SecretInjectors) > 0 {
+			if state, err := LoadState(actCtx, cfg.Store, orgID, workerID); err == nil && state.ProjectID != "" && cfg.ProjectService != nil {
+				cfg.runSecretInjectors(actCtx, orgID, state.ProjectID, cfg.ProjectService.PutProjectSecret)
+			} else if err != nil && cfg.Logger != nil {
+				cfg.Logger.Warn("helix spawner: load state for secret injection", "worker", workerID, "err", err)
+			}
+		}
+
+		sessionID, err := cfg.ensureSession(actCtx, orgID, workerID, prompt, publish)
+		if err != nil {
+			publish(activation.OutcomeFromError(err).Marker())
+			return err
+		}
+
+		// Live transcript bridge. On disconnect the spawner reconnects
+		// for the lifetime of the activation; the dedup map prevents
+		// republishing on snapshot replay.
+		bridge := newBridge(publish)
+		bridgeCtx, bridgeCancel := context.WithCancel(actCtx)
+		defer bridgeCancel()
+		go bridge.run(bridgeCtx, cfg, sessionID)
+
+		err = cfg.pollUntilDone(actCtx, sessionID, publish)
+		bridgeCancel()
+		publish(activation.OutcomeFromError(err).Marker())
+		return err
+	}
+}
+
+// newActivationRecord builds a fresh activation.Activation for one
+// Spawner invocation. Returns nil when the caller hasn't wired
+// NewID / Now / the Activations repo — the legacy code path still
+// runs (transcript stream only) so older tests and dev wirings
+// keep working through the B5 transition. Once every caller wires
+// these, the nil branch becomes a hard error.
+//
+// When the lead trigger carries a pre-allocated ActivationID (set by
+// hire_worker in B5.8), the returned struct adopts that ID and the
+// caller (Spawner) skips Create — the row already exists in the
+// store. The Complete path still runs at end-of-activation to set
+// EndedAt/Outcome on the pre-existing row.
+func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) *activation.Activation {
+	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
+		return nil
+	}
+	id := triggers[0].ActivationID
+	if id == "" {
+		id = activation.ID("a-" + cfg.NewID())
+	}
+	act, err := activation.New(id, workerID, triggers, cfg.Now(), orgID)
+	if err != nil {
+		if cfg.Logger != nil {
+			cfg.Logger.Warn("helix spawner: build activation record", "worker", workerID, "err", err)
+		}
+		return nil
+	}
+	return act
+}
+
+// DefaultHelixSpecsMandate points the agent at its role + identity
+// files, which the project applier pushes to the per-Worker repo's
+// `helix-specs` branch. Surfaced through SpawnerConfig.SpecsMandate
+// — operators override via the `worker.specs_mandate` config key
+// when the file layout or pull recipe changes (no deploy required).
+//
+// Helix's workspace-setup script creates a worktree for the branch
+// at ~/work/helix-specs/ on every boot — but only when the branch
+// exists on the remote at boot time, so if the worktree is missing
+// the agent must materialise it itself.
+const DefaultHelixSpecsMandate = `Your org-wide policy, role, and identity files live on the
+**helix-specs** branch of your per-Worker repo. helix-org pushes them
+on hire and re-pushes them on every activation, so the remote always
+has the current owner-edited version. Path inside the branch:
+  .context/agent.md                                    (org-wide policy)
+  workers/${HELIX_WORKER_ID}/.context/role.md
+  workers/${HELIX_WORKER_ID}/.context/identity.md
+
+ALWAYS pull before reading — your local worktree is stale from prior
+activations and won't reflect owner edits made since:
+
+  if [ ! -d ~/work/helix-specs ]; then
+    cd ~/work/$(ls ~/work | grep -v helix-specs | head -1)
+    git fetch origin helix-specs
+    git worktree add ../helix-specs helix-specs
+  else
+    cd ~/work/helix-specs && git pull --ff-only origin helix-specs
+  fi
+
+Then read in this order — agent.md FIRST (it's the entrypoint that
+tells you how to be an agent at all), then role.md, then identity.md:
+  cat ~/work/helix-specs/.context/agent.md
+  cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/role.md
+  cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/identity.md
+
+After meaningful work, persist state on helix-specs:
+  cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
+
+// ensureProject is a thin wrapper around WorkerProject
+// so the activation flow reads naturally. The Service / Git fields
+// must be wired by the embedding host (api/pkg/server/helix_org.go).
+func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.WorkerID) error {
+	a := &WorkerProject{
+		Service:       c.ProjectService,
+		Workspace:     c.Workspace,
+		Store:         c.Store,
+		HelixOrgURL:   c.HelixOrgURL,
+		OrgID:         c.OrgID,
+		Runtime:       c.Runtime,
+		Provider:      c.Provider,
+		Model:         c.Model,
+		Credentials:   c.Credentials,
+		AgentMD:       c.AgentMD,
+		MCPAuthBearer: c.MCPAuthBearer,
+		Logger:        c.Logger,
+	}
+	_, _, _, err := a.Ensure(ctx, orgID, workerID)
+	return err
+}
+
+// ensureSession dispatches the activation prompt to the Worker's
+// long-lived chat session, reusing the persisted session ID when one
+// exists. We DON'T open a fresh session per activation: each fresh
+// session spawns a fresh desktop container in Helix (~3 min cold
+// start), which makes routine DM-driven activity painfully slow.
+// Reusing the session keeps the container warm and lets follow-ups
+// land in seconds.
+//
+// Cross-activation context: the agent has its prior chat history in
+// the same Helix session AND the helix-specs branch in its workspace.
+// Either is a sufficient reminder of "what came before"; carrying
+// both is intentional belt-and-braces.
+//
+// Two paths:
+//   - **Follow-up** (state.SessionID exists): POST
+//     /api/v1/sessions/{id}/messages. Helix queues the message and
+//     pickupWaitingInteraction delivers it on agent reconnect — no
+//     warmup loop, no cold-start handling on our side.
+//   - **First activation** (no session yet): POST /sessions/chat to
+//     create the session. The dispatch may race the desktop's WS
+//     connect; if it does (hadWSError) we immediately re-queue the
+//     same prompt via the durable /messages endpoint so it lands as
+//     soon as the agent dials home.
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.WorkerID, prompt string, _ func(string)) (string, error) {
+	state, err := LoadState(ctx, c.Store, orgID, workerID)
+	if err != nil {
+		return "", err
+	}
+	if state.ProjectID == "" {
+		return "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
+	}
+
+	// Follow-up: the persisted session ID is the durable target. We
+	// continue the session via /sessions/chat with SessionID set
+	// rather than the /sessions/{id}/messages queue endpoint —
+	// embedded Helix doesn't expose the latter; this path is what
+	// standard Helix supports for both new and continued sessions.
+	// If the session is gone (404 / not found) we fall through and
+	// open a fresh one.
+	// EnsureAndSend is the single primitive shared with the owner-chat
+	// bridge: it resumes the persisted session if possible, falls
+	// through to a fresh one on any failure (HTTP, SSE-error chunk,
+	// stale in-memory state after api restart), and posts the
+	// activation prompt — all with session_role="exploratory" so the
+	// new session is discoverable from Helix's per-project UI. Without
+	// one shared primitive the two paths drift apart and develop
+	// independent stale-session bugs.
+	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
+		SessionID: state.SessionID,
+		ProjectID: state.ProjectID,
+		AppID:     state.AgentAppID,
+		AgentType: AgentType,
+		Prompt:    prompt,
+	})
+	if err != nil {
+		return "", fmt.Errorf("ensure session: %w", err)
+	}
+	if fresh {
+		if c.Logger != nil && state.SessionID != "" {
+			c.Logger.Info("spawner: persisted session unusable, opened fresh",
+				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
+		}
+		if err := SaveSession(ctx, c.Store, orgID, workerID, sid); err != nil {
+			return "", fmt.Errorf("persist session id: %w", err)
+		}
+	}
+	return sid, nil
+}
+
+// pollUntilDone polls GetOutput with exponential backoff until a
+// terminal status is reported or ctx fires.
+func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publish func(string)) error {
+	delay := c.PollInitial
+	for {
+		out, err := c.Client.GetOutput(ctx, sessionID)
+		if err != nil {
+			// Don't fail the activation on a transient poll error; just
+			// back off and retry until the timeout fires.
+			if c.Logger != nil {
+				c.Logger.Warn("helix poll", "session", sessionID, "err", err)
+			}
+		} else if IsTerminalOutput(out) {
+			if out.Status == "error" {
+				return fmt.Errorf("session error: %s", agent.OneLine(out.Output, 500))
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+		if delay > c.PollMax {
+			delay = c.PollMax
+		}
+	}
+}
+
+// bridge consumes WebSocket frames and publishes one transcript
+// event per *settled* response entry. It owns a single `EntryStream`
+// for the lifetime of the activation; the EntryStream's dedup state
+// (per Index/MessageID) keeps snapshot replay safe across reconnects.
+type bridge struct {
+	publish func(body string)
+	stream  *EntryStream
+}
+
+func newBridge(publish func(body string)) *bridge {
+	b := &bridge{publish: publish}
+	b.stream = NewEntryStream(b.onEvent)
+	return b
+}
+
+// onEvent renders one settled EntryStream event into the canonical
+// activation-transcript line shape. The owner-chat bridge in
+// server/chat uses the same TranscriptBody helper to publish
+// identical lines to s-activations-w-owner.
+func (b *bridge) onEvent(e Event) {
+	if body := TranscriptBody(e); body != "" {
+		b.publish(body)
+	}
+}
+
+// TranscriptBody renders one Helix WS event into the line shape every
+// Worker's activation transcript uses (assistant: …, tool_use foo:
+// …, tool_result: …). Exported so the owner-chat bridge in
+// server/chat can produce identical lines for s-activations-w-owner
+// without duplicating the rendering. Empty string for kinds that
+// shouldn't appear on the transcript.
+//
+// The wire shape is owned by activation.TranscriptSegment.Marker();
+// this function is just the Helix-Event → typed-segment adapter.
+func TranscriptBody(e Event) string {
+	seg, ok := transcriptSegmentFromEvent(e)
+	if !ok {
+		return ""
+	}
+	return seg.Marker()
+}
+
+// transcriptSegmentFromEvent maps the EntryStream Event variants to
+// the canonical TranscriptSegment kinds. Kinds with no transcript
+// representation (any future Event added without a Segment kind)
+// return (_, false).
+func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
+	switch e.Kind {
+	case EventAssistant:
+		return activation.TranscriptSegment{Kind: activation.SegmentAssistant, Body: e.Text}, true
+	case EventToolUse:
+		return activation.TranscriptSegment{Kind: activation.SegmentToolUse, ToolName: e.ToolName, Body: e.Text}, true
+	case EventToolResult:
+		return activation.TranscriptSegment{Kind: activation.SegmentToolResult, Body: e.Text}, true
+	case EventToolResultError:
+		return activation.TranscriptSegment{Kind: activation.SegmentToolResultError, Body: e.Text}, true
+	case EventError:
+		return activation.TranscriptSegment{Kind: activation.SegmentError, Body: e.Text}, true
+	}
+	return activation.TranscriptSegment{}, false
+}
+
+func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
+	delay := time.Second
+	for {
+		ch, err := SubscribeSessionUpdates(ctx, cfg.PubSub, cfg.Snapshotter, "", sessionID)
+		if err != nil {
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("helix subscribe", "session", sessionID, "err", err)
+			}
+		} else {
+			for u := range ch {
+				b.stream.Apply(u)
+			}
+		}
+		// Reconnect with capped exponential backoff while the
+		// activation context is still live.
+		select {
+		case <-ctx.Done():
+			b.stream.Flush()
+			return
+		case <-time.After(delay):
+		}
+		if delay < 30*time.Second {
+			delay *= 2
+		}
+	}
+}
+
+// publishActivationEvent is a thin wrapper around the shared
+// agent.PublishActivationEvent so the helix spawner's call sites
+// stay terse. The owner-chat bridge uses the same shared helper
+// directly — both paths produce identical event shapes on
+// s-activations-<workerID>.
+func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
+	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, orgID, workerID, body)
+}

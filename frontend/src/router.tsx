@@ -45,6 +45,14 @@ import Onboarding from './pages/Onboarding'
 import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
+import HelixOrgChart from './pages/HelixOrgChart'
+import HelixOrgRoles from './pages/HelixOrgRoles'
+import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
+import HelixOrgSettings from './pages/HelixOrgSettings'
+import HelixOrgStreams from './pages/HelixOrgStreams'
+import HelixOrgStreamDetail from './pages/HelixOrgStreamDetail'
+import HelixOrgWorkers from './pages/HelixOrgWorkers'
+import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -531,6 +539,62 @@ const routes: IApplicationRoute[] = [
     title: 'Runner Logs',
   },
   render: () => <AdminRunnerLogsPage />,
+}, {
+  // helix-org alpha — the org chart is the only surface exposed to
+  // users today. Other resources (workers, roles, positions, streams,
+  // settings) are operated via MCP tools / API; the chart is the
+  // visual entry point. The URL carries :org_id so the helixOrgService
+  // can scope each request to a single tenant.
+  name: 'helix_org_root',
+  path: '/orgs/:org_id/helix-org',
+  meta: { drawer: true, title: 'Helix Org' },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('helix_org_chart', { org_id: params.org_id })
+    }, [params.org_id])
+    return null
+  },
+}, {
+  name: 'helix_org_chart',
+  path: '/orgs/:org_id/helix-org/chart',
+  meta: { drawer: true, title: 'Helix Org · Chart' },
+  render: () => <HelixOrgChart />,
+}, {
+  name: 'helix_org_roles',
+  path: '/orgs/:org_id/helix-org/roles',
+  meta: { drawer: true, title: 'Helix Org · Roles' },
+  render: () => <HelixOrgRoles />,
+}, {
+  name: 'helix_org_role_detail',
+  path: '/orgs/:org_id/helix-org/roles/:role_id',
+  meta: { drawer: true, title: 'Helix Org · Role' },
+  render: () => <HelixOrgRoleDetail />,
+}, {
+  name: 'helix_org_workers',
+  path: '/orgs/:org_id/helix-org/workers',
+  meta: { drawer: true, title: 'Helix Org · Workers' },
+  render: () => <HelixOrgWorkers />,
+}, {
+  name: 'helix_org_worker_detail',
+  path: '/orgs/:org_id/helix-org/workers/:worker_id',
+  meta: { drawer: true, title: 'Helix Org · Worker' },
+  render: () => <HelixOrgWorkerDetail />,
+}, {
+  name: 'helix_org_settings',
+  path: '/orgs/:org_id/helix-org/settings',
+  meta: { drawer: true, title: 'Helix Org · Settings' },
+  render: () => <HelixOrgSettings />,
+}, {
+  name: 'helix_org_streams',
+  path: '/orgs/:org_id/helix-org/streams',
+  meta: { drawer: true, title: 'Helix Org · Streams' },
+  render: () => <HelixOrgStreams />,
+}, {
+  name: 'helix_org_stream_detail',
+  path: '/orgs/:org_id/helix-org/streams/:stream_id',
+  meta: { drawer: true, title: 'Helix Org · Stream' },
+  render: () => <HelixOrgStreamDetail />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

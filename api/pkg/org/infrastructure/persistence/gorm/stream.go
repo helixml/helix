@@ -1,0 +1,104 @@
+package gorm
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
+)
+
+type streamRow struct {
+	ID              string `gorm:"primaryKey;type:text"`
+	OrgID           string `gorm:"primaryKey;type:text;index;uniqueIndex:idx_stream_org_name,priority:1"`
+	Name            string `gorm:"not null;uniqueIndex:idx_stream_org_name,priority:2"`
+	Description     string
+	CreatedBy       string `gorm:"not null;index"`
+	CreatedAt       time.Time
+	TransportKind   string `gorm:"not null;default:local"`
+	TransportConfig string `gorm:"not null;default:''"`
+}
+
+func (streamRow) TableName() string { return "org_streams" }
+
+type streamMapper struct{}
+
+func (streamMapper) ToRow(s streaming.Stream) (streamRow, error) {
+	cfg := ""
+	if len(s.Transport.Config) > 0 {
+		cfg = string(s.Transport.Config)
+	}
+	return streamRow{
+		ID:              string(s.ID),
+		OrgID:           s.OrganizationID,
+		Name:            s.Name,
+		Description:     s.Description,
+		CreatedBy:       string(s.CreatedBy),
+		CreatedAt:       s.CreatedAt,
+		TransportKind:   string(s.Transport.Kind),
+		TransportConfig: cfg,
+	}, nil
+}
+
+func (streamMapper) ToDomain(row streamRow) (streaming.Stream, error) {
+	tp := transport.Transport{Kind: transport.Kind(row.TransportKind)}
+	if row.TransportConfig != "" {
+		tp.Config = json.RawMessage(row.TransportConfig)
+	}
+	return streaming.NewStream(
+		streaming.StreamID(row.ID),
+		row.Name,
+		row.Description,
+		orgchart.WorkerID(row.CreatedBy),
+		row.CreatedAt,
+		tp,
+		row.OrgID,
+	)
+}
+
+type streamsRepo struct {
+	*Repository[streaming.Stream, streamRow]
+}
+
+func newStreamsRepo(db *gorm.DB) *streamsRepo {
+	return &streamsRepo{Repository: NewRepository[streaming.Stream, streamRow](db, streamMapper{}, "stream")}
+}
+
+func (r *streamsRepo) Get(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error) {
+	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}
+
+func (r *streamsRepo) List(ctx context.Context, orgID string) ([]streaming.Stream, error) {
+	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
+}
+
+// Update rewrites the mutable subset (name, description, transport
+// kind + config) of the row identified by (id, orgID). Immutable
+// fields on the passed Stream are ignored. Returns store.ErrNotFound
+// when no row matches.
+func (r *streamsRepo) Update(ctx context.Context, s streaming.Stream) error {
+	cfg := ""
+	if len(s.Transport.Config) > 0 {
+		cfg = string(s.Transport.Config)
+	}
+	updates := map[string]any{
+		"name":             s.Name,
+		"description":      s.Description,
+		"transport_kind":   string(s.Transport.Kind),
+		"transport_config": cfg,
+	}
+	return r.Repository.Update(ctx,
+		store.WithOrg(s.OrganizationID),
+		store.WithID(string(s.ID)),
+		store.WithUpdates(updates),
+	)
+}
+
+func (r *streamsRepo) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
+	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+}

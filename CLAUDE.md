@@ -214,6 +214,16 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
 
+## helix-org design philosophy
+
+Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams, Grants). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.
+
+- **Prefer data and text over code.** If a feature can be expressed as a Role/Position prompt edit, a scope value, or a tool description, do that before adding Go logic.
+- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams, Grants). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead.
+- **No workflow in code.** Tools do exactly one thing. Code does not orchestrate multi-step sequences on behalf of an agent — it does not subscribe Workers, grant tools implicitly, auto-create related records. Orchestration lives in the prompt. `DefaultTools` / `DefaultStreams` on a Role are reference data the hiring manager's prompt reads, not triggers the code acts on. When reviewing a tool, ask: "is the code making a decision the agent should be making?" If yes, remove it.
+- **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
+- **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
+
 ## Dev Environment (Helix-in-Helix)
 
 **`helix-4` is a symlink to `helix`** — they are the same directory. Always use `/home/retro/work/helix/`.

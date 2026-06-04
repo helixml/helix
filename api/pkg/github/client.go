@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"fmt"
+	"slices"
 
 	"github.com/google/go-github/v61/github"
 	"golang.org/x/oauth2"
@@ -49,32 +51,34 @@ func NewGithubClient(options ClientOptions) (*Client, error) {
 	}, nil
 }
 
+const loadReposMaxPages = 10
+
+// LoadRepos returns full_name for every repo the token can see,
+// sorted by most-recently-pushed first. Caps at loadReposMaxPages so
+// heavy accounts don't take minutes.
 func (c *Client) LoadRepos() ([]string, error) {
-	repos := []*github.Repository{}
-	opts := github.ListOptions{
-		PerPage: 100,
-		Page:    0,
-	}
-	for {
-		result, meta, err := c.client.Repositories.ListByUser(c.ctx, "", &github.RepositoryListByUserOptions{
+	var repos []*github.Repository
+	opts := github.ListOptions{PerPage: 100, Page: 1}
+	for i := 0; i < loadReposMaxPages; i++ {
+		result, meta, err := c.client.Repositories.ListByAuthenticatedUser(c.ctx, &github.RepositoryListByAuthenticatedUserOptions{
+			Sort:        "pushed",
+			Direction:   "desc",
 			ListOptions: opts,
 		})
 		if err != nil {
 			return nil, err
 		}
-		for _, repo := range result {
-			if repo != nil {
-				repos = append(repos, repo)
-			}
-		}
-		opts.Page = opts.Page + 1
-		if opts.Page > meta.LastPage {
+		repos = append(repos, result...)
+		if meta == nil || meta.NextPage == 0 {
 			break
 		}
+		opts.Page = meta.NextPage
 	}
-	results := []string{}
+	results := make([]string, 0, len(repos))
 	for _, repo := range repos {
-		results = append(results, *repo.FullName)
+		if repo != nil && repo.FullName != nil {
+			results = append(results, *repo.FullName)
+		}
 	}
 	return results, nil
 }
@@ -105,32 +109,94 @@ func (c *Client) AddWebhookToRepo(
 	events []string,
 	secret string,
 ) error {
+	_, err := c.UpsertWebhook(owner, repo, name, url, events, secret)
+	return err
+}
+
+type WebhookSummary struct {
+	ID     int64
+	Events []string
+}
+
+// UpsertWebhook creates a webhook on the repo if none points at `url`,
+// or PATCHes the existing one to bring content_type / events / active
+// in line. Events of `["*"]` is GitHub's wildcard.
+func (c *Client) UpsertWebhook(
+	owner string,
+	repo string,
+	name string,
+	url string,
+	events []string,
+	secret string,
+) (WebhookSummary, error) {
 	active := true
-	json := "application/json"
+	jsonCT := "application/json"
 
 	hooks, _, err := c.client.Repositories.ListHooks(c.ctx, owner, repo, nil)
 	if err != nil {
-		return err
+		return WebhookSummary{}, err
 	}
-
 	for _, hook := range hooks {
-		if hook.Config.URL != nil && *hook.Config.URL == url {
-			// Hook already exists, no need to add it again
-			return nil
+		if hook.Config == nil || hook.Config.URL == nil || *hook.Config.URL != url {
+			continue
 		}
+		needsUpdate := hook.Config.ContentType == nil || *hook.Config.ContentType != jsonCT ||
+			!sameEvents(hook.Events, events) ||
+			hook.Active == nil || !*hook.Active
+		if !needsUpdate || hook.ID == nil {
+			return summarizeHook(hook), nil
+		}
+		patched, _, err := c.client.Repositories.EditHook(context.Background(), owner, repo, *hook.ID, &github.Hook{
+			Active: &active,
+			Events: events,
+			Config: &github.HookConfig{
+				ContentType: &jsonCT,
+				URL:         &url,
+				Secret:      &secret,
+			},
+		})
+		if err != nil {
+			return WebhookSummary{}, fmt.Errorf("update github webhook: %w", err)
+		}
+		return summarizeHook(patched), nil
 	}
-
-	// Add the new hook
-	_, _, err = c.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
+	created, _, err := c.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
 		Active: &active,
 		Name:   &name,
 		URL:    &url,
 		Events: events,
 		Config: &github.HookConfig{
-			ContentType: &json,
+			ContentType: &jsonCT,
 			URL:         &url,
 			Secret:      &secret,
 		},
 	})
-	return err
+	if err != nil {
+		return WebhookSummary{}, err
+	}
+	return summarizeHook(created), nil
+}
+
+// WebhookSettingsURL returns the operator-facing edit page for a hook.
+func WebhookSettingsURL(owner, repo string, hookID int64) string {
+	return fmt.Sprintf("https://github.com/%s/%s/settings/hooks/%d", owner, repo, hookID)
+}
+
+func sameEvents(a, b []string) bool {
+	ca := slices.Clone(a)
+	cb := slices.Clone(b)
+	slices.Sort(ca)
+	slices.Sort(cb)
+	return slices.Equal(ca, cb)
+}
+
+func summarizeHook(h *github.Hook) WebhookSummary {
+	if h == nil {
+		return WebhookSummary{}
+	}
+	out := WebhookSummary{Events: h.Events}
+	if h.ID != nil {
+		out.ID = *h.ID
+	}
+	return out
 }

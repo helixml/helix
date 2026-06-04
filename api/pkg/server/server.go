@@ -770,40 +770,67 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// an in-process handler, gated per-user by the `helix-org` alpha
 	// feature. See design/2026-05-17-helix-org-saas-alpha.md.
 	//
-	// The MCP / webhook JSON-RPC API lives at /api/v1/org/. The htmx
-	// UI is mounted at top-level /ui/ (outside /api/v1) because its
-	// templates use absolute /ui/... hrefs — rewriting them at the
-	// proxy layer is more fragile than just serving from the path
-	// they expect. /ui/ is auth-gated via extractMiddleware +
-	// requireUser + requireFeature manually wired (we sit outside the
-	// /api/v1 subrouter so we don't pick up its csrfMiddleware — the
-	// org UI uses standard form POSTs without Helix CSRF tokens; the
-	// feature flag is the gate).
+	// The MCP / webhook / org-graph / settings / streams JSON API lives
+	// at /api/v1/org/ and is consumed by the React pages at
+	// /helix-org/* (frontend/src/pages/HelixOrg*.tsx). Phase C of the
+	// UI migration deleted the htmx SSR that used to live at /ui/*.
 	if apiServer.Cfg.HelixOrgEnabled {
 		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
-			FileStoreType: apiServer.Cfg.FileStore.Type,
-			LocalFSPath:   apiServer.Cfg.FileStore.LocalFSPath,
+			LocalFSPath:          apiServer.Cfg.FileStore.LocalFSPath,
+			GitRepositoryService: apiServer.gitRepositoryService,
+			APIServer:            apiServer,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
-			authRouter.PathPrefix("/org/").Handler(
+			// /api/v1/orgs/{org}/github/webhook — public, GitHub
+			// deliveries authenticate via HMAC of the per-org
+			// webhook_secret. Registered on the INSECURE router so
+			// the helix session-cookie / api-key auth doesn't 401
+			// inbound deliveries. Must be registered BEFORE the
+			// authRouter PathPrefix("/orgs/{org}/") so this exact
+			// path wins the match.
+			if orgHandlers.publicGitHubWebhook != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
+					Methods(http.MethodPost)
+			}
+			// Per-stream variant — operators paste this URL into a
+			// GitHub repo's webhook config when they want a 1:1
+			// mapping between a GitHub webhook and a helix stream
+			// (e.g. two streams for the same repo, each watching a
+			// different events whitelist). Insecure mount: GitHub
+			// deliveries authenticate via HMAC over the body, not a
+			// helix session.
+			if orgHandlers.publicGitHubWebhookForStream != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/streams/{stream_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+					Methods(http.MethodPost)
+			}
+
+			// /api/v1/orgs/{org}/* — per-tenant surface for the
+			// org-graph resources (chart, workers, roles, positions,
+			// streams, settings). withHelixOrgScope resolves {org}
+			// (slug or org_id) to a canonical orgID, authorises
+			// org-membership, bootstraps the tenant on first request,
+			// and stashes orgID on ctx so downstream handlers + the
+			// store layer scope to it. authRouter is a sub-mux of
+			// /api/v1, so paths registered against it are matched as
+			// full request paths.
+			authRouter.PathPrefix("/orgs/{org}/").Handler(
 				requireFeature(alphaFeatureHelixOrg)(
-					http.StripPrefix(APIPrefix+"/org", orgHandlers.api),
+					apiServer.withHelixOrgScope(orgHandlers.scope,
+						stripOrgScopedPrefix(orgHandlers.api),
+					),
 				),
 			)
-			uiRouter := router.PathPrefix("/ui/").Subrouter()
-			uiRouter.Use(apiServer.authMiddleware.extractMiddleware)
-			uiRouter.Use(requireUser)
-			uiRouter.Use(requireFeature(alphaFeatureHelixOrg))
-			uiRouter.PathPrefix("/").Handler(orgHandlers.ui)
 
 			// Expose helix-org's owner MCP through the standard Helix MCP
-			// gateway so picked agents can call it without us having to bake
-			// the agent owner's api_key into the agent's app config. The
-			// gateway already auth-checks the api_key via authRouter; the
-			// backend re-checks the alpha-feature flag for defence in depth.
-			// Route: /api/v1/mcp/helix-org/...
-			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(orgHandlers.api))
+			// gateway. Backend identifies tenants by URL prefix
+			// (/api/v1/mcp/helix-org/{org}/...) — the gateway already
+			// auth-checks the api_key via authRouter; the per-org
+			// backend layer resolves orgID from the request before
+			// dispatching to the handler.
+			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(apiServer, orgHandlers))
 		}
 	}
 

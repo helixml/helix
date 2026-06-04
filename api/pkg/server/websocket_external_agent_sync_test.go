@@ -1155,6 +1155,115 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// handleChatResponseError tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestChatResponseError_PersistsAgentErrorToInteraction is the red-then-green
+// regression test for the "user sees nothing when the agent fails" bug.
+//
+// Repro: hire an AI worker, open chat, send "hello", agent fails internally
+// with e.g. "Authentication required" (Claude Code subscription missing). The
+// desktop emits chat_response_error AND then a downstream empty
+// message_completed. Before this fix, handleChatResponseError only pushed the
+// error to a legacy HTTP-streaming response channel that doesn't exist for
+// WebSocket-driven chat — the interaction was silently left in Waiting, then
+// handleMessageCompleted's empty-response branch overwrote it with the
+// generic "Agent returned empty response (message bounced or content lost).
+// The prompt will be retried." which buries the actual cause.
+//
+// This test pins the desired behaviour: when an active interaction exists for
+// the failing request_id, the agent's error message MUST land on the
+// interaction (state=error, error=<msg>), so the chat UI surfaces it
+// faithfully instead of inventing a generic excuse.
+func (s *WebSocketSyncSuite) TestChatResponseError_PersistsAgentErrorToInteraction() {
+	s.server.requestToInteractionMapping["req-auth"] = "int-auth"
+
+	interaction := &types.Interaction{
+		ID:        "int-auth",
+		SessionID: "ses_auth",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-auth").Return(interaction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateError, i.State,
+				"interaction must transition to error state")
+			s.Equal("Authentication required", i.Error,
+				"interaction.error must hold the agent's verbatim error, not a generic stand-in")
+			return i, nil
+		},
+	)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "chat_response_error",
+		Data: map[string]interface{}{
+			"request_id": "req-auth",
+			"error":      "Authentication required",
+		},
+	}
+
+	err := s.server.handleChatResponseError("agent-1", syncMsg)
+	s.NoError(err)
+}
+
+// TestChatResponseError_NoOpWhenNoMappingOrChannel covers the case where
+// neither a request-mapping nor a legacy response channel exists — must
+// degrade silently (return nil) rather than panic or surface noise.
+func (s *WebSocketSyncSuite) TestChatResponseError_NoOpWhenNoMappingOrChannel() {
+	syncMsg := &types.SyncMessage{
+		EventType: "chat_response_error",
+		Data: map[string]interface{}{
+			"request_id": "req-orphan",
+			"error":      "boom",
+		},
+	}
+	s.NoError(s.server.handleChatResponseError("agent-1", syncMsg))
+}
+
+// TestMessageCompleted_PreservesPriorAgentError pins the second half of the
+// surfacing contract: if a chat_response_error already moved the interaction
+// into Error state with a real cause, a subsequent empty message_completed
+// must NOT overwrite that with the generic "Agent returned empty response"
+// stand-in.
+func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesPriorAgentError() {
+	s.server.contextMappings["thread-preserve"] = "ses_preserve"
+	s.server.requestToInteractionMapping["req-preserve"] = "int-preserve"
+
+	session := &types.Session{ID: "ses_preserve", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_preserve").Return(session, nil).AnyTimes()
+
+	// Interaction is already in Error state from a prior chat_response_error.
+	interaction := &types.Interaction{
+		ID:              "int-preserve",
+		SessionID:       "ses_preserve",
+		State:           types.InteractionStateError,
+		Error:           "Authentication required",
+		ResponseMessage: "",
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-preserve").Return(interaction, nil)
+
+	// UpdateInteraction must NOT be called — the prior error is sacrosanct.
+	// gomock strict mode fails if it's invoked without an EXPECT.
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{interaction}, int64(1), nil).AnyTimes()
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-preserve").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_preserve").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-preserve").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-preserve",
+			"request_id":    "req-preserve",
+		},
+	}
+	s.NoError(s.server.handleMessageCompleted("agent-1", syncMsg))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // handleAgentReady tests
 // ──────────────────────────────────────────────────────────────────────────────
 

@@ -26,7 +26,7 @@ import {
   FileQuestionMark,
   MessageCircle,
   Kanban,
-  Sparkles,
+  Network,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -328,6 +328,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
   }
 
+  const handleHelixOrgClick = () => {
+    if (currentOrgSlug) {
+      router.navigate('helix_org_chart', { org_id: currentOrgSlug })
+    }
+  }
+
   const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
   }
@@ -377,6 +383,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     postNavigateTo()
   }
 
+  const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
+
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
@@ -387,6 +395,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: handleProjectsClick,
         label: "Projects",
       },
+      // Helix Org chart. Alpha-gated: only rendered for users granted
+      // the 'helix-org' alpha_features flag. Slots in right under
+      // Projects so it sits with the other primary org-level surfaces.
+      ...(helixOrgEnabled ? [{
+        icon: <Network size={NAV_BUTTON_SIZE} />,
+        tooltip: "View org chart",
+        isActive: router.name.startsWith('helix_org'),
+        onClick: handleHelixOrgClick,
+        label: "Org",
+      }] : []),
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
@@ -469,7 +487,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
+  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled, helixOrgEnabled, router.name])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
@@ -778,56 +796,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 }}
               >
                 Admin Panel
-              </Typography>
-            </Box>
-          )}
-
-          {/* helix-org alpha entry — only rendered for users granted
-              the 'helix-org' flag in alpha_features. Opens the
-              embedded helix-org UI (server-gated via requireFeature
-              middleware; this is just the cosmetic entry point). */}
-          {account.user?.alpha_features?.includes('helix-org') && (
-            <Box
-              onClick={(e) => {
-                e.stopPropagation()
-                window.open('/ui/', '_blank', 'noopener,noreferrer')
-                if (sidebarVisible && menuItemsExpanded) {
-                  setMenuItemsExpanded(false)
-                }
-                if (!sidebarVisible && compactExpanded) {
-                  setCompactExpanded(false)
-                }
-              }}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 2,
-                py: 1,
-                borderRadius: 1,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                },
-              }}
-            >
-              <Sparkles
-                size={16}
-                style={{
-                  marginRight: '10px',
-                  color: lightTheme.textColorFaded,
-                }}
-              />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                helix-org (alpha)
               </Typography>
             </Box>
           )}

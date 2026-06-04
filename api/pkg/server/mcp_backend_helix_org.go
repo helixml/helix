@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -23,17 +24,21 @@ import (
 // each Worker activation to its own MCP path so subscribe/publish
 // land on the activating Worker, not the owner.
 type HelixOrgMCPBackend struct {
-	// orgHandler is the http.Handler returned by helixorgserver.Server.Handler().
-	// It mounts /workers/{id}/mcp; we forward there after extracting the
-	// worker ID from the gateway suffix.
+	apiServer  *HelixAPIServer
 	orgHandler http.Handler
+	scope      *helixOrgScope
 }
 
 // NewHelixOrgMCPBackend creates a backend that proxies to the in-process
-// helix-org server handler. ownerWorkerID identifies which Worker's
-// MCP scope is exposed (currently always "w-owner").
-func NewHelixOrgMCPBackend(orgHandler http.Handler) *HelixOrgMCPBackend {
-	return &HelixOrgMCPBackend{orgHandler: orgHandler}
+// helix-org server handler. Tenants are identified by URL prefix
+// (suffix path starts with `{org}/...`) so each per-Worker MCP call
+// scopes to the right helix-org.
+func NewHelixOrgMCPBackend(apiServer *HelixAPIServer, orgHandlers *helixOrgHandlers) *HelixOrgMCPBackend {
+	return &HelixOrgMCPBackend{
+		apiServer:  apiServer,
+		orgHandler: orgHandlers.api,
+		scope:      orgHandlers.scope,
+	}
 }
 
 // ServeHTTP implements MCPBackend. The MCP gateway has already
@@ -49,24 +54,37 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 
-	// Parse the worker ID from the suffix path the gorilla mux
+	// Parse the org segment + worker ID from the suffix path the gateway
 	// captured. Accept forms:
-	//   workers/<id>/mcp           (preferred — explicit)
-	//   <id>                       (legacy shorthand, treated as worker id)
-	//   ""                         (default to w-owner)
+	//   {org}/workers/<id>/mcp     (preferred — explicit)
+	//   {org}                      (defaults to w-owner inside that org)
 	suffix := strings.Trim(mux.Vars(r)["path"], "/")
+	if suffix == "" {
+		http.Error(w, "helix-org MCP: missing org in URL", http.StatusBadRequest)
+		return
+	}
+	parts := strings.Split(suffix, "/")
+	orgSlugOrID := parts[0]
 	workerID := "w-owner"
-	if suffix != "" {
-		parts := strings.Split(suffix, "/")
-		if len(parts) >= 3 && parts[0] == "workers" && parts[2] == "mcp" {
-			workerID = parts[1]
-		} else if len(parts) == 1 {
-			workerID = parts[0]
-		}
+	if len(parts) >= 4 && parts[1] == "workers" && parts[3] == "mcp" {
+		workerID = parts[2]
+	}
+	org, err := b.apiServer.lookupOrg(r.Context(), orgSlugOrID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if _, err := b.apiServer.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if err := b.scope.ensureBootstrap(r.Context(), org.ID); err != nil {
+		http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	rewritten := r.Clone(r.Context())
-	rewritten.URL.Path = "/workers/" + workerID + "/mcp"
+	rewritten := r.Clone(helixorgserver.WithOrgID(r.Context(), org.ID))
+	rewritten.URL.Path = "/orgs/" + org.ID + "/workers/" + workerID + "/mcp"
 	rewritten.URL.RawPath = ""
 	rewritten.RequestURI = rewritten.URL.RequestURI()
 	// Forward the authenticated user's ID so helix-org tools can

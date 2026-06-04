@@ -2645,10 +2645,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return nil
 	}
 
-	// If the response is empty, something went wrong — either the agent bounced the
-	// message (busy with another turn) or content was lost during the streaming flush.
-	// Mark as error and re-queue the prompt so it will be retried.
+	// Empty response: mark as error and re-queue. If a prior
+	// chat_response_error already populated a real error, preserve it.
 	if targetInteraction.ResponseMessage == "" && len(responseEntries) == 0 {
+		if targetInteraction.State == types.InteractionStateError && targetInteraction.Error != "" {
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", targetInteraction.ID).
+				Str("preserved_error", targetInteraction.Error).
+				Msg("message_completed: preserving prior chat_response_error")
+			return nil
+		}
+
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteraction.ID).
@@ -3459,7 +3467,11 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	return nil
 }
 
-// handleChatResponseError processes error from external agent
+// handleChatResponseError persists the agent's error onto the
+// matching Interaction (WS chat path) and/or forwards it to the
+// legacy HTTP-stream response channel. Missing mappings degrade
+// silently — chat_response_error for an unknown request_id is a no-op
+// (e.g. desktop replay during reconnect).
 func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, ok := syncMsg.Data["request_id"].(string)
 	if !ok {
@@ -3468,22 +3480,37 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 	}
 
 	errorMsg, ok := syncMsg.Data["error"].(string)
-	if !ok {
+	if !ok || errorMsg == "" {
 		errorMsg = "Unknown error from external agent"
 	}
 
-	// Handle response error via legacy channel handling
-	_, _, errorChan, exists := apiServer.getResponseChannel(sessionID, requestID)
-	if !exists {
-		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for error")
-		return nil
+	apiServer.contextMappingsMutex.RLock()
+	interactionID, hasInteractionMapping := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if hasInteractionMapping && interactionID != "" {
+		interaction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), interactionID)
+		if err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Str("request_id", requestID).
+				Str("interaction_id", interactionID).Msg("chat_response_error: load interaction failed")
+		} else if interaction != nil {
+			interaction.State = types.InteractionStateError
+			interaction.Error = errorMsg
+			interaction.Updated = time.Now()
+			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
+				log.Warn().Err(err).Str("interaction_id", interactionID).
+					Msg("chat_response_error: persist failed")
+			}
+		}
 	}
 
-	// Send error
-	select {
-	case errorChan <- fmt.Errorf("%s", errorMsg):
-	default:
-		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
+	if _, _, errorChan, exists := apiServer.getResponseChannel(sessionID, requestID); exists {
+		select {
+		case errorChan <- fmt.Errorf("%s", errorMsg):
+		default:
+			log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
+		}
+	} else if !hasInteractionMapping {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("chat_response_error: no mapping or channel")
 	}
 
 	return nil
