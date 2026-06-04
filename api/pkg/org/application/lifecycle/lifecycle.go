@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -67,14 +68,19 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 //  4. Clear the WorkerRuntimeState sidecar.
 //  5. Delete every Subscription + Grant for this worker.
 //  6. Remove the env directory from disk and delete its row.
-//  7. Delete the Worker row.
+//  7. Delete the per-Worker activation Stream
+//     (`s-activations-<workerID>`) so it stops surfacing as an
+//     active channel on the Streams page or as an orphan pseudo-
+//     node on the chart.
+//  8. Delete the Worker row.
 //
-// Steps 2/3/5/6 are best-effort and logged on failure — a half-torn
-// worker is better than refusing to clean up partial state. Step 7
-// is the only step whose error propagates (the row is the user-
-// visible source of truth).
+// Steps 2/3/5/6/7 are best-effort and logged on failure — a half-
+// torn worker is better than refusing to clean up partial state.
+// Step 8 is the only step whose error propagates (the row is the
+// user-visible source of truth).
 //
-// Activations are intentionally left behind as an audit trail.
+// Activation events themselves are intentionally left behind as an
+// audit trail; only the Stream row is dropped.
 func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) error {
 	if id == "" {
 		return errors.New("worker id is empty")
@@ -136,6 +142,18 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	}
 	if err := s.Store.Environments.Delete(ctx, orgID, id); err != nil {
 		s.logger().Warn("fire: delete environment row", "worker", id, "err", err)
+	}
+
+	// Drop the per-Worker activation Stream so it no longer shows up
+	// on the Streams page or as an orphan pseudo-node on the chart.
+	// Best-effort: log on failure so a half-torn worker still has its
+	// row deleted below. Events on the stream survive (audit trail)
+	// because the Events table isn't keyed on Streams.
+	if s.Store.Streams != nil {
+		streamID := activation.StreamID(id)
+		if err := s.Store.Streams.Delete(ctx, orgID, streamID); err != nil {
+			s.logger().Warn("fire: delete activation stream", "worker", id, "stream", streamID, "err", err)
+		}
 	}
 
 	if err := s.Store.Workers.Delete(ctx, orgID, id); err != nil {

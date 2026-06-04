@@ -53,6 +53,7 @@ import {
   useCreateHelixOrgRole,
   useDeleteHelixOrgPosition,
   useDeleteHelixOrgRole,
+  useDeleteHelixOrgStream,
   useHelixOrgChart,
   useHireHelixOrgWorker,
   useListHelixOrgStreams,
@@ -169,6 +170,7 @@ type StreamNodeData = {
   kind: string
   subscriberCount: number
   onSelectStream: (streamId: string) => void
+  onDeleteStream: (streamId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
@@ -392,8 +394,9 @@ const PositionNode: FC<NodeProps<Node<PositionNodeData>>> = ({ data }) => {
 
 // StreamNode is a small pseudo-node — narrower than a Position card —
 // rendered below the org tree to anchor subscription edges. Clicking
-// it navigates to the Streams list. (A dedicated detail page is on
-// the roadmap; for now the list page is the single editing surface.)
+// the body navigates to the per-stream detail page; the trash icon
+// in the top-right deletes the Stream row (irreversible, but the
+// confirm dialog enumerates what's about to disappear).
 const STREAM_W = 180
 const STREAM_H = 80
 const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
@@ -417,11 +420,22 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
         flexDirection: 'column',
         gap: 0.25,
         cursor: 'pointer',
+        position: 'relative',
         '&:hover': { backgroundColor: lightTheme.isLight ? 'rgba(255,180,80,0.12)' : 'rgba(255,180,80,0.12)' },
       }}
     >
       <Handle type="target" position={RFPosition.Top} style={{ background: handleColor, width: 8, height: 8 }} />
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted }}>
+      <Tooltip title="Delete stream">
+        <IconButton
+          className={NO_DRAG_NO_PAN}
+          size="small"
+          onClick={(e) => { e.stopPropagation(); data.onDeleteStream(data.streamId) }}
+          sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+        >
+          <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2 }}>
         {data.streamId}
       </Typography>
       <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -480,6 +494,7 @@ const buildGraph = (
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
     onSelectStream: (streamId: string) => void
+    onDeleteStream: (streamId: string) => void
   },
   isLight: boolean,
   streams: StreamSummary[],
@@ -755,6 +770,7 @@ const buildGraph = (
           kind: s.kind,
           subscriberCount: s.subscribers?.length ?? 0,
           onSelectStream: handlers.onSelectStream,
+          onDeleteStream: handlers.onDeleteStream,
         } as StreamNodeData,
         draggable: false,
         connectable: false,
@@ -1012,6 +1028,7 @@ const ChartCanvas: FC<{
     onDeleteRole: (roleId: string) => void
     onDeletePosition: (positionId: string) => void
     onSelectStream: (streamId: string) => void
+    onDeleteStream: (streamId: string) => void
   }
   // onSetParent and onClearParent are how the canvas writes the
   // hierarchy back to the server. onSetParent fires when the user
@@ -1118,6 +1135,7 @@ const HelixOrgChart: FC = () => {
   const { data: streamsData } = useListHelixOrgStreams()
   const deleteRole = useDeleteHelixOrgRole()
   const deletePosition = useDeleteHelixOrgPosition()
+  const deleteStream = useDeleteHelixOrgStream()
   const updatePosition = useUpdateHelixOrgPosition()
 
   const flat = useMemo(() => flatten(data?.roots ?? []), [data])
@@ -1139,6 +1157,7 @@ const HelixOrgChart: FC = () => {
   const [confirmDelete, setConfirmDelete] = useState<
     | { kind: 'role'; id: string }
     | { kind: 'position'; id: string }
+    | { kind: 'stream'; id: string }
     | null
   >(null)
 
@@ -1195,9 +1214,13 @@ const HelixOrgChart: FC = () => {
     },
     [router, orgSlug],
   )
+  const onDeleteStream = useCallback(
+    (streamId: string) => setConfirmDelete({ kind: 'stream', id: streamId }),
+    [],
+  )
   const handlers = useMemo(
-    () => ({ onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition, onSelectStream }),
-    [onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition, onSelectStream],
+    () => ({ onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition, onSelectStream, onDeleteStream }),
+    [onSelectWorker, onSelectRole, onHire, onAddPosition, onDeleteRole, onDeletePosition, onSelectStream, onDeleteStream],
   )
 
   // onSetParent fires when the chart canvas drew a new wire from a
@@ -1239,6 +1262,9 @@ const HelixOrgChart: FC = () => {
       if (confirmDelete.kind === 'role') {
         await deleteRole.mutateAsync(confirmDelete.id)
         snackbar.success(`deleted role ${confirmDelete.id}`)
+      } else if (confirmDelete.kind === 'stream') {
+        await deleteStream.mutateAsync(confirmDelete.id)
+        snackbar.success(`deleted stream ${confirmDelete.id}`)
       } else {
         await deletePosition.mutateAsync(confirmDelete.id)
         snackbar.success(`deleted position ${confirmDelete.id}`)
@@ -1269,6 +1295,18 @@ const HelixOrgChart: FC = () => {
         'This is irreversible.',
       ].join('\n')
     }
+    if (confirmDelete.kind === 'stream') {
+      const s = (streamsData?.streams ?? []).find((x) => x.id === confirmDelete.id)
+      const subs = s?.subscribers ?? []
+      return [
+        `Deleting stream ${confirmDelete.id}:`,
+        `  • removes the Stream row`,
+        `  • drops ${subs.length} subscription${subs.length === 1 ? '' : 's'}${subs.length > 0 ? ' (' + subs.join(', ') + ')' : ''}`,
+        `  • events on this stream survive as an audit trail`,
+        '',
+        'This is irreversible.',
+      ].join('\n')
+    }
     const pos = flat.find((p) => p.position_id === confirmDelete.id)
     const worker = pos?.workers[0]
     return [
@@ -1277,7 +1315,7 @@ const HelixOrgChart: FC = () => {
       '',
       'This is irreversible.',
     ].join('\n')
-  }, [confirmDelete, groups, flat])
+  }, [confirmDelete, groups, flat, streamsData])
 
   return (
     <Page
@@ -1355,11 +1393,15 @@ const HelixOrgChart: FC = () => {
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
-        title={confirmDelete?.kind === 'role' ? 'Delete role?' : 'Delete position?'}
+        title={
+          confirmDelete?.kind === 'role' ? 'Delete role?' :
+          confirmDelete?.kind === 'stream' ? 'Delete stream?' :
+          'Delete position?'
+        }
         body={confirmBody}
         onConfirm={handleConfirmDelete}
         onClose={() => setConfirmDelete(null)}
-        pending={deleteRole.isPending || deletePosition.isPending}
+        pending={deleteRole.isPending || deletePosition.isPending || deleteStream.isPending}
       />
 
       <Drawer
