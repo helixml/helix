@@ -53,6 +53,7 @@ interface AccessManagementProps {
   organizationId?: string;
   currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
   projectOwnerId?: string;
+  projectOwner?: { full_name?: string; email?: string; id?: string };
   onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
@@ -65,6 +66,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   organizationId,
   currentUser,
   projectOwnerId,
+  projectOwner,
   onCreateGrant,
   onDeleteGrant
 }) => {
@@ -110,8 +112,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Filter grants into users and teams
   const userGrants = useMemo(() => {
-    return accessGrants.filter(grant => grant.user_id && grant.user_id !== currentUser?.id);
-  }, [accessGrants, currentUser?.id]);
+    return accessGrants.filter(grant => grant.user_id && (!projectOwnerId || grant.user_id !== projectOwnerId));
+  }, [accessGrants, projectOwnerId]);
 
   const teamGrants = useMemo(() => {
     return accessGrants.filter(grant => grant.team_id);
@@ -122,9 +124,11 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     return organization?.teams || [];
   }, [organization]);
 
-  const ownerDisplayName = currentUser?.full_name || currentUser?.email || 'You';
-  const ownerDisplayEmail = currentUser?.email || '-';
-  const hasOwnerRow = !!currentUser?.id;
+  const isCurrentUserProjectOwner = !!projectOwnerId && currentUser?.id === projectOwnerId;
+  const ownerUser = projectOwner || (isCurrentUserProjectOwner ? currentUser : undefined);
+  const ownerDisplayName = ownerUser?.full_name || ownerUser?.email || 'Project owner';
+  const ownerDisplayEmail = ownerUser?.email || '-';
+  const hasOwnerRow = !!projectOwnerId;
   const effectiveOrganizationId = organizationId || organization?.id || orgTools.orgID;
 
   const existingGrantUserIds = useMemo(() => {
@@ -645,7 +649,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                         </Box>
                         <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
                           <Chip
-                            label={projectOwnerId && currentUser?.id === projectOwnerId ? 'Owner' : 'You'}
+                            label={isCurrentUserProjectOwner ? 'You' : 'Owner'}
                             size="small"
                             sx={{
                               mr: 0.5,

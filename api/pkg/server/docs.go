@@ -27909,6 +27909,14 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
                 "user_id": {
                     "type": "string"
                 }

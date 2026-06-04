@@ -3969,6 +3969,8 @@ export interface TypesProject {
   status?: string;
   technologies?: string[];
   updated_at?: string;
+  /** Populated by the server if UserID is set */
+  user?: TypesUser;
   user_id?: string;
 }
 

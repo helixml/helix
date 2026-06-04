@@ -6468,6 +6468,10 @@ definitions:
         type: array
       updated_at:
         type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
       user_id:
         type: string
     type: object
