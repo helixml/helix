@@ -51,13 +51,13 @@ Fix: dispatch over RevDial, addressed by sandbox ID, never by network address.
 - `RunnerState.URL` and all hostname/IP derivation are deleted - the router
   routes by sandbox ID alone.
 
-### Bug C - heartbeat delivery (to verify)
+### Bug C - heartbeat delivery (resolved: not a bug)
 
 During debugging the in-memory router was empty until a heartbeat with
-`profile_status=running` was POSTed. The router is in-memory and is wiped on
-every API restart; it repopulates only on the next 30s heartbeat. Need to
-confirm the daemon's heartbeats actually land in steady state (no code change
-unless a delivery gap is found).
+`profile_status=running` was POSTed. This was an artifact of an API-restart
+window: the router is in-memory and is wiped on restart, repopulating on the
+next 30s heartbeat. Verified in steady state the daemon's heartbeats land and
+keep the model listed with no manual poke. No code change.
 
 ## Files touched
 
@@ -72,3 +72,11 @@ unless a delivery gap is found).
 
 API changes hot-reload via Air. The hydra route is a sandbox-side change and
 requires `./stack build-sandbox` + a new session before end-to-end test.
+
+## Verified (prime, 2026-06-04)
+
+- Unprefixed `POST /v1/chat/completions` for `qwen2.5-0.5b` returns a normal
+  completion (Bug A).
+- `stream:true` streams SSE chunks end-to-end: API -> RevDial tunnel -> hydra
+  /api/v1/inference/* -> inference-proxy -> vLLM (Bug B; flush works).
+- Model stays listed via the live daemon heartbeats with no manual poke (Bug C).
