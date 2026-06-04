@@ -115,6 +115,19 @@ export const QUERY_KEYS = {
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
 }
 
+export interface EventCard {
+  id: string
+  stream_id: string
+  source?: string
+  created_at: string
+  body: string
+  has_message: boolean
+  from?: string
+  to?: string
+  subject?: string
+  message_body?: string
+}
+
 export interface StreamDTO {
   id: string
   name: string
@@ -127,7 +140,7 @@ export interface StreamDTO {
   subscribers?: string[]
   can_publish: boolean
   disable_reason?: string
-  recent_events?: unknown[]
+  recent_events?: EventCard[]
 }
 
 export interface StreamsResponse {
@@ -564,6 +577,25 @@ export function useListHelixOrgStreams(options?: { enabled?: boolean }) {
       return data
     },
     enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+// useHelixOrgStream fetches a single stream + its current subscribers +
+// recent_events. Drives the per-stream detail page. The SSE endpoint
+// at /streams/{id}/events takes over live updates after first paint;
+// this hook supplies the initial snapshot so the page can render
+// immediately rather than waiting for the first SSE frame.
+export function useHelixOrgStream(streamId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.stream(orgID, streamId ?? ''),
+    queryFn: async () => {
+      if (!streamId) return null
+      const data = await api.get<StreamDTO>(`${base}/streams/${encodeURIComponent(streamId)}`)
+      return data
+    },
+    enabled: !!orgID && !!streamId && (options?.enabled ?? true),
   })
 }
 

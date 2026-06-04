@@ -1183,15 +1183,15 @@ const HelixOrgChart: FC = () => {
     (positionId: string) => setConfirmDelete({ kind: 'position', id: positionId }),
     [],
   )
-  // Clicking a stream pseudo-node navigates to the Streams list page
-  // with a `focus` query param so the page scrolls the corresponding
-  // row into view and pulses a brief highlight. There is no per-
-  // stream detail page yet; focusing the row in the list is the
-  // closest thing to "navigate to it" today.
+  // Clicking a stream pseudo-node opens the per-stream detail page —
+  // the same "messages flowing through" surface the old htmx UI had,
+  // rebuilt as HelixOrgStreamDetail. It hydrates from
+  // GET /streams/{id} and live-tails via SSE so the user sees the
+  // events arrive in real time.
   const onSelectStream = useCallback(
     (streamId: string) => {
       if (!orgSlug) return
-      router.navigate('helix_org_streams', { org_id: orgSlug, focus: streamId })
+      router.navigate('helix_org_stream_detail', { org_id: orgSlug, stream_id: streamId })
     },
     [router, orgSlug],
   )

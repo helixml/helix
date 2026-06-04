@@ -119,23 +119,33 @@ const HelixOrgStreams: FC = () => {
     }
   }
 
+  const orgSlug = (router.params.org_id as string | undefined) ?? ''
+  const openStreamDetail = (sid: string) => {
+    if (!orgSlug) return
+    router.navigate('helix_org_stream_detail', { org_id: orgSlug, stream_id: sid })
+  }
+
   const tableData = useMemo(() => streams.map((s) => ({
     id: s.id,
     _data: s,
     _isHighlighted: highlightId === s.id,
     name: (
       <Typography variant="body1">
-        <span
+        <a
+          href="#"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openStreamDetail(s.id) }}
           style={{
             fontWeight: 'bold',
             color: highlightId === s.id
               ? theme.palette.warning.main
               : theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
             fontFamily: 'monospace',
+            textDecoration: 'none',
+            cursor: 'pointer',
           }}
         >
           {s.id}
-        </span>
+        </a>
       </Typography>
     ),
     nameField: (

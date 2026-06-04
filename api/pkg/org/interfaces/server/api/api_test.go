@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -359,5 +360,78 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 	// covered by its own tests.
 	if rec.Code < 200 || rec.Code >= 300 {
 		t.Fatalf("status: got %d, want 2xx; body=%s", rec.Code, rec.Body)
+	}
+}
+
+// TestGetStream_IncludesRecentEvents pins the contract the stream
+// detail page depends on: GET /streams/{id} carries a `recent_events`
+// array of the most recent events on that stream, newest first.
+// Without this the per-stream "messages flowing through" view would
+// have nothing to render on first paint and would have to wait for an
+// SSE frame before showing anything.
+func TestGetStream_IncludesRecentEvents(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+
+	cfg, _ := json.Marshal(map[string]any{})
+	stream, err := streaming.NewStream(
+		streaming.StreamID("s-newsfeed"), "newsfeed", "",
+		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+		transport.Transport{Kind: transport.KindLocal, Config: cfg},
+		"org-test",
+	)
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+	if err := st.Streams.Create(ctx, stream); err != nil {
+		t.Fatalf("create stream: %v", err)
+	}
+
+	// Append two events; the API must surface both in recent_events.
+	for i, body := range []string{
+		`{"from":"w-owner","subject":"first","body":"hello world"}`,
+		`{"from":"w-alice","subject":"second","body":"reply"}`,
+	} {
+		ev, err := streaming.NewEvent(
+			streaming.EventID(fmt.Sprintf("e-%d", i)),
+			streaming.StreamID("s-newsfeed"),
+			"w-owner",
+			body,
+			time.Date(2026, 5, 22, 12, i, 0, 0, time.UTC),
+			"org-test",
+		)
+		if err != nil {
+			t.Fatalf("new event %d: %v", i, err)
+		}
+		if err := st.Events.Append(ctx, ev); err != nil {
+			t.Fatalf("append event %d: %v", i, err)
+		}
+	}
+
+	h := orgapi.Handler(deps)
+	rec := do(t, h, "GET", "/streams/s-newsfeed", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var got orgapi.StreamDTO
+	decode(t, rec, &got)
+	if got.ID != "s-newsfeed" {
+		t.Errorf("id: got %q, want s-newsfeed", got.ID)
+	}
+	if len(got.RecentEvents) != 2 {
+		t.Fatalf("recent_events: got %d, want 2: %+v", len(got.RecentEvents), got.RecentEvents)
+	}
+	// Newest-first ordering: e-1 should land before e-0.
+	if got.RecentEvents[0].ID != "e-1" {
+		t.Errorf("recent_events[0].id = %q, want e-1 (newest first)", got.RecentEvents[0].ID)
+	}
+	if got.RecentEvents[0].Subject != "second" {
+		t.Errorf("recent_events[0].subject = %q, want \"second\"", got.RecentEvents[0].Subject)
+	}
+	if got.RecentEvents[0].From != "w-alice" {
+		t.Errorf("recent_events[0].from = %q, want w-alice", got.RecentEvents[0].From)
+	}
+	if got.RecentEvents[1].ID != "e-0" {
+		t.Errorf("recent_events[1].id = %q, want e-0", got.RecentEvents[1].ID)
 	}
 }

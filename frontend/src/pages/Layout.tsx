@@ -437,6 +437,7 @@ const Layout: FC<{
       case "helix_org_worker_detail":
       case "helix_org_settings":
       case "helix_org_streams":
+      case "helix_org_stream_detail":
         return <HelixOrgSidebar />;
 
       case "org_agent":
