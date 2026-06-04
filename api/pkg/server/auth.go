@@ -213,6 +213,26 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-accept any pending org invitations for this email. Best-effort —
+	// a failure here shouldn't prevent the user from signing in; they can
+	// be re-invited from the org page. If any invitations were accepted,
+	// the user is effectively onboarded (they have an org and don't need
+	// to walk through the create-an-org wizard) AND has implicit vouching
+	// from an org owner, so we also bypass the waitlist — otherwise an
+	// invited collaborator would be invited only to sit in a queue.
+	consumed, invErr := s.Store.ConsumePendingInvitations(ctx, createdUser)
+	if invErr != nil {
+		log.Warn().Err(invErr).Str("user_id", createdUser.ID).Msg("failed to consume pending invitations")
+	} else if len(consumed) > 0 {
+		log.Info().Str("user_id", createdUser.ID).Int("count", len(consumed)).Msg("auto-accepted org invitations on registration")
+		createdUser.OnboardingCompleted = true
+		createdUser.OnboardingCompletedAt = time.Now()
+		createdUser.Waitlisted = false
+		if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
+			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
+		}
+	}
+
 	// Notify admins about new waitlisted signup
 	if createdUser.Waitlisted && s.adminAlerter != nil {
 		s.adminAlerter.SendWaitlistSignupAlert(createdUser)

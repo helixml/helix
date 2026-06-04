@@ -148,6 +148,21 @@ func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
 }
 
+// ConsumePendingInvitations mocks base method.
+func (m *MockStore) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumePendingInvitations", ctx, user)
+	ret0, _ := ret[0].([]*types.OrganizationMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumePendingInvitations indicates an expected call of ConsumePendingInvitations.
+func (mr *MockStoreMockRecorder) ConsumePendingInvitations(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumePendingInvitations", reflect.TypeOf((*MockStore)(nil).ConsumePendingInvitations), ctx, user)
+}
+
 // CountAutoWakeAttemptsSince mocks base method.
 func (m *MockStore) CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error) {
 	m.ctrl.T.Helper()
@@ -626,6 +641,21 @@ func (m *MockStore) CreateOrganization(ctx context.Context, org *types.Organizat
 func (mr *MockStoreMockRecorder) CreateOrganization(ctx, org any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrganization", reflect.TypeOf((*MockStore)(nil).CreateOrganization), ctx, org)
+}
+
+// CreateOrganizationInvitation mocks base method.
+func (m *MockStore) CreateOrganizationInvitation(ctx context.Context, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateOrganizationInvitation", ctx, inv)
+	ret0, _ := ret[0].(*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateOrganizationInvitation indicates an expected call of CreateOrganizationInvitation.
+func (mr *MockStoreMockRecorder) CreateOrganizationInvitation(ctx, inv any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrganizationInvitation", reflect.TypeOf((*MockStore)(nil).CreateOrganizationInvitation), ctx, inv)
 }
 
 // CreateOrganizationMembership mocks base method.
@@ -1504,6 +1534,20 @@ func (m *MockStore) DeleteOrganization(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteOrganization(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOrganization", reflect.TypeOf((*MockStore)(nil).DeleteOrganization), ctx, id)
+}
+
+// DeleteOrganizationInvitation mocks base method.
+func (m *MockStore) DeleteOrganizationInvitation(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOrganizationInvitation", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOrganizationInvitation indicates an expected call of DeleteOrganizationInvitation.
+func (mr *MockStoreMockRecorder) DeleteOrganizationInvitation(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOrganizationInvitation", reflect.TypeOf((*MockStore)(nil).DeleteOrganizationInvitation), ctx, id)
 }
 
 // DeleteOrganizationMembership mocks base method.
@@ -2862,6 +2906,21 @@ func (m *MockStore) GetOrganizationByDomain(ctx context.Context, domain string) 
 func (mr *MockStoreMockRecorder) GetOrganizationByDomain(ctx, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationByDomain", reflect.TypeOf((*MockStore)(nil).GetOrganizationByDomain), ctx, domain)
+}
+
+// GetOrganizationInvitation mocks base method.
+func (m *MockStore) GetOrganizationInvitation(ctx context.Context, q *GetOrganizationInvitationQuery) (*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrganizationInvitation", ctx, q)
+	ret0, _ := ret[0].(*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrganizationInvitation indicates an expected call of GetOrganizationInvitation.
+func (mr *MockStoreMockRecorder) GetOrganizationInvitation(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationInvitation", reflect.TypeOf((*MockStore)(nil).GetOrganizationInvitation), ctx, q)
 }
 
 // GetOrganizationMembership mocks base method.
@@ -4363,6 +4422,21 @@ func (m *MockStore) ListOAuthProviders(ctx context.Context, query *ListOAuthProv
 func (mr *MockStoreMockRecorder) ListOAuthProviders(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOAuthProviders", reflect.TypeOf((*MockStore)(nil).ListOAuthProviders), ctx, query)
+}
+
+// ListOrganizationInvitations mocks base method.
+func (m *MockStore) ListOrganizationInvitations(ctx context.Context, query *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOrganizationInvitations", ctx, query)
+	ret0, _ := ret[0].([]*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOrganizationInvitations indicates an expected call of ListOrganizationInvitations.
+func (mr *MockStoreMockRecorder) ListOrganizationInvitations(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizationInvitations", reflect.TypeOf((*MockStore)(nil).ListOrganizationInvitations), ctx, query)
 }
 
 // ListOrganizationMemberships mocks base method.

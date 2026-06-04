@@ -6884,6 +6884,23 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/invitations/{id}/info": {
+            "get": {
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up basic info for an invitation by id",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PublicInvitationInfo"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -7992,6 +8009,89 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List pending invitations for users who haven't joined the org yet. Use the optional ` + "`" + `app_id` + "`" + ` query parameter to filter to invitations sent from a specific project/app's access management dialog.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List pending organization invitations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter invitations by the app/project they were sent from",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrganizationInvitation"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Invite a user to the organization by email",
+                "parameters": [
+                    {
+                        "description": "Request body with user_reference (email) and role.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddOrganizationMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationInvitation"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a pending invitation by ID",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Revoke a pending organization invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -7999,7 +8099,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List members of an organization",
+                "description": "List members of an organization, including pending invitations as placeholder rows (user_id starts with \"inv_\").",
                 "tags": [
                     "organizations"
                 ],
@@ -8022,7 +8122,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Add a member to an organization",
+                "description": "Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).",
                 "tags": [
                     "organizations"
                 ],
@@ -8039,10 +8139,10 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "201": {
+                        "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/types.OrganizationMembership"
+                            "$ref": "#/definitions/types.AddOrganizationMemberResponse"
                         }
                     }
                 }
@@ -8298,6 +8398,37 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.TeamMembership"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/users/lookup": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between \"send invitation\", \"add to org\", or \"add to project\" CTAs without revealing arbitrary user information.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up a user by email within the context of an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Email to look up",
+                        "name": "email",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgUserLookupResponse"
                         }
                     }
                 }
@@ -14411,14 +14542,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears the dead acp_thread_id on the session and resets crashed prompts\n(those marked by MarkPromptAsCrashed when the Claude Agent process exited)\nback to pending. The next dispatch sends with empty acp_thread_id, causing\nZed to create a fresh thread + Claude Agent process. Requires the session\nto be an external Zed agent. Returns the count of prompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the same resume path used by /sessions/{id}/resume. The session's\nZedThreadID is preserved, so Zed reloads the existing thread from the\npersistent threads.db in the workspace volume and the underlying agent\n(claude-code, qwen, etc.) reloads its session from disk — prior\nconversation context is restored. Crashed prompts are reset to pending\nand the queue is kicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Sessions"
                 ],
-                "summary": "Restart Zed thread after a Claude Agent crash",
+                "summary": "Restart the external agent after an in-container crash",
                 "parameters": [
                     {
                         "type": "string",
@@ -22115,12 +22246,37 @@ const docTemplate = `{
         "types.AddOrganizationMemberRequest": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "AppID + GrantRoles are optional and only meaningful when the\nrequest creates an invitation (because the email doesn't match an\nexisting user). They tell the server which app to attach the\ninvitation to, so the access grant can be materialised when the\ninvitee accepts. When set, the invitation will also be filtered\nto this app in the access-management list.",
+                    "type": "string"
+                },
+                "grant_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "role": {
                     "$ref": "#/definitions/types.OrganizationRole"
                 },
                 "user_reference": {
                     "description": "Either user ID or user email",
                     "type": "string"
+                }
+            }
+        },
+        "types.AddOrganizationMemberResponse": {
+            "type": "object",
+            "properties": {
+                "invitation": {
+                    "$ref": "#/definitions/types.OrganizationInvitation"
+                },
+                "invited": {
+                    "description": "Invited is true when no user exists yet and an invitation row was\ncreated instead of a membership.",
+                    "type": "boolean"
+                },
+                "membership": {
+                    "$ref": "#/definitions/types.OrganizationMembership"
                 }
             }
         },
@@ -27219,6 +27375,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.OrgUserLookupResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "exists": {
+                    "description": "a Helix user account exists with this email",
+                    "type": "boolean"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "invitation_id": {
+                    "type": "string"
+                },
+                "is_invited": {
+                    "description": "IsInvited — a pending invitation exists for this email in the queried\norg. Used by the invite UI to disable the \"Send invitation\" button so\nadmins don't accidentally double-invite.",
+                    "type": "boolean"
+                },
+                "is_member": {
+                    "description": "user is also a member of the queried org",
+                    "type": "boolean"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Organization": {
             "type": "object",
             "properties": {
@@ -27289,6 +27474,44 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Team"
                     }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationInvitation": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "description": "Normalised to lowercase",
+                    "type": "string"
+                },
+                "grant_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invited_by": {
+                    "description": "User ID of the inviter",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
                 },
                 "updated_at": {
                     "type": "string"
@@ -27685,6 +27908,14 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
                 },
                 "user_id": {
                     "type": "string"
@@ -28459,6 +28690,23 @@ const docTemplate = `{
                 "ProviderEndpointTypeOrg",
                 "ProviderEndpointTypeTeam"
             ]
+        },
+        "types.PublicInvitationInfo": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_display_name": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                }
+            }
         },
         "types.PullRequest": {
             "type": "object",

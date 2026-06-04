@@ -1111,6 +1111,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// User auth, BFF
 	insecureRouter.HandleFunc("/auth/register", apiServer.register).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/invitations/{id}/info", apiServer.publicInvitationInfo).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
@@ -1136,6 +1137,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/members", apiServer.addOrganizationMember).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.removeOrganizationMember).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.updateOrganizationMember).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.listOrganizationInvitations).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.createOrganizationInvitationHandler).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/invitations/{invitation_id}", apiServer.deleteOrganizationInvitation).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/users/lookup", apiServer.lookupOrgUser).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/guidelines-history", apiServer.getOrganizationGuidelinesHistory).Methods(http.MethodGet)

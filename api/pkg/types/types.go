@@ -2892,6 +2892,7 @@ const (
 	EventPasswordResetRequest Event = 3
 	EventWaitlistApproved     Event = 4
 	EventTrialActivated       Event = 5
+	EventOrgInvitation        Event = 6
 )
 
 func (e Event) String() string {
@@ -2906,6 +2907,8 @@ func (e Event) String() string {
 		return "waitlist_approved"
 	case EventTrialActivated:
 		return "trial_activated"
+	case EventOrgInvitation:
+		return "org_invitation"
 	default:
 		return "unknown_event"
 	}
@@ -2931,11 +2934,25 @@ type Notification struct {
 	// will be applied at org-create time.
 	TrialPending bool
 
+	// OrgInvitation - populated for EventOrgInvitation emails.
+	OrgInvitation *OrgInvitationNotification `json:"org_invitation,omitempty"`
+
 	// If set, send to these emails instead of the session owner
 	Emails []string
 
 	// If set, POST notification payload to this URL
 	CallbackURL string
+}
+
+// OrgInvitationNotification carries the data the invitation email template
+// renders. Kept on the Notification rather than the template-data struct so
+// callers don't need to know about template internals.
+type OrgInvitationNotification struct {
+	OrganizationName        string
+	OrganizationDisplayName string
+	InviterName             string
+	Role                    string
+	AcceptURL               string
 }
 
 // SessionOutputResponse is returned by GET /sessions/{id}/output

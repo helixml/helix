@@ -157,6 +157,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.TeamMembership{},
 		&types.Role{},
 		&types.OrganizationMembership{},
+		&types.OrganizationInvitation{},
 		&types.AccessGrant{},
 		&types.AccessGrantRoleBinding{},
 		&types.UserMeta{},
@@ -236,6 +237,10 @@ func (s *PostgresStore) runMigrations() error {
 	}
 
 	if err := createFK(s.gdb, types.OrganizationMembership{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.OrganizationInvitation{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 

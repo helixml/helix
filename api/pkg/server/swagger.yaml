@@ -2392,11 +2392,36 @@ definitions:
     - ActionUseAction
   types.AddOrganizationMemberRequest:
     properties:
+      app_id:
+        description: |-
+          AppID + GrantRoles are optional and only meaningful when the
+          request creates an invitation (because the email doesn't match an
+          existing user). They tell the server which app to attach the
+          invitation to, so the access grant can be materialised when the
+          invitee accepts. When set, the invitation will also be filtered
+          to this app in the access-management list.
+        type: string
+      grant_roles:
+        items:
+          type: string
+        type: array
       role:
         $ref: '#/definitions/types.OrganizationRole'
       user_reference:
         description: Either user ID or user email
         type: string
+    type: object
+  types.AddOrganizationMemberResponse:
+    properties:
+      invitation:
+        $ref: '#/definitions/types.OrganizationInvitation'
+      invited:
+        description: |-
+          Invited is true when no user exists yet and an invitation row was
+          created instead of a membership.
+        type: boolean
+      membership:
+        $ref: '#/definitions/types.OrganizationMembership'
     type: object
   types.AddTeamMemberRequest:
     properties:
@@ -6048,6 +6073,29 @@ definitions:
       users_total:
         type: integer
     type: object
+  types.OrgUserLookupResponse:
+    properties:
+      email:
+        type: string
+      exists:
+        description: a Helix user account exists with this email
+        type: boolean
+      full_name:
+        type: string
+      invitation_id:
+        type: string
+      is_invited:
+        description: |-
+          IsInvited — a pending invitation exists for this email in the queried
+          org. Used by the invite UI to disable the "Send invitation" button so
+          admins don't accidentally double-invite.
+        type: boolean
+      is_member:
+        description: user is also a member of the queried org
+        type: boolean
+      user_id:
+        type: string
+    type: object
   types.Organization:
     properties:
       auto_join_domain:
@@ -6103,6 +6151,38 @@ definitions:
         items:
           $ref: '#/definitions/types.Team'
         type: array
+      updated_at:
+        type: string
+    type: object
+  types.OrganizationInvitation:
+    properties:
+      app_id:
+        description: |-
+          AppID + GrantRoles record the optional access-grant context. When an
+          invitation is sent from a project/app's access management dialog,
+          we store the resource id and the role names the inviter chose, so
+          that consuming the invitation at register time can also materialise
+          the access grant — the invitee then shows up in the project access
+          list immediately, exactly as if they had been added directly.
+        type: string
+      created_at:
+        type: string
+      email:
+        description: Normalised to lowercase
+        type: string
+      grant_roles:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      invited_by:
+        description: User ID of the inviter
+        type: string
+      organization_id:
+        type: string
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
       updated_at:
         type: string
     type: object
@@ -6388,6 +6468,10 @@ definitions:
         type: array
       updated_at:
         type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
       user_id:
         type: string
     type: object
@@ -6922,6 +7006,17 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.PublicInvitationInfo:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      organization_display_name:
+        type: string
+      organization_name:
+        type: string
+    type: object
   types.PullRequest:
     properties:
       author:
@@ -15252,6 +15347,19 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/invitations/{id}/info:
+    get:
+      description: Unauthenticated. Returns the invited email and organization display
+        name so the registration page can pre-fill the form. The invitation ID itself
+        acts as the secret token (same threat model as password-reset tokens).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PublicInvitationInfo'
+      summary: Look up basic info for an invitation by id
+      tags:
+      - organizations
   /api/v1/knowledge:
     get:
       responses:
@@ -15944,9 +16052,63 @@ paths:
       summary: Get organization guidelines history
       tags:
       - Organizations
+  /api/v1/organizations/{id}/invitations:
+    get:
+      description: List pending invitations for users who haven't joined the org yet.
+        Use the optional `app_id` query parameter to filter to invitations sent from
+        a specific project/app's access management dialog.
+      parameters:
+      - description: Filter invitations by the app/project they were sent from
+        in: query
+        name: app_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrganizationInvitation'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List pending organization invitations
+      tags:
+      - organizations
+    post:
+      description: Create a pending invitation for a non-Helix user. When they register
+        with this email they will automatically join the organization.
+      parameters:
+      - description: Request body with user_reference (email) and role.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddOrganizationMemberRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.OrganizationInvitation'
+      security:
+      - BearerAuth: []
+      summary: Invite a user to the organization by email
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/invitations/{invitation_id}:
+    delete:
+      description: Revoke a pending invitation by ID
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Revoke a pending organization invitation
+      tags:
+      - organizations
   /api/v1/organizations/{id}/members:
     get:
-      description: List members of an organization
+      description: List members of an organization, including pending invitations
+        as placeholder rows (user_id starts with "inv_").
       responses:
         "200":
           description: OK
@@ -15960,7 +16122,9 @@ paths:
       tags:
       - organizations
     post:
-      description: Add a member to an organization
+      description: Add a member to an organization. When the user_reference is an
+        email that doesn't match any existing user, a pending invitation is created
+        instead (and an invitation email sent if email is configured).
       parameters:
       - description: Request body with user email to add.
         in: body
@@ -15969,10 +16133,10 @@ paths:
         schema:
           $ref: '#/definitions/types.AddOrganizationMemberRequest'
       responses:
-        "200":
-          description: OK
+        "201":
+          description: Created
           schema:
-            $ref: '#/definitions/types.OrganizationMembership'
+            $ref: '#/definitions/types.AddOrganizationMemberResponse'
       security:
       - BearerAuth: []
       summary: Add an organization member
@@ -16136,6 +16300,28 @@ paths:
       security:
       - BearerAuth: []
       summary: Add a new member to a team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/users/lookup:
+    get:
+      description: Returns whether a user account exists for the given email, and
+        whether they are already a member of this organization. Used by the invite
+        UI to choose between "send invitation", "add to org", or "add to project"
+        CTAs without revealing arbitrary user information.
+      parameters:
+      - description: Email to look up
+        in: query
+        name: email
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrgUserLookupResponse'
+      security:
+      - BearerAuth: []
+      summary: Look up a user by email within the context of an organization
       tags:
       - organizations
   /api/v1/organizations/{org_id}/sandboxes:
@@ -20046,11 +20232,15 @@ paths:
   /api/v1/sessions/{id}/restart-agent:
     post:
       description: |-
-        Clears the dead acp_thread_id on the session and resets crashed prompts
-        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
-        back to pending. The next dispatch sends with empty acp_thread_id, causing
-        Zed to create a fresh thread + Claude Agent process. Requires the session
-        to be an external Zed agent. Returns the count of prompts that were reset.
+        Tears down the half-dead desktop container and brings up a fresh one
+        via the same resume path used by /sessions/{id}/resume. The session's
+        ZedThreadID is preserved, so Zed reloads the existing thread from the
+        persistent threads.db in the workspace volume and the underlying agent
+        (claude-code, qwen, etc.) reloads its session from disk — prior
+        conversation context is restored. Crashed prompts are reset to pending
+        and the queue is kicked so they re-dispatch on the new container.
+        Requires the session to be an external Zed agent. Returns the count of
+        prompts that were reset.
       parameters:
       - description: Session ID
         in: path
@@ -20087,7 +20277,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Restart Zed thread after a Claude Agent crash
+      summary: Restart the external agent after an in-container crash
       tags:
       - Sessions
   /api/v1/sessions/{id}/resume:

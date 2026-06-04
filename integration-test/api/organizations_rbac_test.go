@@ -162,12 +162,13 @@ func (suite *OrganizationsRBACTestSuite) TestOrganizationMemberAndTeamRoutesAcce
 	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
 	suite.Require().NoError(err)
 
-	membership, err := ownerClient.AddOrganizationMember(suite.ctx, suite.organization.Name, &types.AddOrganizationMemberRequest{
+	resp, err := ownerClient.AddOrganizationMember(suite.ctx, suite.organization.Name, &types.AddOrganizationMemberRequest{
 		UserReference: suite.userNonMember.ID,
 		Role:          types.OrganizationRoleMember,
 	})
 	suite.Require().NoError(err)
-	suite.Require().Equal(suite.organization.ID, membership.OrganizationID)
+	suite.Require().NotNil(resp.Membership, "existing user should produce a membership, not an invitation")
+	suite.Require().Equal(suite.organization.ID, resp.Membership.OrganizationID)
 
 	team, err := ownerClient.CreateTeam(suite.ctx, suite.organization.Name, &types.CreateTeamRequest{
 		Name: "slug-route-team-" + uuid.New().String(),

@@ -1491,9 +1491,29 @@ export enum TypesAction {
 }
 
 export interface TypesAddOrganizationMemberRequest {
+  /**
+   * AppID + GrantRoles are optional and only meaningful when the
+   * request creates an invitation (because the email doesn't match an
+   * existing user). They tell the server which app to attach the
+   * invitation to, so the access grant can be materialised when the
+   * invitee accepts. When set, the invitation will also be filtered
+   * to this app in the access-management list.
+   */
+  app_id?: string;
+  grant_roles?: string[];
   role?: TypesOrganizationRole;
   /** Either user ID or user email */
   user_reference?: string;
+}
+
+export interface TypesAddOrganizationMemberResponse {
+  invitation?: TypesOrganizationInvitation;
+  /**
+   * Invited is true when no user exists yet and an invitation row was
+   * created instead of a membership.
+   */
+  invited?: boolean;
+  membership?: TypesOrganizationMembership;
 }
 
 export interface TypesAddTeamMemberRequest {
@@ -3695,6 +3715,23 @@ export interface TypesOrgUsageSummaryResponse {
   users_total?: number;
 }
 
+export interface TypesOrgUserLookupResponse {
+  email?: string;
+  /** a Helix user account exists with this email */
+  exists?: boolean;
+  full_name?: string;
+  invitation_id?: string;
+  /**
+   * IsInvited — a pending invitation exists for this email in the queried
+   * org. Used by the invite UI to disable the "Send invitation" button so
+   * admins don't accidentally double-invite.
+   */
+  is_invited?: boolean;
+  /** user is also a member of the queried org */
+  is_member?: boolean;
+  user_id?: string;
+}
+
 export interface TypesOrganization {
   /**
    * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
@@ -3727,6 +3764,28 @@ export interface TypesOrganization {
   roles?: TypesRole[];
   /** Teams in the organization */
   teams?: TypesTeam[];
+  updated_at?: string;
+}
+
+export interface TypesOrganizationInvitation {
+  /**
+   * AppID + GrantRoles record the optional access-grant context. When an
+   * invitation is sent from a project/app's access management dialog,
+   * we store the resource id and the role names the inviter chose, so
+   * that consuming the invitation at register time can also materialise
+   * the access grant — the invitee then shows up in the project access
+   * list immediately, exactly as if they had been added directly.
+   */
+  app_id?: string;
+  created_at?: string;
+  /** Normalised to lowercase */
+  email?: string;
+  grant_roles?: string[];
+  id?: string;
+  /** User ID of the inviter */
+  invited_by?: string;
+  organization_id?: string;
+  role?: TypesOrganizationRole;
   updated_at?: string;
 }
 
@@ -3910,6 +3969,8 @@ export interface TypesProject {
   status?: string;
   technologies?: string[];
   updated_at?: string;
+  /** Populated by the server if UserID is set */
+  user?: TypesUser;
   user_id?: string;
 }
 
@@ -4235,6 +4296,13 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeUser = "user",
   ProviderEndpointTypeOrg = "org",
   ProviderEndpointTypeTeam = "team",
+}
+
+export interface TypesPublicInvitationInfo {
+  email?: string;
+  id?: string;
+  organization_display_name?: string;
+  organization_name?: string;
 }
 
 export interface TypesPullRequest {
@@ -9869,6 +9937,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).
+     *
+     * @tags organizations
+     * @name V1InvitationsInfoDetail
+     * @summary Look up basic info for an invitation by id
+     * @request GET:/api/v1/invitations/{id}/info
+     */
+    v1InvitationsInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesPublicInvitationInfo, any>({
+        path: `/api/v1/invitations/${id}/info`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -10486,7 +10569,72 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List members of an organization
+     * @description List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsDetail
+     * @summary List pending organization invitations
+     * @request GET:/api/v1/organizations/{id}/invitations
+     * @secure
+     */
+    v1OrganizationsInvitationsDetail: (
+      id: string,
+      query?: {
+        /** Filter invitations by the app/project they were sent from */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrganizationInvitation[], any>({
+        path: `/api/v1/organizations/${id}/invitations`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsCreate
+     * @summary Invite a user to the organization by email
+     * @request POST:/api/v1/organizations/{id}/invitations
+     * @secure
+     */
+    v1OrganizationsInvitationsCreate: (
+      id: string,
+      request: TypesAddOrganizationMemberRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrganizationInvitation, any>({
+        path: `/api/v1/organizations/${id}/invitations`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Revoke a pending invitation by ID
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsDelete
+     * @summary Revoke a pending organization invitation
+     * @request DELETE:/api/v1/organizations/{id}/invitations/{invitation_id}
+     * @secure
+     */
+    v1OrganizationsInvitationsDelete: (id: string, invitationId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/invitations/${invitationId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List members of an organization, including pending invitations as placeholder rows (user_id starts with "inv_").
      *
      * @tags organizations
      * @name V1OrganizationsMembersDetail
@@ -10503,7 +10651,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Add a member to an organization
+     * @description Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).
      *
      * @tags organizations
      * @name V1OrganizationsMembersCreate
@@ -10516,7 +10664,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesAddOrganizationMemberRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesOrganizationMembership, any>({
+      this.request<TypesAddOrganizationMemberResponse, any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "POST",
         body: request,
@@ -10701,6 +10849,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between "send invitation", "add to org", or "add to project" CTAs without revealing arbitrary user information.
+     *
+     * @tags organizations
+     * @name V1OrganizationsUsersLookupDetail
+     * @summary Look up a user by email within the context of an organization
+     * @request GET:/api/v1/organizations/{id}/users/lookup
+     * @secure
+     */
+    v1OrganizationsUsersLookupDetail: (
+      id: string,
+      query: {
+        /** Email to look up */
+        email: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgUserLookupResponse, any>({
+        path: `/api/v1/organizations/${id}/users/lookup`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 
@@ -13332,11 +13505,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears the dead acp_thread_id on the session and resets crashed prompts (those marked by MarkPromptAsCrashed when the Claude Agent process exited) back to pending. The next dispatch sends with empty acp_thread_id, causing Zed to create a fresh thread + Claude Agent process. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     * @description Tears down the half-dead desktop container and brings up a fresh one via the same resume path used by /sessions/{id}/resume. The session's ZedThreadID is preserved, so Zed reloads the existing thread from the persistent threads.db in the workspace volume and the underlying agent (claude-code, qwen, etc.) reloads its session from disk — prior conversation context is restored. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
      *
      * @tags Sessions
      * @name V1SessionsRestartAgentCreate
-     * @summary Restart Zed thread after a Claude Agent crash
+     * @summary Restart the external agent after an in-container crash
      * @request POST:/api/v1/sessions/{id}/restart-agent
      * @secure
      */
