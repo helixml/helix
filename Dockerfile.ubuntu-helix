@@ -770,6 +770,16 @@ RUN apt-get update && \
 # injectGitHubToken), so `gh auth status` succeeds out-of-the-box
 # with no `gh auth login` step. Installed from the official
 # cli.github.com apt repo for stable, signed releases.
+#
+# DO NOT invoke `gh` during the build. `gh` writes
+# `${HOME}/.local/state/gh/device-id` on first invocation as part
+# of its analytics opt-in flow. During the docker build HOME is
+# root, so that creates `/home/retro/.local/` owned by root —
+# which blocks Zed (running as retro) from writing to
+# `/home/retro/.local/share/zed/...` at session-start, killing
+# the chat-with-worker flow with "no external agent WebSocket
+# connection". apt-get's exit code is the build-time smoke test;
+# we don't need a runtime invocation.
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg && \
     mkdir -p /etc/apt/keyrings && \
@@ -781,7 +791,7 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/* && \
-    gh --version
+    which gh
 
 # ====================================================================
 # Chrome + DevTools MCP Server (stable dependency - installed early)
