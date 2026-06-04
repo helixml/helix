@@ -187,6 +187,12 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Port proxy - forward HTTP requests to a port on the desktop container's network
 	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
 
+	// Inference proxy - forward OpenAI requests (chat/embeddings) to the local
+	// inference-proxy, which routes to the active profile's model containers.
+	// The API reaches this over the sandbox's outbound RevDial tunnel, so the
+	// sandbox needs no inbound network reachability.
+	api.PathPrefix("/inference/").HandlerFunc(s.handleInferenceProxy)
+
 	// Golden cache management
 	api.HandleFunc("/dev-containers/{session_id}/blkio", s.handleGetDevContainerBlkio).Methods("GET")
 
@@ -588,6 +594,84 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 		if n > 0 {
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
 				break
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+}
+
+// inferenceProxyAddr is the host:port of the local inference-proxy process
+// (same sandbox container). inference-proxy listens on 0.0.0.0:8090 by default;
+// hydra reaches it over loopback. Overridable for non-default deployments.
+func inferenceProxyAddr() string {
+	if v := strings.TrimSpace(os.Getenv("HELIX_INFERENCE_PROXY_ADDR")); v != "" {
+		return v
+	}
+	return "127.0.0.1:8090"
+}
+
+// handleInferenceProxy forwards an OpenAI request (arriving over the RevDial
+// tunnel under /api/v1/inference/*) to the local inference-proxy, streaming the
+// response back so SSE chat completions stream chunk-by-chunk. The API server
+// reaches this endpoint via the sandbox's outbound tunnel, so the sandbox needs
+// no inbound reachability.
+func (s *Server) handleInferenceProxy(w http.ResponseWriter, r *http.Request) {
+	const prefix = "/api/v1/inference"
+	upstreamPath := strings.TrimPrefix(r.URL.Path, prefix)
+	if upstreamPath == "" {
+		upstreamPath = "/"
+	}
+
+	targetURL := fmt.Sprintf("http://%s%s", inferenceProxyAddr(), upstreamPath)
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create inference proxy request: %s", err), http.StatusInternalServerError)
+		return
+	}
+	for key, values := range r.Header {
+		switch strings.ToLower(key) {
+		case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+			"te", "trailers", "transfer-encoding", "upgrade":
+			continue
+		}
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// No client timeout: inference (especially streaming) can run for minutes.
+	// The request context (propagated from the tunnel) bounds the lifetime.
+	resp, err := http.DefaultClient.Do(proxyReq)
+	if err != nil {
+		log.Warn().Err(err).Str("target_url", targetURL).Msg("Failed to proxy inference request")
+		http.Error(w, fmt.Sprintf("failed to connect to inference-proxy: %s", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				break
+			}
+			if flusher != nil {
+				flusher.Flush() // push each SSE chunk to the tunnel immediately
 			}
 		}
 		if readErr != nil {
