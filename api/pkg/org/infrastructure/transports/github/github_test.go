@@ -33,6 +33,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -729,4 +730,219 @@ func TestTokenFallsBackToOAuthResolver(t *testing.T) {
 			t.Errorf("Token = %q, want empty", got)
 		}
 	})
+}
+
+// TestInboundWildcardEvents pins the "send me everything" default.
+// GitHub honours `events: ["*"]` as a wildcard meaning every event
+// type; helix's transport mirrors that semantic in contains() so a
+// stream configured with ["*"] receives every delivery regardless of
+// the X-GitHub-Event header. Regression guard: before the wildcard
+// landed, ["*"] would have been treated as a literal event name and
+// no deliveries would ever match.
+func TestInboundWildcardEvents(t *testing.T) {
+	t.Parallel()
+
+	tp, st, _, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "", testWebhookSecret)
+	seedGitHubStream(t, st, streaming.StreamID("s-everything"), "helixml/helix", []string{"*"})
+
+	cases := []struct {
+		name      string
+		event     string
+		payload   map[string]any
+	}{
+		{"issues opened", "issues", issuesOpenedPayload("helixml/helix")},
+		{"pull_request labeled", "pull_request", pullRequestLabeledPayload("helixml/helix", "ready-for-review")},
+		{
+			// An event type NOT in the curated whitelist (push,
+			// release, workflow_run, etc) — wildcard should still
+			// accept it.
+			name:  "push (custom event)",
+			event: "push",
+			payload: map[string]any{
+				"ref":        "refs/heads/main",
+				"repository": map[string]any{"full_name": "helixml/helix"},
+				"sender":     map[string]any{"login": "octocat"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			body, _ := json.Marshal(tc.payload)
+			res := post(t, tp.HandleInbound(), body, tc.event, "del-"+tc.event, "")
+			if res.StatusCode != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204 (wildcard should accept %q): body=%s", res.StatusCode, tc.event, res.Body)
+			}
+			events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-everything"), 50)
+			if err != nil {
+				t.Fatalf("list events: %v", err)
+			}
+			if len(events) == 0 {
+				t.Fatalf("expected at least 1 event after wildcard delivery, got 0")
+			}
+		})
+	}
+}
+
+// TestInboundFormEncodedBody covers the regression where GitHub's
+// `application/x-www-form-urlencoded` deliveries (where the body is
+// `payload=<urlencoded-json>`) used to 400 because helix tried to
+// json.Unmarshal a form body. Before the decodeWebhookPayload
+// helper landed, every form-encoded delivery from an existing
+// hook that helix's UpsertWebhook had adopted (instead of editing)
+// failed with `parse json: invalid character 'p' looking for
+// beginning of value`.
+func TestInboundFormEncodedBody(t *testing.T) {
+	t.Parallel()
+
+	tp, st, _, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "", testWebhookSecret)
+	seedGitHubStream(t, st, streaming.StreamID("s-form"), "helixml/helix", []string{"issues"})
+
+	payload, _ := json.Marshal(issuesOpenedPayload("helixml/helix"))
+	// GitHub form-encoding: percent-encode the JSON, prefix with `payload=`.
+	formBody := []byte("payload=" + urlEncodeForTest(payload))
+
+	srv := httptest.NewServer(tp.HandleInbound())
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, bytes.NewReader(formBody))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-GitHub-Delivery", "form-del-1")
+	// HMAC is over the RAW body — GitHub signs the form-encoded
+	// bytes, not the inner JSON. helix verifies the same.
+	req.Header.Set("X-Hub-Signature-256", signBody(testWebhookSecret, formBody))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 204; body=%s", resp.StatusCode, body)
+	}
+	events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-form"), 50)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+}
+
+// urlEncodeForTest percent-encodes raw bytes the same way GitHub
+// form-encodes the JSON payload — the `payload=…` form field
+// uses standard URL query-escape semantics.
+func urlEncodeForTest(raw []byte) string {
+	return url.QueryEscape(string(raw))
+}
+
+// TestInboundForStreamPinnedRouting pins the per-stream variant
+// of the inbound handler. HandleInboundForStream(streamID) routes
+// deliveries to ONLY that stream — even when another github stream
+// in the same org would match by repo + events. Operators get a 1:1
+// "GitHub webhook → helix stream" mapping with the per-stream URL,
+// instead of the fan-out the org-level handler does.
+func TestInboundForStreamPinnedRouting(t *testing.T) {
+	t.Parallel()
+
+	tp, st, _, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "", testWebhookSecret)
+	// Two streams for the SAME repo + same events — the only thing
+	// that differs is which one the operator pasted the URL into.
+	seedGitHubStream(t, st, streaming.StreamID("s-target"), "helixml/helix", []string{"issues"})
+	seedGitHubStream(t, st, streaming.StreamID("s-bystander"), "helixml/helix", []string{"issues"})
+
+	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix"))
+	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-target")), body, "issues", "del-pin-1", "")
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", res.StatusCode, res.Body)
+	}
+
+	// Targeted stream got the event.
+	target, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-target"), 50)
+	if err != nil {
+		t.Fatalf("list target events: %v", err)
+	}
+	if len(target) != 1 {
+		t.Fatalf("target stream events = %d, want 1", len(target))
+	}
+	// Bystander stream did NOT — even though its (repo, events)
+	// config matched the delivery, the per-stream handler pinned
+	// fan-out to s-target only.
+	by, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-bystander"), 50)
+	if err != nil {
+		t.Fatalf("list bystander events: %v", err)
+	}
+	if len(by) != 0 {
+		t.Fatalf("bystander stream events = %d, want 0 (per-stream handler should not fan out)", len(by))
+	}
+}
+
+// TestInboundForStreamAppliesRepoFilter pins that the per-stream
+// handler still honours the stream's own repo whitelist. A delivery
+// for a different repo lands on the pinned URL but is dropped
+// (with 204 so GitHub stops retrying) without becoming an event.
+func TestInboundForStreamAppliesRepoFilter(t *testing.T) {
+	t.Parallel()
+
+	tp, st, _, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "", testWebhookSecret)
+	seedGitHubStream(t, st, streaming.StreamID("s-helix"), "helixml/helix", []string{"issues"})
+
+	body, _ := json.Marshal(issuesOpenedPayload("other-owner/other-repo"))
+	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-helix")), body, "issues", "del-wrong-repo", "")
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", res.StatusCode, res.Body)
+	}
+	events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-helix"), 50)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events = %d, want 0 (wrong repo should drop)", len(events))
+	}
+}
+
+// TestInboundForStreamAppliesEventFilter pins the event-whitelist
+// filter for the per-stream handler. A delivery for an event NOT
+// in the stream's `events` list drops with 204.
+func TestInboundForStreamAppliesEventFilter(t *testing.T) {
+	t.Parallel()
+
+	tp, st, _, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "", testWebhookSecret)
+	seedGitHubStream(t, st, streaming.StreamID("s-issues-only"), "helixml/helix", []string{"issues"})
+
+	// `pull_request` is NOT in the whitelist.
+	body, _ := json.Marshal(pullRequestLabeledPayload("helixml/helix", "ready"))
+	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-issues-only")), body, "pull_request", "del-wrong-event", "")
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", res.StatusCode, res.Body)
+	}
+	events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-issues-only"), 50)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events = %d, want 0 (off-whitelist event should drop)", len(events))
+	}
+}
+
+// TestInboundForStreamUnknownStreamReturns404 pins that POSTing to
+// the per-stream URL for a non-existent stream returns 404. (The
+// org-level handler returns 204 for unknown repos; the per-stream
+// handler is stricter because the stream ID is in the URL.)
+func TestInboundForStreamUnknownStreamReturns404(t *testing.T) {
+	t.Parallel()
+
+	tp, _, _, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "", testWebhookSecret)
+
+	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix"))
+	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-does-not-exist")), body, "issues", "del-missing", "")
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", res.StatusCode, res.Body)
+	}
 }

@@ -435,3 +435,108 @@ func TestGetStream_IncludesRecentEvents(t *testing.T) {
 		t.Errorf("recent_events[1].id = %q, want e-0", got.RecentEvents[1].ID)
 	}
 }
+
+// seedGithubStream is a per-file helper for the
+// EffectivePublicURL tests — creates a github-transport stream
+// inline so the table tests don't duplicate the verbose
+// streaming.NewStream + Streams.Create dance.
+func seedGithubStream(t *testing.T, st *store.Store, id, repo string) {
+	t.Helper()
+	cfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"*"}})
+	s, err := streaming.NewStream(
+		streaming.StreamID(id), id, "",
+		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+		transport.Transport{Kind: transport.KindGitHub, Config: cfg}, "org-test",
+	)
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+	if err := st.Streams.Create(context.Background(), s); err != nil {
+		t.Fatalf("create stream: %v", err)
+	}
+}
+
+// TestGetStream_EffectivePublicURL_PrefersOrgConfig pins the
+// override priority: when `streams.public_url` is set on the org's
+// config registry, it wins over the Deps.PublicServerURL (which
+// production wiring sources from SERVER_URL env). The detail
+// page's loopback warning evaluates this field, so getting the
+// priority wrong manifests as a stale warning even after the org
+// admin "fixed" their public URL via the Settings page.
+func TestGetStream_EffectivePublicURL_PrefersOrgConfig(t *testing.T) {
+	deps, st, reg := newDeps(t)
+	// SERVER_URL env equivalent — a localhost loopback that the
+	// org admin is in the middle of replacing.
+	deps.PublicServerURL = "http://localhost:8080"
+
+	// streams.public_url override on the org config — the helix-org
+	// Settings page editable row. Registry needs the spec registered
+	// before Set will accept the value.
+	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
+	if err := reg.Set(context.Background(), "org-test", "streams.public_url",
+		`"https://helix.example.com"`, orgchart.WorkerID("w-owner")); err != nil {
+		t.Fatalf("set streams.public_url: %v", err)
+	}
+
+	seedGithubStream(t, st, "s-gh", "helixml/helix")
+
+	rec := do(t, orgapi.Handler(deps), "GET", "/streams/s-gh", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var got orgapi.StreamDTO
+	decode(t, rec, &got)
+	if got.EffectivePublicURL != "https://helix.example.com" {
+		t.Errorf("EffectivePublicURL = %q, want override to win over SERVER_URL", got.EffectivePublicURL)
+	}
+}
+
+// TestGetStream_EffectivePublicURL_FallsBackToServerURL pins the
+// fallback: when no `streams.public_url` is set, the SERVER_URL
+// env (via Deps.PublicServerURL) is used as-is.
+func TestGetStream_EffectivePublicURL_FallsBackToServerURL(t *testing.T) {
+	deps, st, reg := newDeps(t)
+	deps.PublicServerURL = "https://server-url-env.example.com"
+	// Register the spec but DON'T set a value — fallback path.
+	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
+
+	seedGithubStream(t, st, "s-fallback", "helixml/helix")
+
+	rec := do(t, orgapi.Handler(deps), "GET", "/streams/s-fallback", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	var got orgapi.StreamDTO
+	decode(t, rec, &got)
+	if got.EffectivePublicURL != "https://server-url-env.example.com" {
+		t.Errorf("EffectivePublicURL = %q, want SERVER_URL fallback", got.EffectivePublicURL)
+	}
+}
+
+// TestGetStream_EffectivePublicURL_OnlyForGithubStreams pins that
+// the field is NOT populated for non-github streams. (Local /
+// webhook / postmark streams don't need a public URL, so leaving
+// the field zero avoids leaking the SERVER_URL value to UIs that
+// don't show it.)
+func TestGetStream_EffectivePublicURL_OnlyForGithubStreams(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	deps.PublicServerURL = "https://example.com"
+
+	// Local-kind stream — EffectivePublicURL should NOT be set.
+	cfg, _ := json.Marshal(map[string]any{})
+	s, _ := streaming.NewStream(
+		streaming.StreamID("s-local"), "s-local", "",
+		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+		transport.Transport{Kind: transport.KindLocal, Config: cfg}, "org-test",
+	)
+	if err := st.Streams.Create(context.Background(), s); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	rec := do(t, orgapi.Handler(deps), "GET", "/streams/s-local", nil)
+	var got orgapi.StreamDTO
+	decode(t, rec, &got)
+	if got.EffectivePublicURL != "" {
+		t.Errorf("EffectivePublicURL = %q, want empty for non-github stream", got.EffectivePublicURL)
+	}
+}
