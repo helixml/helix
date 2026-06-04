@@ -33,10 +33,24 @@ func expectOrgOwner(mockStore *store.MockStore, orgID, userID string) *gomock.Ca
 }
 
 // newTestServerNoNotifier returns a minimal HelixAPIServer wired with the
-// supplied store. The notifier (Controller.Options.Notifier) is nil — the
-// invite handlers tolerate that and skip the email send, which is exactly
-// what we want for handler-level tests.
+// supplied store. Email transport is marked configured so handler-level tests
+// can cover invitation persistence without making a real SMTP connection.
+// The notifier (Controller.Options.Notifier) is nil, so sendInvitationEmail
+// still short-circuits.
 func newTestServerNoNotifier(mockStore *store.MockStore) *HelixAPIServer {
+	cfg := &config.ServerConfig{
+		Notifications: config.Notifications{AppURL: "http://test"},
+	}
+	cfg.Notifications.Email.SMTP.Host = "smtp.test"
+	cfg.Notifications.Email.SMTP.Port = "2525"
+
+	return &HelixAPIServer{
+		Store: mockStore,
+		Cfg:   cfg,
+	}
+}
+
+func newTestServerEmailNotConfigured(mockStore *store.MockStore) *HelixAPIServer {
 	return &HelixAPIServer{
 		Store: mockStore,
 		Cfg: &config.ServerConfig{
@@ -131,6 +145,33 @@ func TestAddOrganizationMember_UnknownEmail_CreatesInvitation(t *testing.T) {
 	require.Nil(t, resp.Membership)
 	require.NotNil(t, resp.Invitation)
 	require.True(t, resp.Invited)
+}
+
+func TestAddOrganizationMember_UnknownEmail_EmailNotConfigured_ReturnsServiceUnavailable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := newTestServerEmailNotConfigured(mockStore)
+
+	orgID := "org_invite_no_email"
+	ownerID := "user_owner"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	expectOrgOwner(mockStore, orgID, ownerID)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "stranger@example.com"}).
+		Return(nil, store.ErrNotFound)
+
+	body, _ := json.Marshal(types.AddOrganizationMemberRequest{UserReference: "stranger@example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID+"/members", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.addOrganizationMember(rr, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	require.Contains(t, rr.Body.String(), invitationEmailNotConfiguredMessage)
 }
 
 func TestAddOrganizationMember_UnknownUserID_Returns404(t *testing.T) {
@@ -373,6 +414,31 @@ func TestListOrganizationMembers_IncludesPendingInvitations(t *testing.T) {
 	require.Equal(t, types.OrganizationRoleOwner, members[1].Role)
 }
 
+func TestCreateOrganizationInvitationHandler_EmailNotConfigured_ReturnsServiceUnavailable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := newTestServerEmailNotConfigured(mockStore)
+
+	orgID := "org_direct_invite_no_email"
+	ownerID := "user_owner"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+	expectOrgOwner(mockStore, orgID, ownerID)
+
+	body, _ := json.Marshal(types.AddOrganizationMemberRequest{UserReference: "direct@example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID+"/invitations", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+
+	rr := httptest.NewRecorder()
+	server.createOrganizationInvitationHandler(rr, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	require.Contains(t, rr.Body.String(), invitationEmailNotConfiguredMessage)
+}
+
 func TestDeleteOrganizationInvitation_OK(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -439,13 +505,13 @@ func TestLookupOrgUser_StateMatrix(t *testing.T) {
 	//  - user exists, in org → in_org
 	//  - invitation pending → is_invited=true (takes precedence in UI)
 	cases := []struct {
-		name           string
-		userLookup     func(*store.MockStore)
-		membership     func(*store.MockStore, string)
-		invitation     func(*store.MockStore)
-		wantExists     bool
-		wantIsMember   bool
-		wantIsInvited  bool
+		name          string
+		userLookup    func(*store.MockStore)
+		membership    func(*store.MockStore, string)
+		invitation    func(*store.MockStore)
+		wantExists    bool
+		wantIsMember  bool
+		wantIsInvited bool
 	}{
 		{
 			name: "not_helix",

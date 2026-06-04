@@ -15,6 +15,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var errInvitationEmailNotConfigured = errors.New("email delivery is not configured")
+
+const invitationEmailNotConfiguredMessage = "Organization invitations require email delivery, but this server has no SMTP or Mailgun email provider configured."
+
 // listOrganizationMembers godoc
 // @Summary List organization members
 // @Description List members of an organization, including pending invitations as placeholder rows (user_id starts with "inv_").
@@ -154,7 +158,7 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		invitation, invErr := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
 		if invErr != nil {
 			log.Err(invErr).Msg("error creating organization invitation")
-			http.Error(rw, invErr.Error(), http.StatusInternalServerError)
+			writeOrganizationInvitationError(rw, invErr)
 			return
 		}
 		writeResponse(rw, &types.AddOrganizationMemberResponse{
@@ -192,6 +196,10 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 // on the invitation so the access grant can be materialised at register
 // time without needing to keep the inviter's session alive.
 func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Context, orgID, email string, role types.OrganizationRole, appID string, grantRoles []string, inviter *types.User) (*types.OrganizationInvitation, error) {
+	if !apiServer.invitationEmailConfigured() {
+		return nil, errInvitationEmailNotConfigured
+	}
+
 	inviterID := ""
 	if inviter != nil {
 		inviterID = inviter.ID
@@ -217,6 +225,22 @@ func (apiServer *HelixAPIServer) createOrganizationInvitation(ctx context.Contex
 
 	apiServer.sendInvitationEmail(ctx, invitation, inviter)
 	return invitation, nil
+}
+
+func (apiServer *HelixAPIServer) invitationEmailConfigured() bool {
+	if apiServer == nil || apiServer.Cfg == nil {
+		return false
+	}
+	emailCfg := apiServer.Cfg.Notifications.Email
+	return emailCfg.SMTP.Host != "" || emailCfg.Mailgun.APIKey != ""
+}
+
+func writeOrganizationInvitationError(rw http.ResponseWriter, err error) {
+	if errors.Is(err, errInvitationEmailNotConfigured) {
+		http.Error(rw, invitationEmailNotConfiguredMessage, http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(rw, err.Error(), http.StatusInternalServerError)
 }
 
 func (apiServer *HelixAPIServer) sendInvitationEmail(ctx context.Context, invitation *types.OrganizationInvitation, inviter *types.User) {
@@ -472,7 +496,7 @@ func (apiServer *HelixAPIServer) createOrganizationInvitationHandler(rw http.Res
 	invitation, err := apiServer.createOrganizationInvitation(r.Context(), orgID, req.UserReference, req.Role, req.AppID, req.GrantRoles, user)
 	if err != nil {
 		log.Err(err).Msg("error creating invitation")
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		writeOrganizationInvitationError(rw, err)
 		return
 	}
 	writeResponse(rw, invitation, http.StatusCreated)
@@ -527,7 +551,6 @@ func (apiServer *HelixAPIServer) deleteOrganizationInvitation(rw http.ResponseWr
 	}
 	writeResponse(rw, nil, http.StatusOK)
 }
-
 
 // removeOrganizationMember godoc
 // @Summary Remove an organization member
