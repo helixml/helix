@@ -14,6 +14,7 @@
 import { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
 import Chip from '@mui/material/Chip'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
@@ -60,6 +61,16 @@ const HelixOrgWorkerDetail: FC = () => {
   const worker = data?.worker
   const projectID = data?.project_id
 
+  // launching covers the whole openChat flow, not just the
+  // ensureChat mutation. The user-facing "5 seconds of nothing"
+  // before was because ensureChat.isPending only spans the
+  // /workers/{id}/chat call; the remaining work (GET exploratory
+  // session, optional POST create, optional POST resume, finally
+  // the window.open) all ran while the button looked idle. Now the
+  // button stays disabled with a spinner from the first click
+  // through to the new tab opening.
+  const [launching, setLaunching] = useState(false)
+
   // openChat takes the operator to the Human Desktop for the Worker's
   // per-Worker Helix project, matching how chat works for regular
   // projects in the rest of the app (the desktop session IS the chat
@@ -72,32 +83,40 @@ const HelixOrgWorkerDetail: FC = () => {
   // The exploratory session is the project's single long-lived "Human
   // Desktop" — we start it on demand (idempotent server-side when
   // already running) and resume from a paused state if needed, then
-  // navigate to /orgs/<org>/projects/<projectID>/desktop/<sessionID>.
+  // open /orgs/<org>/projects/<projectID>/desktop/<sessionID> in a
+  // NEW TAB so the operator keeps the worker detail page as the
+  // home base they can fire / inspect from while the desktop is
+  // up.
   const openChat = async () => {
     if (!orgSlug || !workerId) return
-    let pid = projectID
-    if (!pid) {
-      try {
-        const resp = await ensureChat.mutateAsync(workerId)
-        pid = resp.project_id
-      } catch (err: any) {
-        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'provisioning chat failed')
+    if (launching) return
+    setLaunching(true)
+    try {
+      let pid = projectID
+      if (!pid) {
+        try {
+          const resp = await ensureChat.mutateAsync(workerId)
+          pid = resp.project_id
+        } catch (err: any) {
+          snackbar.error(err?.response?.data?.error ?? err?.message ?? 'provisioning chat failed')
+          return
+        }
+      }
+      if (!pid) {
+        snackbar.error('no project id returned for worker')
         return
       }
-    }
-    if (!pid) {
-      snackbar.error('no project id returned for worker')
-      return
-    }
 
-    const apiClient = api.getApiClient()
-    try {
+      const apiClient = api.getApiClient()
       let session: { id?: string; config?: { external_agent_status?: string } } | null = null
       try {
         const resp = await apiClient.v1ProjectsExploratorySessionDetail(pid)
         session = resp.data ?? null
       } catch (err: any) {
-        if (err?.response?.status !== 204) throw err
+        if (err?.response?.status !== 204) {
+          snackbar.error(err?.response?.data?.error ?? err?.message ?? 'failed to open Human Desktop')
+          return
+        }
       }
       if (!session?.id) {
         const created = await apiClient.v1ProjectsExploratorySessionCreate(pid)
@@ -111,13 +130,12 @@ const HelixOrgWorkerDetail: FC = () => {
         snackbar.error('failed to open Human Desktop session')
         return
       }
-      router.navigate('org_project-team-desktop', {
-        org_id: orgSlug,
-        id: pid,
-        sessionId: session.id,
-      })
+      const url = `/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(pid)}/desktop/${encodeURIComponent(session.id)}`
+      window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'failed to open Human Desktop')
+    } finally {
+      setLaunching(false)
     }
   }
 
@@ -157,11 +175,11 @@ const HelixOrgWorkerDetail: FC = () => {
           <Button
             variant="contained"
             color="secondary"
-            startIcon={<ChatBubbleOutlineIcon />}
+            startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon />}
             onClick={openChat}
-            disabled={ensureChat.isPending}
+            disabled={launching}
           >
-            {ensureChat.isPending ? 'Provisioning…' : 'Start new chat'}
+            {launching ? 'Launching Human Desktop…' : 'Start new chat'}
           </Button>
         </Stack>
       )}
@@ -195,21 +213,21 @@ const HelixOrgWorkerDetail: FC = () => {
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Opens the worker's agent app in a brand-new chat session. The first
-                      click on a never-chatted-with worker provisions the agent app on the
-                      fly (takes a couple of seconds); subsequent clicks navigate
-                      immediately. Each click lands you in an empty composer — no
-                      transcript bleed across visits.
+                      Opens the worker's Human Desktop in a new tab. The first click on
+                      a never-chatted-with worker provisions the agent app + project on
+                      the fly (takes a few seconds — the button shows a spinner and the
+                      label flips to "Launching Human Desktop…"); subsequent clicks open
+                      the same session immediately.
                     </Typography>
                     <Button
                       variant="contained"
                       color="secondary"
-                      startIcon={<ChatBubbleOutlineIcon />}
+                      startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon />}
                       onClick={openChat}
-                      disabled={ensureChat.isPending}
+                      disabled={launching}
                     >
-                      {ensureChat.isPending
-                        ? 'Provisioning agent app…'
+                      {launching
+                        ? 'Launching Human Desktop…'
                         : (projectID ? 'Open Human Desktop' : 'Provision + open Human Desktop')}
                     </Button>
                   </Stack>
