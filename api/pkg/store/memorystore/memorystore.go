@@ -349,6 +349,13 @@ func (m *MemoryStore) GetSpecTaskExternalAgentByID(_ context.Context, _ string) 
 	return nil, store.ErrNotFound
 }
 
+// GetUser: handlers call this to hydrate a project's owner; returning
+// ErrNotFound lets them log a warn and continue rather than panic on
+// the embedded nil store.Store.
+func (m *MemoryStore) GetUser(_ context.Context, _ *store.GetUserQuery) (*types.User, error) {
+	return nil, store.ErrNotFound
+}
+
 func (m *MemoryStore) GetApp(_ context.Context, id string) (*types.App, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
