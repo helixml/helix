@@ -344,6 +344,50 @@ per-org `webhook_secret` set on the Settings page.
    ```
    Expect **401**.
 
+### 11f. Delete from chart + Fire cascade (regression: orphan activation streams)
+
+Before this fix, firing a Worker left its `s-activations-<workerID>`
+Stream lying around — the Streams page kept rendering a ghost row
+and the chart kept a dashed pseudo-node for a Worker that no longer
+existed. There was also no UI affordance to clean a Stream up from
+the chart itself; the operator had to leave the canvas to delete
+via the Streams list. Both fixed.
+
+1. Hire a fresh AI worker (`w-cleanup` into a new position). The
+   chart shows the worker chip + a new
+   `s-activations-w-cleanup` dashed pseudo-node anchored to its
+   position (per §11b).
+2. Fire `w-cleanup` (chip → Fire worker → confirm). Expect:
+   - The position card returns to **Hire worker** state.
+   - **The `s-activations-w-cleanup` pseudo-node disappears from
+     the chart** within ~1s (cascade from `lifecycle.Fire`).
+   - DB-level sanity:
+     ```bash
+     docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+       "SELECT id FROM org_streams WHERE org_id='<orgID>' AND id='s-activations-w-cleanup';"
+     ```
+     returns 0 rows. Events on that stream survive in `org_events`
+     as an audit trail (the events table isn't keyed on Streams).
+3. Pin: `lifecycle_test.go::TestFire_RemovesWorkersActivationStream`
+   covers the same contract at the Go layer.
+4. Chart-side cleanup: hover any stream pseudo-node — a small trash
+   icon appears in the top-right. Click it. The same
+   ConfirmDeleteDialog used for role/position deletes opens with
+   the body:
+   ```
+   Deleting stream <id>:
+     • removes the Stream row
+     • drops N subscription(s) (<worker ids>)
+     • events on this stream survive as an audit trail
+   This is irreversible.
+   ```
+5. Confirm. The pseudo-node vanishes from the chart immediately;
+   `GET /api/v1/orgs/<org>/streams/<id>` returns 404.
+6. The Streams page (Vertical-dot Delete menu) must surface the
+   same DELETE — both UIs hit the same endpoint and share the same
+   cache-invalidation, so the deleted stream disappears from the
+   list view too without a manual refresh.
+
 ## 12. Chat → Human Desktop (regression: bare /agent route)
 
 Critical worker flow. Chat MUST happen inside the per-Worker project's
@@ -398,6 +442,11 @@ otherwise the desktop session is created but never connects.
 - §11e — `POST /api/v1/orgs/<org>/github/webhook` with a valid
   HMAC returns 204 and the event lands on the matching github
   stream; bad HMAC returns 401; the route MUST be mounted (no 404).
+- §11f — firing a Worker cascades-deletes its
+  `s-activations-<workerID>` Stream (pseudo-node gone from chart,
+  `org_streams` row gone from DB, events retained); chart stream
+  trash icon → confirm dialog → DELETE /streams/{id} works
+  identically to the Streams list page.
 - §12 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
   never `…/agent/<id>`.
 - No console errors beyond the three Vite WS errors at startup.
