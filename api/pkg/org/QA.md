@@ -571,13 +571,160 @@ otherwise the desktop session is created but never connects.
    reachable from this button.
 4. The desktop viewer renders with a `Send message to agent…`
    composer. Type `hello`, submit, user bubble appears in the
-   transcript. The LLM reply may not arrive if `zed_external` isn't
-   actually connected (`helixml/helix#2397` territory) — that's not
-   a chart regression.
+   transcript. The full chat round-trip (LLM reply arrives,
+   `gh` works inside the sandbox, etc.) is pinned separately in
+   §13 — this step only confirms the routing + composer mount.
 5. Refresh the worker detail page. The right-rail **Project** field
    now shows the project id. Clicking the button again navigates
    straight to the desktop route (Ensure fast-paths, exploratory-
    session GET returns the existing session).
+
+## 13. Worker sandbox: Zed launch, `gh` auth, stale-session recovery
+
+This section pins the chain from "click Open Human Desktop" to
+"chat goes from React composer through API → WebSocket → Zed →
+Claude → response". The current iteration ships `gh` inside the
+desktop image with the org's GitHub OAuth token auto-injected as
+`GH_TOKEN`, so a worker can comment on GitHub issues / PRs the
+moment its desktop is up.
+
+### 13a. Fresh sandbox container — Zed launches cleanly
+
+Regression pin: an earlier iteration of the Dockerfile invoked
+`gh --version` at the end of the install layer as a smoke test.
+`gh` writes `${HOME}/.local/state/gh/device-id` on first
+invocation as its analytics opt-in. During the docker build HOME
+is root, so this layer left `/home/retro/.local/` owned by root —
+and Zed, running as retro at session-start, crashed on:
+
+  `Zed failed to launch: permission denied when creating
+   directories ["/home/retro/.local/share/zed/extensions", …]`
+
+Without Zed there's no agent WebSocket back to the API, so every
+follow-up chat interaction failed with "no external agent
+WebSocket connection" and auto-wake retries exhausted. The
+end-user symptom was the chat composer queueing messages forever.
+Fix: don't invoke `gh` during the build — `apt-get install -y gh`
+already fails the build on installation error, no runtime smoke
+test needed (replaced with `which gh`).
+
+Verify on a fresh container spawned from the current desktop
+image (`sandbox-images/helix-ubuntu.version`):
+
+1. Hire a fresh AI worker via the chart → wait for the container
+   to spawn.
+2. `docker compose exec sandbox-nvidia docker exec <container> ls -la /home/retro/.local`
+   must show ownership `retro retro` for `.`, `share/` and
+   `state/` (NOT `root root`).
+3. `docker compose exec sandbox-nvidia docker exec <container> pgrep -fa zed`
+   shows `/zed-build/zed /home/retro/work/<workerID> /home/retro/work/helix-specs`
+   running as retro.
+4. `docker compose exec sandbox-nvidia docker logs <container> | grep WEBSOCKET`
+   shows `✅ [WEBSOCKET] WebSocket connected!` followed by
+   `Sent initial agent_ready (connection ready for messages)`.
+5. API logs show `External agent added message … role=assistant`
+   lines as Zed's Claude processes the hire-time activation.
+
+### 13b. `gh` is installed and authenticated via injected `GH_TOKEN`
+
+The desktop image ships `gh` from the official cli.github.com apt
+repo. The helix-org spawner injects the org's GitHub OAuth token
+(via the same `GitHubTokenResolver` the github-stream transport
+uses) as the project secret `GH_TOKEN` on every activation; the
+sandbox runtime exposes project secrets as env vars on container
+start, so a fresh desktop has `gh` already authenticated.
+
+1. Open a terminal inside the desktop sandbox (Ghostty already
+   exists; otherwise `docker compose exec sandbox-nvidia docker exec -u retro <container> bash`).
+2. `echo "$GH_TOKEN"` returns a 40-char `gho_…` token.
+3. `gh --version` reports the installed version (no analytics
+   opt-in prompt — the device-id file is written under retro's
+   home now, not root's).
+4. `gh auth status` reports `✓ Logged in to github.com account
+   <login> (GH_TOKEN)`. Scopes shown: `repo, admin:repo_hook,
+   read:org` (assuming the operator re-authed via the
+   "Reconnect with stream permissions →" link in §11e after the
+   read:org scope was added).
+5. `gh issue comment <number> --repo <owner>/<repo> --body
+   "from helix-org worker"` succeeds — confirms the token has
+   real write authority. Comment lands on the issue under the
+   operator's GitHub identity.
+
+### 13c. Stale-session recovery after a desktop-image rebuild
+
+Whenever `./stack build-ubuntu` ships a new image (because the
+Dockerfile changed, or a new Zed binary landed), containers from
+the old image are still pointed at by every pre-existing
+exploratory session row. The API marks them "running" because
+the underlying session record still says so, even after we kill
+the container — so "Open Human Desktop" reuses the dead pointer
+instead of spawning fresh. End-user symptom: clicking the button
+lands on a black desktop viewer; FE polls the screenshot endpoint
+and the API logs `Failed to connect to sandbox via RevDial for
+stream WebSocket: "no connection"` forever.
+
+Recovery (single-host dev only — production has hydra-driven
+session lifecycle handled separately):
+
+1. Identify stale sessions by image:
+   ```bash
+   docker compose -f docker-compose.dev.yaml exec sandbox-nvidia \
+     docker ps --format "{{.Names}}\t{{.Image}}" | grep ubuntu-external
+   ```
+   Anything NOT on the current `sandbox-images/helix-ubuntu.version`
+   tag is stale.
+
+2. Remove the stale containers:
+   ```bash
+   docker compose -f docker-compose.dev.yaml exec sandbox-nvidia \
+     docker rm -f <ubuntu-external-…>
+   ```
+
+3. Wipe their `sessions` rows + their pointers from
+   `org_worker_runtime_state` so the FE can't reuse them:
+   ```bash
+   docker exec helix-postgres-1 psql -U postgres -d postgres -c "
+     DELETE FROM sessions WHERE id IN ('ses_<stale-1>','ses_<stale-2>');
+     DELETE FROM org_worker_runtime_state
+       WHERE key='session_id'
+         AND value IN ('ses_<stale-1>','ses_<stale-2>');
+   "
+   ```
+
+4. Click **Open Human Desktop** on each affected worker. The
+   FE's `openChat` calls `v1ProjectsExploratorySessionDetail`,
+   gets 204 (no session), calls `v1ProjectsExploratorySessionCreate`,
+   the API spawns a fresh container from the current desktop
+   image, Zed launches with proper `/home/retro/.local`
+   ownership, and chat works.
+
+5. **DO NOT** try to "resume" stale sessions in place. The
+   `POST /sessions/<id>/resume` endpoint returns 200 but does
+   not actually respawn the container — it just flips
+   `config.external_agent_status` back to "resumed" while the
+   underlying runner stays gone. Was a real gotcha during the
+   rollout.
+
+### 13d. Pinned end-to-end chat round-trip
+
+Pinned in playwright once per release to confirm the entire chain
+holds:
+
+1. Hire a fresh AI worker (any position).
+2. Click **Open Human Desktop** on that worker's detail page.
+3. New tab opens to `…/projects/<project_id>/desktop/<session_id>`.
+4. Within ~30s: desktop viewer renders the GNOME shell + Zed
+   pane; API logs show `External agent added message …
+   role=assistant message_id=5/6/…` as Claude works through
+   the hire-time activation (pull helix-specs, read role.md
+   / identity.md / agent.md, commit a checkpoint).
+5. Open a terminal in the desktop, run `gh auth status`, and
+   post an issue comment to a repo the OAuth token has admin
+   on. Comment appears on the issue.
+
+If any of steps 4-5 fails: check §13a (Zed launching), §13b (`gh`
+auth), §13c (stale-session contamination) before chasing deeper
+bugs. The chain is fragile in exactly those three places.
 
 ## Pass criteria
 
@@ -627,6 +774,21 @@ otherwise the desktop session is created but never connects.
     `/positions/{id}/subscriptions` endpoints.
 - §12 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
   never `…/agent/<id>`.
+- §13a — fresh sandbox container's `/home/retro/.local` is
+  owned by retro:retro and Zed launches cleanly; WS reaches
+  `agent_ready`.
+- §13b — `gh auth status` inside a fresh sandbox reports
+  "Logged in to github.com" via `GH_TOKEN`; a real
+  `gh issue comment` against a repo the OAuth token has admin
+  on succeeds.
+- §13c — after `./stack build-ubuntu` ships a new image,
+  stale-session recovery procedure (kill containers, wipe
+  sessions + runtime-state pointers) unblocks Open Human Desktop
+  for all pre-existing workers.
+- §13d — full chat round-trip (hire → desktop → Claude
+  activates + posts an `External agent added message` → `gh`
+  works from inside the sandbox) green at least once per
+  release.
 - No console errors beyond the three Vite WS errors at startup.
 
 ## Known limitations
