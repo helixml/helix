@@ -12,13 +12,22 @@ heading. Skip nothing without reading the why.
 
 - **Role** — flat container, no parent. Groups positions sharing the
   same role id.
-- **Position** — slot inside one role, holds at most one worker. Two
-  ReactFlow handles: target dot on top, source dot on bottom.
-- **Edge** — manager-position bottom → subordinate-position top:
-  "subordinate reports to manager". The only hierarchy.
+- **Position** — slot inside one role, holds at most one worker. Three
+  ReactFlow handles: target dot on top, source dot on bottom (for
+  manager→subordinate edges), and a small amber dot on the right for
+  drag-to-subscribe edges to stream nodes.
+- **Reporting edge** — manager-position bottom → subordinate-position
+  top: "subordinate reports to manager". The hierarchy.
+- **Subscription edge** — position right → stream pseudo-node:
+  "events on this stream activate whoever fills this slot".
+  POSITION-anchored, not worker-anchored: hiring or firing a worker
+  doesn't change which streams the slot consumes.
 
 Layout is dagre-driven; edges are bezier curves so parallel reporting
-lines don't collapse onto one trunk.
+lines don't collapse onto one trunk. Stream pseudo-nodes live in a
+dedicated column to the right of the org tree so they never collide
+with the role grid; the right-side stream handle keeps subscription
+edges off the bottom-handle reporting geometry.
 
 ## Setup
 
@@ -244,13 +253,20 @@ non-empty org always has at least one row.
 Open the chart with multiple workers hired. Pre-fix, every activation
 stream's edge originated from `p-root` because the dashed edge
 followed the SUBSCRIBER (always w-owner via the hire hook) instead
-of the SUBJECT. The fix anchors activation streams to the subject's
-position via the `s-activations-<workerID>` id pattern.
+of the SUBJECT. The current model derives each dashed edge from
+real `org_subscriptions` rows (position-anchored), so one stream can
+show edges from multiple positions if multiple slots subscribed.
 
 1. With `w-owner` in `p-root` and an AI worker (`w-alice`) hired
-   into some `p-eng-N`, expect TWO dashed amber edges:
-   - `p-root → s-activations-w-owner`
-   - `p-eng-N → s-activations-w-alice` (**NOT** `p-root → …`).
+   into some `p-eng-N`, after hiring `w-alice` (which auto-
+   subscribes the hiring caller's position via
+   `EnsureActivationStream`) expect dashed edges:
+   - `p-root → s-activations-w-owner` (owner watches own activations
+     via the bootstrap auto-sub)
+   - `p-root → s-activations-w-alice` (owner watches the new hire's
+     activations — the hiring caller subscribes)
+   - **NO** edge from `p-eng-N` to its own activation stream — the
+     worker's own position is NOT subscribed (would loop dispatch).
 2. Stream nodes live in a vertical column to the right of the org
    tree, not in line with the role grid. Adding another position to
    the role frame must not push or overlap a stream node.
@@ -377,16 +393,86 @@ via the Streams list. Both fixed.
    ```
    Deleting stream <id>:
      • removes the Stream row
-     • drops N subscription(s) (<worker ids>)
+     • drops N subscription(s) (<position ids>)
      • events on this stream survive as an audit trail
    This is irreversible.
    ```
+   The subscription chips are POSITION IDs (subscriptions are
+   position-anchored — see §11g).
 5. Confirm. The pseudo-node vanishes from the chart immediately;
    `GET /api/v1/orgs/<org>/streams/<id>` returns 404.
 6. The Streams page (Vertical-dot Delete menu) must surface the
    same DELETE — both UIs hit the same endpoint and share the same
    cache-invalidation, so the deleted stream disappears from the
    list view too without a manual refresh.
+
+### 11g. Position-anchored subscriptions (data-model pivot)
+
+Subscriptions used to be keyed on `(org, worker, stream)`. Firing a
+worker dropped every stream they consumed, and a new hire into the
+same slot started fresh — wrong for the common case where the slot
+("eng lead") owns the consumed channels. The current model keys on
+`(org, position, stream)`: subscriptions outlive workers,
+DeletePosition is the only cascade that drops them.
+
+Three surfaces exercise this contract.
+
+#### Survives-fire (dispatch model)
+
+1. Hire `w-cycle` (AI) into a new `p-cycle` position. Subscribe
+   `p-cycle` to `s-test-feed` (either via the chart drag in §11g.UI
+   or via `POST /api/v1/orgs/<org>/positions/p-cycle/subscriptions
+   {stream_id:"s-test-feed"}`).
+2. Fire `w-cycle` via the chip's **Fire worker** flow. The
+   subscription row MUST survive — `lifecycle.Fire` is forbidden
+   from touching `org_subscriptions`. DB-level check:
+   ```bash
+   docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+     "SELECT * FROM org_subscriptions WHERE org_id='<orgID>' \
+      AND position_id='p-cycle' AND stream_id='s-test-feed';"
+   ```
+   returns 1 row.
+3. Hire a fresh AI worker `w-cycle-2` into `p-cycle`. Publish an
+   event to `s-test-feed`. The dispatcher MUST activate `w-cycle-2`
+   even though `w-cycle-2` never explicitly subscribed — the
+   subscription on `p-cycle` is inherited.
+4. Now DeletePosition `p-cycle` (chart trash icon → confirm). The
+   row from step 2 must be gone. Re-query the SELECT — 0 rows. The
+   `lifecycle.DeletePosition` cascade is the only path that drops
+   subscriptions; the role-delete cascade reaches them indirectly
+   via DeletePosition.
+
+#### Chart drag-to-subscribe
+
+5. Open the chart. Hover any position card — a small amber dot
+   appears on the **right** edge (the dedicated stream-source
+   handle, distinct from the bottom reporting source).
+6. Drag from that dot to the top edge of a stream pseudo-node and
+   release. Snackbar: `<position id> now consumes <stream id>`. A
+   dashed amber edge from the position to the stream renders on
+   the next refetch (≤1.5s). DB row appears at
+   `org_subscriptions(<orgID>, <position>, <stream>)`.
+7. Re-drag the same pair → idempotent. The backend returns 200
+   with the existing row and the chart doesn't duplicate the edge.
+
+#### Worker detail Subscriptions panel
+
+8. Navigate to `…/helix-org/workers/<workerId>`. Below "Tool grants"
+   a **Subscriptions (N)** section renders. The number reflects
+   the worker's position's current subscription set (not the
+   worker's — the panel resolves worker → position before fetching).
+9. Click the multi-select. The popper lists every Stream in the org
+   with description, checkbox state for currently-subscribed
+   entries, and `disableCloseOnSelect` so toggling several streams
+   in one pass doesn't bounce closed (same UX shape as the role
+   tools dropdown).
+10. Tick a stream → subscribe; untick → unsubscribe. Snackbar
+    confirms the delta count. Captioned beneath: "Subscriptions are
+    position-anchored — they outlive the worker. Whoever fills
+    `<position>` next inherits this set."
+11. Unassigned workers (no position) render the panel as a
+    read-only "This Worker is unassigned (no position) — there's
+    nothing to subscribe." rather than failing.
 
 ## 12. Chat → Human Desktop (regression: bare /agent route)
 
@@ -447,6 +533,20 @@ otherwise the desktop session is created but never connects.
   `org_streams` row gone from DB, events retained); chart stream
   trash icon → confirm dialog → DELETE /streams/{id} works
   identically to the Streams list page.
+- §11g — subscriptions are POSITION-anchored:
+  - firing a worker leaves the position's subscription rows alone
+    (`org_subscriptions` survives `lifecycle.Fire`);
+  - hiring into a position inherits its subscriptions — dispatch
+    activates the new hire on the next event without any explicit
+    subscribe call;
+  - DeletePosition is the only cascade that drops them
+    (`org_subscriptions` rows for the deleted position go to 0);
+  - dragging a position's right-side `stream` handle onto a stream
+    pseudo-node creates a row at
+    `(org, position, stream)` (idempotent server-side);
+  - the Worker detail Subscriptions panel resolves worker → position
+    and edits the position's subscription set via the
+    `/positions/{id}/subscriptions` endpoints.
 - §12 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
   never `…/agent/<id>`.
 - No console errors beyond the three Vite WS errors at startup.
