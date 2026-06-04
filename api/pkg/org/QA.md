@@ -218,7 +218,133 @@ hires come from chart position cards, so role+position context is
 explicit at hire time. Vertical-dot menu offers **Open** and **Fire**
 (disabled on `w-owner` with `Owner — protected`).
 
-## 11. Chat → Human Desktop (regression: bare /agent route)
+## 11. Streams: list, anchoring, detail page, live tail
+
+The Streams surface lives at `…/helix-org/streams`. Every Worker has
+an auto-created activation Stream (`s-activations-<workerID>`) so a
+non-empty org always has at least one row.
+
+### 11a. Streams list
+
+1. Click **Streams** in the helix-org sidebar. URL becomes
+   `…/helix-org/streams`. Table columns: ID / Name / Transport /
+   Subscribers / Created.
+2. Every Worker on the chart must have a matching
+   `s-activations-<workerID>` row. Fresh org with just w-owner
+   shows exactly one row; hire `w-alice` and a second row appears
+   after a brief refetch.
+3. Top-right **+ New Stream** opens the create dialog. The
+   **Transport** dropdown lists `local`, `webhook`, `github`,
+   `postmark`. Selecting `github` reveals the structured help box
+   with the **exact Payload URL** to paste into GitHub:
+   `http://<host>/api/v1/orgs/<org>/github/webhook`.
+
+### 11b. Chart anchoring (regression: every stream dangled off w-owner)
+
+Open the chart with multiple workers hired. Pre-fix, every activation
+stream's edge originated from `p-root` because the dashed edge
+followed the SUBSCRIBER (always w-owner via the hire hook) instead
+of the SUBJECT. The fix anchors activation streams to the subject's
+position via the `s-activations-<workerID>` id pattern.
+
+1. With `w-owner` in `p-root` and an AI worker (`w-alice`) hired
+   into some `p-eng-N`, expect TWO dashed amber edges:
+   - `p-root → s-activations-w-owner`
+   - `p-eng-N → s-activations-w-alice` (**NOT** `p-root → …`).
+2. Stream nodes live in a vertical column to the right of the org
+   tree, not in line with the role grid. Adding another position to
+   the role frame must not push or overlap a stream node.
+3. Edges from the position's **right** handle (the dedicated
+   `stream` source handle), not the bottom — so a stream sitting
+   directly below a subordinate position never produces overlapping
+   geometry. Visually inspect: solid reporting edges stay vertical
+   between role frames; dashed stream edges run horizontally to the
+   column on the right.
+
+### 11c. Stream detail page (regression: only a list existed)
+
+This is the "messages flowing through the system" view. Originally
+there was no per-stream surface — clicking a stream just dumped you
+back on the list. The detail page rebuilds the old htmx
+`/ui/streams?id=…` shape as React, hydrated from `GET /streams/{id}`
+then live-tailed via SSE.
+
+1. **Entry point 1 — chart**: click any stream pseudo-node. URL
+   becomes `…/helix-org/streams/<stream_id>`. Header shows the
+   stream id (monospace) + transport kind chip + description +
+   `created by <worker> · <timestamp>` + subscribers chip-list.
+2. **Entry point 2 — list**: the ID column in the streams table is
+   a link. Clicking it lands on the same detail URL.
+3. Backend pin (`TestGetStream_IncludesRecentEvents`): the page
+   depends on `GET /streams/{id}` carrying
+   `recent_events: EventCard[]` in newest-first order.
+4. Messages section shows EventCard rows: `<from> [→ <to>]` on the
+   left, ISO timestamp on the right, subject (if any) on a second
+   line, then either the canonical message body (when
+   `has_message=true`) or the raw body, finally the event id in
+   monospace.
+
+### 11d. Live SSE tail
+
+The detail page subscribes to
+`GET /api/v1/orgs/<org>/streams/<stream_id>/events` and replaces the
+list wholesale on every server push.
+
+1. With the detail page open on a stream, publish two new events to
+   that stream from another tab or curl:
+   ```bash
+   curl -sH "Cookie: $(grep helix_sess ~/.helix-creds.txt | cut -d= -f2-)" \
+     -H "Content-Type: application/json" -X POST \
+     -d '{"subject":"sse-test","body":"arrived live"}' \
+     "http://localhost:8080/api/v1/orgs/<org>/streams/<stream_id>/publish"
+   ```
+2. **Without reloading**, the new event must appear at the top of
+   the Messages list within ~1.5 seconds. The total count must not
+   double — each SSE frame replaces, not appends. A flickering
+   "everything re-renders" is normal and is the simpler-than-diff
+   contract this page is built on.
+
+### 11e. GitHub webhook delivery (regression: route was 404)
+
+GitHub streams have been creatable for a while, but inbound
+deliveries to `/github/webhook` used to 404 — the route was never
+mounted. Now it lives on the INSECURE router (GitHub deliveries
+carry no helix session cookie) and authenticates via HMAC of the
+per-org `webhook_secret` set on the Settings page.
+
+1. On `…/helix-org/settings`, set `transport.github` to
+   `{"webhook_secret":"qa-secret"}` (the GitHub access token comes
+   from your OAuth connection — no PAT needed; if you don't have a
+   connection yet, the inbound path still works, it's only outbound
+   actions that need the token).
+2. Create a github stream via **New Stream** with transport config
+   `{"repo":"helixml/helix","events":["issues"]}`.
+3. From a shell outside the browser (no session cookie):
+   ```bash
+   SECRET=qa-secret
+   BODY='{"action":"opened","repository":{"full_name":"helixml/helix"},"issue":{"number":1,"title":"hi"},"sender":{"login":"octocat"}}'
+   SIG=$(printf "%s" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
+   curl -i -X POST \
+     -H "Content-Type: application/json" \
+     -H "X-GitHub-Event: issues" \
+     -H "X-GitHub-Delivery: qa-del-1" \
+     -H "X-Hub-Signature-256: sha256=$SIG" \
+     --data "$BODY" \
+     http://localhost:8080/api/v1/orgs/<org>/github/webhook
+   ```
+   Expect **204** (no body). A 404 means the route isn't mounted
+   (regression); a 401 means the HMAC is wrong.
+4. Open the github stream's detail page. The just-delivered event
+   appears with `from=octocat`, subject=`hi`, thread_id=`#1`.
+5. Replay with a bad signature:
+   ```bash
+   curl -o /dev/null -w "%{http_code}\n" -X POST … \
+     -H "X-Hub-Signature-256: sha256=deadbeef" --data "$BODY" \
+     http://localhost:8080/api/v1/orgs/<org>/github/webhook
+   ```
+   Expect **401**.
+
+## 12. Chat → Human Desktop (regression: bare /agent route)
 
 Critical worker flow. Chat MUST happen inside the per-Worker project's
 Human Desktop session — same surface a normal project uses — not the
@@ -259,7 +385,20 @@ otherwise the desktop session is created but never connects.
   collateral, DB counts drop to 0 after confirm.
 - §7 — chart survives an API restart with all rows intact.
 - §9 — `r-owner.tools | length == 29`.
-- §11 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
+- §11b — activation streams anchor to their SUBJECT worker's
+  position, never universally to `p-root`. Stream column lives to
+  the right of the org tree; no geometric overlap with reporting
+  edges.
+- §11c — clicking a stream node (chart) OR a stream id (list)
+  lands on `…/helix-org/streams/<id>` with the EventCard list
+  rendered from `recent_events`.
+- §11d — publishing while the detail page is open surfaces the new
+  event in the list within ~1.5s without a reload, replacing not
+  appending.
+- §11e — `POST /api/v1/orgs/<org>/github/webhook` with a valid
+  HMAC returns 204 and the event lands on the matching github
+  stream; bad HMAC returns 401; the route MUST be mounted (no 404).
+- §12 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
   never `…/agent/<id>`.
 - No console errors beyond the three Vite WS errors at startup.
 
