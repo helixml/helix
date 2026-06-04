@@ -3,48 +3,51 @@ import createRouter, { Route } from 'router5'
 import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
 
-import Session from './pages/Session'
-import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
-import Apps from './pages/Apps'
-import Providers from './pages/Providers'
-import Orgs from './pages/Orgs'
-import OrgSettings from './pages/OrgSettings'
-import OrgTeams from './pages/OrgTeams'
-import OrgPeople from './pages/OrgPeople'
-import TeamPeople from './pages/TeamPeople'
-import OrgApiKeys from './pages/OrgApiKeys'
-import OrgBilling from './components/orgs/OrgBilling'
-import OrgUsage from './components/orgs/OrgUsage'
-import App from './pages/App'
-import Create from './pages/Create'
-import Home from './pages/Home'
-import OpenAPI from './pages/OpenAPI'
-import Secrets from './pages/Secrets'
-// NewAgent wizard removed - now creating blank agent and going directly to App settings
-// import NewAgent from './pages/NewAgent'
-import ImportAgent from './pages/ImportAgent'
-import Tasks from './pages/Tasks'
-import Jobs from './pages/Jobs'
-import SpecTasksPage from './pages/SpecTasksPage'
-import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
-import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
-import TeamDesktopPage from './pages/TeamDesktopPage'
-import EmbedTaskPage from './pages/EmbedTaskPage'
-import Projects from './pages/Projects'
-import Sandboxes from './pages/Sandboxes'
-import SandboxDetail from './pages/SandboxDetail'
+// All page components are code-split via React.lazy so the initial bundle
+// only contains the framework + the page the user actually lands on. Other
+// pages are fetched on demand. A Suspense boundary in RenderPage shows a
+// fallback while the page chunk is loading.
+const Session = React.lazy(() => import('./pages/Session'))
+const AdminRunnerLogsPage = React.lazy(() => import('./pages/AdminRunnerLogsPage'))
+const Apps = React.lazy(() => import('./pages/Apps'))
+const Providers = React.lazy(() => import('./pages/Providers'))
+const Orgs = React.lazy(() => import('./pages/Orgs'))
+const OrgSettings = React.lazy(() => import('./pages/OrgSettings'))
+const OrgTeams = React.lazy(() => import('./pages/OrgTeams'))
+const OrgPeople = React.lazy(() => import('./pages/OrgPeople'))
+const TeamPeople = React.lazy(() => import('./pages/TeamPeople'))
+const OrgApiKeys = React.lazy(() => import('./pages/OrgApiKeys'))
+const OrgBilling = React.lazy(() => import('./components/orgs/OrgBilling'))
+const OrgUsage = React.lazy(() => import('./components/orgs/OrgUsage'))
+const App = React.lazy(() => import('./pages/App'))
+const Create = React.lazy(() => import('./pages/Create'))
+const Home = React.lazy(() => import('./pages/Home'))
+const OpenAPI = React.lazy(() => import('./pages/OpenAPI'))
+const Secrets = React.lazy(() => import('./pages/Secrets'))
+const ImportAgent = React.lazy(() => import('./pages/ImportAgent'))
+const Tasks = React.lazy(() => import('./pages/Tasks'))
+const Jobs = React.lazy(() => import('./pages/Jobs'))
+const SpecTasksPage = React.lazy(() => import('./pages/SpecTasksPage'))
+const SpecTaskDetailPage = React.lazy(() => import('./pages/SpecTaskDetailPage'))
+const SpecTaskReviewPage = React.lazy(() => import('./pages/SpecTaskReviewPage'))
+const TeamDesktopPage = React.lazy(() => import('./pages/TeamDesktopPage'))
+const EmbedTaskPage = React.lazy(() => import('./pages/EmbedTaskPage'))
+const Projects = React.lazy(() => import('./pages/Projects'))
+const Sandboxes = React.lazy(() => import('./pages/Sandboxes'))
+const SandboxDetail = React.lazy(() => import('./pages/SandboxDetail'))
+const Files = React.lazy(() => import('./pages/Files'))
+const QuestionSets = React.lazy(() => import('./pages/QuestionSets'))
+const QuestionSetResults = React.lazy(() => import('./pages/QuestionSetResults'))
+const GitRepoDetail = React.lazy(() => import('./pages/GitRepoDetail'))
+const PasswordReset = React.lazy(() => import('./pages/PasswordReset'))
+const PasswordResetComplete = React.lazy(() => import('./pages/PasswordResetComplete'))
+const DesignDocPage = React.lazy(() => import('./pages/DesignDocPage'))
+const Onboarding = React.lazy(() => import('./pages/Onboarding'))
+const Waitlist = React.lazy(() => import('./pages/Waitlist'))
+const Login = React.lazy(() => import('./pages/Login'))
+const NotFound = React.lazy(() => import('./pages/NotFound'))
+
 import { FilestoreContextProvider } from './contexts/filestore'
-import Files from './pages/Files'
-import QuestionSets from './pages/QuestionSets'
-import QuestionSetResults from './pages/QuestionSetResults'
-import GitRepoDetail from './pages/GitRepoDetail'
-import PasswordReset from './pages/PasswordReset'
-import PasswordResetComplete from './pages/PasswordResetComplete'
-import DesignDocPage from './pages/DesignDocPage'
-import Onboarding from './pages/Onboarding'
-import Waitlist from './pages/Waitlist'
-import Login from './pages/Login'
-import NotFound from './pages/NotFound'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -582,7 +585,11 @@ export function useApplicationRoute(): IApplicationRoute {
 
 export function RenderPage() {
   const route = useApplicationRoute()
-  return route.render()
+  return (
+    <React.Suspense fallback={null}>
+      {route.render()}
+    </React.Suspense>
+  )
 }
 
 export default router

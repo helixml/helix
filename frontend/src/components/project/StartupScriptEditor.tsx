@@ -19,14 +19,12 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material'
-import {
-  History as HistoryIcon,
-  RestoreFromTrash as RestoreIcon,
-  PlayArrow as TestIcon,
-  Close as CloseIcon,
-  CompareArrows as DiffIcon,
-  Lock as LockIcon,
-} from '@mui/icons-material'
+import HistoryIcon from '@mui/icons-material/History'
+import RestoreIcon from '@mui/icons-material/RestoreFromTrash'
+import TestIcon from '@mui/icons-material/PlayArrow'
+import CloseIcon from '@mui/icons-material/Close'
+import DiffIcon from '@mui/icons-material/CompareArrows'
+import LockIcon from '@mui/icons-material/Lock'
 import MonacoEditor from '../widgets/MonacoEditor'
 import { useGetStartupScriptHistory } from '../../services/projectService'
 import { ServicesStartupScriptVersion } from '../../api/api'

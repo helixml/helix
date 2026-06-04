@@ -24,18 +24,16 @@ import {
   Tooltip,
   Paper
 } from '@mui/material'
-import {
-  Close as CloseIcon,
-  Refresh as RefreshIcon,
-  Download as DownloadIcon,
-  PlayArrow as PlayIcon,
-  Stop as StopIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  BugReport as DebugIcon,
-  VerticalAlignBottom as ScrollDownIcon
-} from '@mui/icons-material'
+import CloseIcon from '@mui/icons-material/Close'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import DownloadIcon from '@mui/icons-material/Download'
+import PlayIcon from '@mui/icons-material/PlayArrow'
+import StopIcon from '@mui/icons-material/Stop'
+import ErrorIcon from '@mui/icons-material/Error'
+import WarningIcon from '@mui/icons-material/Warning'
+import InfoIcon from '@mui/icons-material/Info'
+import DebugIcon from '@mui/icons-material/BugReport'
+import ScrollDownIcon from '@mui/icons-material/VerticalAlignBottom'
 import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
 import { DashboardRunner } from '../../types/dashboard'
 

@@ -25,7 +25,9 @@ import {
   Tooltip,
   IconButton,
 } from "@mui/material";
-import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
+import AddIcon from '@mui/icons-material/Add'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+import CloseIcon from '@mui/icons-material/Close'
 import { ChevronDown, UserCircle2, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
 import GooseRecipeSelector from "./GooseRecipeSelector";

@@ -1,6 +1,4 @@
 import { useEffect, useRef } from 'react'
-import * as Sentry from '@sentry/react'
-import { RudderAnalytics } from '@rudderstack/analytics-js'
 import { useGetConfig } from '../services/userService'
 
 const win = (window as any)
@@ -13,32 +11,37 @@ export default function useAnalyticsInit() {
     if (!config || initialized.current) return
     initialized.current = true
 
-    // Sentry
+    // Sentry and RudderStack are dynamically imported so their (~240KB and
+    // ~120KB respectively) chunks are only fetched when actually configured
+    // on the backend. In dev — where neither is usually set — they never load.
+
     if (config.sentry_dsn_frontend) {
-      win.setUserFunctions.push((user: any) => {
-        Sentry.setUser({
-          email: user.email,
-          name: user.name,
+      void import('@sentry/react').then((Sentry) => {
+        win.setUserFunctions.push((user: any) => {
+          Sentry.setUser({
+            email: user.email,
+            name: user.name,
+          })
         })
-      })
-      win.emitErrorFunctions.push((error: any) => {
-        Sentry.captureException(error)
-      })
-      Sentry.init({
-        dsn: config.sentry_dsn_frontend,
-        integrations: [
-          new Sentry.BrowserTracing(),
-          new Sentry.Replay(),
-        ],
-        tracesSampleRate: 0.1,
-        replaysSessionSampleRate: 1.0,
-        replaysOnErrorSampleRate: 1.0,
-        beforeSend(event) {
-          if (event.exception) {
-            Sentry.showReportDialog({ eventId: event.event_id })
-          }
-          return event
-        },
+        win.emitErrorFunctions.push((error: any) => {
+          Sentry.captureException(error)
+        })
+        Sentry.init({
+          dsn: config.sentry_dsn_frontend,
+          integrations: [
+            new Sentry.BrowserTracing(),
+            new Sentry.Replay(),
+          ],
+          tracesSampleRate: 0.1,
+          replaysSessionSampleRate: 1.0,
+          replaysOnErrorSampleRate: 1.0,
+          beforeSend(event) {
+            if (event.exception) {
+              Sentry.showReportDialog({ eventId: event.event_id })
+            }
+            return event
+          },
+        })
       })
     }
 
@@ -56,20 +59,21 @@ export default function useAnalyticsInit() {
       gtag('config', gaId)
     }
 
-    // RudderStack
     if (config.rudderstack_write_key && config.rudderstack_data_plane_url) {
-      const rudderAnalytics = new RudderAnalytics()
-      rudderAnalytics.load(config.rudderstack_write_key, config.rudderstack_data_plane_url, {})
-      win.setUserFunctions.push((user: any) => {
-        const { token, ...safeUser } = user
-        rudderAnalytics.identify(user.email, safeUser)
-      })
-      win.viewPageFunctions.push((state: any) => {
-        const route = state.route
-        rudderAnalytics.page(route.name, route.path, route)
-      })
-      win.emitEventFunctions.push((ev: any) => {
-        rudderAnalytics.track(ev.name, ev)
+      void import('@rudderstack/analytics-js').then(({ RudderAnalytics }) => {
+        const rudderAnalytics = new RudderAnalytics()
+        rudderAnalytics.load(config.rudderstack_write_key, config.rudderstack_data_plane_url, {})
+        win.setUserFunctions.push((user: any) => {
+          const { token, ...safeUser } = user
+          rudderAnalytics.identify(user.email, safeUser)
+        })
+        win.viewPageFunctions.push((state: any) => {
+          const route = state.route
+          rudderAnalytics.page(route.name, route.path, route)
+        })
+        win.emitEventFunctions.push((ev: any) => {
+          rudderAnalytics.track(ev.name, ev)
+        })
       })
     }
   }, [config])

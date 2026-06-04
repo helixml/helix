@@ -8,7 +8,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
-import { LineChart } from '@mui/x-charts';
+import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 
 import { Copy, Edit, Trash } from 'lucide-react'
 
@@ -139,11 +139,10 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       // Get usage data for this app with proper typing
       const appUsage = usageData[app.id] || []
       // const last7DaysData = appUsage?.slice(-7) || []
-      const usageValues = appUsage.map((day: TypesAggregatedUsageMetric) => day.total_tokens || 0)
-      const usageLabels = appUsage.map((day: TypesAggregatedUsageMetric) => {
-        const date = new Date(day.date || '')
-        return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
-      })      
+      const usageChartData = appUsage.map((day: TypesAggregatedUsageMetric) => ({
+        date: day.date || '',
+        value: day.total_tokens || 0,
+      }))
 
       // Determine which triggers are enabled
       const triggers = app.config.helix?.triggers || []
@@ -314,59 +313,28 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             }}
             onClick={() => handleUsageClick(app)}
           >
-            <Box>
-              <LineChart
-                xAxis={[
-                  {
-                    data: usageLabels,
-                    scaleType: 'point',
-                    tickLabelStyle: { fontSize: 10, fill: '#aaa' },
-                    label: '',
-                  }
-                ]}
-                yAxis={[
-                  {
-                    tickLabelStyle: { display: 'none' },
-                    label: '',
-                  }
-                ]}
-                series={[{
-                  data: usageValues,
-                  area: true,
-                  showMark: false,
-                  color: '#00c8ff',
-                }]}
-                height={50}
-                width={200}
-                slotProps={{
-                  legend: { hidden: true },
-                }}
-                sx={{
-                  '& .MuiAreaElement-root': {
-                    fill: 'url(#usageGradient)',
-                  },
-                  '& .MuiMarkElement-root': {
-                    display: 'none',
-                  },
-                  '& .MuiLineElement-root': {
-                    strokeWidth: 2,
-                  },
-                  '& .MuiChartsAxis-line': {
-                    display: 'none',
-                  },
-                }}
-                grid={{ horizontal: false, vertical: false }}
-                disableAxisListener
-                margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
-              >
-                <defs>
-                  <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
-                    <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
-                  </linearGradient>
-                </defs>
-              </LineChart>
-            </Box>            
+            <Box sx={{ width: '100%', height: '100%' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={usageChartData} margin={{ top: 0, bottom: 0, left: 0, right: 0 }}>
+                  <defs>
+                    <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
+                      <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
+                    </linearGradient>
+                  </defs>
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#00c8ff"
+                    strokeWidth={2}
+                    fill="url(#usageGradient)"
+                    isAnimationActive={false}
+                    dot={false}
+                    activeDot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Box>
           </Box>
         ),
       }

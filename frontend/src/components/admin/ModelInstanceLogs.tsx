@@ -21,15 +21,13 @@ import {
   IconButton,
   Tooltip
 } from '@mui/material'
-import {
-  Refresh as RefreshIcon,
-  ExpandMore as ExpandMoreIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  BugReport as DebugIcon,
-  Download as DownloadIcon
-} from '@mui/icons-material'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ErrorIcon from '@mui/icons-material/Error'
+import WarningIcon from '@mui/icons-material/Warning'
+import InfoIcon from '@mui/icons-material/Info'
+import DebugIcon from '@mui/icons-material/BugReport'
+import DownloadIcon from '@mui/icons-material/Download'
 import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
 import { DashboardRunner } from '../../types/dashboard'
 

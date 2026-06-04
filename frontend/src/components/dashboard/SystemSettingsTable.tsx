@@ -27,14 +27,12 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material'
-import {
-  Visibility,
-  VisibilityOff,
-  Clear as ClearIcon,
-  Save as SaveIcon,
-  Refresh as RefreshIcon,
-  Edit as EditIcon,
-} from '@mui/icons-material'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import ClearIcon from '@mui/icons-material/Clear'
+import SaveIcon from '@mui/icons-material/Save'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import EditIcon from '@mui/icons-material/Edit'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useGetSystemSettings, useUpdateSystemSettings } from '../../services/systemSettingsService'
 import AdvancedModelPicker from '../create/AdvancedModelPicker'

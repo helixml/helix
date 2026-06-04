@@ -65,7 +65,7 @@ import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm"
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
-import { SparkLineChart } from "@mui/x-charts";
+import { Line, LineChart, ResponsiveContainer } from "recharts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
 import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
 import useAccount from "../hooks/useAccount";
@@ -1176,13 +1176,20 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                       </Typography>
                       {sbState.status === "building" && writeRates.length > 1 && sbId === buildingSandboxId && (
                         <Box sx={{ display: "inline-flex", alignItems: "center", ml: 0.5 }}>
-                          <SparkLineChart
-                            data={writeRates}
-                            height={20}
-                            width={60}
-                            curve="natural"
-                            colors={["#4caf50"]}
-                          />
+                          <Box sx={{ width: 60, height: 20 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={writeRates.map((v, i) => ({ i, v }))} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
+                                <Line
+                                  type="monotone"
+                                  dataKey="v"
+                                  stroke="#4caf50"
+                                  strokeWidth={1.5}
+                                  dot={false}
+                                  isAnimationActive={false}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </Box>
                           <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, fontFamily: "monospace", fontSize: "0.65rem" }}>
                             {writeRates[writeRates.length - 1]?.toFixed(0)} MB/s cache writes
                           </Typography>

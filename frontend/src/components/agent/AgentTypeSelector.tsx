@@ -10,12 +10,10 @@ import {
   CardContent,
   Tooltip,
 } from '@mui/material';
-import {
-  Code as CodeIcon,
-  Computer as ComputerIcon,
-  AutoAwesome as AutoAwesomeIcon,
-  Info as InfoIcon,
-} from '@mui/icons-material';
+import CodeIcon from '@mui/icons-material/Code'
+import ComputerIcon from '@mui/icons-material/Computer'
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import InfoIcon from '@mui/icons-material/Info'
 import {
   IAgentType,
   IExternalAgentConfig,

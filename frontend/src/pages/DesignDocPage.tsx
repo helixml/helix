@@ -14,11 +14,9 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material'
-import {
-  ContentCopy as CopyIcon,
-  Check as CheckIcon,
-  ArrowBack as BackIcon,
-} from '@mui/icons-material'
+import CopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
+import BackIcon from '@mui/icons-material/ArrowBack'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'

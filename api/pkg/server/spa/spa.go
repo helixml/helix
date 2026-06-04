@@ -1,7 +1,10 @@
 package spa
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -133,7 +136,10 @@ func (s *ReverseProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// statusRecorder wraps ResponseWriter to capture the written status code
+// statusRecorder wraps ResponseWriter to capture the written status code.
+// It also implements http.Hijacker by delegating to the underlying writer,
+// otherwise the reverse proxy fails WebSocket upgrades (e.g. Vite HMR)
+// with "can't switch protocols using non-Hijacker ResponseWriter".
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -142,4 +148,18 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return hj.Hijack()
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

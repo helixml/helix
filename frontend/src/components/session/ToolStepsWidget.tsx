@@ -14,7 +14,6 @@ import AltRouteIcon from '@mui/icons-material/AltRoute'
 import SchoolIcon from '@mui/icons-material/School'
 import CloseIcon from '@mui/icons-material/Close'
 import HubIcon from '@mui/icons-material/Hub'
-import * as Icons from '@mui/icons-material'
 import { Cog, Brain } from 'lucide-react'
 
 // Add spinning animation

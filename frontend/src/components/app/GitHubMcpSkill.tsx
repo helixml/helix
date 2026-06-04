@@ -14,7 +14,9 @@ import {
   FormControlLabel,
   Radio,
 } from '@mui/material';
-import { Visibility, VisibilityOff, CheckCircle } from '@mui/icons-material';
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import CheckCircle from '@mui/icons-material/CheckCircle'
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantMCP } from '../../api/api';

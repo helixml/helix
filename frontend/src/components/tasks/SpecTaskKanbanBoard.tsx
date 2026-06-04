@@ -38,35 +38,33 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getCSRFToken } from "../../utils/csrf";
-import {
-  Add as AddIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  Source as GitIcon,
-  Description as SpecIcon,
-  PlayArrow as PlayIcon,
-  CheckCircle as ApproveIcon,
-  Cancel as CancelIcon,
-  MoreVert as MoreIcon,
-  Code as CodeIcon,
-  Timeline as TimelineIcon,
-  AccountTree as TreeIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Close as CloseIcon,
-  Refresh as RefreshIcon,
-  Restore as RestoreIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Circle as CircleIcon,
-  MenuBook as DesignDocsIcon,
-  Stop as StopIcon,
-  RocketLaunch as LaunchIcon,
-  InfoOutlined as InfoIcon,
-  PlayArrowRounded as AutoPlayIcon,
-  Search as SearchIcon,
-  Clear as ClearIcon,
-  Celebration as CelebrationIcon,
-} from "@mui/icons-material";
+import AddIcon from '@mui/icons-material/Add'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import GitIcon from '@mui/icons-material/Source'
+import SpecIcon from '@mui/icons-material/Description'
+import PlayIcon from '@mui/icons-material/PlayArrow'
+import ApproveIcon from '@mui/icons-material/CheckCircle'
+import CancelIcon from '@mui/icons-material/Cancel'
+import MoreIcon from '@mui/icons-material/MoreVert'
+import CodeIcon from '@mui/icons-material/Code'
+import TimelineIcon from '@mui/icons-material/Timeline'
+import TreeIcon from '@mui/icons-material/AccountTree'
+import EditIcon from '@mui/icons-material/Edit'
+import DeleteIcon from '@mui/icons-material/Delete'
+import CloseIcon from '@mui/icons-material/Close'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import RestoreIcon from '@mui/icons-material/Restore'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import CircleIcon from '@mui/icons-material/Circle'
+import DesignDocsIcon from '@mui/icons-material/MenuBook'
+import StopIcon from '@mui/icons-material/Stop'
+import LaunchIcon from '@mui/icons-material/RocketLaunch'
+import InfoIcon from '@mui/icons-material/InfoOutlined'
+import AutoPlayIcon from '@mui/icons-material/PlayArrowRounded'
+import SearchIcon from '@mui/icons-material/Search'
+import ClearIcon from '@mui/icons-material/Clear'
+import CelebrationIcon from '@mui/icons-material/Celebration'
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";

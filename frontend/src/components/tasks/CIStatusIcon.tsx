@@ -1,10 +1,8 @@
 import React from "react";
 import { Box, Tooltip, Typography, keyframes } from "@mui/material";
-import {
-  CheckCircle as PassedIcon,
-  Cancel as FailedIcon,
-  Sync as RunningIcon,
-} from "@mui/icons-material";
+import PassedIcon from '@mui/icons-material/CheckCircle'
+import FailedIcon from '@mui/icons-material/Cancel'
+import RunningIcon from '@mui/icons-material/Sync'
 import { TypesRepoPR } from "../../api/api";
 
 const spin = keyframes`

@@ -4,12 +4,18 @@
 
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { LineChart } from '@mui/x-charts';
 import {
-  darkChartStyles,
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
   chartContainerStyles,
-  chartLegendProps,
-  axisLabelStyle,
 } from '../common/chartStyles';
 
 export interface ChartsPanelProps {
@@ -19,12 +25,53 @@ export interface ChartsPanelProps {
   frameDriftHistory: number[];
 }
 
+const AXIS_TICK = { fontSize: 10, fill: 'rgba(255, 255, 255, 0.6)' };
+const AXIS_LABEL = { fontSize: 10, fill: 'rgba(255, 255, 255, 0.6)' };
+const LEGEND_TEXT = { color: 'rgba(255, 255, 255, 0.8)', fontSize: 12 };
+const GRID_STROKE = 'rgba(255, 255, 255, 0.1)';
+
+interface SeriesPoint {
+  t: number;
+  [k: string]: number;
+}
+
+const buildData = (lengths: number[][], keys: string[]): SeriesPoint[] => {
+  const len = Math.max(...lengths.map((arr) => arr.length));
+  return Array.from({ length: len }, (_, i) => {
+    const point: SeriesPoint = { t: i - len + 1 };
+    lengths.forEach((arr, j) => {
+      point[keys[j]] = arr[i];
+    });
+    return point;
+  });
+};
+
 const ChartsPanel: React.FC<ChartsPanelProps> = ({
   throughputHistory,
   rttHistory,
   bitrateHistory,
   frameDriftHistory,
 }) => {
+  const throughputData = buildData(
+    [throughputHistory, bitrateHistory],
+    ['actual', 'requested'],
+  );
+
+  const rttData = rttHistory.map((v, i) => ({
+    t: i - rttHistory.length + 1,
+    rtt: v,
+    threshold: 150,
+  }));
+  const rttColor = rttHistory.length > 0 && rttHistory[rttHistory.length - 1] > 150 ? '#ff6b6b' : '#00c8ff';
+
+  const driftData = frameDriftHistory.map((v, i) => ({
+    t: i - frameDriftHistory.length + 1,
+    drift: v,
+    threshold: 200,
+    onTime: 0,
+  }));
+  const driftColor = frameDriftHistory.length > 0 && frameDriftHistory[frameDriftHistory.length - 1] > 200 ? '#ff6b6b' : '#00c8ff';
+
   return (
     <Box
       sx={{
@@ -53,40 +100,39 @@ const ChartsPanel: React.FC<ChartsPanelProps> = ({
           </Typography>
           <Box sx={{ height: 150, ...chartContainerStyles }}>
             {throughputHistory.length > 1 ? (
-              <LineChart
-                xAxis={[{
-                  data: throughputHistory.map((_, i) => i - throughputHistory.length + 1),
-                  label: 'Seconds ago',
-                  labelStyle: axisLabelStyle,
-                }]}
-                yAxis={[{
-                  min: 0,
-                  max: Math.max(Math.max(...throughputHistory), Math.max(...bitrateHistory), 10) * 1.2,
-                  labelStyle: axisLabelStyle,
-                }]}
-                series={[
-                  {
-                    data: bitrateHistory,
-                    label: 'Requested',
-                    color: '#888',
-                    showMark: false,
-                    curve: 'stepAfter',
-                  },
-                  {
-                    data: throughputHistory,
-                    label: 'Actual',
-                    color: '#00ff00',
-                    showMark: false,
-                    curve: 'linear',
-                    area: true,
-                  },
-                ]}
-                height={120}
-                margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
-                grid={{ horizontal: true, vertical: false }}
-                sx={darkChartStyles}
-                slotProps={{ legend: chartLegendProps }}
-              />
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={throughputData} margin={{ left: 0, right: 10, top: 20, bottom: 5 }}>
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="t"
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tick={AXIS_TICK}
+                    stroke="rgba(255,255,255,0.6)"
+                    label={{ value: 'Seconds ago', position: 'insideBottom', offset: -2, style: AXIS_LABEL }}
+                  />
+                  <YAxis tick={AXIS_TICK} stroke="rgba(255,255,255,0.6)" />
+                  <Legend wrapperStyle={LEGEND_TEXT} iconSize={10} />
+                  <Line
+                    dataKey="requested"
+                    name="Requested"
+                    type="stepAfter"
+                    stroke="#888"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    dataKey="actual"
+                    name="Actual"
+                    type="linear"
+                    stroke="#00ff00"
+                    fill="#00ff00"
+                    fillOpacity={0.2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             ) : (
               <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
                 Collecting data...
@@ -102,40 +148,37 @@ const ChartsPanel: React.FC<ChartsPanelProps> = ({
           </Typography>
           <Box sx={{ height: 150, ...chartContainerStyles }}>
             {rttHistory.length > 1 ? (
-              <LineChart
-                xAxis={[{
-                  data: rttHistory.map((_, i) => i - rttHistory.length + 1),
-                  label: 'Seconds ago',
-                  labelStyle: axisLabelStyle,
-                }]}
-                yAxis={[{
-                  min: 0,
-                  max: Math.max(Math.max(...rttHistory), 100) * 1.2,
-                  labelStyle: axisLabelStyle,
-                }]}
-                series={[
-                  {
-                    data: rttHistory.map(() => 150), // Threshold line at 150ms
-                    label: 'High Latency Threshold',
-                    color: '#ff9800',
-                    showMark: false,
-                    curve: 'linear',
-                  },
-                  {
-                    data: rttHistory,
-                    label: 'RTT',
-                    color: rttHistory[rttHistory.length - 1] > 150 ? '#ff6b6b' : '#00c8ff',
-                    showMark: false,
-                    curve: 'linear',
-                    area: true,
-                  },
-                ]}
-                height={120}
-                margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
-                grid={{ horizontal: true, vertical: false }}
-                sx={darkChartStyles}
-                slotProps={{ legend: chartLegendProps }}
-              />
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={rttData} margin={{ left: 0, right: 10, top: 20, bottom: 5 }}>
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="t"
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tick={AXIS_TICK}
+                    stroke="rgba(255,255,255,0.6)"
+                    label={{ value: 'Seconds ago', position: 'insideBottom', offset: -2, style: AXIS_LABEL }}
+                  />
+                  <YAxis tick={AXIS_TICK} stroke="rgba(255,255,255,0.6)" />
+                  <Legend wrapperStyle={LEGEND_TEXT} iconSize={10} />
+                  <Line
+                    dataKey="threshold"
+                    name="High Latency Threshold"
+                    stroke="#ff9800"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    dataKey="rtt"
+                    name="RTT"
+                    stroke={rttColor}
+                    fill={rttColor}
+                    fillOpacity={0.2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             ) : (
               <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
                 Collecting data...
@@ -151,47 +194,32 @@ const ChartsPanel: React.FC<ChartsPanelProps> = ({
           </Typography>
           <Box sx={{ height: 150, ...chartContainerStyles }}>
             {frameDriftHistory.length > 1 ? (
-              <LineChart
-                xAxis={[{
-                  data: frameDriftHistory.map((_, i) => i - frameDriftHistory.length + 1),
-                  label: 'Seconds ago',
-                  labelStyle: axisLabelStyle,
-                }]}
-                yAxis={[{
-                  min: Math.min(Math.min(...frameDriftHistory), -100) * 1.2,
-                  max: Math.max(Math.max(...frameDriftHistory), 300) * 1.2,
-                  labelStyle: axisLabelStyle,
-                }]}
-                series={[
-                  {
-                    data: frameDriftHistory.map(() => 200), // Threshold line at 200ms
-                    label: 'Reduction Threshold',
-                    color: '#ff6b6b',
-                    showMark: false,
-                    curve: 'linear',
-                  },
-                  {
-                    data: frameDriftHistory.map(() => 0), // Zero line
-                    label: 'On Time',
-                    color: '#4caf50',
-                    showMark: false,
-                    curve: 'linear',
-                  },
-                  {
-                    data: frameDriftHistory,
-                    label: 'Frame Drift',
-                    color: frameDriftHistory[frameDriftHistory.length - 1] > 200 ? '#ff6b6b' : '#00c8ff',
-                    showMark: false,
-                    curve: 'linear',
-                    area: true,
-                  },
-                ]}
-                height={120}
-                margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
-                grid={{ horizontal: true, vertical: false }}
-                sx={darkChartStyles}
-                slotProps={{ legend: chartLegendProps }}
-              />
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={driftData} margin={{ left: 0, right: 10, top: 20, bottom: 5 }}>
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="t"
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tick={AXIS_TICK}
+                    stroke="rgba(255,255,255,0.6)"
+                    label={{ value: 'Seconds ago', position: 'insideBottom', offset: -2, style: AXIS_LABEL }}
+                  />
+                  <YAxis tick={AXIS_TICK} stroke="rgba(255,255,255,0.6)" />
+                  <Legend wrapperStyle={LEGEND_TEXT} iconSize={10} />
+                  <Line dataKey="threshold" name="Reduction Threshold" stroke="#ff6b6b" dot={false} isAnimationActive={false} />
+                  <Line dataKey="onTime" name="On Time" stroke="#4caf50" dot={false} isAnimationActive={false} />
+                  <Area
+                    dataKey="drift"
+                    name="Frame Drift"
+                    stroke={driftColor}
+                    fill={driftColor}
+                    fillOpacity={0.2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             ) : (
               <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
                 Collecting data...

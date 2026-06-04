@@ -25,15 +25,13 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import {
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  OpenInNew as OpenInNewIcon,
-  Visibility as ViewIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  Clear as ClearIcon,
-} from '@mui/icons-material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import ViewIcon from '@mui/icons-material/Visibility'
+import SearchIcon from '@mui/icons-material/Search'
+import FilterIcon from '@mui/icons-material/FilterList'
+import ClearIcon from '@mui/icons-material/Clear'
 import { useProjectAuditLogs, formatEventType, getEventTypeColor, AuditLogFilters } from '../../services/projectAuditService';
 import { TypesProjectAuditLog, TypesAuditEventType } from '../../api/api';
 import useRouter from '../../hooks/useRouter';

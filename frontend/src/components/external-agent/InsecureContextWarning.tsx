@@ -8,7 +8,11 @@
 
 import React, { useState } from 'react';
 import { Box, Typography, Alert, Collapse, IconButton } from '@mui/material';
-import { ExpandMore, ExpandLess, Warning, ContentCopy, Check } from '@mui/icons-material';
+import ExpandMore from '@mui/icons-material/ExpandMore'
+import ExpandLess from '@mui/icons-material/ExpandLess'
+import Warning from '@mui/icons-material/Warning'
+import ContentCopy from '@mui/icons-material/ContentCopy'
+import Check from '@mui/icons-material/Check'
 
 interface BrowserInstructions {
   name: string;

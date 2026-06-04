@@ -1,7 +1,7 @@
 import React, { useMemo, useId } from "react";
 import { Box, Tooltip } from "@mui/material";
 import useTheme from "@mui/material/styles/useTheme";
-import { LineChart } from "@mui/x-charts";
+import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { ServerBatchTaskUsageMetric } from "../../api/api";
 
 interface UsagePulseChartProps {
@@ -16,32 +16,31 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
 }) => {
   const theme = useTheme();
 
-  const { chartData, chartLabels, totalTokens } = useMemo(() => {
+  const { chartData, totalTokens } = useMemo(() => {
     if (!usageData || usageData.length === 0)
-      return { chartData: null, chartLabels: [], totalTokens: 0 };
+      return { chartData: null, totalTokens: 0 };
     const sortedData = [...usageData].sort(
       (a, b) =>
         new Date(a.date || "").getTime() - new Date(b.date || "").getTime(),
     );
-    let data = sortedData.map(
-      (d: ServerBatchTaskUsageMetric) => d.total_tokens || 0,
-    );
-    let labels = sortedData.map((d: ServerBatchTaskUsageMetric) => {
-      const date = new Date(d.date || "");
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      const hours = String(date.getHours()).padStart(2, "0");
-      const minutes = String(date.getMinutes()).padStart(2, "0");
-      return `${month}/${day} ${hours}:${minutes}`;
-    });
+    let points = sortedData.map((d: ServerBatchTaskUsageMetric) => ({
+      label: (() => {
+        const date = new Date(d.date || "");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        return `${month}/${day} ${hours}:${minutes}`;
+      })(),
+      value: d.total_tokens || 0,
+    }));
     // Pad with zeroes so the line chart can draw a visible spike
     // (a single point can't render a line)
-    if (data.length < 3) {
-      data = [0, ...data, 0];
-      labels = ["", ...labels, ""];
+    if (points.length < 3) {
+      points = [{ label: "", value: 0 }, ...points, { label: "", value: 0 }];
     }
-    const total = data.reduce((a, b) => a + b, 0);
-    return { chartData: data, chartLabels: labels, totalTokens: total };
+    const total = points.reduce((a, p) => a + p.value, 0);
+    return { chartData: points, totalTokens: total };
   }, [usageData]);
 
   const uniqueId = useId();
@@ -58,70 +57,34 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
           height: 30,
         }}
       >
-        <LineChart
-          xAxis={[
-            {
-              data: chartLabels,
-              scaleType: "point",
-              tickLabelStyle: { fontSize: 10, fill: "#aaa" },
-              label: "",
-            },
-          ]}
-          yAxis={[
-            {
-              tickLabelStyle: { display: "none" },
-              label: "",
-            },
-          ]}
-          series={[
-            {
-              data: chartData,
-              area: true,
-              showMark: false,
-              color: accentColor,
-            },
-          ]}
-          height={30}
-          slotProps={{
-            legend: { hidden: true },
-          }}
-          sx={{
-            width: "100%",
-            "& .MuiAreaElement-root": {
-              fill: `url(#${gradientId})`,
-            },
-            "& .MuiMarkElement-root": {
-              display: "none",
-            },
-            "& .MuiLineElement-root": {
-              strokeWidth: 2,
-            },
-            "& .MuiChartsAxis-line": {
-              display: "none",
-            },
-            "& .MuiChartsAxis-tick": {
-              display: "none",
-            },
-          }}
-          grid={{ horizontal: false, vertical: false }}
-          disableAxisListener
-          margin={{ top: 2, bottom: 2, left: 0, right: 0 }}
-        >
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop
-                offset="0%"
-                stopColor={theme.chartGradientStart}
-                stopOpacity={theme.chartGradientStartOpacity}
-              />
-              <stop
-                offset="100%"
-                stopColor={theme.chartGradientEnd}
-                stopOpacity={theme.chartGradientEndOpacity}
-              />
-            </linearGradient>
-          </defs>
-        </LineChart>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={chartData} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="0%"
+                  stopColor={theme.chartGradientStart}
+                  stopOpacity={theme.chartGradientStartOpacity}
+                />
+                <stop
+                  offset="100%"
+                  stopColor={theme.chartGradientEnd}
+                  stopOpacity={theme.chartGradientEndOpacity}
+                />
+              </linearGradient>
+            </defs>
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke={accentColor}
+              strokeWidth={2}
+              fill={`url(#${gradientId})`}
+              isAnimationActive={false}
+              dot={false}
+              activeDot={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </Box>
     </Tooltip>
   );

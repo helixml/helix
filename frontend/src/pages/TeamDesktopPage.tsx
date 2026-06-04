@@ -9,11 +9,8 @@ import {
   Link,
   CircularProgress,
 } from '@mui/material'
-import {
-  ArrowBack as BackIcon,
-  ViewModule as WorkspaceIcon,
-} from '@mui/icons-material'
-
+import BackIcon from '@mui/icons-material/ArrowBack'
+import WorkspaceIcon from '@mui/icons-material/ViewModule'
 import Page from '../components/system/Page'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../components/session/EmbeddedSessionView'

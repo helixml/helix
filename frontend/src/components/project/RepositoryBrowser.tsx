@@ -13,12 +13,10 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material'
-import {
-  Lock,
-  LockOpen,
-  Search,
-  Folder,
-} from '@mui/icons-material'
+import Lock from '@mui/icons-material/Lock'
+import LockOpen from '@mui/icons-material/LockOpen'
+import Search from '@mui/icons-material/Search'
+import Folder from '@mui/icons-material/Folder'
 import { TypesRepositoryInfo } from '../../api/api'
 
 interface RepositoryBrowserProps {

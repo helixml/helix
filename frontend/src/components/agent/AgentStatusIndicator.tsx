@@ -7,15 +7,13 @@ import {
   Typography,
   Button,
 } from '@mui/material';
-import {
-  Chat as ChatIcon,
-  Code as CodeIcon,
-  AutoAwesome as AutoAwesomeIcon,
-  Visibility as VisibilityIcon,
-  Circle as CircleIcon,
-  Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon,
-} from '@mui/icons-material';
+import ChatIcon from '@mui/icons-material/Chat'
+import CodeIcon from '@mui/icons-material/Code'
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import CircleIcon from '@mui/icons-material/Circle'
+import WarningIcon from '@mui/icons-material/Warning'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import {
   IAgentType,
   AGENT_TYPE_HELIX_AGENT,

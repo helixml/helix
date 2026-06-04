@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Box, Typography, Button, Alert, CircularProgress } from '@mui/material';
-import { Refresh } from '@mui/icons-material';
+import Refresh from '@mui/icons-material/Refresh'
 import useLightTheme from '../../hooks/useLightTheme';
 
 export interface ConnectionOverlayProps {

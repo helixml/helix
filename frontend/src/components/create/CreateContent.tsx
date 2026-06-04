@@ -30,15 +30,12 @@ import Container from '@mui/material/Container'
 import Stack from '@mui/material/Stack'
 import { invalidateSessionsQuery } from '../../services/sessionService'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  AutoAwesome as AutoAwesomeIcon,
-  Storage as StorageIcon,
-  Build as BuildIcon,
-  Api as ApiIcon,
-  Search as SearchIcon,
-  Code as CodeIcon,
-} from '@mui/icons-material'
-
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import StorageIcon from '@mui/icons-material/Storage'
+import BuildIcon from '@mui/icons-material/Build'
+import ApiIcon from '@mui/icons-material/Api'
+import SearchIcon from '@mui/icons-material/Search'
+import CodeIcon from '@mui/icons-material/Code'
 import {
   ISessionMode,
   ISessionType,

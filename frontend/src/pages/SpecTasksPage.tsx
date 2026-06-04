@@ -14,20 +14,18 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import {
-  Add as AddIcon,
-  Refresh as RefreshIcon,
-  Explore as ExploreIcon,
-  Stop as StopIcon,
-  ViewKanban as KanbanIcon,
-  History as AuditIcon,
-  Tab as TabIcon,
-  Archive as ArchiveIcon,
-  BarChart as MetricsIcon,
-  Visibility as ViewIcon,
-  PushPin as PushPinIcon,
-  PushPinOutlined as PushPinOutlinedIcon,
-} from "@mui/icons-material";
+import AddIcon from '@mui/icons-material/Add'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import ExploreIcon from '@mui/icons-material/Explore'
+import StopIcon from '@mui/icons-material/Stop'
+import KanbanIcon from '@mui/icons-material/ViewKanban'
+import AuditIcon from '@mui/icons-material/History'
+import TabIcon from '@mui/icons-material/Tab'
+import ArchiveIcon from '@mui/icons-material/Archive'
+import MetricsIcon from '@mui/icons-material/BarChart'
+import ViewIcon from '@mui/icons-material/Visibility'
+import PushPinIcon from '@mui/icons-material/PushPin'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import {
   Plus,
   X,

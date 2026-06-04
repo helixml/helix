@@ -11,12 +11,10 @@ import {
   Link,
   Chip,
 } from '@mui/material'
-import {
-  Visibility,
-  VisibilityOff,
-  CheckCircle,
-  Warning,
-} from '@mui/icons-material'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import CheckCircle from '@mui/icons-material/CheckCircle'
+import Warning from '@mui/icons-material/Warning'
 import { TypesAssistantMCP, TypesAssistantSkills } from '../../api/api'
 
 interface SkillConfigurationStepProps {

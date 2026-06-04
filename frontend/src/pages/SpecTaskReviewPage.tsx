@@ -7,10 +7,7 @@ import {
   CircularProgress,
   Stack,
 } from '@mui/material'
-import {
-  ViewModule as TiledIcon,
-} from '@mui/icons-material'
-
+import TiledIcon from '@mui/icons-material/ViewModule'
 import Page from '../components/system/Page'
 import DesignReviewContent from '../components/spec-tasks/DesignReviewContent'
 import { useSpecTask } from '../services/specTaskService'

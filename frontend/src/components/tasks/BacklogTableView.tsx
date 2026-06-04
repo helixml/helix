@@ -15,10 +15,8 @@ import {
   CircularProgress,
   IconButton,
 } from "@mui/material";
-import {
-  Close as CloseIcon,
-  PlayArrowRounded as AutoPlayIcon,
-} from "@mui/icons-material";
+import CloseIcon from '@mui/icons-material/Close'
+import AutoPlayIcon from '@mui/icons-material/PlayArrowRounded'
 import Tooltip from "@mui/material/Tooltip";
 import { useTheme } from "@mui/material/styles";
 import useSnackbar from "../../hooks/useSnackbar";

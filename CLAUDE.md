@@ -178,6 +178,10 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - React Query for all API calls, extract `.data` from Axios in query functions
 - No `setTimeout` for async, no `type="number"` inputs (use text + parseInt)
 - Extract components at 500+ lines
+- **No barrel imports from `@mui/icons-material`.** A barrel `import { Add, Close } from '@mui/icons-material'` (and worse, `import * as Icons from '@mui/icons-material'`) forces Vite to crawl ~7,000 icon modules at dev cold-start and bloats the dev network payload by tens of MB. Always deep-import: `import Add from '@mui/icons-material/Add'`. The same rule applies to other large barrel packages (`@mui/material/*` lazy paths are fine, but never `import * from`-style wildcards on any large lib). Enforced by `yarn check:imports` in CI.
+- **Charts: use `recharts`, not `@mui/x-charts`.** The latter has been removed from the dependency tree. New chart code goes through `recharts` (already a dep) for consistency and to avoid re-introducing a duplicate charting library.
+- **Page routes are code-split.** When adding a new route in `frontend/src/router.tsx`, follow the existing `const Foo = React.lazy(() => import('./pages/Foo'))` pattern. Static page imports defeat code-splitting and push every page back into the entry chunk.
+- **Dynamic-import optional integrations.** Heavy SDKs that are only used when a backend config flag is set (Sentry, Rudderstack, analytics in general) must be loaded via `await import('…')` inside the conditional branch — never at module top — so their chunk is only fetched on deployments that need them.
 - **Dependency arrays**: ONLY primitives that change. NEVER include context values, functions, refs, or objects from hooks
 - **Routing**: `useRouter()` with `router.navigate('name', { params })` — NOT `<Link>` or `<a href>` (react-router5)
 - Invalidate queries after mutations, don't use `setQueryData`

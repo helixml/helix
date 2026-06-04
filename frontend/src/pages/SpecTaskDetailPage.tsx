@@ -7,7 +7,8 @@ import {
   CircularProgress,
   Stack,
 } from "@mui/material";
-import { ViewModule as TiledIcon, Add as AddIcon } from "@mui/icons-material";
+import TiledIcon from '@mui/icons-material/ViewModule'
+import AddIcon from '@mui/icons-material/Add'
 import NewSpecTaskForm from "../components/tasks/NewSpecTaskForm";
 import { TypesSpecTask } from "../api/api";
 

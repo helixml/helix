@@ -12,7 +12,8 @@
     "build:fast": "vite build --minify=false",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:imports": "node scripts/check-no-barrel-imports.mjs"
   },
   "dependencies": {
     "@babel/core": "^7.0.0",
@@ -27,7 +28,6 @@
     "@mui/icons-material": "^5.3.1",
     "@mui/material": "^5.3.1",
     "@mui/styles": "^5.12.0",
-    "@mui/x-charts": "^7.28.0",
     "@react-pdf/renderer": "^4.3.1",
     "@rudderstack/analytics-js": "^3.0.3",
     "@sentry/browser": "^8.50.0",

@@ -55,7 +55,7 @@ import {
   TOOLBAR_HEIGHT,
 } from '../../config'
 import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
-import { Extension } from '@mui/icons-material'
+import Extension from '@mui/icons-material/Extension'
 import ZedSettingsViewer, { useHasValidMCPTools } from './ZedSettingsViewer'
 
 export const SessionToolbar: FC<{

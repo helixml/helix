@@ -12,11 +12,9 @@ import {
   IconButton,
   useTheme,
 } from '@mui/material';
-import {
-  Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as RadioButtonUncheckedIcon,
-} from '@mui/icons-material';
+import RefreshIcon from '@mui/icons-material/Refresh'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import useApi from '../../hooks/useApi';
 
 // Types matching backend API

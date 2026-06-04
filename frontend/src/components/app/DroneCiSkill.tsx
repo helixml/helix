@@ -11,7 +11,8 @@ import {
   InputAdornment,
   IconButton,
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { IAppFlatState } from '../../types';
 import { TypesAssistantMCP } from '../../api/api';
 import { styled } from '@mui/material/styles';

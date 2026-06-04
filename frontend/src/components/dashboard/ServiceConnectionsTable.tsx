@@ -26,7 +26,12 @@ import {
   Alert,
   Tooltip,
 } from '@mui/material'
-import { Add, Delete, Refresh, CheckCircle, Error as ErrorIcon, GitHub } from '@mui/icons-material'
+import Add from '@mui/icons-material/Add'
+import Delete from '@mui/icons-material/Delete'
+import Refresh from '@mui/icons-material/Refresh'
+import CheckCircle from '@mui/icons-material/CheckCircle'
+import ErrorIcon from '@mui/icons-material/Error'
+import GitHub from '@mui/icons-material/GitHub'
 import { Cloud } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'

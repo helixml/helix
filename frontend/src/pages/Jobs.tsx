@@ -20,17 +20,15 @@ import {
   Divider,
   Collapse,
 } from '@mui/material'
-import {
-  PlayArrow as PlayIcon,
-  Stop as StopIcon,
-  Save as SaveIcon,
-  ContentCopy as CopyIcon,
-  Code as CodeIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  Add as AddIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
+import PlayIcon from '@mui/icons-material/PlayArrow'
+import StopIcon from '@mui/icons-material/Stop'
+import SaveIcon from '@mui/icons-material/Save'
+import CopyIcon from '@mui/icons-material/ContentCopy'
+import CodeIcon from '@mui/icons-material/Code'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import AddIcon from '@mui/icons-material/Add'
+import CloseIcon from '@mui/icons-material/Close'
 import { useQuery } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'

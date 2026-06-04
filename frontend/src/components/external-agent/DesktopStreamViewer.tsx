@@ -11,20 +11,18 @@ import {
   Menu,
   MenuItem,
 } from "@mui/material";
-import {
-  Fullscreen,
-  FullscreenExit,
-  Refresh,
-  BarChart,
-  Wifi,
-  SignalCellularAlt,
-  Speed,
-  Stream as StreamIcon,
-  Timeline,
-  CameraAlt,
-  TouchApp,
-  PanTool,
-} from "@mui/icons-material";
+import Fullscreen from '@mui/icons-material/Fullscreen'
+import FullscreenExit from '@mui/icons-material/FullscreenExit'
+import Refresh from '@mui/icons-material/Refresh'
+import BarChart from '@mui/icons-material/BarChart'
+import Wifi from '@mui/icons-material/Wifi'
+import SignalCellularAlt from '@mui/icons-material/SignalCellularAlt'
+import Speed from '@mui/icons-material/Speed'
+import StreamIcon from '@mui/icons-material/Stream'
+import Timeline from '@mui/icons-material/Timeline'
+import CameraAlt from '@mui/icons-material/CameraAlt'
+import TouchApp from '@mui/icons-material/TouchApp'
+import PanTool from '@mui/icons-material/PanTool'
 import {
   WebSocketStream,
   CursorImageData,

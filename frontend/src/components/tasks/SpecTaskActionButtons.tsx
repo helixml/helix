@@ -10,15 +10,13 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import {
-  PlayArrow as PlayIcon,
-  Description as SpecIcon,
-  CheckCircle as ApproveIcon,
-  Close as CloseIcon,
-  RocketLaunch as LaunchIcon,
-  SkipNext as SkipIcon,
-  Replay as ReopenIcon,
-} from "@mui/icons-material";
+import PlayIcon from '@mui/icons-material/PlayArrow'
+import SpecIcon from '@mui/icons-material/Description'
+import ApproveIcon from '@mui/icons-material/CheckCircle'
+import CloseIcon from '@mui/icons-material/Close'
+import LaunchIcon from '@mui/icons-material/RocketLaunch'
+import SkipIcon from '@mui/icons-material/SkipNext'
+import ReopenIcon from '@mui/icons-material/Replay'
 import {
   useApproveImplementation,
   useStopAgent,

@@ -63,18 +63,20 @@ describe('useAnalyticsInit', () => {
   })
 
   describe('Sentry', () => {
-    it('initializes Sentry when sentry_dsn_frontend is set', () => {
+    it('initializes Sentry when sentry_dsn_frontend is set', async () => {
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       expect(Sentry.init).toHaveBeenCalledWith(
         expect.objectContaining({ dsn: 'https://abc@sentry.io/123' })
       )
     })
 
-    it('registers setUser callback for Sentry', () => {
+    it('registers setUser callback for Sentry', async () => {
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       const win = window as any
       expect(win.setUserFunctions.length).toBe(1)
@@ -82,9 +84,10 @@ describe('useAnalyticsInit', () => {
       expect(Sentry.setUser).toHaveBeenCalledWith({ email: 'test@example.com', name: 'Test' })
     })
 
-    it('registers emitError callback for Sentry', () => {
+    it('registers emitError callback for Sentry', async () => {
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       const win = window as any
       expect(win.emitErrorFunctions.length).toBe(1)
@@ -116,30 +119,33 @@ describe('useAnalyticsInit', () => {
   })
 
   describe('RudderStack', () => {
-    it('initializes RudderStack when both keys are set', () => {
+    it('initializes RudderStack when both keys are set', async () => {
       mockConfigData = {
         rudderstack_write_key: 'write-key',
         rudderstack_data_plane_url: 'https://data.plane.url',
       }
       renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       const instance = (RudderAnalytics as any).mock.results[0].value
       expect(instance.load).toHaveBeenCalledWith('write-key', 'https://data.plane.url', {})
     })
 
-    it('does not initialize RudderStack when only write_key is set', () => {
+    it('does not initialize RudderStack when only write_key is set', async () => {
       mockConfigData = { rudderstack_write_key: 'write-key' }
       renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       expect(RudderAnalytics).not.toHaveBeenCalled()
     })
 
-    it('registers user/page/event callbacks', () => {
+    it('registers user/page/event callbacks', async () => {
       mockConfigData = {
         rudderstack_write_key: 'write-key',
         rudderstack_data_plane_url: 'https://data.plane.url',
       }
       renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       const win = window as any
       const instance = (RudderAnalytics as any).mock.results[0].value
@@ -159,16 +165,29 @@ describe('useAnalyticsInit', () => {
   })
 
   describe('initialization guard', () => {
-    it('only initializes once even if config reference changes', () => {
+    it('only initializes once even if config reference changes', async () => {
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       const { rerender } = renderHook(() => useAnalyticsInit())
+      await flushPromises()
 
       expect(Sentry.init).toHaveBeenCalledTimes(1)
 
       mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
       rerender()
+      await flushPromises()
 
       expect(Sentry.init).toHaveBeenCalledTimes(1)
     })
   })
 })
+
+// Sentry + RudderStack are now dynamic-imported inside the hook so their
+// init code runs in a microtask after the effect. Tests need to flush the
+// promise chain before asserting.
+async function flushPromises(): Promise<void> {
+  // Dynamic import() resolves over several microtask ticks; a macrotask
+  // boundary (setTimeout 0) plus a final microtask flush is the simplest
+  // way to ensure both the import promise and its .then callback have run.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await Promise.resolve()
+}

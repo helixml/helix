@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Typography, Alert, IconButton, Button, Paper, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
-import { Refresh, OpenInNew, Fullscreen, FullscreenExit, Videocam, CameraAlt } from '@mui/icons-material';
+import Refresh from '@mui/icons-material/Refresh'
+import OpenInNew from '@mui/icons-material/OpenInNew'
+import Fullscreen from '@mui/icons-material/Fullscreen'
+import FullscreenExit from '@mui/icons-material/FullscreenExit'
+import Videocam from '@mui/icons-material/Videocam'
+import CameraAlt from '@mui/icons-material/CameraAlt'
 import DesktopStreamViewer from './DesktopStreamViewer';
 import { useVideoStream } from '../../contexts/VideoStreamContext';
 

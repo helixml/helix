@@ -13,15 +13,13 @@ import {
   FormControlLabel,
   Box,
 } from '@mui/material';
-import {
-  Share as ShareIcon,
-  Chat as ChatIcon,
-  CheckCircle as CheckCircleIcon,
-  Edit as EditIcon,
-  ContentCopy as ContentCopyIcon,
-  Public as PublicIcon,
-  Lock as LockIcon,
-} from '@mui/icons-material';
+import ShareIcon from '@mui/icons-material/Share'
+import ChatIcon from '@mui/icons-material/Chat'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import EditIcon from '@mui/icons-material/Edit'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import PublicIcon from '@mui/icons-material/Public'
+import LockIcon from '@mui/icons-material/Lock'
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 import useApi from '../../hooks/useApi';

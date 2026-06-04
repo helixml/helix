@@ -5,13 +5,11 @@ import {
   Typography,
   IconButton,
 } from '@mui/material'
-import {
-  Close as CloseIcon,
-  DragIndicator as DragIcon,
-  Minimize as MinimizeIcon,
-  Maximize as MaximizeIcon,
-  GridViewOutlined as TileIcon,
-} from '@mui/icons-material'
+import CloseIcon from '@mui/icons-material/Close'
+import DragIcon from '@mui/icons-material/DragIndicator'
+import MinimizeIcon from '@mui/icons-material/Minimize'
+import MaximizeIcon from '@mui/icons-material/Maximize'
+import TileIcon from '@mui/icons-material/GridViewOutlined'
 import { Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material'
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'

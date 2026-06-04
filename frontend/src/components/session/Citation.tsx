@@ -1,7 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Button, Container, Tooltip } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import { FilterAlt, CheckCircle, Warning, Cancel, FileOpen } from '@mui/icons-material';
+import FilterAlt from '@mui/icons-material/FilterAlt'
+import CheckCircle from '@mui/icons-material/CheckCircle'
+import Warning from '@mui/icons-material/Warning'
+import Cancel from '@mui/icons-material/Cancel'
+import FileOpen from '@mui/icons-material/FileOpen'
 import { useTheme } from '@mui/material/styles'
 import CitationComparisonModal from './CitationComparisonModal';
 import { TypesSessionRAGResult } from '../../api/api';

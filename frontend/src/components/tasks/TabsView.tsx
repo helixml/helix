@@ -21,22 +21,20 @@ import {
   Alert,
   InputAdornment,
 } from "@mui/material";
-import {
-  Close as CloseIcon,
-  Add as AddIcon,
-  Circle as CircleIcon,
-  SplitscreenOutlined as SplitHorizontalIcon,
-  ViewColumn as SplitVerticalIcon,
-  MoreVert as MoreIcon,
-  Create as CreateIcon,
-  PlayArrow as PlayIcon,
-  Description as SpecIcon,
-  CheckCircle as ApproveIcon,
-  Launch as LaunchIcon,
-  Computer as DesktopIcon,
-  RateReview as ReviewIcon,
-  Search as SearchIcon,
-} from "@mui/icons-material";
+import CloseIcon from '@mui/icons-material/Close'
+import AddIcon from '@mui/icons-material/Add'
+import CircleIcon from '@mui/icons-material/Circle'
+import SplitHorizontalIcon from '@mui/icons-material/SplitscreenOutlined'
+import SplitVerticalIcon from '@mui/icons-material/ViewColumn'
+import MoreIcon from '@mui/icons-material/MoreVert'
+import CreateIcon from '@mui/icons-material/Create'
+import PlayIcon from '@mui/icons-material/PlayArrow'
+import SpecIcon from '@mui/icons-material/Description'
+import ApproveIcon from '@mui/icons-material/CheckCircle'
+import LaunchIcon from '@mui/icons-material/Launch'
+import DesktopIcon from '@mui/icons-material/Computer'
+import ReviewIcon from '@mui/icons-material/RateReview'
+import SearchIcon from '@mui/icons-material/Search'
 import {
   Panel,
   Group as PanelGroup,

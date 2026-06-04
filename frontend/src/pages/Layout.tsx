@@ -24,10 +24,14 @@ import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
 import FullScreenDialog from "../components/dialog/FullScreenDialog";
-import Dashboard from "./Dashboard";
-import Account from "./Account";
-import ProjectSettings from "./ProjectSettings";
-import OAuthConnections from "../components/account/OAuthConnections";
+// Dashboard / Account / ProjectSettings / OAuthConnections are only ever
+// rendered inside dialog overlays. We lazy-load them so their chunks (and
+// the huge component trees they pull in) aren't downloaded on every page
+// — only when the user actually opens the corresponding dialog.
+const Dashboard = React.lazy(() => import("./Dashboard"));
+const Account = React.lazy(() => import("./Account"));
+const ProjectSettings = React.lazy(() => import("./ProjectSettings"));
+const OAuthConnections = React.lazy(() => import("../components/account/OAuthConnections"));
 import { SettingsDialogProvider, useSettingsDialog } from "../contexts/settingsDialog";
 
 import Snackbar from "../components/system/Snackbar";
@@ -39,7 +43,10 @@ import IconButton from "@mui/material/IconButton";
 import CloseIcon from "@mui/icons-material/Close";
 import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
 
-import FloatingModal from "../components/admin/FloatingModal";
+// FloatingModal pulls in the runner log viewer and the screenshot/desktop
+// streaming machinery (helix-stream lib, ChartsPanel, cursor overlays).
+// It's only shown when an admin clicks a runner card, so lazy-load it.
+const FloatingModal = React.lazy(() => import("../components/admin/FloatingModal"));
 import { useFloatingModal } from "../contexts/floatingModal";
 import UserOrgSelector from "../components/orgs/UserOrgSelector";
 
@@ -115,7 +122,9 @@ const SettingsDialogs: FC = () => {
             <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
           </Box>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
+            <React.Suspense fallback={null}>
+              <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
+            </React.Suspense>
           </Box>
         </Box>
       </FullScreenDialog>
@@ -125,7 +134,9 @@ const SettingsDialogs: FC = () => {
         title="Connected Services"
       >
         <Box sx={{ p: 3 }}>
-          <OAuthConnections />
+          <React.Suspense fallback={null}>
+            <OAuthConnections />
+          </React.Suspense>
         </Box>
       </FullScreenDialog>
       <DarkDialog
@@ -178,7 +189,9 @@ const SettingsDialogs: FC = () => {
               <AccountSidebar activeTab={accountTab} onTabChange={setAccountTab} />
             </Box>
             <Box sx={{ flex: 1, overflow: 'auto' }}>
-              <Account tab={accountTab} />
+              <React.Suspense fallback={null}>
+                <Account tab={accountTab} />
+              </React.Suspense>
             </Box>
           </Box>
         </DialogContent>
@@ -235,7 +248,9 @@ const SettingsDialogs: FC = () => {
             </Box>
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               {dialogOptions.projectId && (
-                <ProjectSettings projectId={dialogOptions.projectId} tab={projectSettingsTab} />
+                <React.Suspense fallback={null}>
+                  <ProjectSettings projectId={dialogOptions.projectId} tab={projectSettingsTab} />
+                </React.Suspense>
               )}
             </Box>
           </Box>
@@ -651,7 +666,9 @@ const Layout: FC<{
           )
         */}
         {floatingModal.isVisible && account.admin && (
-          <FloatingModal onClose={floatingModal.hideFloatingModal} />
+          <React.Suspense fallback={null}>
+            <FloatingModal onClose={floatingModal.hideFloatingModal} />
+          </React.Suspense>
         )}
         <SettingsDialogs />
         {/* Floating runner state toggle button disabled

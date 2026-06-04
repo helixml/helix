@@ -9,6 +9,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 8081,
     allowedHosts: true,  // Allow access from any hostname
+    // The browser hits the API on port 8080, which reverse-proxies HTTP
+    // and WebSocket traffic to this dev server. Tell Vite's HMR client to
+    // dial the websocket at the public port (8080) instead of advertising
+    // its internal 8081 — otherwise remote browsers can't reach it.
+    hmr: {
+      clientPort: 8080,
+    },
   },
   publicDir: 'assets',
   build: {
@@ -16,7 +23,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           mui: ['@mui/material', '@mui/icons-material', '@mui/styles'],
-          'mui-charts': ['@mui/x-charts'],
+          recharts: ['recharts'],
           monaco: ['monaco-editor'],
           mermaid: ['mermaid'],
           pdf: ['@react-pdf/renderer', '@uiw/react-md-editor'],

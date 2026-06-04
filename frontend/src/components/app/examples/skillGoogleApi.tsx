@@ -1,5 +1,5 @@
 import { IAgentSkill } from '../../../types';
-import { Google as GoogleIcon } from '@mui/icons-material';
+import GoogleIcon from '@mui/icons-material/Google'
 
 const schema = `openapi: 3.0.3
 info:
