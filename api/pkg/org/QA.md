@@ -136,12 +136,14 @@ shows `Owner — protected`.
 
 ## §7. Streams list, detail, live tail
 
-Every Worker has an auto-created `s-activations-<workerID>` stream.
+Every **AI** Worker has an auto-created `s-activations-<workerID>`
+stream (humans don't need spawner activation, so `w-owner` is the
+only human with one — seeded at bootstrap so chat lands somewhere).
 The Streams surface lives at `…/helix-org/streams`.
 
 1. **Streams list** — columns ID / Name / Transport / Subscribers /
-   Created. Every worker on the chart has a matching
-   `s-activations-<workerID>` row.
+   Created. Every AI worker on the chart has a matching
+   `s-activations-<workerID>` row, plus `s-activations-w-owner`.
 2. **Chart anchoring** (regression: every stream dangled off
    w-owner). With AI workers hired, dashed amber edges run from
    each subscribing position to the stream pseudo-node:
