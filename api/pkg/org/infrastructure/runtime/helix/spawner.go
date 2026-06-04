@@ -72,20 +72,24 @@ type SpawnerConfig struct {
 	// or empty return means "use the static Client's api_key" — the
 	// service-account fallback.
 	BearerForUser func(ctx context.Context, userID string) (string, error)
-	// GitHubTokenResolver, when non-nil, is called by the Spawner on
-	// every activation to resolve a current GitHub OAuth access token
-	// for the org. The returned token is upserted as the project
-	// secret `GH_TOKEN`, which the sandbox runtime exports as an env
-	// var on container start — so the worker's `gh` CLI is already
-	// authenticated when it opens a terminal. Resolved on every
-	// activation (not at hire) so a re-issued OAuth token propagates
-	// without re-hiring. Empty token / nil resolver / error all skip
-	// the injection — `gh` will fall back to its usual "not
-	// authenticated" UX. The host wires the resolver from
-	// helix-server's existing newGitHubOAuthResolver (the same one
-	// the github stream transport uses) so this reuses the existing
-	// OAuth plumbing.
-	GitHubTokenResolver func(ctx context.Context, orgID string) (string, error)
+	// SecretInjectors are per-activation hooks every transport (or
+	// other extension) registers to push secrets into the Worker's
+	// per-Worker project. The spawner calls each one after
+	// ensureProject and before ensureSession on every activation,
+	// upserting the returned {name: value} pairs via
+	// ProjectService.PutProjectSecret. Helix's existing
+	// GetProjectSecretsAsEnvVars surfaces those as env vars on
+	// container start so the worker picks them up the next time the
+	// desktop boots.
+	//
+	// The spawner itself is transport-agnostic — it knows nothing
+	// about GitHub, Postmark, or any future transport. Each
+	// transport's infrastructure package exposes a constructor
+	// (e.g. github.NewSecretInjector(resolver)) that returns a
+	// SpawnSecretInjector; the host wires the slice up. Empty map /
+	// nil resolver / errors all soft-skip — see SpawnSecretInjector
+	// docstring for the full contract.
+	SecretInjectors []SpawnSecretInjector
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
 	OrgID             string
@@ -216,16 +220,16 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			return err
 		}
 
-		// Refresh the GitHub OAuth token on every activation so the
-		// desktop container's `gh` CLI starts authenticated. The
-		// resolver returns "" when no member of this org has connected
-		// GitHub yet — in that case we skip the upsert so we don't
-		// shadow a stale-but-still-useful value with an empty string.
-		// Errors are logged best-effort: a failed GH lookup must not
-		// take the whole activation down — the worker can still chat.
-		if cfg.GitHubTokenResolver != nil {
-			if err := cfg.injectGitHubToken(actCtx, orgID, workerID); err != nil && cfg.Logger != nil {
-				cfg.Logger.Warn("helix spawner: inject GH_TOKEN", "worker", workerID, "err", err)
+		// Run every registered secret injector. Each transport (or
+		// other extension) plugs in via the SpawnSecretInjector
+		// interface; the spawner stays transport-agnostic. Soft-skips
+		// + best-effort error logging live inside runSecretInjectors,
+		// so a misbehaving injector cannot fail the activation.
+		if len(cfg.SecretInjectors) > 0 {
+			if state, err := LoadState(actCtx, cfg.Store, orgID, workerID); err == nil && state.ProjectID != "" && cfg.ProjectService != nil {
+				cfg.runSecretInjectors(actCtx, orgID, state.ProjectID, cfg.ProjectService.PutProjectSecret)
+			} else if err != nil && cfg.Logger != nil {
+				cfg.Logger.Warn("helix spawner: load state for secret injection", "worker", workerID, "err", err)
 			}
 		}
 
@@ -317,47 +321,6 @@ tells you how to be an agent at all), then role.md, then identity.md:
 
 After meaningful work, persist state on helix-specs:
   cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
-
-// injectGitHubToken resolves a current GitHub OAuth access token for
-// the org via the host-provided resolver and upserts it as the
-// `GH_TOKEN` project secret on the Worker's per-Worker project.
-// Helix's runtime exposes project secrets as env vars on every
-// fresh desktop container, so the Worker's `gh` CLI picks up
-// the token the next time the desktop boots without any manual
-// `gh auth login`. Skips the upsert when the resolver returns "" so
-// we don't shadow a previously-valid value with an empty string.
-//
-// Requires the Worker's project to already be applied — the
-// caller (Spawner) runs ensureProject first.
-func (c SpawnerConfig) injectGitHubToken(ctx context.Context, orgID string, workerID orgchart.WorkerID) error {
-	if c.GitHubTokenResolver == nil || c.Store == nil {
-		return nil
-	}
-	state, err := LoadState(ctx, c.Store, orgID, workerID)
-	if err != nil {
-		return fmt.Errorf("load worker runtime state: %w", err)
-	}
-	if state.ProjectID == "" {
-		// Project hasn't been applied yet (shouldn't happen — caller
-		// runs ensureProject first). Skip rather than error so a
-		// future re-ordering doesn't crash activations.
-		return nil
-	}
-	token, err := c.GitHubTokenResolver(ctx, orgID)
-	if err != nil {
-		return fmt.Errorf("resolve github token: %w", err)
-	}
-	if token == "" {
-		return nil
-	}
-	if c.ProjectService == nil {
-		return errors.New("ProjectService is nil — cannot upsert GH_TOKEN")
-	}
-	if err := c.ProjectService.PutProjectSecret(ctx, state.ProjectID, "GH_TOKEN", token); err != nil {
-		return fmt.Errorf("put project secret: %w", err)
-	}
-	return nil
-}
 
 // ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields

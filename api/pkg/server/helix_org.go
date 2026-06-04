@@ -222,13 +222,23 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// ensureProject before this argument existed.)
 	// gitHubTokenResolver resolves a current GitHub OAuth access token
 	// for an org by walking the org's members + their oauth_connections
-	// (see helix_org_github.go). The helix-org spawner uses it to
-	// inject `GH_TOKEN` into each Worker's desktop env so the
-	// `gh` CLI is authenticated without manual login. Same resolver
-	// the github stream transport already uses — one OAuth pipeline
-	// drives every helix-org GitHub touchpoint.
+	// (see helix_org_github.go). Drives BOTH the github stream
+	// transport's outbound `Token()` lookup AND the worker sandbox's
+	// `GH_TOKEN` env injection — one OAuth pipeline, exposed to the
+	// spawner via the transport's SpawnSecretInjector.
 	gitHubTokenResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, gitHubTokenResolver, deps.NewID, deps.Now)
+
+	// secretInjectors gathers every transport's per-activation
+	// secret hook. The spawner iterates them on every activation
+	// (after ensureProject, before ensureSession) and upserts the
+	// returned secrets as project secrets — helix's existing
+	// container runtime exposes those as env vars on the next
+	// desktop boot. New transports plug in here; the spawner stays
+	// transport-agnostic.
+	secretInjectors := []runtimehelix.SpawnSecretInjector{
+		githubtransport.NewSecretInjector(githubtransport.TokenResolver(gitHubTokenResolver)),
+	}
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, secretInjectors, deps.NewID, deps.Now)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -577,13 +587,11 @@ func buildHelixOrgSpawnerConfig(
 	// every AI activation), the bridge panicked at sessions.go:257.
 	ps pubsub.PubSub,
 	logger *slog.Logger,
-	// gitHubTokenResolver, when non-nil, is invoked on every
-	// activation by the spawner to refresh the `GH_TOKEN` project
-	// secret. Reuses the existing GitHub OAuth plumbing (see
-	// newGitHubOAuthResolver) so the worker's `gh` CLI authenticates
-	// against the org's connected GitHub app without operators having
-	// to paste a PAT into the worker's environment.
-	gitHubTokenResolver func(ctx context.Context, orgID string) (string, error),
+	// secretInjectors is the slice of per-activation hooks each
+	// transport registers to push secrets into the Worker's
+	// project. The spawner iterates them after ensureProject. See
+	// runtimehelix.SpawnSecretInjector for the contract.
+	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
@@ -631,7 +639,7 @@ func buildHelixOrgSpawnerConfig(
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return resolveUserHelixAPIKey(ctx, helixStore, userID)
 		},
-		GitHubTokenResolver: gitHubTokenResolver,
+		SecretInjectors: secretInjectors,
 	}, nil
 }
 
@@ -666,7 +674,7 @@ func lazyHelixOrgSpawner(
 	ps pubsub.PubSub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
-	gitHubTokenResolver func(ctx context.Context, orgID string) (string, error),
+	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
 ) runtime.Spawner {
@@ -689,7 +697,7 @@ func lazyHelixOrgSpawner(
 		current := spawner
 		mu.Unlock()
 		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, gitHubTokenResolver, newID, now)
+			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, secretInjectors, newID, now)
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}

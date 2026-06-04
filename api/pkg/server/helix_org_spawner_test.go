@@ -55,7 +55,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 		hub,
 		pubsub.NewNoop(), // PubSub — required since spawner.bridge.run calls SubscribeSessionUpdates
 		logger,
-		nil, // gitHubTokenResolver — not exercised here
+		nil, // secretInjectors — not exercised here
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)
@@ -66,16 +66,17 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	require.Same(t, projectSvc, cfg.ProjectService.(*inProcHelixClient))
 }
 
-// TestBuildHelixOrgSpawnerConfig_WiresGitHubTokenResolver pins the
-// GitHub-OAuth → spawner wiring. The host (helix_org.go) constructs
-// a resolver via newGitHubOAuthResolver and passes it through to the
-// spawner config. The spawner's per-activation injectGitHubToken
-// path then calls it to refresh `GH_TOKEN` on every activation.
-//
-// Without this assertion the host could silently drop the resolver
-// at the boundary — workers would land in the desktop with `gh`
-// unauthenticated and no clear error pointing at the wiring gap.
-func TestBuildHelixOrgSpawnerConfig_WiresGitHubTokenResolver(t *testing.T) {
+// TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors pins the
+// transport→spawner wiring. The host (helix_org.go) builds a slice
+// of SpawnSecretInjector instances — one per transport that wants
+// to push secrets — and passes them through to the spawner config.
+// The spawner iterates them on every activation. Without this
+// assertion the host could silently drop the injectors at the
+// boundary; workers would land in their desktops without their
+// per-transport secrets (GH_TOKEN, etc.) and the failure would
+// surface as a confusing "gh not authenticated" deep in the
+// runtime.
+func TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -90,11 +91,19 @@ func TestBuildHelixOrgSpawnerConfig_WiresGitHubTokenResolver(t *testing.T) {
 	_, _, projectSvc, _ := newInProcTestSetup(t)
 	hub := streamhub.New(pubsub.NewNoop())
 
+	// Stand up a single fake injector whose Name/InjectSecrets the
+	// test can interrogate after round-tripping through the
+	// builder.
 	var called int
-	resolver := func(_ context.Context, gotOrg string) (string, error) {
-		called++
-		require.Equal(t, orgID, gotOrg)
-		return "gho_test", nil
+	injectors := []runtimehelix.SpawnSecretInjector{
+		runtimehelix.SpawnSecretInjectorFunc{
+			Label: "test-transport",
+			Fn: func(_ context.Context, gotOrg string) (map[string]string, error) {
+				called++
+				require.Equal(t, orgID, gotOrg)
+				return map[string]string{"TEST_SECRET": "round-trip-ok"}, nil
+			},
+		},
 	}
 
 	cfg, err := buildHelixOrgSpawnerConfig(
@@ -105,17 +114,18 @@ func TestBuildHelixOrgSpawnerConfig_WiresGitHubTokenResolver(t *testing.T) {
 		hub,
 		pubsub.NewNoop(),
 		slog.Default(),
-		resolver,
+		injectors,
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)
 	require.NoError(t, err)
-	require.NotNil(t, cfg.GitHubTokenResolver, "GitHubTokenResolver must be wired — without it the worker desktop has no GH_TOKEN")
-	// Round-trip the resolver to confirm it's the host-provided one, not
+	require.Len(t, cfg.SecretInjectors, 1, "SecretInjectors must be wired — without it the worker desktop has no transport-injected secrets")
+	require.Equal(t, "test-transport", cfg.SecretInjectors[0].Name(), "injector identity must round-trip")
+	// Round-trip a call to confirm it's the host-provided one, not
 	// some intermediate wrapper that drops the value.
-	tok, rerr := cfg.GitHubTokenResolver(ctx, orgID)
-	require.NoError(t, rerr)
-	require.Equal(t, "gho_test", tok)
+	got, ierr := cfg.SecretInjectors[0].InjectSecrets(ctx, orgID)
+	require.NoError(t, ierr)
+	require.Equal(t, "round-trip-ok", got["TEST_SECRET"])
 	require.Equal(t, 1, called)
 }
 
@@ -143,7 +153,7 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 		orgStore, streamhub.New(pubsub.NewNoop()),
 		pubsub.NewNoop(),
 		slog.Default(),
-		nil, // gitHubTokenResolver
+		nil, // secretInjectors
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)

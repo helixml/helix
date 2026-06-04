@@ -549,14 +549,18 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	}
 }
 
-// TestSpawnerInjectsGHTokenSecret pins the GitHub-OAuth → GH_TOKEN
-// injection. When the spawner is configured with a
-// GitHubTokenResolver that returns a non-empty token, every
-// activation must upsert that token as a project secret named
-// "GH_TOKEN" so the desktop container's `gh` CLI starts already
-// authenticated. The token is resolved on every activation (NOT at
-// hire time) so refreshed OAuth tokens propagate without re-hiring.
-func TestSpawnerInjectsGHTokenSecret(t *testing.T) {
+// TestSpawnerRunsRegisteredSecretInjectors pins the
+// transport→spawner secret-injection plumbing. When the spawner is
+// configured with one or more SpawnSecretInjector instances, every
+// activation must call each one and upsert the returned secrets as
+// project secrets so the desktop container's runtime can surface
+// them as env vars.
+//
+// Pin via the github-shaped case (GH_TOKEN), but the spawner has
+// no GitHub awareness — the injector is just a generic
+// SpawnSecretInjectorFunc, exactly like Postmark or any future
+// transport would register.
+func TestSpawnerRunsRegisteredSecretInjectors(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	fc := &fakeHelixClient{
@@ -564,11 +568,16 @@ func TestSpawnerInjectsGHTokenSecret(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.GitHubTokenResolver = func(_ context.Context, orgID string) (string, error) {
-		if orgID != "org-test" {
-			t.Errorf("resolver got orgID = %q, want org-test", orgID)
-		}
-		return "gho_token_abc", nil
+	cfg.SecretInjectors = []SpawnSecretInjector{
+		SpawnSecretInjectorFunc{
+			Label: "github",
+			Fn: func(_ context.Context, orgID string) (map[string]string, error) {
+				if orgID != "org-test" {
+					t.Errorf("injector got orgID = %q, want org-test", orgID)
+				}
+				return map[string]string{"GH_TOKEN": "gho_token_abc"}, nil
+			},
+		},
 	}
 	sp := Spawner(cfg)
 	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
@@ -582,13 +591,12 @@ func TestSpawnerInjectsGHTokenSecret(t *testing.T) {
 	}
 }
 
-// TestSpawnerSkipsGHTokenWhenResolverEmpty pins the degraded-mode
-// path: when no GitHub OAuth connection is configured (resolver
-// returns "" without error), the spawner MUST NOT set GH_TOKEN to
-// an empty string — that would shadow any pre-existing value and
-// break the worker's `gh` CLI. Other secrets (HELIX_WORKER_ID,
-// HELIX_ORG_URL) are unaffected.
-func TestSpawnerSkipsGHTokenWhenResolverEmpty(t *testing.T) {
+// TestSpawnerSkipsInjectorReturningEmptyMap pins the degraded-mode
+// path: an injector returning an empty map (e.g. "operator hasn't
+// connected this transport's auth yet") must NOT cause the
+// spawner to upsert an empty secret. That would shadow any
+// pre-existing value in the sandbox container.
+func TestSpawnerSkipsInjectorReturningEmptyMap(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	fc := &fakeHelixClient{
@@ -596,8 +604,15 @@ func TestSpawnerSkipsGHTokenWhenResolverEmpty(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.GitHubTokenResolver = func(_ context.Context, _ string) (string, error) {
-		return "", nil
+	cfg.SecretInjectors = []SpawnSecretInjector{
+		SpawnSecretInjectorFunc{
+			Label: "github",
+			Fn: func(_ context.Context, _ string) (map[string]string, error) {
+				// Mirror the github injector's "no OAuth wired yet"
+				// behaviour: nil map, no error.
+				return nil, nil
+			},
+		},
 	}
 	sp := Spawner(cfg)
 	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
@@ -607,7 +622,7 @@ func TestSpawnerSkipsGHTokenWhenResolverEmpty(t *testing.T) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 	if _, set := svc.putSecretLast["GH_TOKEN"]; set {
-		t.Errorf("GH_TOKEN should NOT be set when resolver returns empty; got %q", svc.putSecretLast["GH_TOKEN"])
+		t.Errorf("GH_TOKEN should NOT be set when injector returns empty; got %q", svc.putSecretLast["GH_TOKEN"])
 	}
 }
 
