@@ -12,7 +12,15 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/product"
+	"github.com/stripe/stripe-go/v76/subscription"
 )
+
+// trialSourceAdminGranted matches the metadata value set on subscriptions
+// created by CreateTrialSubscription (api/pkg/stripe/stripe_trial.go). The
+// invoice webhook reads it to skip the auto product.metadata.credits topup,
+// so an admin-granted trial doesn't double-credit the wallet on top of
+// whatever the admin chose to grant via the form.
+const trialSourceAdminGranted = "admin_granted"
 
 func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 	var invoice stripe.Invoice
@@ -48,6 +56,35 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 			return nil
 		}
 		return fmt.Errorf("error getting wallet from stripe: %s", err.Error())
+	}
+
+	// Skip the auto-credit when the underlying subscription was started by
+	// the admin endpoint (trial_source=admin_granted on subscription
+	// metadata, set by CreateTrialSubscription). The admin already chose
+	// an exact credit amount via the form; the product's standard monthly
+	// allotment shouldn't stack on top of that.
+	//
+	// Gate kept narrow on purpose:
+	//   - admin_granted metadata: only suppress for the admin path; real
+	//     paid subscriptions (no metadata) still credit normally.
+	//   - status == trialing: if the user later voluntarily adds a payment
+	//     method via the Customer Portal and the trial converts to paid,
+	//     subsequent invoices fire while status is "active" and the
+	//     monthly allotment lands as expected.
+	sub, subErr := subscription.Get(invoice.Subscription.ID, nil)
+	if subErr != nil {
+		log.Warn().Err(subErr).
+			Str("invoice_id", invoice.ID).
+			Str("subscription_id", invoice.Subscription.ID).
+			Msg("failed to fetch subscription to check trial_source; proceeding with default credit logic")
+	} else if sub.Metadata["trial_source"] == trialSourceAdminGranted &&
+		sub.Status == stripe.SubscriptionStatusTrialing {
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Str("subscription_id", sub.ID).
+			Str("subscription_status", string(sub.Status)).
+			Msg("skipping subscription topup for admin-granted trial")
+		return nil
 	}
 
 	productID := getSubscriptionInvoiceProductID(&invoice)

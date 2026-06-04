@@ -4,6 +4,7 @@ import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
 
 import Session from './pages/Session'
+import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
 import Apps from './pages/Apps'
 import Providers from './pages/Providers'
 import Orgs from './pages/Orgs'
@@ -517,6 +518,19 @@ const routes: IApplicationRoute[] = [
     title: 'Login',
   },
   render: () => <Login />,
+}, {
+  // Standalone live-tail of one Runner's hydra-aggregated logs. Opened from
+  // the admin "Runner Logs" card via target="_blank". No drawer / no nav,
+  // so the viewer takes the full viewport. Admin auth still applies via
+  // the standard cookie session.
+  name: 'admin_runner_logs',
+  path: '/admin/runner-logs/:runner_id',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Runner Logs',
+  },
+  render: () => <AdminRunnerLogsPage />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

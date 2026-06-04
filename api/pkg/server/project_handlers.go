@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1412,6 +1413,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			}
 
 			// Restart Zed agent with existing session
+			// (project secrets injected by HydraExecutor.StartDesktop)
 			zedAgent := &types.DesktopAgent{
 				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
@@ -1428,15 +1430,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				Resolution:          resolution,
 				ZoomLevel:           zoomLevel,
 				DesktopType:         desktopType,
-			}
-
-			// Inject project secrets as environment variables (matching spec task behavior)
-			projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-			if err != nil {
-				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory restart, continuing without them")
-			} else if len(projectSecrets) > 0 {
-				zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
 			}
 
 			// Add user's API token inside session lock via OnBeforeCreate hook
@@ -1577,6 +1570,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	// Create ZedAgent for team desktop
+	// (project secrets injected by HydraExecutor.StartDesktop)
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      project.OrganizationID,
 		SessionID:           createdSession.ID,
@@ -1593,15 +1587,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-	}
-
-	// Inject project secrets as environment variables (matching spec task behavior)
-	projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory session, continuing without them")
-	} else if len(projectSecrets) > 0 {
-		zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
 	}
 
 	// Add user's API token inside session lock via OnBeforeCreate hook
@@ -2774,6 +2759,17 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			CodeAgentRuntime:        codeRuntime,
 			CodeAgentCredentialType: credType,
 		}
+
+		if codeRuntime == types.CodeAgentRuntimeGooseCode && agentSpec.Goose != nil {
+			if httpErr := validateGooseAgentSpec(r.Context(), s.Store, orgID, resolvedRepos, agentSpec.Goose); httpErr != nil {
+				return nil, httpErr
+			}
+			assistant.GooseRecipeRepoURL = agentSpec.Goose.RecipeRepoURL
+			assistant.GooseRecipes = make([]types.AssistantGooseRecipe, len(agentSpec.Goose.Recipes))
+			for i, r := range agentSpec.Goose.Recipes {
+				assistant.GooseRecipes[i] = types.AssistantGooseRecipe{Name: r.Name, Path: r.Path}
+			}
+		}
 		// zed_external runs as an agent (IsAgentMode), and the Apps UI
 		// renders the model picker against generation_model / _provider —
 		// not the top-level model / provider. Without mirroring the apply
@@ -2884,8 +2880,72 @@ func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgen
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGeminiCLI
 	case "codex_cli":
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeCodexCLI
+	case "goose_code":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGooseCode
 	default:
 		// "claude_code" or empty/unrecognised → Claude Code CLI (default)
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeClaudeCode
 	}
+}
+
+// validateGooseAgentSpec checks the agent.goose block from a project YAML
+// apply request: the recipe repo must be attached to the project (or
+// resolvable as an org-scoped repo); recipe names must be unique; recipe
+// paths must stay inside the repo (no ".." traversal).
+func validateGooseAgentSpec(ctx context.Context, st store.Store, orgID string, resolvedRepos []types.ProjectRepositorySpec, goose *types.ProjectAgentGoose) *system.HTTPError {
+	if goose == nil {
+		return nil
+	}
+
+	// Resolve recipe_repo_url to a project-attached repo (or the primary
+	// repo when omitted). The URL must match one of the project's attached
+	// repos verbatim — we don't auto-attach here.
+	if goose.RecipeRepoURL != "" {
+		attached := false
+		for _, r := range resolvedRepos {
+			if r.URL == goose.RecipeRepoURL {
+				attached = true
+				break
+			}
+		}
+		if !attached {
+			return system.NewHTTPError400(fmt.Sprintf(
+				"agent.goose.recipe_repo_url %q must also appear in the project's repositories list — attach the recipe repo to the project first",
+				goose.RecipeRepoURL,
+			))
+		}
+		// And the repo must already exist in the GitRepository table for
+		// this org; CreateGitRepository in the apply loop above will set
+		// it up if missing, so this check is mostly belt-and-braces for
+		// projects where the apply order matters.
+		if _, err := st.GetGitRepositoryByExternalURL(ctx, orgID, goose.RecipeRepoURL); err != nil && err != store.ErrNotFound {
+			return system.NewHTTPError500(fmt.Sprintf("failed to look up recipe repo %s: %v", goose.RecipeRepoURL, err))
+		}
+	} else if len(resolvedRepos) == 0 {
+		return system.NewHTTPError400("agent.goose.recipes requires at least one repository to be attached to the project, or agent.goose.recipe_repo_url to be set")
+	}
+
+	seen := make(map[string]bool, len(goose.Recipes))
+	for _, recipe := range goose.Recipes {
+		if recipe.Name == "" {
+			return system.NewHTTPError400("agent.goose.recipes: each recipe needs a non-empty name")
+		}
+		if recipe.Path == "" {
+			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes[%s]: path is required", recipe.Name))
+		}
+		if seen[recipe.Name] {
+			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes: duplicate recipe name %q", recipe.Name))
+		}
+		seen[recipe.Name] = true
+
+		// Containment check — paths are repo-relative, must stay inside.
+		cleaned := filepath.Clean(recipe.Path)
+		if strings.HasPrefix(cleaned, "..") || strings.HasPrefix(cleaned, "/") || cleaned == "." {
+			return system.NewHTTPError400(fmt.Sprintf(
+				"agent.goose.recipes[%s]: path %q must be a relative path inside the recipe repo (no leading / or ..)",
+				recipe.Name, recipe.Path,
+			))
+		}
+	}
+	return nil
 }

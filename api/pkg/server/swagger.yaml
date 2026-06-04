@@ -163,6 +163,23 @@ definitions:
         description: A JSON Schema object defining the expected output returned by
           the tool .
     type: object
+  goose.RecipeParameter:
+    properties:
+      default:
+        type: string
+      description:
+        type: string
+      input_type:
+        type: string
+      key:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      requirement:
+        type: string
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -206,27 +223,6 @@ definitions:
     - DevContainerTypeSway
     - DevContainerTypeUbuntu
     - DevContainerTypeHeadless
-  hydra.GPUInfo:
-    properties:
-      index:
-        type: integer
-      memory_free_bytes:
-        type: integer
-      memory_total_bytes:
-        type: integer
-      memory_used_bytes:
-        type: integer
-      name:
-        type: string
-      temperature_celsius:
-        type: integer
-      utilization_percent:
-        description: GPU core utilization
-        type: integer
-      vendor:
-        description: '"nvidia", "amd", "intel"'
-        type: string
-    type: object
   hydra.ListSandboxCommandsResponse:
     properties:
       commands:
@@ -894,7 +890,7 @@ definitions:
         type: array
       gpus:
         items:
-          $ref: '#/definitions/hydra.GPUInfo'
+          $ref: '#/definitions/server.GPUInfoWithSandbox'
         type: array
       message:
         type: string
@@ -1127,6 +1123,45 @@ definitions:
         type: string
       url:
         type: string
+    type: object
+  server.GPUInfoWithSandbox:
+    properties:
+      index:
+        type: integer
+      memory_free_bytes:
+        type: integer
+      memory_total_bytes:
+        type: integer
+      memory_used_bytes:
+        type: integer
+      name:
+        type: string
+      sandbox_id:
+        type: string
+      temperature_celsius:
+        type: integer
+      utilization_percent:
+        description: GPU core utilization
+        type: integer
+      vendor:
+        description: '"nvidia", "amd", "intel"'
+        type: string
+    type: object
+  server.GrantCreditsRequest:
+    properties:
+      credits:
+        type: number
+      org_id:
+        type: string
+    type: object
+  server.GrantCreditsResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
@@ -1777,6 +1812,15 @@ definitions:
       organization_name:
         type: string
     type: object
+  server.OwnedOrgSummary:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   server.PhaseProgress:
     properties:
       agent:
@@ -1798,6 +1842,27 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  server.ProjectGooseRecipe:
+    properties:
+      description:
+        type: string
+      error:
+        description: |-
+          Error, when non-empty, indicates that the recipe was declared on the
+          agent but couldn't be loaded — repo not cloned yet, file missing,
+          YAML malformed, etc. The UI surfaces this so the user can fix the
+          project YAML before creating a task that would silently fall back to
+          vanilla goose.
+        type: string
+      name:
+        type: string
+      parameters:
+        items:
+          $ref: '#/definitions/goose.RecipeParameter'
+        type: array
+      title:
+        type: string
     type: object
   server.PromptPinRequest:
     properties:
@@ -2693,6 +2758,20 @@ definitions:
         type: string
       generation_model_provider:
         type: string
+      goose_recipe_repo_url:
+        description: |-
+          GooseRecipeRepoURL is the external git URL of the attached repository
+          that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+          Resolved against attached GitRepositories at sandbox-start time.
+          Empty means recipes are looked up under the primary repository.
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes are the project-declared Goose recipes (slash-command name
+          + repo-relative path to the recipe YAML).
+        items:
+          $ref: '#/definitions/types.AssistantGooseRecipe'
+        type: array
       id:
         type: string
       image:
@@ -2801,6 +2880,13 @@ definitions:
       enabled:
         type: boolean
       template_example:
+        type: string
+    type: object
+  types.AssistantGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
         type: string
     type: object
   types.AssistantKnowledge:
@@ -3542,6 +3628,15 @@ definitions:
       task_id:
         type: string
     type: object
+  types.CodeAgentBakedRecipe:
+    properties:
+      content:
+        description: Content is the substituted recipe YAML (full file content).
+        type: string
+      name:
+        description: Name is the slash-command slug (no leading slash).
+        type: string
+    type: object
   types.CodeAgentConfig:
     properties:
       agent_name:
@@ -3555,6 +3650,29 @@ definitions:
       base_url:
         description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
         type: string
+      goose_baked_recipe:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentBakedRecipe'
+        description: |-
+          GooseBakedRecipe, when set, holds a single recipe with parameters
+          pre-substituted, used by Phase 2b spec-task automation. The daemon
+          writes it to disk and registers a single slash_command so an initial
+          "/<slug>" prompt fires the recipe.
+      goose_recipe_root_dir:
+        description: |-
+          GooseRecipeRootDir is the absolute container path to the root of the
+          recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+          resolve relative paths correctly).
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes lists project-declared Goose recipes with absolute paths
+          resolved inside the desktop container. Only set when Runtime is
+          goose_code; consumed by settings-sync-daemon to write the goose
+          slash_commands config.
+        items:
+          $ref: '#/definitions/types.CodeAgentGooseRecipe'
+        type: array
       max_output_tokens:
         description: |-
           MaxOutputTokens is the model's max completion tokens
@@ -3587,6 +3705,13 @@ definitions:
     x-enum-varnames:
     - CodeAgentCredentialTypeAPIKey
     - CodeAgentCredentialTypeSubscription
+  types.CodeAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.CodeAgentRuntime:
     enum:
     - zed_agent
@@ -3594,6 +3719,7 @@ definitions:
     - claude_code
     - gemini_cli
     - codex_cli
+    - goose_code
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
@@ -3601,6 +3727,7 @@ definitions:
     - CodeAgentRuntimeClaudeCode
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
+    - CodeAgentRuntimeGooseCode
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3872,6 +3999,18 @@ definitions:
         items:
           type: string
         type: array
+      goose_recipe_name:
+        description: |-
+          Goose recipe selection (only meaningful when the chosen agent's runtime
+          is goose_code). GooseRecipeName must match one of the agent's declared
+          recipes; GooseRecipeParams are substituted into the recipe at session
+          start. Recipes declared on the agent but not selected here are still
+          available as runtime slash-commands inside the desktop.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
@@ -6344,12 +6483,30 @@ definitions:
         description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
         type: string
     type: object
+  types.ProjectAgentGoose:
+    properties:
+      recipe_repo_url:
+        type: string
+      recipes:
+        items:
+          $ref: '#/definitions/types.ProjectAgentGooseRecipe'
+        type: array
+    type: object
+  types.ProjectAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.ProjectAgentSpec:
     properties:
       credentials:
         type: string
       display:
         $ref: '#/definitions/types.ProjectAgentDisplay'
+      goose:
+        $ref: '#/definitions/types.ProjectAgentGoose'
       model:
         type: string
       name:
@@ -7701,8 +7858,6 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
-      active_concurrent_desktops:
-        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -7723,8 +7878,6 @@ definitions:
       edition:
         description: '"mac-desktop", "server", "cloud", etc.'
         type: string
-      eval_user_id:
-        type: string
       filestore_prefix:
         type: string
       google_analytics_frontend:
@@ -7734,8 +7887,6 @@ definitions:
         type: boolean
       latest_version:
         type: string
-      license:
-        $ref: '#/definitions/types.FrontendLicenseInfo'
       max_concurrent_desktops:
         description: |-
           MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
@@ -8534,6 +8685,20 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -9110,6 +9275,20 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -10333,6 +10512,14 @@ definitions:
       organization_id:
         description: Organization this API key is scoped to (ephemeral keys)
         type: string
+      pending_admin_credits_on_first_org:
+        description: |-
+          PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+          /admin/users/{id}/credits endpoint when the user has no owned org yet.
+          Consumed by consumeUserAdminCredits on first owned org, then cleared.
+          Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+          without entangling the grant with trial-state UI or revocation flows.
+        type: number
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -10412,6 +10599,26 @@ definitions:
         type: number
       top_p:
         type: number
+    type: object
+  types.UserConfig:
+    properties:
+      color_scheme:
+        description: |-
+          ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+          Empty string means follow OS preference. Propagated to the GNOME desktop
+          (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+          by this user.
+        type: string
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
+      stripe_customer_id:
+        type: string
+      stripe_subscription_active:
+        type: boolean
+      stripe_subscription_id:
+        type: string
     type: object
   types.UserGuidelinesResponse:
     properties:
@@ -10497,6 +10704,20 @@ definitions:
         type: integer
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.UserStatus:
+    properties:
+      admin:
+        type: boolean
+      config:
+        $ref: '#/definitions/types.UserConfig'
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      slug:
+        description: User slug for GitHub-style URLs
+        type: string
+      user:
+        type: string
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -11220,6 +11441,64 @@ paths:
       summary: Approve a user (Admin only)
       tags:
       - users
+  /api/v1/admin/users/{id}/credits:
+    post:
+      consumes:
+      - application/json
+      description: Adds credits to the wallet of an explicitly chosen organisation
+        the user owns, or stashes the grant on the user when they own no organisations
+        yet (the grant is applied to their first owned org on creation). Works regardless
+        of subscription state.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Credits to grant (must be > 0) and the target org_id (required
+          iff user owns ≥1 orgs)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.GrantCreditsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.GrantCreditsResponse'
+      security:
+      - BearerAuth: []
+      summary: Grant credits to a user (Admin, cloud only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/owned-orgs:
+    get:
+      description: Returns the organisations the target user is the owner of, sorted
+        by creation time ascending. Used by the admin "Grant credits" dialog to populate
+        its org picker.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.OwnedOrgSummary'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a user's owned organisations (Admin, cloud only)
+      tags:
+      - users
   /api/v1/admin/users/{id}/password:
     put:
       consumes:
@@ -11287,9 +11566,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Stash a trial intent on the user, or immediately create a Stripe
-        trial subscription on the user''s oldest-owned org. Defaults: 90 days, $100
-        credits.'
+      description: Stash a trial intent on the user, or immediately create a Stripe
+        trial subscription on the user's oldest-owned org. Days defaults to 90; credits
+        are taken verbatim from the request (0 means no admin top-up beyond what Stripe's
+        subscription invoice contributes).
       parameters:
       - description: User ID
         in: path
@@ -17081,6 +17361,46 @@ paths:
       summary: Start project exploratory session
       tags:
       - Projects
+  /api/v1/projects/{id}/goose-recipes:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        Returns the parsed Goose recipes declared on the project's
+        default agent, including each recipe's parameter schema so
+        the spec-task creation form can render dynamic inputs.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ProjectGooseRecipe'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List Goose recipes available to a project
+      tags:
+      - Projects
   /api/v1/projects/{id}/guidelines-history:
     get:
       consumes:
@@ -19908,11 +20228,15 @@ paths:
   /api/v1/sessions/{id}/restart-agent:
     post:
       description: |-
-        Clears the dead acp_thread_id on the session and resets crashed prompts
-        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
-        back to pending. The next dispatch sends with empty acp_thread_id, causing
-        Zed to create a fresh thread + Claude Agent process. Requires the session
-        to be an external Zed agent. Returns the count of prompts that were reset.
+        Tears down the half-dead desktop container and brings up a fresh one
+        via the same resume path used by /sessions/{id}/resume. The session's
+        ZedThreadID is preserved, so Zed reloads the existing thread from the
+        persistent threads.db in the workspace volume and the underlying agent
+        (claude-code, qwen, etc.) reloads its session from disk — prior
+        conversation context is restored. Crashed prompts are reset to pending
+        and the queue is kicked so they re-dispatch on the new container.
+        Requires the session to be an external Zed agent. Returns the count of
+        prompts that were reset.
       parameters:
       - description: Session ID
         in: path
@@ -19949,7 +20273,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Restart Zed thread after a Claude Agent crash
+      summary: Restart the external agent after an in-container crash
       tags:
       - Sessions
   /api/v1/sessions/{id}/resume:
@@ -21565,6 +21889,22 @@ paths:
       summary: Get sample repository types
       tags:
       - specs
+  /api/v1/status:
+    get:
+      description: |-
+        Per-user status: credits, admin flag, slug, user config, plus the
+        licence payload (moved here from /api/v1/config so it is not
+        disclosed unauthenticated).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatus'
+      security:
+      - BearerAuth: []
+      summary: Get user status
+      tags:
+      - config
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription

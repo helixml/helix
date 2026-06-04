@@ -265,7 +265,7 @@ const Layout: FC<{
   const licenseRequired = useMemo(() => {
     return (
       account.serverConfig?.edition !== "mac-desktop" &&
-      ((account.serverConfig?.license && !account.serverConfig.license.valid) ||
+      ((account.license && !account.license.valid) ||
         account.serverConfig?.deployment_id === "unknown")
     );
   }, [account.serverConfig]);

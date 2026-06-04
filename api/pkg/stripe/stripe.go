@@ -168,6 +168,12 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 			log.Error().Msgf("Error handling invoice payment paid event: %s", err.Error())
 		}
 		return
+	case stripe.EventTypeCheckoutSessionCompleted:
+		err := s.handleTopUpCheckoutSessionCompletedEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling checkout session completed event: %s", err.Error())
+		}
+		return
 	case stripe.EventTypePaymentIntentSucceeded:
 		err := s.handleTopUpEvent(event)
 		if err != nil {

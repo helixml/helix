@@ -559,7 +559,7 @@ export interface IAssistantConfig {
    * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
    * If empty, defaults to "zed_agent".
    */
-  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli';
+  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code';
   /**
    * CodeAgentCredentialType specifies how the code agent authenticates.
    * "api_key" (default): uses an API key routed through the Helix proxy.
@@ -624,6 +624,18 @@ export interface IAssistantConfig {
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
   tests?: ITest[];
+
+  /**
+   * Goose recipes (slash commands) declared on this agent. Only meaningful
+   * when code_agent_runtime is 'goose_code'.
+   */
+  goose_recipe_repo_url?: string;
+  goose_recipes?: IAssistantGooseRecipe[];
+}
+
+export interface IAssistantGooseRecipe {
+  name: string;
+  path: string;
 }
 
 export interface IKnowledgeProgress {
@@ -790,8 +802,10 @@ export interface IAppFlatState {
   small_reasoning_model_effort?: string
   small_generation_model?: string
   small_generation_model_provider?: string
-  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli'
+  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code'
   code_agent_credential_type?: 'api_key' | 'subscription'
+  goose_recipe_repo_url?: string
+  goose_recipes?: IAssistantGooseRecipe[]
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number

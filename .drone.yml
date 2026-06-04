@@ -1695,6 +1695,7 @@ steps:
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
         docker build --pull -f Dockerfile.sandbox \
+          --build-arg APP_VERSION="$${VERSION}" \
           -t helix-sandbox:$${VERSION}-linux-amd64 \
           -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64 \
           -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64 \
@@ -2016,6 +2017,7 @@ steps:
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Building ARM64 sandbox with version: $${VERSION}, commit: $${COMMIT}"
         docker build --pull --provenance=false -f Dockerfile.sandbox \
+          --build-arg APP_VERSION="$${VERSION}" \
           -t helix-sandbox:$${VERSION}-linux-arm64 \
           -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64 \
           -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64 \

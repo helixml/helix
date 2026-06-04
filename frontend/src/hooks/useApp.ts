@@ -392,6 +392,14 @@ export const useApp = (appId: string) => {
       assistants[0].code_agent_credential_type = updates.code_agent_credential_type
     }
 
+    if (updates.goose_recipe_repo_url !== undefined) {
+      assistants[0].goose_recipe_repo_url = updates.goose_recipe_repo_url
+    }
+
+    if (updates.goose_recipes !== undefined) {
+      assistants[0].goose_recipes = updates.goose_recipes
+    }
+
     if (updates.context_limit !== undefined) {
       assistants[0].context_limit = updates.context_limit
     }

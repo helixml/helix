@@ -1,0 +1,41 @@
+# Example Goose recipe demonstrating a file-typed parameter. The
+# referenced file is supplied via the spec-task attachment upload flow:
+# the user uploads a PDF or markdown spec when creating the task, picks
+# it from the file dropdown next to this recipe, and Helix rewrites the
+# {{spec_doc}} value from the bare filename to the absolute path inside
+# the agent's workspace before handing it to Goose.
+#
+# Drop a copy in your project repo at .goose/recipes/review-spec.yaml and
+# reference it from project.yaml under spec.agent.goose.recipes.
+
+version: "1.0.0"
+title: "Review external spec document"
+description: "Read an uploaded spec doc and produce a review note against the codebase."
+
+instructions: |
+  You are reviewing an external specification document against the
+  current codebase. Read the document end-to-end first, then compare its
+  claims and requirements against what the code actually does.
+
+prompt: |
+  Read the spec document at {{ spec_doc }} and produce a review covering:
+    - what the spec asks for
+    - which parts the current codebase already satisfies
+    - which parts are missing or contradicted by the code
+    - the smallest set of changes that would close the gap
+
+  Focus on the {{ area }} area of the codebase.
+
+parameters:
+  - key: spec_doc
+    input_type: file
+    requirement: required
+    description: "Spec document to review (upload via task Attachments, then pick from dropdown)"
+  - key: area
+    input_type: string
+    requirement: required
+    description: "Subsystem or feature area the spec targets"
+
+settings:
+  goose_provider: anthropic
+  goose_model: claude-sonnet-4-6

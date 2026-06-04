@@ -116,6 +116,15 @@ export interface GithubComMark3LabsMcpGoMcpTool {
   outputSchema?: McpToolOutputSchema;
 }
 
+export interface GooseRecipeParameter {
+  default?: string;
+  description?: string;
+  input_type?: string;
+  key?: string;
+  options?: string[];
+  requirement?: string;
+}
+
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -139,19 +148,6 @@ export enum HydraDevContainerType {
   DevContainerTypeSway = "sway",
   DevContainerTypeUbuntu = "ubuntu",
   DevContainerTypeHeadless = "headless",
-}
-
-export interface HydraGPUInfo {
-  index?: number;
-  memory_free_bytes?: number;
-  memory_total_bytes?: number;
-  memory_used_bytes?: number;
-  name?: string;
-  temperature_celsius?: number;
-  /** GPU core utilization */
-  utilization_percent?: number;
-  /** "nvidia", "amd", "intel" */
-  vendor?: string;
 }
 
 export interface HydraListSandboxCommandsResponse {
@@ -590,7 +586,7 @@ export interface ServerActivateTrialResponse {
 
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
-  gpus?: HydraGPUInfo[];
+  gpus?: ServerGPUInfoWithSandbox[];
   message?: string;
   sandboxes?: ServerSandboxInstanceInfo[];
 }
@@ -729,6 +725,31 @@ export interface ServerExposedPort {
   /** "active", "inactive" */
   status?: string;
   url?: string;
+}
+
+export interface ServerGPUInfoWithSandbox {
+  index?: number;
+  memory_free_bytes?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  name?: string;
+  sandbox_id?: string;
+  temperature_celsius?: number;
+  /** GPU core utilization */
+  utilization_percent?: number;
+  /** "nvidia", "amd", "intel" */
+  vendor?: string;
+}
+
+export interface ServerGrantCreditsRequest {
+  credits?: number;
+  org_id?: string;
+}
+
+export interface ServerGrantCreditsResponse {
+  org_id?: string;
+  status?: string;
+  user?: TypesUser;
 }
 
 export interface ServerInitializeSampleRepositoriesRequest {
@@ -1105,6 +1126,12 @@ export interface ServerOrganizationDomainInfo {
   organization_name?: string;
 }
 
+export interface ServerOwnedOrgSummary {
+  display_name?: string;
+  id?: string;
+  name?: string;
+}
+
 export interface ServerPhaseProgress {
   agent?: string;
   completed_at?: string;
@@ -1116,6 +1143,21 @@ export interface ServerPhaseProgress {
 
 export interface ServerPinnedProjectsResponse {
   pinned_project_ids?: string[];
+}
+
+export interface ServerProjectGooseRecipe {
+  description?: string;
+  /**
+   * Error, when non-empty, indicates that the recipe was declared on the
+   * agent but couldn't be loaded — repo not cloned yet, file missing,
+   * YAML malformed, etc. The UI surfaces this so the user can fix the
+   * project YAML before creating a task that would silently fall back to
+   * vanilla goose.
+   */
+  error?: string;
+  name?: string;
+  parameters?: GooseRecipeParameter[];
+  title?: string;
 }
 
 export interface ServerPromptPinRequest {
@@ -1673,6 +1715,18 @@ export interface TypesAssistantConfig {
   frequency_penalty?: number;
   generation_model?: string;
   generation_model_provider?: string;
+  /**
+   * GooseRecipeRepoURL is the external git URL of the attached repository
+   * that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+   * Resolved against attached GitRepositories at sandbox-start time.
+   * Empty means recipes are looked up under the primary repository.
+   */
+  goose_recipe_repo_url?: string;
+  /**
+   * GooseRecipes are the project-declared Goose recipes (slash-command name
+   * + repo-relative path to the recipe YAML).
+   */
+  goose_recipes?: TypesAssistantGooseRecipe[];
   id?: string;
   image?: string;
   /** Defaults to 4 */
@@ -1736,6 +1790,11 @@ export interface TypesAssistantConfig {
 export interface TypesAssistantEmail {
   enabled?: boolean;
   template_example?: string;
+}
+
+export interface TypesAssistantGooseRecipe {
+  name?: string;
+  path?: string;
 }
 
 export interface TypesAssistantKnowledge {
@@ -2178,6 +2237,13 @@ export interface TypesCloneTaskResult {
   task_id?: string;
 }
 
+export interface TypesCodeAgentBakedRecipe {
+  /** Content is the substituted recipe YAML (full file content). */
+  content?: string;
+  /** Name is the slash-command slug (no leading slash). */
+  name?: string;
+}
+
 export interface TypesCodeAgentConfig {
   /** AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code") */
   agent_name?: string;
@@ -2185,6 +2251,26 @@ export interface TypesCodeAgentConfig {
   api_type?: string;
   /** BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1") */
   base_url?: string;
+  /**
+   * GooseBakedRecipe, when set, holds a single recipe with parameters
+   * pre-substituted, used by Phase 2b spec-task automation. The daemon
+   * writes it to disk and registers a single slash_command so an initial
+   * "/<slug>" prompt fires the recipe.
+   */
+  goose_baked_recipe?: TypesCodeAgentBakedRecipe;
+  /**
+   * GooseRecipeRootDir is the absolute container path to the root of the
+   * recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+   * resolve relative paths correctly).
+   */
+  goose_recipe_root_dir?: string;
+  /**
+   * GooseRecipes lists project-declared Goose recipes with absolute paths
+   * resolved inside the desktop container. Only set when Runtime is
+   * goose_code; consumed by settings-sync-daemon to write the goose
+   * slash_commands config.
+   */
+  goose_recipes?: TypesCodeAgentGooseRecipe[];
   /**
    * MaxOutputTokens is the model's max completion tokens
    * Looked up from model_info.json, 0 if not found
@@ -2208,12 +2294,18 @@ export enum TypesCodeAgentCredentialType {
   CodeAgentCredentialTypeSubscription = "subscription",
 }
 
+export interface TypesCodeAgentGooseRecipe {
+  name?: string;
+  path?: string;
+}
+
 export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeZedAgent = "zed_agent",
   CodeAgentRuntimeQwenCode = "qwen_code",
   CodeAgentRuntimeClaudeCode = "claude_code",
   CodeAgentRuntimeGeminiCLI = "gemini_cli",
   CodeAgentRuntimeCodexCLI = "codex_cli",
+  CodeAgentRuntimeGooseCode = "goose_code",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2390,6 +2482,15 @@ export interface TypesCreateTaskRequest {
   branch_prefix?: string;
   /** Optional: IDs of tasks this task depends on */
   depends_on?: string[];
+  /**
+   * Goose recipe selection (only meaningful when the chosen agent's runtime
+   * is goose_code). GooseRecipeName must match one of the agent's declared
+   * recipes; GooseRecipeParams are substituted into the recipe at session
+   * start. Recipes declared on the agent but not selected here are still
+   * available as runtime slash-commands inside the desktop.
+   */
+  goose_recipe_name?: string;
+  goose_recipe_params?: Record<string, string>;
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
@@ -3880,9 +3981,20 @@ export interface TypesProjectAgentDisplay {
   resolution?: string;
 }
 
+export interface TypesProjectAgentGoose {
+  recipe_repo_url?: string;
+  recipes?: TypesProjectAgentGooseRecipe[];
+}
+
+export interface TypesProjectAgentGooseRecipe {
+  name?: string;
+  path?: string;
+}
+
 export interface TypesProjectAgentSpec {
   credentials?: string;
   display?: TypesProjectAgentDisplay;
+  goose?: TypesProjectAgentGoose;
   model?: string;
   name?: string;
   provider?: string;
@@ -4722,7 +4834,6 @@ export interface TypesSecret {
 }
 
 export interface TypesServerConfigForFrontend {
-  active_concurrent_desktops?: number;
   apps_enabled?: boolean;
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
@@ -4737,13 +4848,11 @@ export interface TypesServerConfigForFrontend {
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
   edition?: string;
-  eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
   /** Whether any global AI provider with enabled chat models exists */
   has_providers?: boolean;
   latest_version?: string;
-  license?: TypesFrontendLicenseInfo;
   /**
    * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
    * organisation when the session has an org, per user otherwise.
@@ -5240,6 +5349,17 @@ export interface TypesSpecTask {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * Goose recipe binding (Phase 2b). When the parent project's agent uses
+   * the goose_code runtime and the user picked a recipe at task-creation
+   * time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+   * GooseRecipeParams holds the parameter values to substitute. The Helix
+   * API bakes these into a CodeAgentBakedRecipe and pushes it to the
+   * settings-sync-daemon, which writes a single slash_command pointing at
+   * the substituted recipe YAML. Empty when no recipe was selected.
+   */
+  goose_recipe_name?: string;
+  goose_recipe_params?: Record<string, string>;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
@@ -5565,6 +5685,17 @@ export interface TypesSpecTaskWithProject {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * Goose recipe binding (Phase 2b). When the parent project's agent uses
+   * the goose_code runtime and the user picked a recipe at task-creation
+   * time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+   * GooseRecipeParams holds the parameter values to substitute. The Helix
+   * API bakes these into a CodeAgentBakedRecipe and pushes it to the
+   * settings-sync-daemon, which writes a single slash_command pointing at
+   * the substituted recipe YAML. Empty when no recipe was selected.
+   */
+  goose_recipe_name?: string;
+  goose_recipe_params?: Record<string, string>;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
@@ -6301,6 +6432,14 @@ export interface TypesUser {
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
+  /**
+   * PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+   * /admin/users/{id}/credits endpoint when the user has no owned org yet.
+   * Consumed by consumeUserAdminCredits on first owned org, then cleared.
+   * Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+   * without entangling the grant with trial-state UI or revocation flows.
+   */
+  pending_admin_credits_on_first_org?: number;
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -6359,6 +6498,20 @@ export interface TypesUserChatSettings {
   top_p?: number;
 }
 
+export interface TypesUserConfig {
+  /**
+   * ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+   * Empty string means follow OS preference. Propagated to the GNOME desktop
+   * (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+   * by this user.
+   */
+  color_scheme?: string;
+  pinned_project_ids?: string[];
+  stripe_customer_id?: string;
+  stripe_subscription_active?: boolean;
+  stripe_subscription_id?: string;
+}
+
 export interface TypesUserGuidelinesResponse {
   guidelines?: string;
   guidelines_updated_at?: string;
@@ -6404,6 +6557,15 @@ export interface TypesUserStatsResponse {
   projects_count?: number;
   spec_tasks_count?: number;
   user?: TypesUser;
+}
+
+export interface TypesUserStatus {
+  admin?: boolean;
+  config?: TypesUserConfig;
+  license?: TypesFrontendLicenseInfo;
+  /** User slug for GitHub-style URLs */
+  slug?: string;
+  user?: string;
 }
 
 export interface TypesUserTokenUsageResponse {
@@ -7009,6 +7171,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.
+     *
+     * @tags users
+     * @name V1AdminUsersCreditsCreate
+     * @summary Grant credits to a user (Admin, cloud only)
+     * @request POST:/api/v1/admin/users/{id}/credits
+     * @secure
+     */
+    v1AdminUsersCreditsCreate: (id: string, request: ServerGrantCreditsRequest, params: RequestParams = {}) =>
+      this.request<ServerGrantCreditsResponse, any>({
+        path: `/api/v1/admin/users/${id}/credits`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin "Grant credits" dialog to populate its org picker.
+     *
+     * @tags users
+     * @name V1AdminUsersOwnedOrgsDetail
+     * @summary List a user's owned organisations (Admin, cloud only)
+     * @request GET:/api/v1/admin/users/{id}/owned-orgs
+     * @secure
+     */
+    v1AdminUsersOwnedOrgsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerOwnedOrgSummary[], any>({
+        path: `/api/v1/admin/users/${id}/owned-orgs`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Reset the password for any user. Only admins can use this endpoint.
      *
      * @tags users
@@ -7047,7 +7247,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Defaults: 90 days, $100 credits.
+     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
      *
      * @tags users
      * @name V1AdminUsersTrialActivateCreate
@@ -11399,6 +11599,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the parsed Goose recipes declared on the project's default agent, including each recipe's parameter schema so the spec-task creation form can render dynamic inputs.
+     *
+     * @tags Projects
+     * @name V1ProjectsGooseRecipesDetail
+     * @summary List Goose recipes available to a project
+     * @request GET:/api/v1/projects/{id}/goose-recipes
+     * @secure
+     */
+    v1ProjectsGooseRecipesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerProjectGooseRecipe[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/goose-recipes`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the version history of guidelines for a project
      *
      * @tags Projects
@@ -13284,11 +13503,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears the dead acp_thread_id on the session and resets crashed prompts (those marked by MarkPromptAsCrashed when the Claude Agent process exited) back to pending. The next dispatch sends with empty acp_thread_id, causing Zed to create a fresh thread + Claude Agent process. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     * @description Tears down the half-dead desktop container and brings up a fresh one via the same resume path used by /sessions/{id}/resume. The session's ZedThreadID is preserved, so Zed reloads the existing thread from the persistent threads.db in the workspace volume and the underlying agent (claude-code, qwen, etc.) reloads its session from disk — prior conversation context is restored. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
      *
      * @tags Sessions
      * @name V1SessionsRestartAgentCreate
-     * @summary Restart Zed thread after a Claude Agent crash
+     * @summary Restart the external agent after an in-container crash
      * @request POST:/api/v1/sessions/{id}/restart-agent
      * @secure
      */
@@ -14297,6 +14516,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Per-user status: credits, admin flag, slug, user config, plus the licence payload (moved here from /api/v1/config so it is not disclosed unauthenticated).
+     *
+     * @tags config
+     * @name V1StatusList
+     * @summary Get user status
+     * @request GET:/api/v1/status
+     * @secure
+     */
+    v1StatusList: (params: RequestParams = {}) =>
+      this.request<TypesUserStatus, any>({
+        path: `/api/v1/status`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

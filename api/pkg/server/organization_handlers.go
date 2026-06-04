@@ -333,6 +333,11 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 	// first owned org. Best-effort: logs errors but does not block.
 	apiServer.consumeUserTrialIntent(ctx, user, createdOrg.ID)
 
+	// Same for plain admin credit grants (PendingAdminCreditsOnFirstOrg), which
+	// are tracked separately from trial intent so an admin can comp credits
+	// without entangling them with trial-state UI or revocation flows.
+	apiServer.consumeUserAdminCredits(ctx, user, createdOrg.ID)
+
 	writeResponse(rw, createdOrg, http.StatusCreated)
 }
 

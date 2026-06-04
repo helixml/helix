@@ -24,7 +24,11 @@ interface ActivateTrialDialogProps {
 }
 
 const DEFAULT_DAYS = 90;
-const DEFAULT_CREDITS = 100;
+// Intentionally 0: the form value is sent verbatim, no silent defaulting on
+// either side. Stripe still credits the trial-period product allotment on
+// subscription start via the invoice.paid webhook -- that's separate from
+// the admin's choice here.
+const DEFAULT_CREDITS = 0;
 
 const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user }) => {
     const [days, setDays] = useState(String(DEFAULT_DAYS));

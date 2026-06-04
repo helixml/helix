@@ -529,10 +529,12 @@ func NewServer(
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
-	// Set the project secrets callback for injecting secrets as env vars into desktop containers
-	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	// Wire project-secret injection into HydraExecutor so every desktop container
+	// (spec task, exploratory session, resume) picks up project secrets without
+	// each caller having to remember.
+	externalAgentExecutor.SetProjectSecretsGetter(apiServer.GetProjectSecretsAsEnvVars)
 	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
 	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
 
@@ -660,6 +662,17 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
+
+	// Reap stale runner registrations: sandbox_instances rows whose
+	// last_seen is older than the stale-threshold get their status
+	// flipped to "offline" so the admin UI + the FindAvailable selector
+	// stop treating dead Runners as available. Thresholds configurable
+	// via HELIX_SANDBOX_REAPER_INTERVAL / HELIX_SANDBOX_STALE_THRESHOLD.
+	go apiServer.startSandboxInstanceReaper(
+		ctx,
+		apiServer.Cfg.SandboxReaperInterval,
+		apiServer.Cfg.SandboxStaleThreshold,
+	)
 
 	apiServer.startUserWebSocketServer(
 		ctx,
@@ -1082,9 +1095,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
-	// Agent Sandboxes debugging routes (admin only)
-	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
-	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
+	// Agent Sandboxes debugging routes (admin only). Registered on
+	// adminRouter so requireAdmin actually enforces the gate. Comment
+	// previously claimed "admin only" while the route sat on authRouter
+	// (any authenticated user) — this PR widens what the response
+	// includes (per-GPU sandbox_id), so the gap is closed at the same
+	// time. The /admin/... path prefix is required because adminRouter
+	// is a MatcherFunc subrouter, not a PathPrefix subrouter — see
+	// server.go:760.
+	adminRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
+	adminRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
@@ -1169,6 +1189,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/admin/users/{id}/approve", system.DefaultWrapper(apiServer.adminApproveUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminActivateTrial)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminRevokeTrial)).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/admin/users/{id}/credits", system.DefaultWrapper(apiServer.adminGrantCredits)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/owned-orgs", system.DefaultWrapper(apiServer.listUserOwnedOrgs)).Methods(http.MethodGet)
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 
@@ -1187,6 +1209,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/runners/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/runners/{runner_id}/assign-profile", apiServer.assignRunnerProfile).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
+	// Live-tail of a runner's hydra-aggregated logs over WebSocket.
+	// See design/2026-05-29-admin-runner-logs.md.
+	// NOTE: adminRouter is auth-based, not path-based (MatcherFunc, no
+	// PathPrefix). Existing admin user routes hard-prefix `/admin/` so
+	// they live at /api/v1/admin/... — the runner-profile family above
+	// (`/runner-profiles`, `/runners/...`) lives at /api/v1/... and is
+	// an existing naming inconsistency. This new route follows the
+	// /admin/... convention to match the frontend's URL builder.
+	adminRouter.HandleFunc("/admin/runners/{runner_id}/logs", apiServer.streamAdminRunnerLogs).Methods(http.MethodGet)
 
 	// Runner-token-authenticated read paths so the sandbox-side compose-
 	// manager can fetch its own assignment + profile content using the
@@ -1382,6 +1413,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/repositories", system.Wrapper(apiServer.getProjectRepositories)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/goose-recipes", system.Wrapper(apiServer.listProjectGooseRecipes)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/primary", system.Wrapper(apiServer.setProjectPrimaryRepository)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/attach", system.Wrapper(apiServer.attachRepositoryToProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/detach", system.Wrapper(apiServer.detachRepositoryFromProject)).Methods(http.MethodPut)

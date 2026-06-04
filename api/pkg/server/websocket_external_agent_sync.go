@@ -33,12 +33,13 @@ var ErrNoExternalAgentWS = errors.New("no external agent WebSocket connection")
 // the Claude Agent ACP wrapper inside Zed having exited. Once the wrapper
 // process is gone, every subsequent follow-up the user sends bounces with
 // "Session not found" — Zed's THREAD_SERVICE has no agent to dispatch to and
-// no first-class way to respawn one for an existing thread. Helix's only
-// recovery is to abandon the dead acp_thread_id and create a fresh thread,
-// which we don't do silently because the user loses the chat history kept in
-// the dead process. Instead the queue surfaces a Restart button; the handler
-// wired up by ResetCrashedPromptsForSession clears ZedThreadID and re-sends
-// the prompt so the next dispatch creates a new thread.
+// no first-class way to respawn one for an existing thread. We don't auto-retry
+// silently because the half-dead container needs to be torn down and rebuilt.
+// Instead the queue surfaces a Restart button; restartCrashedAgentThread tears
+// down the desktop container and brings up a fresh one via the resume path,
+// preserving ZedThreadID so Zed reloads the existing thread from threads.db on
+// reconnect and the agent reloads its session from the persistent workspace
+// volume — full conversation context is restored.
 var agentCrashErrorMarkers = []string{
 	"Claude Agent process exited",
 	"Session not found",
@@ -1286,8 +1287,18 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
 					_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
 				}
-				_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
-				if err != nil {
+				// Column-scoped write: never touch state/completed/error here,
+				// so that a concurrent handleTurnCancelled / handleMessageCompleted
+				// transition can't be clobbered by this in-flight streaming flush.
+				if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
+					context.Background(),
+					targetInteraction.ID,
+					targetInteraction.GenerationID,
+					targetInteraction.ResponseMessage,
+					targetInteraction.ResponseEntries,
+					targetInteraction.LastZedMessageOffset,
+					targetInteraction.LastZedMessageID,
+				); err != nil {
 					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 				}
 				sctx.lastDBWrite = now
@@ -1472,43 +1483,72 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Str("request_id", requestID).
 				Msg("🔄 [PERF] Interaction transition detected! Resetting streaming context for new interaction")
 
-			// Flush any dirty state for the old interaction before switching
+			// Flush any dirty state for the old interaction before switching.
+			//
+			// Both branches below write through column-scoped helpers
+			// (UpdateInteractionStreamingFields for content,
+			// MarkInteractionCompleteIfWaiting for the auto-complete state
+			// transition) so they cannot clobber a concurrent transition
+			// written by handleTurnCancelled / handleMessageCompleted. The
+			// in-memory sctx.interaction.State is a snapshot from when the
+			// turn started — checking it here is fine because the actual
+			// state mutation is guarded server-side.
 			if sctx.interaction != nil {
-				// Auto-complete the old interaction if it's still Waiting.
-				// Claude Code (via the Anthropic API) sometimes starts sending interrupt
-				// tokens BEFORE emitting message_completed for the cancelled turn.
-				// Without this, the cancelled interaction stays Waiting forever and the
-				// E2E ordering check fails ("interrupt tokens before first message_completed").
-				if sctx.interaction.State == types.InteractionStateWaiting {
-					sctx.interaction.State = types.InteractionStateComplete
-					sctx.interaction.Completed = time.Now()
-					sctx.interaction.Updated = time.Now()
-					// Store accumulated response entries and content
-					if sctx.accumulator != nil {
-						sctx.accumulator.Rebuild()
-						sctx.interaction.ResponseMessage = sctx.accumulator.Content
-						sctx.interaction.LastZedMessageOffset = sctx.accumulator.Offset
-						entries := sctx.accumulator.Entries()
-						if len(entries) > 0 {
-							if entriesJSON, err := json.Marshal(entries); err == nil {
-								_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
-							}
+				// Rebuild and persist any pending streaming content first.
+				if sctx.accumulator != nil {
+					sctx.accumulator.Rebuild()
+					sctx.interaction.ResponseMessage = sctx.accumulator.Content
+					sctx.interaction.LastZedMessageOffset = sctx.accumulator.Offset
+					entries := sctx.accumulator.Entries()
+					if len(entries) > 0 {
+						if entriesJSON, err := json.Marshal(entries); err == nil {
+							_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
 						}
 					}
-					if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction); err != nil {
-						log.Error().Err(err).
-							Str("interaction_id", sctx.interactionID).
-							Msg("Failed to auto-complete old interaction during interrupt transition")
-					} else {
-						log.Info().
-							Str("interaction_id", sctx.interactionID).
-							Msg("⚡ [TRANSITION] Auto-completed cancelled interaction (interrupt arrived before message_completed)")
-					}
-				} else if sctx.dirty {
-					if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction); err != nil {
+				}
+
+				if sctx.interaction.State == types.InteractionStateWaiting || sctx.dirty {
+					if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
+						ctx,
+						sctx.interaction.ID,
+						sctx.interaction.GenerationID,
+						sctx.interaction.ResponseMessage,
+						sctx.interaction.ResponseEntries,
+						sctx.interaction.LastZedMessageOffset,
+						sctx.interaction.LastZedMessageID,
+					); err != nil {
 						log.Error().Err(err).
 							Str("interaction_id", sctx.interactionID).
 							Msg("Failed to flush old interaction during transition")
+					}
+				}
+
+				// Auto-complete the old interaction if it's still Waiting.
+				// Claude Code (via the Anthropic API) sometimes starts sending
+				// interrupt tokens BEFORE emitting message_completed for the
+				// cancelled turn. Without this, the cancelled interaction
+				// stays Waiting forever and the E2E ordering check fails
+				// ("interrupt tokens before first message_completed").
+				//
+				// The transition is guarded WHERE state='waiting' so that if
+				// handleTurnCancelled has already moved it to Interrupted (or
+				// handleMessageCompleted moved it to Complete / Error), this
+				// is a no-op — preventing the lost-update that previously
+				// resurrected cancelled turns as falsely "complete".
+				if sctx.interaction.State == types.InteractionStateWaiting {
+					transitioned, err := apiServer.Controller.Options.Store.MarkInteractionCompleteIfWaiting(ctx, sctx.interaction.ID, sctx.interaction.GenerationID)
+					if err != nil {
+						log.Error().Err(err).
+							Str("interaction_id", sctx.interactionID).
+							Msg("Failed to auto-complete old interaction during interrupt transition")
+					} else if transitioned {
+						log.Info().
+							Str("interaction_id", sctx.interactionID).
+							Msg("⚡ [TRANSITION] Auto-completed cancelled interaction (interrupt arrived before message_completed)")
+					} else {
+						log.Debug().
+							Str("interaction_id", sctx.interactionID).
+							Msg("⏭️ [TRANSITION] Skipped auto-complete (DB row is no longer Waiting — another handler already transitioned it)")
 					}
 				}
 			}
@@ -1762,15 +1802,18 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 					_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
 				}
 			}
-			// Before flushing, refresh the State field from the store.
-			// Other handlers (e.g. handleTurnCancelled) may have changed
-			// the state while streaming was in progress. We must not
-			// overwrite those state transitions with our stale cached state.
-			freshInteraction, refreshErr := apiServer.Controller.Options.Store.GetInteraction(ctx, sctx.interaction.ID)
-			if refreshErr == nil {
-				sctx.interaction.State = freshInteraction.State
-			}
-			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
+			// Column-scoped write: never touch state/completed/error here,
+			// so a concurrent transition from handleTurnCancelled /
+			// handleMessageCompleted cannot be clobbered by this flush.
+			err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
+				ctx,
+				sctx.interaction.ID,
+				sctx.interaction.GenerationID,
+				sctx.interaction.ResponseMessage,
+				sctx.interaction.ResponseEntries,
+				sctx.interaction.LastZedMessageOffset,
+				sctx.interaction.LastZedMessageID,
+			)
 			if err != nil {
 				log.Error().Err(err).
 					Str("session_id", helixSessionID).
