@@ -1936,7 +1936,7 @@ function build-frontend() {
 	fi
 
 	(
-		cd "$DIR/frontend" && yarn build
+		cd "$DIR/frontend" && yarn install --frozen-lockfile && yarn build
 	) || {
 		echo "❌ Frontend build failed"
 		return 1
