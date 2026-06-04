@@ -160,6 +160,9 @@ type Handle struct {
 }
 
 // State enumerates the lifecycle stages of a provisioned sandbox host.
+// String values are persisted directly in SandboxInstance.ComputeState
+// (varchar column), so renaming or adding a value here is a schema
+// change - keep the literals stable.
 type State string
 
 const (
