@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/helixml/helix/api/pkg/oauth"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -41,31 +42,60 @@ func newGitHubOAuthResolver(manager *oauth.Manager, st helixstore.Store) func(co
 		return nil
 	}
 	return func(ctx context.Context, orgID string) (string, error) {
-		provider, err := manager.GetProviderByType(types.OAuthProviderTypeGitHub)
+		// Multiple github OAuth providers can exist in
+		// `o_auth_providers` (e.g. an org rotated to an org-owned
+		// GitHub OAuth app to scope private-repo access). The
+		// in-memory manager's `GetProviderByType` returns ONE
+		// provider via map iteration (non-deterministic order), so
+		// using it for token lookup can pick a stale row whose
+		// `client_id` no longer has a matching connection. Walk
+		// every github provider in the store instead and return
+		// the first valid token.
+		providers, err := st.ListOAuthProviders(ctx, &helixstore.ListOAuthProvidersQuery{
+			Type:    string(types.OAuthProviderTypeGitHub),
+			Enabled: true,
+		})
 		if err != nil {
-			// No GitHub OAuth provider configured at the helix level
-			// — operators haven't even added one yet. Surface as
-			// "no token" so the transport keeps working for the
-			// inbound webhook path (which only needs webhook_secret).
+			return "", fmt.Errorf("list github providers: %w", err)
+		}
+		// Newest-first so an operator who just added an org-owned
+		// OAuth app (e.g. swapping to one with helixml-org access)
+		// gets that provider's tokens picked up immediately,
+		// instead of falling back to a stale legacy provider.
+		sort.SliceStable(providers, func(i, j int) bool {
+			return providers[i].CreatedAt.After(providers[j].CreatedAt)
+		})
+		if len(providers) == 0 {
+			// No GitHub OAuth provider configured at the helix
+			// level. Surface as "no token" so the transport keeps
+			// working for the inbound webhook path (which only
+			// needs webhook_secret).
+			_ = manager // keep import live in case future logic needs the in-memory cache
 			return "", nil
 		}
-		providerID := provider.GetID()
 		members, err := st.ListOrganizationMemberships(ctx, &helixstore.ListOrganizationMembershipsQuery{
 			OrganizationID: orgID,
 		})
 		if err != nil {
 			return "", fmt.Errorf("list org memberships: %w", err)
 		}
-		for _, m := range members {
-			conn, err := st.GetOAuthConnectionByUserAndProvider(ctx, m.UserID, providerID)
-			if err != nil {
-				if errors.Is(err, helixstore.ErrNotFound) {
-					continue
+		// For each provider try every org member's connection; pick
+		// the first non-empty access_token we find. Provider order
+		// is whatever the store returns (DB-side ordering), so
+		// duplicate providers from earlier botched setups don't
+		// blackhole the lookup.
+		for _, p := range providers {
+			for _, m := range members {
+				conn, err := st.GetOAuthConnectionByUserAndProvider(ctx, m.UserID, p.ID)
+				if err != nil {
+					if errors.Is(err, helixstore.ErrNotFound) {
+						continue
+					}
+					return "", fmt.Errorf("get oauth connection for %s on %s: %w", m.UserID, p.ID, err)
 				}
-				return "", fmt.Errorf("get oauth connection for %s: %w", m.UserID, err)
-			}
-			if conn.AccessToken != "" {
-				return conn.AccessToken, nil
+				if conn.AccessToken != "" {
+					return conn.AccessToken, nil
+				}
 			}
 		}
 		return "", nil

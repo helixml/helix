@@ -32,6 +32,7 @@ import (
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
@@ -49,7 +50,17 @@ type helixOrgHandlers struct {
 	// per-org HMAC `webhook_secret` checked inside the github
 	// transport. The path is /api/v1/orgs/{org}/github/webhook and
 	// the handler resolves {org} from mux.Vars before dispatching.
+	// Fans out to every github stream whose (repo, events) matches
+	// the delivery — multi-stream behaviour.
 	publicGitHubWebhook http.Handler
+	// publicGitHubWebhookForStream is the per-stream variant. Path:
+	// /api/v1/orgs/{org}/streams/{stream_id}/github/webhook —
+	// deliveries to this URL are pinned to exactly one stream so
+	// operators get a 1:1 mapping between GitHub webhooks and helix
+	// streams. The stream's own (repo, events) config still applies
+	// so cross-repo or non-whitelisted-event deliveries drop with
+	// 204 (no GitHub retries).
+	publicGitHubWebhookForStream http.Handler
 }
 
 // alphaFeatureHelixOrg is the alpha-feature flag that gates the
@@ -269,8 +280,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// PAT into transport.github. The resolver lives in
 		// helix_org_github.go.
 		GitHubTokenResolver: newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore),
-		NewID:               deps.NewID,
-		Now:                 deps.Now,
+		// PublicServerURL is the externally-reachable base URL the
+		// auto-installed GitHub webhook should POST back to. Helix's
+		// SERVER_URL env var is the canonical place it lives.
+		PublicServerURL: cfg.APIServer.Cfg.WebServer.URL,
+		NewID:           deps.NewID,
+		Now:             deps.Now,
 	}
 	apiRoutes := helixorgapi.Routes(apiDeps)
 	extras := make([]helixorgserver.Route, 0, len(apiRoutes))
@@ -313,10 +328,43 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		t.HandleInbound().ServeHTTP(w, r)
 	})
 
+	// Per-stream public github webhook handler. Same auth model as
+	// the org-level handler (HMAC over body); routes deliveries to
+	// the single stream named in the path so operators can hand
+	// GitHub a stream-specific URL.
+	publicGitHubWebhookForStream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		orgSlugOrID := vars["org"]
+		streamID := vars["stream_id"]
+		if orgSlugOrID == "" {
+			http.Error(w, "missing org", http.StatusBadRequest)
+			return
+		}
+		if streamID == "" {
+			http.Error(w, "missing stream_id", http.StatusBadRequest)
+			return
+		}
+		org, err := cfg.APIServer.lookupOrg(r.Context(), orgSlugOrID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := scope.ensureBootstrap(r.Context(), org.ID); err != nil {
+			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		t := githubtransport.New(org.ID, configReg, st, bc, dispatcher, ghLogger)
+		if tokenResolver != nil {
+			t = t.WithTokenResolver(githubtransport.TokenResolver(tokenResolver))
+		}
+		t.HandleInboundForStream(streaming.StreamID(streamID)).ServeHTTP(w, r)
+	})
+
 	return &helixOrgHandlers{
-		api:                 orgServer.Handler(extras...),
-		scope:               scope,
-		publicGitHubWebhook: publicGitHubWebhook,
+		api:                          orgServer.Handler(extras...),
+		scope:                        scope,
+		publicGitHubWebhook:          publicGitHubWebhook,
+		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 	}, nil
 }
 

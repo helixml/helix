@@ -59,6 +59,20 @@ export interface ApiEventCard {
   to?: string;
 }
 
+export interface ApiGitHubRepoDTO {
+  full_name?: string;
+  private?: boolean;
+}
+
+export interface ApiGitHubReposResponse {
+  repos?: ApiGitHubRepoDTO[];
+  /**
+   * Source identifies which token paid for this list — useful
+   * when debugging "I can't see repo X" reports.
+   */
+  source?: string;
+}
+
 export interface ApiHireGrantInput {
   tool_name?: string;
 }
@@ -76,10 +90,34 @@ export interface ApiHireWorkerResponse {
   id?: string;
 }
 
+export interface ApiInstallGitHubWebhookResponse {
+  payload_url?: string;
+  /**
+   * Warning is a non-fatal message about the just-installed
+   * webhook — e.g. "SERVER_URL is a loopback address so GitHub's
+   * servers can't actually deliver to this URL". The webhook IS
+   * installed on GitHub; the warning just tells the operator
+   * what needs fixing on their side for deliveries to flow.
+   */
+  warning?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
 export interface ApiPositionDTO {
   id?: string;
   parent_id?: string;
   role_id?: string;
+}
+
+export interface ApiPositionSubscriptionDTO {
+  created_at?: string;
+  stream_id?: string;
+}
+
+export interface ApiPositionSubscriptionsResponse {
+  position_id?: string;
+  subscriptions?: ApiPositionSubscriptionDTO[];
 }
 
 export interface ApiPublishRequest {
@@ -133,10 +171,31 @@ export interface ApiSettingsSpecDTO {
 
 export interface ApiStreamDTO {
   can_publish?: boolean;
+  /**
+   * Config is the parsed transport-specific configuration so the
+   * detail page can render and edit it without round-tripping
+   * through the raw JSON column. Shape depends on Kind:
+   *   - github   → {"repo": "owner/name", "events": ["…"]}
+   *   - webhook  → {"inbound_path": "…", "outbound_url": "…"}
+   *   - postmark → {"inbound_address": "…"}
+   *   - local    → omitted (no config)
+   */
+  config?: Record<string, any>;
   created_at?: string;
   created_by?: string;
   description?: string;
   disable_reason?: string;
+  /**
+   * EffectivePublicURL is the resolved base URL the github
+   * transport uses for webhook payload URLs — i.e.
+   * `streams.public_url` (org config) when set, falling back to
+   * SERVER_URL (env). Returned for github streams only; lets
+   * the detail page evaluate whether the operator's "is my
+   * webhook reachable?" check passes WITHOUT needing to know
+   * about the org-config override itself. Empty when neither
+   * source has a value.
+   */
+  effective_public_url?: string;
   id?: string;
   kind?: string;
   name?: string;
@@ -151,6 +210,10 @@ export interface ApiStreamsResponse {
    */
   recent?: ApiEventCard[];
   streams?: ApiStreamDTO[];
+}
+
+export interface ApiSubscribePositionRequest {
+  stream_id?: string;
 }
 
 export interface ApiToolDTO {
@@ -172,6 +235,12 @@ export interface ApiUpdateRoleRequest {
   content?: string;
   streams?: string[];
   tools?: string[];
+}
+
+export interface ApiUpdateStreamRequest {
+  description?: string;
+  name?: string;
+  transport?: ApiTransportRequestField;
 }
 
 export interface ApiUpdateWorkerIdentityRequest {
@@ -5028,6 +5097,17 @@ export interface TypesServerConfigForFrontend {
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
+  /**
+   * ServerURL is the operator-configured public origin for this helix
+   * instance (env SERVER_URL → WebServer.URL). Empty when not
+   * configured; the frontend then falls back to
+   * `window.location.origin`. The github-stream New Stream dialog
+   * uses this to surface a webhook URL that's actually reachable by
+   * GitHub — `window.location.origin` is wrong whenever the user is
+   * hitting the app via localhost / a dev port that GitHub can't
+   * reach.
+   */
+  server_url?: string;
   /** Stripe top-ups enabled */
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
@@ -11360,6 +11440,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsGithubReposDetail
+     * @summary Helix-org: list GitHub repos accessible to the org's connected token
+     * @request GET:/api/v1/orgs/{org}/github/repos
+     * @secure
+     */
+    v1OrgsGithubReposDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubReposResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/repos`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubWebhookCreate
+     * @summary Helix-org: inbound GitHub webhook
+     * @request POST:/api/v1/orgs/{org}/github/webhook
+     */
+    v1OrgsGithubWebhookCreate: (org: string, payload: object, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/webhook`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsPositionsDetail
      * @summary Helix-org: list positions
      * @request GET:/api/v1/orgs/{org}/positions
@@ -11447,6 +11562,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: payload,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsPositionsSubscriptionsDetail
+     * @summary Helix-org: list a position's subscriptions
+     * @request GET:/api/v1/orgs/{org}/positions/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsPositionsSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiPositionSubscriptionsResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/positions/${id}/subscriptions`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsPositionsSubscriptionsCreate
+     * @summary Helix-org: subscribe a position to a stream
+     * @request POST:/api/v1/orgs/{org}/positions/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsPositionsSubscriptionsCreate: (
+      id: string,
+      org: string,
+      payload: ApiSubscribePositionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiPositionSubscriptionDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/positions/${id}/subscriptions`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsPositionsSubscriptionsDelete
+     * @summary Helix-org: unsubscribe a position from a stream
+     * @request DELETE:/api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id}
+     * @secure
+     */
+    v1OrgsPositionsSubscriptionsDelete: (id: string, streamId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/positions/${id}/subscriptions/${streamId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -11677,6 +11850,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsStreamsUpdate
+     * @summary Helix-org: update a stream
+     * @request PUT:/api/v1/orgs/{org}/streams/{id}
+     * @secure
+     */
+    v1OrgsStreamsUpdate: (id: string, org: string, payload: ApiUpdateStreamRequest, params: RequestParams = {}) =>
+      this.request<ApiStreamDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}`,
+        method: "PUT",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsStreamsEventsDetail
      * @summary Helix-org: SSE stream of events for one stream
      * @request GET:/api/v1/orgs/{org}/streams/{id}/events
@@ -11687,6 +11880,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/streams/${id}/events`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsGithubInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a github stream
+     * @request POST:/api/v1/orgs/{org}/streams/{id}/github/install-webhook
+     * @secure
+     */
+    v1OrgsStreamsGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/github/install-webhook`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

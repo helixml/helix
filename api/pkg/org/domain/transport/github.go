@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"regexp"
 	"strings"
 )
 
@@ -45,8 +45,24 @@ type GitHubConfig struct {
 	// (X-GitHub-Event header values) the Stream wants. Anything not
 	// listed is dropped at the transport without becoming an Event,
 	// so subscribed Workers don't activate for events they'd ignore.
+	// `["*"]` is the GitHub wildcard meaning "all events" — that's
+	// the default the UI's "send me everything" mode picks.
 	// Required and non-empty.
 	Events []string `json:"events,omitempty"`
+
+	// WebhookID is the GitHub-side hook id (returned by `POST
+	// /repos/{owner}/{repo}/hooks`) once helix has auto-installed
+	// the webhook for this stream. Zero when no auto-install has
+	// happened yet. Used to surface a deep-link to the webhook's
+	// edit page on GitHub and to support future un-install /
+	// re-install flows.
+	WebhookID int64 `json:"webhook_id,omitempty"`
+
+	// WebhookHTMLURL is the operator-facing GitHub URL of the
+	// installed webhook (e.g. https://github.com/<owner>/<name>/settings/hooks/<id>).
+	// Captured at install time so the UI can deep-link out without
+	// re-calling the GitHub API on every page load.
+	WebhookHTMLURL string `json:"webhook_html_url,omitempty"`
 }
 
 // Validate enforces: repo must be "owner/name" with both halves
@@ -68,8 +84,15 @@ func (g GitHubConfig) Validate() error {
 		return errors.New("github transport: events whitelist is required and must be non-empty")
 	}
 	for _, ev := range g.Events {
-		if _, ok := knownGitHubEvents[ev]; !ok {
-			return fmt.Errorf("github transport: unknown event %q (supported: %s)", ev, knownGitHubEventsList())
+		// "*" is GitHub's webhook wildcard meaning "all events" — we
+		// honour it as a special case (no need to enumerate every
+		// known event name). Anything else has to match the slug
+		// pattern.
+		if ev == "*" {
+			continue
+		}
+		if !githubEventNamePattern.MatchString(ev) {
+			return fmt.Errorf("github transport: invalid event %q (must match %s, e.g. issues, pull_request, push, workflow_run, or \"*\" for all events)", ev, githubEventNamePattern.String())
 		}
 	}
 	return nil
@@ -105,27 +128,27 @@ func parseGitHubConfig(raw json.RawMessage) (GitHubConfig, error) {
 	return c, nil
 }
 
-// knownGitHubEvents enumerates the event types the transport
-// currently accepts in a Stream's `events` whitelist. The list is
-// deliberately narrow — adding an event is a one-line edit here plus
-// tests, but unknown event names are rejected at create_stream time
-// so typos surface early.
-var knownGitHubEvents = map[string]struct{}{
-	"issues":                      {},
-	"issue_comment":               {},
-	"pull_request":                {},
-	"pull_request_review":         {},
-	"pull_request_review_comment": {},
+// githubEventNamePattern matches a plausible GitHub webhook event
+// name: lowercase letters, digits, and underscores, 2-64 chars,
+// starting with a letter. We deliberately don't pin a whitelist —
+// GitHub adds event types over time (push, release, workflow_run,
+// deployment, registry_package, …) and operators can opt in to any of
+// them without us shipping a code change. The format check still
+// catches the typo case (uppercase, dashes, leading digits) at
+// create_stream time. The frontend mirrors this pattern as
+// GITHUB_EVENT_PATTERN.
+var githubEventNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
+
+// SuggestedGitHubEvents is the curated list of event types the
+// frontend offers in the New Stream dialog and that the transport's
+// envelope mapping has been hand-tested against. Anything outside
+// this list is still accepted by Validate (see
+// githubEventNamePattern) — these are just the well-trodden picks.
+var SuggestedGitHubEvents = []string{
+	"issues",
+	"issue_comment",
+	"pull_request",
+	"pull_request_review",
+	"pull_request_review_comment",
 }
 
-// knownGitHubEventsList renders the supported event names
-// alphabetically for use in error messages. Cheap; called only on
-// validation failures.
-func knownGitHubEventsList() string {
-	out := make([]string, 0, len(knownGitHubEvents))
-	for k := range knownGitHubEvents {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return strings.Join(out, ", ")
-}

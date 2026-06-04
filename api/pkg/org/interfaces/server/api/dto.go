@@ -200,6 +200,24 @@ type StreamDTO struct {
 	CanPublish    bool        `json:"can_publish"`
 	DisableReason string      `json:"disable_reason,omitempty"`
 	RecentEvents  []EventCard `json:"recent_events,omitempty"`
+	// Config is the parsed transport-specific configuration so the
+	// detail page can render and edit it without round-tripping
+	// through the raw JSON column. Shape depends on Kind:
+	//   - github   → {"repo": "owner/name", "events": ["…"]}
+	//   - webhook  → {"inbound_path": "…", "outbound_url": "…"}
+	//   - postmark → {"inbound_address": "…"}
+	//   - local    → omitted (no config)
+	Config map[string]interface{} `json:"config,omitempty"`
+
+	// EffectivePublicURL is the resolved base URL the github
+	// transport uses for webhook payload URLs — i.e.
+	// `streams.public_url` (org config) when set, falling back to
+	// SERVER_URL (env). Returned for github streams only; lets
+	// the detail page evaluate whether the operator's "is my
+	// webhook reachable?" check passes WITHOUT needing to know
+	// about the org-config override itself. Empty when neither
+	// source has a value.
+	EffectivePublicURL string `json:"effective_public_url,omitempty"`
 }
 
 // CreateStreamRequest is the body of POST /streams. Mirrors the
@@ -220,6 +238,20 @@ type CreateStreamRequest struct {
 type TransportRequestField struct {
 	Kind   string                 `json:"kind"`
 	Config map[string]interface{} `json:"config,omitempty"`
+}
+
+// UpdateStreamRequest is the body of PUT /streams/{id}. Mutable
+// fields only — `id`, `created_by`, `created_at` and the owning
+// `org_id` are pinned at creation and ignored on update. The
+// transport block is replaced wholesale: omit it to keep the
+// current transport untouched, pass it (kind + config) to swap.
+// When `transport` is supplied without a `kind` the existing
+// transport kind is preserved and only its `config` is rewritten —
+// the common path for editing the GitHub repo / events whitelist.
+type UpdateStreamRequest struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Transport   *TransportRequestField `json:"transport,omitempty"`
 }
 
 // StreamsResponse is the body of GET /streams.

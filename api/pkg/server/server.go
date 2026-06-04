@@ -794,6 +794,18 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 					Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
 					Methods(http.MethodPost)
 			}
+			// Per-stream variant — operators paste this URL into a
+			// GitHub repo's webhook config when they want a 1:1
+			// mapping between a GitHub webhook and a helix stream
+			// (e.g. two streams for the same repo, each watching a
+			// different events whitelist). Insecure mount: GitHub
+			// deliveries authenticate via HMAC over the body, not a
+			// helix session.
+			if orgHandlers.publicGitHubWebhookForStream != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/streams/{stream_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+					Methods(http.MethodPost)
+			}
 
 			// /api/v1/orgs/{org}/* — per-tenant surface for the
 			// org-graph resources (chart, workers, roles, positions,

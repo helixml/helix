@@ -146,6 +146,20 @@ export interface StreamDTO {
   can_publish: boolean
   disable_reason?: string
   recent_events?: EventCard[]
+  // Config is the parsed transport-specific configuration. Shape
+  // depends on `kind`:
+  //   - github   → { repo: string, events: string[] }
+  //   - webhook  → { inbound_path?: string, outbound_url?: string }
+  //   - postmark → { inbound_address?: string }
+  //   - local    → undefined
+  config?: Record<string, unknown>
+  // EffectivePublicURL is the resolved base URL helix uses for
+  // github webhook payload URLs (the streams.public_url org
+  // config override applied on top of SERVER_URL). Returned
+  // for github streams; the detail page evaluates the loopback
+  // warning against this, not against window.location or the
+  // env value alone.
+  effective_public_url?: string
 }
 
 export interface StreamsResponse {
@@ -159,6 +173,20 @@ export interface CreateStreamRequest {
   description?: string
   transport?: {
     kind: string
+    config?: Record<string, unknown>
+  }
+}
+
+// UpdateStreamRequest is the body of PUT /streams/{id}. ID,
+// created_by, created_at and the owning org are immutable; everything
+// else can be rewritten. Omit `transport` to keep the existing
+// transport row untouched; pass just `transport.config` (no kind) to
+// tweak the config without swapping transports.
+export interface UpdateStreamRequest {
+  name: string
+  description?: string
+  transport?: {
+    kind?: string
     config?: Record<string, unknown>
   }
 }
@@ -617,6 +645,136 @@ export function useCreateHelixOrgStream() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+    },
+  })
+}
+
+export interface GitHubRepoDTO {
+  full_name: string
+  private?: boolean
+}
+
+export interface GitHubReposResponse {
+  repos: GitHubRepoDTO[]
+  source?: string
+}
+
+export interface InstallGitHubWebhookResponse {
+  webhook_id: number
+  webhook_html_url?: string
+  payload_url: string
+  // Warning is a non-fatal message about the install — for
+  // example, "SERVER_URL is a loopback so GitHub can't actually
+  // deliver here yet". The webhook IS installed on GitHub; the
+  // operator just needs to fix something on their side
+  // (typically SERVER_URL in .env) for deliveries to flow.
+  warning?: string
+}
+
+// useListGitHubRepos returns the repos accessible to the org's
+// connected GitHub OAuth token. Powers the searchable repo dropdown
+// in the New Stream dialog so operators don't have to remember
+// exact `owner/name` strings.
+//
+// We use this query as the "is GitHub connected?" probe too —
+// the dialog disables the `github` transport option until we have
+// a non-null `data`. To keep that probe quiet, the auto-snackbar
+// is suppressed; failure surfaces only as `data === null` and the
+// caller decides how to render it (no toast). Cached for the
+// session — installations don't add many new repos in a short
+// window.
+export function useListGitHubRepos(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', 'github-repos', orgID],
+    queryFn: async () => {
+      const data = await api.get<GitHubReposResponse>(
+        `${base}/github/repos`,
+        undefined,
+        { snackbar: false },
+      )
+      return data
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+    // Always-fresh on mount. Operators routinely flip GitHub
+    // org-level OAuth approval BETWEEN dialog opens (to give the
+    // helix OAuth app access to private org repos like
+    // helixml/helix) and expect the dropdown to reflect that on
+    // the next try — not 60s later when the cache happens to
+    // expire. Trade-off: one extra round-trip per dialog open,
+    // which the cached browser keeps cheap.
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+}
+
+// useInstallGitHubWebhook calls the auto-install endpoint that
+// registers the webhook on GitHub for a github-kind stream.
+// Idempotent server-side: re-running the mutation adopts an
+// existing webhook rather than creating a duplicate.
+//
+// Failure handling: useApi.post swallows non-2xx as null AND
+// already fires an error snackbar with the server's message. We
+// re-raise so useMutation.isError / .error flip and the caller's
+// catch branch runs (and skips the "Webhook installed!" success
+// snackbar) — the user only sees the auto-snackbar, no duplicate.
+export function useInstallGitHubWebhook() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (streamId: string) => {
+      const data = await api.post<undefined, InstallGitHubWebhookResponse>(
+        `${base}/streams/${encodeURIComponent(streamId)}/github/install-webhook`,
+        undefined,
+      )
+      if (!data) {
+        // useApi.post already fired the error snackbar with the
+        // server's message; throw with a sentinel the caller can
+        // detect so it skips its own (now redundant) error toast.
+        throw new InstallWebhookFailedError()
+      }
+      return data
+    },
+    onSuccess: (_data, streamId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, streamId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+    },
+  })
+}
+
+// InstallWebhookFailedError is thrown by useInstallGitHubWebhook
+// when the underlying useApi.post returned null. The error toast
+// was already shown by useApi; callers should treat this as "the
+// user has been told" and skip their own snackbar.error.
+export class InstallWebhookFailedError extends Error {
+  constructor() {
+    super('install webhook failed (snackbar already shown)')
+    this.name = 'InstallWebhookFailedError'
+  }
+}
+
+// useUpdateHelixOrgStream rewrites the mutable subset of a stream
+// (name, description, transport). Powers the Edit flow on the
+// stream detail page. The server returns the post-update DTO so we
+// can `setQueryData` rather than wait for a refetch.
+export function useUpdateHelixOrgStream() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ streamId, payload }: { streamId: string; payload: UpdateStreamRequest }) => {
+      const data = await api.put<UpdateStreamRequest, StreamDTO>(
+        `${base}/streams/${encodeURIComponent(streamId)}`,
+        payload,
+      )
+      return data
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, vars.streamId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },
   })

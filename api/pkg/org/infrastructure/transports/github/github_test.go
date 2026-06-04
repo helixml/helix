@@ -17,7 +17,9 @@
 //     Source on the resulting Event is empty.
 //   - Method/body validation: GET → 405, malformed JSON → 400.
 //   - Domain transport validation: stream config requires repo +
-//     non-empty events whitelist (and rejects unknown event names).
+//     non-empty events whitelist; event names must match
+//     ^[a-z][a-z0-9_]+$ (so typos are caught) but are not limited to
+//     a fixed set.
 package github_test
 
 import (
@@ -558,8 +560,10 @@ func TestInboundEmptySenderTolerated(t *testing.T) {
 }
 
 // TestTransportValidateGitHub: stream-config validation. Required:
-// non-empty repo of form "owner/name", non-empty events whitelist
-// drawn from the supported set; rejects unknown event names.
+// non-empty repo of form "owner/name", non-empty events list. Event
+// names must match ^[a-z][a-z0-9_]+$ — curated names (issues,
+// pull_request, …) work, custom event names from new GitHub event
+// types are accepted, malformed names are rejected.
 func TestTransportValidateGitHub(t *testing.T) {
 	t.Parallel()
 
@@ -603,9 +607,16 @@ func TestTransportValidateGitHub(t *testing.T) {
 			wantErr: "events",
 		},
 		{
-			name:    "unknown event name",
-			cfg:     `{"repo":"helixml/helix-org","events":["not_a_real_event"]}`,
-			wantErr: "unknown",
+			// Custom event names are accepted — the format check
+			// catches typos, but operators can subscribe to event
+			// types GitHub ships that we don't yet curate.
+			name: "custom event name",
+			cfg:  `{"repo":"helixml/helix-org","events":["workflow_run"]}`,
+		},
+		{
+			name:    "malformed event name",
+			cfg:     `{"repo":"helixml/helix-org","events":["Bad-Name"]}`,
+			wantErr: "invalid event",
 		},
 	}
 	for _, tc := range cases {

@@ -140,8 +140,23 @@ func TestTransportValidate_GitHub(t *testing.T) {
 
 		{"missing events", `{"repo":"a/b"}`, "events whitelist is required"},
 		{"empty events", `{"repo":"a/b","events":[]}`, "events whitelist is required"},
-		{"unknown event", `{"repo":"a/b","events":["push"]}`, `unknown event "push"`},
-		{"unknown event lists supported", `{"repo":"a/b","events":["push"]}`, "supported:"},
+
+		// Custom event names are accepted — GitHub adds event types
+		// over time (push, release, workflow_run, …) and operators can
+		// opt in without us shipping a code change.
+		{"custom event push", `{"repo":"a/b","events":["push"]}`, ""},
+		{"custom event workflow_run", `{"repo":"a/b","events":["workflow_run"]}`, ""},
+		{"mixed known + custom", `{"repo":"a/b","events":["issues","release"]}`, ""},
+		// Wildcard "*" honoured — same semantics as GitHub's webhook
+		// API (deliver every event the repo emits).
+		{"wildcard only", `{"repo":"a/b","events":["*"]}`, ""},
+		{"wildcard mixed", `{"repo":"a/b","events":["*","issues"]}`, ""},
+
+		// Malformed names still rejected at create_stream time.
+		{"uppercase event", `{"repo":"a/b","events":["Push"]}`, `invalid event "Push"`},
+		{"dash event", `{"repo":"a/b","events":["pull-request"]}`, `invalid event "pull-request"`},
+		{"leading digit event", `{"repo":"a/b","events":["1_event"]}`, `invalid event "1_event"`},
+		{"empty event string", `{"repo":"a/b","events":[""]}`, `invalid event ""`},
 	}
 	for _, tc := range cases {
 		tc := tc

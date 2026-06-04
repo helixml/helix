@@ -7,9 +7,9 @@
 import { FC, MouseEvent, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
-import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -28,6 +28,7 @@ import useTheme from '@mui/material/styles/useTheme'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import RefreshIcon from '@mui/icons-material/Refresh'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -38,11 +39,26 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
+  InstallWebhookFailedError,
   StreamDTO,
   useCreateHelixOrgStream,
   useDeleteHelixOrgStream,
+  useInstallGitHubWebhook,
+  useListGitHubRepos,
   useListHelixOrgStreams,
 } from '../services/helixOrgService'
+import { useListOAuthProviders } from '../services/oauthProvidersService'
+
+// GITHUB_STREAM_SCOPES is the scope set helix-org's streams feature
+// needs from GitHub:
+//   - `repo`: list AND read private repos (otherwise the dropdown
+//     only sees public repos)
+//   - `admin:repo_hook`: register / edit / delete webhooks on a
+//     repo (what the auto-install endpoint calls)
+// We pass these explicitly when starting the OAuth flow from the
+// New Stream dialog, rather than relying on the org-wide Connected
+// Services button (which requests no scopes by default).
+const GITHUB_STREAM_SCOPES = 'repo,admin:repo_hook'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
@@ -51,23 +67,6 @@ const TRANSPORT_KINDS = [
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
 ]
 
-// GITHUB_EVENT_OPTIONS mirrors the backend's knownGitHubEvents map in
-// api/pkg/org/domain/transport/github.go — the validator rejects any
-// event not in this list. Keep the two in sync; adding a new event is
-// a one-line edit on each side. Order matches GitHub's docs grouping
-// (issue stuff first, then PR stuff).
-const GITHUB_EVENT_OPTIONS: { value: string; help: string }[] = [
-  { value: 'issues', help: 'Issue opened/closed/labeled/etc.' },
-  { value: 'issue_comment', help: 'Comment on an issue or pull request.' },
-  { value: 'pull_request', help: 'PR opened/synced/closed/etc.' },
-  { value: 'pull_request_review', help: 'Submitted PR reviews (approve/changes-requested/comment).' },
-  { value: 'pull_request_review_comment', help: 'Line-level review comments inside a PR diff.' },
-]
-
-// owner/name pattern — exactly one slash, both halves non-empty. Mirrors
-// transport/github.go's Validate; we surface the error before submit
-// rather than after a 400.
-const GITHUB_REPO_PATTERN = /^[^/\s]+\/[^/\s]+$/
 
 // streamRowId is the canonical HTML id assigned to each row in the
 // streams table. Exported so other components (the chart deep-link,
@@ -290,51 +289,118 @@ const HelixOrgStreams: FC = () => {
 }
 
 const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
-  const account = useAccount()
   const snackbar = useSnackbar()
   const create = useCreateHelixOrgStream()
+  const installWebhook = useInstallGitHubWebhook()
   const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [kind, setKind] = useState('local')
   const [configText, setConfigText] = useState('')
-  const [copied, setCopied] = useState(false)
-  // Structured fields for kind=github. The backend validator rejects
-  // anything missing repo or with an empty/unknown events list, so the
-  // dialog presents them as first-class inputs rather than expecting
-  // the operator to hand-write the JSON.
-  const [ghRepo, setGhRepo] = useState('')
-  const [ghEvents, setGhEvents] = useState<string[]>([])
+  // github branch only needs the repo — everything else (events
+  // whitelist, webhook secret, payload URL) is configured by helix
+  // on the operator's behalf when we POST to GitHub's hook API.
+  // Default events to ["*"] which GitHub honours as "send me
+  // everything"; advanced users can narrow this down later via the
+  // detail page's Edit flow.
+  const [ghRepo, setGhRepo] = useState<string>('')
 
-  // The operator-configured public origin is what we want to show in
-  // the github-stream URL hint; window.location.origin is the
-  // FALLBACK, but if the user opened helix at localhost the hint
-  // would be useless to paste into a real GitHub repo. server_url
-  // arrives via /api/v1/config (loaded into account.serverConfig).
-  const serverURL = (account.serverConfig as any)?.server_url as string | undefined
-  const dialogOrigin = (serverURL && serverURL.length > 0) ? serverURL : window.location.origin
-  const orgName = account.organizationTools.organization?.name
-  const webhookURL = `${dialogOrigin}/api/v1/orgs/${encodeURIComponent(orgName || '<org>')}/github/webhook`
-  const isLocalhostHint = /(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(dialogOrigin)
+  // Probe GitHub on dialog open — the result tells us whether to
+  // disable the `github` transport option (no OAuth connection →
+  // operator gets a "Connect GitHub for streams" CTA instead of a
+  // confusing 412 mid-flow). The hook suppresses its own snackbar
+  // so this stays a quiet probe.
+  const ghReposQuery = useListGitHubRepos({ enabled: open })
+  const ghConnected = !ghReposQuery.isLoading && !!ghReposQuery.data
+  const ghRepoOptions = useMemo(() => (ghReposQuery.data?.repos ?? []).map((r) => r.full_name), [ghReposQuery.data])
 
-  const copyWebhookURL = async () => {
+  // OAuth providers list — used only to derive the github
+  // provider id we hand to the OAuth start endpoint when the user
+  // clicks "Connect GitHub for streams". Cheap query, cached
+  // session-wide.
+  const oauthProvidersQuery = useListOAuthProviders()
+  const githubProviderID = useMemo(() => {
+    const providers = (oauthProvidersQuery.data ?? []) as Array<{ id?: string; type?: string; enabled?: boolean; created_at?: string }>
+    return providers
+      .filter((p) => p.type === 'github' && p.enabled !== false)
+      // Newest-first so an operator who just swapped to an
+      // org-owned OAuth app gets THAT provider's flow.
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]?.id
+  }, [oauthProvidersQuery.data])
+
+  const connectGitHubForStreams = async () => {
+    if (!githubProviderID) {
+      snackbar.error('No GitHub OAuth provider configured in helix. Add one in Admin → OAuth Providers first.')
+      return
+    }
     try {
-      await navigator.clipboard.writeText(webhookURL)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    } catch {
-      // Clipboard API can fail under non-https / restricted contexts.
-      // Surface the failure quietly; the user can still select+copy.
-      snackbar.error('Could not copy — select the URL manually')
+      // Start the flow WITHOUT a redirect_url override — helix's
+      // OAuth2Provider conflates `redirect_url` with the
+      // GitHub-side `redirect_uri`, which has to match the
+      // callback URL registered on the OAuth app. Letting the
+      // provider use its configured CallbackURL is what
+      // Connected Services does too. The "where do we go after?"
+      // problem is solved by the popup-window pattern below: the
+      // callback page postMessages 'oauth-success' back to the
+      // opener and self-closes.
+      const r = await fetch(
+        `/api/v1/oauth/flow/start/${encodeURIComponent(githubProviderID)}?scopes=${encodeURIComponent(GITHUB_STREAM_SCOPES)}`,
+        { credentials: 'include' },
+      )
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({} as any))
+        snackbar.error(body?.error ?? `OAuth flow start failed (${r.status})`)
+        return
+      }
+      const data = await r.json()
+      const url = data?.auth_url ?? data?.data?.auth_url
+      if (!url) {
+        snackbar.error('OAuth flow returned no auth_url')
+        return
+      }
+      // Open in a popup so the dialog stays open in the main
+      // window. The callback page (api/pkg/server/oauth.go) sends
+      // window.opener.postMessage({type:'oauth-success'}) before
+      // self-closing — listen for that to refresh the repo list.
+      const width = 800
+      const height = 700
+      const left = (window.innerWidth - width) / 2
+      const top = (window.innerHeight - height) / 2
+      const popup = window.open(
+        url,
+        'oauth-popup',
+        `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,directories=0,scrollbars=1`,
+      )
+      if (!popup) {
+        snackbar.error('Popup blocked — allow popups for this site and try again.')
+        return
+      }
+      const onMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'oauth-success') {
+          window.removeEventListener('message', onMessage)
+          snackbar.success('GitHub reconnected — refreshing repo list…')
+          // Force the cached repo list to refetch with the new
+          // token; helixml/helix should now appear.
+          ghReposQuery.refetch()
+        }
+      }
+      window.addEventListener('message', onMessage)
+    } catch (e: any) {
+      snackbar.error(e?.message ?? 'OAuth flow start failed')
     }
   }
 
-  const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
+  // If the operator had `github` selected when the probe came back
+  // negative (e.g. they disconnected OAuth between dialog opens),
+  // drop back to `local` so the disabled MenuItem becomes the
+  // current value's mismatch case.
+  useEffect(() => {
+    if (kind === 'github' && !ghReposQuery.isLoading && !ghConnected) {
+      setKind('local')
+    }
+  }, [kind, ghReposQuery.isLoading, ghConnected])
 
-  const ghRepoValid = ghRepo.trim() !== '' && GITHUB_REPO_PATTERN.test(ghRepo.trim())
-  const ghRepoError = ghRepo.trim() !== '' && !ghRepoValid
-    ? 'Format must be exactly owner/name (e.g. helixml/helix).'
-    : ''
+  const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
 
   const submit = async () => {
     if (!name.trim()) {
@@ -343,17 +409,15 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
     }
     let config: Record<string, unknown> | undefined
     if (kind === 'github') {
-      // Structured fields → wire config. Mirror the backend's
-      // GitHubConfig shape exactly so the validator passes first try.
-      if (!ghRepo.trim() || !ghRepoValid) {
-        snackbar.error('GitHub repo is required and must be owner/name')
+      if (!ghRepo.trim()) {
+        snackbar.error('Pick a GitHub repository')
         return
       }
-      if (ghEvents.length === 0) {
-        snackbar.error('Pick at least one GitHub event type')
-        return
-      }
-      config = { repo: ghRepo.trim(), events: ghEvents }
+      // "*" = wildcard — GitHub sends every event and helix's
+      // transport accepts every event. The detail page's edit form
+      // lets advanced operators narrow this to a specific
+      // whitelist after the stream is created.
+      config = { repo: ghRepo.trim(), events: ['*'] }
     } else if (configText.trim()) {
       try {
         config = JSON.parse(configText)
@@ -363,15 +427,42 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
       }
     }
     try {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         id: id.trim() || undefined,
         name: name.trim(),
         description: description.trim() || undefined,
         transport: { kind, config },
       })
-      snackbar.success('stream created')
+      if (kind === 'github' && created?.id) {
+        // Auto-install the webhook on GitHub. Idempotent — re-run
+        // adopts an existing hook rather than creating a duplicate.
+        try {
+          const inst = await installWebhook.mutateAsync(created.id)
+          if (inst.warning) {
+            // Webhook IS installed; the warning tells the user
+            // what's left on their side. Show as a (warning) toast
+            // — the success snackbar would mislead.
+            snackbar.error(`Webhook installed on GitHub (id ${inst.webhook_id}), but: ${inst.warning}`)
+          } else {
+            snackbar.success(`Stream created · webhook installed on GitHub (id ${inst.webhook_id})`)
+          }
+        } catch (e: any) {
+          // The stream is created but webhook install failed. The
+          // useApi-layer already showed the server's error
+          // snackbar (e.g. "SERVER_URL ... is a loopback
+          // address"); skip our own duplicate when that's the
+          // case. Otherwise (network failure, runtime error) fall
+          // back to a contextual message.
+          if (!(e instanceof InstallWebhookFailedError)) {
+            const msg = e?.response?.data?.error ?? e?.message ?? 'install failed'
+            snackbar.error(`Stream created but webhook install failed: ${msg}. Open the stream detail page and click "Re-install webhook".`)
+          }
+        }
+      } else {
+        snackbar.success('stream created')
+      }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-      setGhRepo(''); setGhEvents([])
+      setGhRepo('')
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -380,7 +471,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-    setGhRepo(''); setGhEvents([])
+    setGhRepo('')
     onClose()
   }
 
@@ -421,98 +512,129 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               label="Transport"
               onChange={(e) => setKind(e.target.value)}
             >
-              {TRANSPORT_KINDS.map((k) => (
-                <MenuItem key={k.value} value={k.value} sx={{ fontFamily: 'monospace' }}>
-                  {k.label}
-                </MenuItem>
-              ))}
+              {TRANSPORT_KINDS.map((k) => {
+                const disabled = k.value === 'github' && !ghReposQuery.isLoading && !ghConnected
+                return (
+                  <MenuItem
+                    key={k.value}
+                    value={k.value}
+                    disabled={disabled}
+                    sx={{ fontFamily: 'monospace' }}
+                  >
+                    {k.label}
+                    {disabled && (
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ ml: 1, fontFamily: 'inherit', fontStyle: 'italic' }}
+                      >
+                        — needs GitHub connection (see below)
+                      </Typography>
+                    )}
+                  </MenuItem>
+                )
+              })}
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary">{helpFor}</Typography>
+          {!ghReposQuery.isLoading && !ghConnected && (
+            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>GitHub not connected with the right scopes.</strong> Streams need <code>repo</code> + <code>admin:repo_hook</code> so helix can list private repos and register webhooks for you. The default Connected Services connect button doesn't request these.
+              </Typography>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={connectGitHubForStreams}
+                disabled={!githubProviderID}
+              >
+                Connect GitHub for streams
+              </Button>
+              {!githubProviderID && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  No GitHub OAuth provider configured. Admins: add one under Admin → OAuth Providers first.
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                You'll be redirected to GitHub to approve, then bounced back here.
+              </Typography>
+            </Box>
+          )}
           {kind === 'github' && (
             <>
-              {/* Scoping fields — backed by the Go validator's
-                  GitHubConfig{Repo, Events}. The validator rejects
-                  missing/invalid values with a 400; we surface the
-                  same rules inline so the user catches the mistake
-                  before submit. */}
-              <TextField
-                label="Repository"
-                placeholder="helixml/helix"
-                value={ghRepo}
-                onChange={(e) => setGhRepo(e.target.value)}
-                error={!!ghRepoError}
-                helperText={ghRepoError || 'Exactly one repo per stream — GitHub `owner/name` (e.g. helixml/helix). Matched case-insensitively against repository.full_name in the payload.'}
-                fullWidth
-                size="small"
-              />
-              <Autocomplete
-                multiple
-                disableCloseOnSelect
-                options={GITHUB_EVENT_OPTIONS}
-                value={GITHUB_EVENT_OPTIONS.filter((o) => ghEvents.includes(o.value))}
-                onChange={(_, next) => setGhEvents(next.map((o) => o.value))}
-                getOptionLabel={(o) => o.value}
-                isOptionEqualToValue={(a, b) => a.value === b.value}
-                renderOption={(props, option, { selected }) => (
-                  <li {...props}>
-                    <Checkbox checked={selected} sx={{ mr: 1 }} />
-                    <Box>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.value}</Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        {option.help}
-                      </Typography>
-                    </Box>
-                  </li>
-                )}
-                renderTags={(value, getTagProps) =>
-                  value.map((option, index) => (
-                    <Chip
-                      {...getTagProps({ index })}
-                      key={option.value}
-                      label={option.value}
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <Autocomplete
+                  freeSolo
+                  autoSelect
+                  selectOnFocus
+                  fullWidth
+                  options={ghRepoOptions}
+                  value={ghRepo || null}
+                  onChange={(_, v) => setGhRepo((v ?? '').trim())}
+                  onInputChange={(_, v, reason) => {
+                    // Sync typed text into ghRepo so the submit
+                    // handler sees what the operator typed even if
+                    // they never picked a dropdown row.
+                    if (reason === 'input') setGhRepo(v)
+                  }}
+                  loading={ghReposQuery.isLoading || ghReposQuery.isRefetching}
+                  disablePortal
+                  noOptionsText={
+                    ghReposQuery.isError
+                      ? 'Could not load repos — connect a GitHub account on Connected Services first.'
+                      : (ghReposQuery.isLoading || ghReposQuery.isRefetching)
+                        ? 'Loading…'
+                        : 'No matches — type the full owner/name and press Enter.'
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Repository"
+                      placeholder="search or type owner/name…"
                       size="small"
-                      sx={{ fontFamily: 'monospace' }}
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {(ghReposQuery.isLoading || ghReposQuery.isRefetching) && <CircularProgress size={16} sx={{ mr: 1 }} />}
+                            {params.InputProps.endAdornment}
+                          </>
+                        ),
+                      }}
+                      helperText={
+                        ghRepoOptions.length >= 1000
+                          ? `Showing the ${ghRepoOptions.length} most-recently-pushed repos. Type the full owner/name if the one you want isn't listed.`
+                          : `Pick a repo, or type owner/name directly. Helix will register the webhook on GitHub for you — no manual setup. ${ghRepoOptions.length} repos loaded.`
+                      }
                     />
-                  ))
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Events"
-                    placeholder={ghEvents.length === 0 ? 'Pick the GitHub events this stream consumes…' : ''}
-                    size="small"
-                    helperText="Anything not listed here is dropped at the transport, so subscribed Workers don't activate for events they'd ignore."
-                  />
-                )}
-              />
-              <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                  <strong>After Create</strong>, paste this into your GitHub repo's webhook settings (Settings → Webhooks → Add webhook):
-                </Typography>
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all', flex: 1 }}>
-                    <strong>Payload URL:</strong> <code>{webhookURL}</code>
-                  </Typography>
-                  <Button size="small" variant="outlined" onClick={copyWebhookURL} sx={{ minWidth: 56, fontSize: '0.65rem' }}>
-                    {copied ? 'Copied' : 'Copy'}
-                  </Button>
-                </Stack>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', mt: 0.5 }}>
-                  <strong>Content type:</strong> <code>application/json</code>
-                </Typography>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                  <strong>Secret:</strong> same value as <code>transport.github.webhook_secret</code> on the Settings page
-                </Typography>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                  <strong>Which events?</strong> Match this stream's selection above when filling GitHub's "Let me select individual events" — extra events GitHub sends but you didn't whitelist here are dropped at the transport.
-                </Typography>
-                {isLocalhostHint && (
-                  <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'warning.main', fontFamily: 'monospace', fontSize: '0.65rem' }}>
-                    ⚠ Your helix origin is a loopback address — GitHub's servers cannot reach it. Configure SERVER_URL to your public origin (e.g. behind a reverse proxy or cloudflared tunnel), or expose this listen-port publicly, before pasting into GitHub.
-                  </Typography>
-                )}
-              </Box>
+                  )}
+                />
+                <IconButton
+                  size="small"
+                  onClick={() => ghReposQuery.refetch()}
+                  disabled={ghReposQuery.isFetching}
+                  title="Re-fetch repos from GitHub (use this after granting the helix OAuth app access to a new org)"
+                  sx={{ mt: 0.5 }}
+                >
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Default: receive every event from this repo ("*"). You can narrow the events whitelist from the stream's detail page after it's created.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Missing private repos (e.g. an org's repo doesn't appear)? Your GitHub token may not have <code>repo</code> scope.{' '}
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={connectGitHubForStreams}
+                  disabled={!githubProviderID}
+                  sx={{ p: 0, minWidth: 0, textTransform: 'none', verticalAlign: 'baseline' }}
+                >
+                  Reconnect with stream permissions →
+                </Button>
+              </Typography>
             </>
           )}
           {kind !== 'local' && kind !== 'github' && (

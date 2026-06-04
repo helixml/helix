@@ -244,9 +244,10 @@ non-empty org always has at least one row.
    after a brief refetch.
 3. Top-right **+ New Stream** opens the create dialog. The
    **Transport** dropdown lists `local`, `webhook`, `github`,
-   `postmark`. Selecting `github` reveals the structured help box
-   with the **exact Payload URL** to paste into GitHub:
-   `http://<host>/api/v1/orgs/<org>/github/webhook`.
+   `postmark`. Picking `github` swaps the config fields for a
+   single searchable **Repository** dropdown (populated from
+   `GET /github/repos`); helix installs the webhook for the
+   operator after Create. Full one-click flow is pinned in §11e.
 
 ### 11b. Chart anchoring (regression: every stream dangled off w-owner)
 
@@ -320,45 +321,119 @@ list wholesale on every server push.
    "everything re-renders" is normal and is the simpler-than-diff
    contract this page is built on.
 
-### 11e. GitHub webhook delivery (regression: route was 404)
+### 11e. GitHub streams — one-click setup
 
-GitHub streams have been creatable for a while, but inbound
-deliveries to `/github/webhook` used to 404 — the route was never
-mounted. Now it lives on the INSECURE router (GitHub deliveries
-carry no helix session cookie) and authenticates via HMAC of the
-per-org `webhook_secret` set on the Settings page.
+Earlier iterations of the github-transport flow asked the operator
+to copy a payload URL into GitHub's webhook UI, paste a webhook
+secret, and pick events by hand. The current flow does ALL of that
+on their behalf — the only thing the user picks is *which repo* to
+subscribe to. Helix calls GitHub's REST API with the operator's
+connected OAuth token, registers the webhook with the right URL,
+content-type, secret, and `events: ["*"]` (send-me-everything)
+default, and stores the resulting hook id back on the stream so
+the detail page can deep-link to it.
 
-1. On `…/helix-org/settings`, set `transport.github` to
-   `{"webhook_secret":"qa-secret"}` (the GitHub access token comes
-   from your OAuth connection — no PAT needed; if you don't have a
-   connection yet, the inbound path still works, it's only outbound
-   actions that need the token).
-2. Create a github stream via **New Stream** with transport config
-   `{"repo":"helixml/helix","events":["issues"]}`.
-3. From a shell outside the browser (no session cookie):
-   ```bash
-   SECRET=qa-secret
-   BODY='{"action":"opened","repository":{"full_name":"helixml/helix"},"issue":{"number":1,"title":"hi"},"sender":{"login":"octocat"}}'
-   SIG=$(printf "%s" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
-   curl -i -X POST \
-     -H "Content-Type: application/json" \
-     -H "X-GitHub-Event: issues" \
-     -H "X-GitHub-Delivery: qa-del-1" \
-     -H "X-Hub-Signature-256: sha256=$SIG" \
-     --data "$BODY" \
-     http://localhost:8080/api/v1/orgs/<org>/github/webhook
-   ```
-   Expect **204** (no body). A 404 means the route isn't mounted
-   (regression); a 401 means the HMAC is wrong.
-4. Open the github stream's detail page. The just-delivered event
-   appears with `from=octocat`, subject=`hi`, thread_id=`#1`.
-5. Replay with a bad signature:
-   ```bash
-   curl -o /dev/null -w "%{http_code}\n" -X POST … \
-     -H "X-Hub-Signature-256: sha256=deadbeef" --data "$BODY" \
-     http://localhost:8080/api/v1/orgs/<org>/github/webhook
-   ```
-   Expect **401**.
+#### Pre-conditions
+- Operator has a connected GitHub OAuth (helix Connected Services
+  page). That's what `GitHubTokenResolver` returns — without it
+  `GET /github/repos` and the install endpoint both 412.
+- `SERVER_URL` is a publicly reachable host (NOT `localhost:8080`
+  / `127.0.0.1` / `0.0.0.0`). The install endpoint refuses with
+  412 on loopback origins so operators don't end up with a hook
+  pointed at a URL GitHub can't reach. Use cloudflared / ngrok /
+  reverse proxy for local testing.
+
+#### Create flow
+1. **Streams → New Stream**. Transport = `github`.
+2. **Repository** is a searchable Autocomplete populated by
+   `GET /api/v1/orgs/<org>/github/repos`. Typing filters the
+   list. (Empty / error state: "Could not load repos — connect a
+   GitHub account on Connected Services first.")
+3. No events picker on the create dialog — defaults to `["*"]`.
+   The caption reads "Default: receive every event from this
+   repo. You can narrow the events whitelist from the stream's
+   detail page after it's created."
+4. **Create**. Two things happen in sequence:
+   - `POST /streams` creates the stream row.
+   - `POST /streams/<id>/github/install-webhook` calls the GitHub
+     API. The toast on success reads
+     "Stream created · webhook installed on GitHub (id <hookID>)".
+   - On install failure (e.g. repo without admin rights), the
+     stream is still created and the toast tells the operator
+     "Stream created but webhook install failed: <reason>. Open
+     the stream detail page and click 'Re-install webhook'."
+
+#### Detail page
+5. Open the stream detail page. The **Connect to GitHub** panel
+   shows one of three states:
+   - **Installed** — "Helix has registered a webhook on
+     `owner/name` (id <hookID>). Deliveries flow into this stream
+     automatically — no manual setup." Buttons: **Edit on GitHub
+     →** (opens
+     `https://github.com/<owner>/<name>/settings/hooks/<id>` in
+     a new tab) + **Re-install** (idempotent).
+   - **Not installed** — "No webhook registered yet for `repo`.
+     Helix can install it for you — one click, no copying URLs."
+     Button: **Install webhook on GitHub**.
+   - **Loopback warning** — if `SERVER_URL` is localhost, a red
+     banner at the top of the panel says "GitHub's servers can't
+     reach this URL, so deliveries won't arrive. Run helix behind
+     a public hostname (cloudflared / ngrok / reverse proxy) and
+     update SERVER_URL before relying on this stream." Sits ABOVE
+     either of the other two states.
+
+#### Backend regression pins
+6. `GitHubConfig` (`api/pkg/org/domain/transport/github.go`) gained
+   two optional fields: `webhook_id` (int64) and
+   `webhook_html_url` (string). Populated by
+   `installGitHubWebhook` after a successful GitHub API call;
+   serialised into the stream's `transport_config` JSON column.
+7. The events whitelist now accepts `"*"` as a wildcard meaning
+   "deliver every event". Validator allows it (special case in
+   `Validate()`); transport's `contains()` short-circuits on `*`.
+   Mirrors GitHub's own `events: ["*"]` semantics so the API call
+   we make matches what helix's transport accepts.
+8. `transport.github.webhook_secret` is **auto-generated** on
+   first install (`ensureGitHubWebhookSecret` in
+   `api/pkg/org/interfaces/server/api/api.go`). 32-byte random
+   hex, persisted via `Registry.Set` as the system owner. The
+   operator never has to paste a secret manually. Existing
+   secrets are preserved — if the operator set one before, it's
+   reused.
+9. `installGitHubWebhook` is idempotent — re-running the
+   mutation adopts an existing hook on the repo whose URL
+   matches helix's, rather than creating a duplicate. Pin in
+   `github.Client.UpsertWebhook`.
+
+#### End-to-end test (real cloudflared tunnel)
+10. `cloudflared tunnel --url http://localhost:8080`, copy the
+    public URL.
+11. `export SERVER_URL=<public-url>` in `.env`, restart api
+    container.
+12. Create a github stream for a repo you own. Confirm:
+    - `SELECT transport_config FROM org_streams WHERE id='<id>'`
+      shows `{"repo":"owner/name","events":["*"],"webhook_id":<N>,"webhook_html_url":"https://github.com/owner/name/settings/hooks/<N>"}`.
+    - Visit the html URL in a fresh tab — GitHub's webhook
+      edit page loads, Payload URL matches the public stream
+      URL, Content type is `application/json`, "Just the push
+      event?" → "Send me everything" is selected.
+13. Open an issue on the repo. Within seconds the stream
+    detail page's Messages feed shows the delivery (SSE).
+
+#### Edge cases
+14. **No GitHub OAuth connection** — Repository dropdown is
+    empty + helper text points to Connected Services. Create
+    button stays clickable (operator can still pick `local`
+    transport).
+15. **Localhost SERVER_URL** — Create succeeds (no need to gate
+    creation on the URL being public), but install returns 412
+    with "SERVER_URL ... is a loopback address — GitHub can't
+    reach it." Detail page shows the loopback warning + "not
+    installed" state.
+16. **Re-install** — clicking the button on a stream that
+    already has a webhook hits the same endpoint; server adopts
+    the existing hook (no duplicate). Toast: "Webhook installed
+    on GitHub (id <same-id>)."
 
 ### 11f. Delete from chart + Fire cascade (regression: orphan activation streams)
 
@@ -525,9 +600,12 @@ otherwise the desktop session is created but never connects.
 - §11d — publishing while the detail page is open surfaces the new
   event in the list within ~1.5s without a reload, replacing not
   appending.
-- §11e — `POST /api/v1/orgs/<org>/github/webhook` with a valid
-  HMAC returns 204 and the event lands on the matching github
-  stream; bad HMAC returns 401; the route MUST be mounted (no 404).
+- §11e — creating a github stream + clicking Create installs the
+  webhook on GitHub automatically (no manual URL copy / secret
+  paste); the detail page shows the "Edit on GitHub →" link;
+  loopback `SERVER_URL` is refused at install time with a clear
+  message. Inbound deliveries to the per-stream URL with a valid
+  HMAC return 204; bad HMAC returns 401.
 - §11f — firing a Worker cascades-deletes its
   `s-activations-<workerID>` Stream (pseudo-node gone from chart,
   `org_streams` row gone from DB, events retained); chart stream

@@ -2,16 +2,20 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
+	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
@@ -114,6 +118,13 @@ type Deps struct {
 	// helix OAuth manager into this shape.
 	GitHubTokenResolver func(ctx context.Context, orgID string) (string, error)
 
+	// PublicServerURL is the operator-configured external base URL
+	// (e.g. https://helix.example.com) that auto-installed GitHub
+	// webhooks should POST back to. Falls back to localhost when
+	// unset — the install-webhook handler refuses on localhost so
+	// operators don't paste an unreachable URL into a real repo.
+	PublicServerURL string
+
 	// NewID and Now are seams for tests. Production wiring passes
 	// system.GenerateID / time.Now.
 	NewID func() string
@@ -170,6 +181,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /streams", Handler: http.HandlerFunc(a.listStreams)},
 		{Pattern: "POST /streams", Handler: http.HandlerFunc(a.createStream)},
 		{Pattern: "GET /streams/{id}", Handler: http.HandlerFunc(a.getStream)},
+		{Pattern: "PUT /streams/{id}", Handler: http.HandlerFunc(a.updateStream)},
 		{Pattern: "DELETE /streams/{id}", Handler: http.HandlerFunc(a.deleteStream)},
 		{Pattern: "GET /streams/{id}/events", Handler: http.HandlerFunc(a.streamEventsSSE)},
 		{Pattern: "POST /streams/{id}/publish", Handler: http.HandlerFunc(a.publishToStream)},
@@ -179,6 +191,14 @@ func Routes(deps Deps) []Route {
 		// config registry on every delivery, so a single mounted
 		// route serves every org without rebinding state.
 		{Pattern: "POST /github/webhook", Handler: http.HandlerFunc(a.githubWebhook)},
+		// GitHub helper endpoints. listGitHubRepos powers the
+		// searchable repo dropdown in the New Stream dialog;
+		// installGitHubWebhook calls the GitHub API on behalf of the
+		// operator so the only thing the user has to choose is which
+		// repo. Both rely on a working GitHubTokenResolver (i.e. the
+		// operator has a connected GitHub OAuth).
+		{Pattern: "GET /github/repos", Handler: http.HandlerFunc(a.listGitHubRepos)},
+		{Pattern: "POST /streams/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
 	}
 }
 
@@ -949,6 +969,10 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		dto.CanPublish = s.Transport.Kind != transport.KindGitHub
 		if !dto.CanPublish {
 			dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+			dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
+		}
+		if cfg, err := transportConfigMap(s.Transport); err == nil {
+			dto.Config = cfg
 		}
 		subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID)
 		if err != nil {
@@ -1097,6 +1121,10 @@ func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
 	dto.CanPublish = s.Transport.Kind != transport.KindGitHub
 	if !dto.CanPublish {
 		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
+	}
+	if cfg, err := transportConfigMap(s.Transport); err == nil {
+		dto.Config = cfg
 	}
 	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID); err == nil {
 		for _, sub := range subs {
@@ -1108,6 +1136,143 @@ func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50); err == nil {
+		for _, ev := range events {
+			dto.RecentEvents = append(dto.RecentEvents, eventCard(ev))
+		}
+	}
+	writeJSON(w, http.StatusOK, dto)
+}
+
+// resolveEffectivePublicURL returns the base URL helix uses for
+// github webhook payload URLs, in the same priority order as
+// installGitHubWebhook: `streams.public_url` org config wins,
+// SERVER_URL (env) is the fallback. Returns "" when neither is
+// set. Surfaced in StreamDTO so the detail page can evaluate the
+// loopback warning without re-implementing the priority logic.
+func (a *apiHandler) resolveEffectivePublicURL(ctx context.Context, orgID string) string {
+	envURL := strings.TrimSpace(a.deps.PublicServerURL)
+	if a.deps.Configs != nil {
+		if override, err := a.deps.Configs.GetString(ctx, orgID, "streams.public_url"); err == nil {
+			if v := strings.TrimSpace(override); v != "" {
+				return v
+			}
+		}
+	}
+	return envURL
+}
+
+// transportConfigMap unmarshals a Transport.Config raw JSON blob
+// into a typed map for the StreamDTO `config` field. Returns an
+// empty map when the transport has no config (local kind).
+func transportConfigMap(t transport.Transport) (map[string]interface{}, error) {
+	if len(t.Config) == 0 {
+		return nil, nil
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(t.Config, &out); err != nil {
+		return nil, fmt.Errorf("decode transport config: %w", err)
+	}
+	return out, nil
+}
+
+// updateStream rewrites the mutable subset of a stream — name,
+// description, and (optionally) transport kind + config. Returns
+// the post-update StreamDTO so the UI can replace its cached row
+// without a follow-up GET. Composite key (id, orgID) is enforced
+// by the repo; cross-org id-guessing returns 404.
+//
+// @Summary Helix-org: update a stream
+// @Tags HelixOrg
+// @Accept json
+// @Produce json
+// @Param id path string true "Stream ID"
+// @Param payload body api.UpdateStreamRequest true "Stream patch"
+// @Success 200 {object} api.StreamDTO
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/streams/{id} [put]
+func (a *apiHandler) updateStream(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := streaming.StreamID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+		return
+	}
+	var req UpdateStreamRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("name is required"))
+		return
+	}
+	existing, err := a.deps.Store.Streams.Get(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", id, err))
+		return
+	}
+	// Start from the existing transport; replace fully when the
+	// caller supplies `transport` with both kind and config; replace
+	// only the config when only the config is supplied (typical
+	// "tweak the github repo or events whitelist" flow).
+	tr := existing.Transport
+	if req.Transport != nil {
+		if k := strings.TrimSpace(req.Transport.Kind); k != "" {
+			tr.Kind = transport.Kind(k)
+		}
+		if req.Transport.Config != nil {
+			raw, err := json.Marshal(req.Transport.Config)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("encode transport config: %w", err))
+				return
+			}
+			tr.Config = raw
+		}
+	}
+	updated, err := streaming.NewStream(
+		existing.ID, req.Name, req.Description,
+		existing.CreatedBy, existing.CreatedAt, tr, existing.OrganizationID,
+	)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := a.deps.Store.Streams.Update(ctx, updated); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("update stream: %w", err))
+		return
+	}
+	// Reuse getStream's response shape — including subscribers,
+	// recent events, and the parsed config map — so the UI just
+	// swaps its cached row.
+	dto := StreamDTO{
+		ID:          string(updated.ID),
+		Name:        updated.Name,
+		Description: updated.Description,
+		Kind:        string(updated.Transport.Kind),
+		CreatedBy:   string(updated.CreatedBy),
+		CreatedAt:   updated.CreatedAt.Format(time.RFC3339),
+	}
+	dto.CanPublish = updated.Transport.Kind != transport.KindGitHub
+	if !dto.CanPublish {
+		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
+	}
+	if cfg, err := transportConfigMap(updated.Transport); err == nil {
+		dto.Config = cfg
+	}
+	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, updated.ID); err == nil {
+		for _, sub := range subs {
+			dto.Subscribers = append(dto.Subscribers, string(sub.PositionID))
+		}
+	}
+	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, updated.ID, 50); err == nil {
 		for _, ev := range events {
 			dto.RecentEvents = append(dto.RecentEvents, eventCard(ev))
 		}
@@ -1523,6 +1688,287 @@ func (a *apiHandler) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		t = t.WithTokenResolver(githubtransport.TokenResolver(a.deps.GitHubTokenResolver))
 	}
 	t.HandleInbound().ServeHTTP(w, r)
+}
+
+// ---- GitHub helper endpoints -------------------------------------------
+
+// GitHubRepoDTO is one entry in the searchable repo dropdown the
+// New Stream dialog shows when transport=github is picked. Kept
+// intentionally narrow: just the canonical `owner/name` and an
+// optional flag so the UI can dim non-admin repos (you can't
+// install a webhook without admin rights).
+type GitHubRepoDTO struct {
+	FullName string `json:"full_name"`
+	Private  bool   `json:"private,omitempty"`
+}
+
+// GitHubReposResponse is the body of GET /github/repos.
+type GitHubReposResponse struct {
+	Repos []GitHubRepoDTO `json:"repos"`
+	// Source identifies which token paid for this list — useful
+	// when debugging "I can't see repo X" reports.
+	Source string `json:"source,omitempty"`
+}
+
+// listGitHubRepos returns every repo the connected GitHub OAuth
+// token can see, sorted alphabetically. Drives the searchable
+// dropdown so operators don't have to remember the exact
+// `owner/name` they want to wire up.
+//
+// @Summary Helix-org: list GitHub repos accessible to the org's connected token
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {object} api.GitHubReposResponse
+// @Failure 412 {object} api.ErrorResponse "no GitHub token configured"
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/github/repos [get]
+func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if a.deps.GitHubTokenResolver == nil {
+		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHubTokenResolver wired; connect a GitHub account on the helix Connected Services page"))
+		return
+	}
+	token, err := a.deps.GitHubTokenResolver(ctx, orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github token: %w", err))
+		return
+	}
+	if token == "" {
+		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHub OAuth connection found for this org; connect GitHub on the Connected Services page"))
+		return
+	}
+	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("build github client: %w", err))
+		return
+	}
+	names, err := client.LoadRepos()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("list github repos: %w", err))
+		return
+	}
+	// Preserve GitHub's pushed-desc order so the dropdown lists the
+	// operator's most-actively-worked repos first. (The frontend's
+	// Autocomplete is freeSolo, so anything missed by pagination
+	// can still be typed in manually.)
+	out := GitHubReposResponse{Repos: make([]GitHubRepoDTO, 0, len(names)), Source: "oauth"}
+	for _, n := range names {
+		out.Repos = append(out.Repos, GitHubRepoDTO{FullName: n})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// InstallGitHubWebhookResponse is the body of POST
+// /streams/{id}/github/install-webhook.
+type InstallGitHubWebhookResponse struct {
+	WebhookID      int64  `json:"webhook_id"`
+	WebhookHTMLURL string `json:"webhook_html_url,omitempty"`
+	PayloadURL     string `json:"payload_url"`
+	// Warning is a non-fatal message about the just-installed
+	// webhook — e.g. "SERVER_URL is a loopback address so GitHub's
+	// servers can't actually deliver to this URL". The webhook IS
+	// installed on GitHub; the warning just tells the operator
+	// what needs fixing on their side for deliveries to flow.
+	Warning string `json:"warning,omitempty"`
+}
+
+// installGitHubWebhook calls the GitHub REST API on behalf of the
+// operator to register a webhook on the stream's repo pointing at
+// helix's per-stream payload URL. Idempotent: if a webhook with
+// the same URL already exists on the repo, we adopt it (no
+// double-install). Persists the resulting webhook id + edit-page
+// URL on the stream's transport config so the detail page can
+// deep-link out.
+//
+// Pre-conditions:
+//   - transport=github stream
+//   - GitHubTokenResolver returns a non-empty token
+//   - transport.github.webhook_secret configured on the org; if
+//     missing, helix auto-generates one and persists it (the
+//     operator never has to copy it manually).
+//   - PublicServerURL set to a non-localhost origin (refused
+//     otherwise — GitHub's servers can't reach localhost).
+//
+// @Summary Helix-org: auto-install the webhook for a github stream
+// @Tags HelixOrg
+// @Param id path string true "Stream ID"
+// @Produce json
+// @Success 200 {object} api.InstallGitHubWebhookResponse
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 412 {object} api.ErrorResponse "pre-conditions not met"
+// @Failure 502 {object} api.ErrorResponse "GitHub API call failed"
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/streams/{id}/github/install-webhook [post]
+func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	streamID := streaming.StreamID(r.PathValue("id"))
+	if streamID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+		return
+	}
+	// SERVER_URL reachability is checked for a warning, but does
+	// NOT block the install — operators want to set the webhook up
+	// even on a local dev machine and fix the URL once their
+	// cloudflared/ngrok/reverse-proxy is wired. We collect the
+	// warning here and return it in the response so the UI can
+	// surface it next to the success.
+	// Resolve the public base URL for the webhook payload URL:
+	//   1. `streams.public_url` org config (UI-editable) wins, so
+	//      an admin can fix a loopback SERVER_URL via the
+	//      Settings page without touching .env.
+	//   2. Else fall back to PublicServerURL (SERVER_URL env on
+	//      the helix host).
+	// Empty result is a hard refusal — without a URL we'd register
+	// a relative path with GitHub which the API either rejects or
+	// silently fails on. A loopback URL is different: well-formed,
+	// just unreachable, so we install + warn so the operator can
+	// fix it later.
+	publicURL := strings.TrimSpace(a.deps.PublicServerURL)
+	if a.deps.Configs != nil {
+		if override, err := a.deps.Configs.GetString(ctx, orgID, "streams.public_url"); err == nil && strings.TrimSpace(override) != "" {
+			publicURL = strings.TrimSpace(override)
+		}
+	}
+	if publicURL == "" {
+		writeError(w, http.StatusPreconditionFailed, errors.New("no public URL configured for helix. Set `streams.public_url` on the helix-org Settings page (or SERVER_URL in helix's .env), then re-install the webhook."))
+		return
+	}
+	// GitHub's webhook API refuses to register hooks pointed at
+	// loopback addresses with `422 url is not supported because
+	// it isn't reachable over the public Internet`. There's no
+	// way to override that on GitHub's end, so we pre-flight
+	// the check here and return a clear, actionable 412 instead.
+	// Operators can fix it from the helix-org Settings page by
+	// setting `streams.public_url` (no .env edit needed).
+	if u, err := url.Parse(publicURL); err == nil {
+		host := strings.ToLower(u.Hostname())
+		if host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" {
+			writeError(w, http.StatusPreconditionFailed, fmt.Errorf("public URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set `streams.public_url` on the helix-org Settings page to a publicly reachable hostname (cloudflared / ngrok / reverse proxy), or update SERVER_URL in helix's .env and restart the api container", publicURL))
+			return
+		}
+	}
+	s, err := a.deps.Store.Streams.Get(ctx, orgID, streamID)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
+		return
+	}
+	if s.Transport.Kind != transport.KindGitHub {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("stream %s is not a github transport (kind=%s)", streamID, s.Transport.Kind))
+		return
+	}
+	cfg, err := s.Transport.GitHubConfig()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("parse github config: %w", err))
+		return
+	}
+	if cfg.Repo == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream's github config has no repo set; edit the stream first"))
+		return
+	}
+	if len(cfg.Events) == 0 {
+		cfg.Events = []string{"*"}
+	}
+	if a.deps.GitHubTokenResolver == nil {
+		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHubTokenResolver wired"))
+		return
+	}
+	token, err := a.deps.GitHubTokenResolver(ctx, orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github token: %w", err))
+		return
+	}
+	if token == "" {
+		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHub OAuth connection found for this org; connect GitHub on the Connected Services page"))
+		return
+	}
+	secret, err := ensureGitHubWebhookSecret(ctx, a.deps.Configs, orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure webhook secret: %w", err))
+		return
+	}
+	repoParts := strings.SplitN(cfg.Repo, "/", 2)
+	if len(repoParts) != 2 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("malformed repo %q", cfg.Repo))
+		return
+	}
+	owner, repoName := repoParts[0], repoParts[1]
+	payloadURL := strings.TrimRight(publicURL, "/") +
+		"/api/v1/orgs/" + url.PathEscape(orgID) +
+		"/streams/" + url.PathEscape(string(streamID)) + "/github/webhook"
+	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("build github client: %w", err))
+		return
+	}
+	hook, err := client.UpsertWebhook(owner, repoName, "web", payloadURL, cfg.Events, secret)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("create github webhook: %w", err))
+		return
+	}
+	// Persist webhook_id + html_url back on the stream so the
+	// detail page can deep-link out without re-calling GitHub.
+	cfg.WebhookID = hook.ID
+	cfg.WebhookHTMLURL = hook.HTMLURL
+	cfgRaw, err := json.Marshal(cfg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("re-marshal config: %w", err))
+		return
+	}
+	s.Transport.Config = cfgRaw
+	if err := a.deps.Store.Streams.Update(ctx, s); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("update stream after webhook install: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, InstallGitHubWebhookResponse{
+		WebhookID:      hook.ID,
+		WebhookHTMLURL: hook.HTMLURL,
+		PayloadURL:     payloadURL,
+	})
+}
+
+// ensureGitHubWebhookSecret reads the org's transport.github
+// webhook_secret. If it's unset, generates a 32-byte random hex
+// secret and persists it so future webhook installs (and the
+// HMAC verifier on inbound deliveries) use the same value. This
+// removes the manual "go to Settings, paste a secret" step from
+// the operator's flow.
+func ensureGitHubWebhookSecret(ctx context.Context, reg *configregistry.Registry, orgID string) (string, error) {
+	if reg == nil {
+		return "", errors.New("config registry not wired")
+	}
+	var cfg struct {
+		Token         string `json:"token,omitempty"`
+		WebhookSecret string `json:"webhook_secret,omitempty"`
+	}
+	_ = reg.GetObject(ctx, orgID, "transport.github", &cfg)
+	if cfg.WebhookSecret != "" {
+		return cfg.WebhookSecret, nil
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate secret: %w", err)
+	}
+	cfg.WebhookSecret = hex.EncodeToString(buf)
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal config: %w", err)
+	}
+	// Persist as the system owner — webhook-secret bootstrap is
+	// helix self-care, not an operator-attributed change.
+	if err := reg.Set(ctx, orgID, "transport.github", string(out), orgchart.WorkerID("w-owner")); err != nil {
+		return "", fmt.Errorf("persist secret: %w", err)
+	}
+	return cfg.WebhookSecret, nil
 }
 
 // ---- helpers ------------------------------------------------------------

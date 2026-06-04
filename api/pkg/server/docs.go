@@ -9145,6 +9145,75 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/github/repos": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list GitHub repos accessible to the org's connected token",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubReposResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "no GitHub token configured",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/webhook": {
+            "post": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: inbound GitHub webhook",
+                "parameters": [
+                    {
+                        "description": "Raw GitHub webhook delivery",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Delivery accepted but no matching streams"
+                    },
+                    "204": {
+                        "description": "Delivery accepted and fanned out"
+                    },
+                    "401": {
+                        "description": "Bad or missing X-Hub-Signature-256",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "transport.github not configured",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/positions": {
             "get": {
                 "security": [
@@ -9357,6 +9426,131 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/positions/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a position's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Position ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.PositionSubscriptionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe a position to a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Position ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "stream to subscribe to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SubscribePositionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.PositionSubscriptionDTO"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.PositionSubscriptionDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe a position from a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Position ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "stream_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -9787,6 +9981,61 @@ const docTemplate = `{
                     }
                 }
             },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Stream patch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateStreamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.StreamDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -9847,6 +10096,57 @@ const docTemplate = `{
                         "description": "SSE: event: message / data: [EventCard,...]",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/github/install-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: auto-install the webhook for a github stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.InstallGitHubWebhookResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "pre-conditions not met",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "GitHub API call failed",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -19913,6 +20213,32 @@ const docTemplate = `{
                 }
             }
         },
+        "api.GitHubRepoDTO": {
+            "type": "object",
+            "properties": {
+                "full_name": {
+                    "type": "string"
+                },
+                "private": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "api.GitHubReposResponse": {
+            "type": "object",
+            "properties": {
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.GitHubRepoDTO"
+                    }
+                },
+                "source": {
+                    "description": "Source identifies which token paid for this list — useful\nwhen debugging \"I can't see repo X\" reports.",
+                    "type": "string"
+                }
+            }
+        },
         "api.HireGrantInput": {
             "type": "object",
             "properties": {
@@ -19955,6 +20281,24 @@ const docTemplate = `{
                 }
             }
         },
+        "api.InstallGitHubWebhookResponse": {
+            "type": "object",
+            "properties": {
+                "payload_url": {
+                    "type": "string"
+                },
+                "warning": {
+                    "description": "Warning is a non-fatal message about the just-installed\nwebhook — e.g. \"SERVER_URL is a loopback address so GitHub's\nservers can't actually deliver to this URL\". The webhook IS\ninstalled on GitHub; the warning just tells the operator\nwhat needs fixing on their side for deliveries to flow.",
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.PositionDTO": {
             "type": "object",
             "properties": {
@@ -19966,6 +20310,31 @@ const docTemplate = `{
                 },
                 "role_id": {
                     "type": "string"
+                }
+            }
+        },
+        "api.PositionSubscriptionDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "stream_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.PositionSubscriptionsResponse": {
+            "type": "object",
+            "properties": {
+                "position_id": {
+                    "type": "string"
+                },
+                "subscriptions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.PositionSubscriptionDTO"
+                    }
                 }
             }
         },
@@ -20092,6 +20461,11 @@ const docTemplate = `{
                 "can_publish": {
                     "type": "boolean"
                 },
+                "config": {
+                    "description": "Config is the parsed transport-specific configuration so the\ndetail page can render and edit it without round-tripping\nthrough the raw JSON column. Shape depends on Kind:\n  - github   → {\"repo\": \"owner/name\", \"events\": [\"…\"]}\n  - webhook  → {\"inbound_path\": \"…\", \"outbound_url\": \"…\"}\n  - postmark → {\"inbound_address\": \"…\"}\n  - local    → omitted (no config)",
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -20102,6 +20476,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "disable_reason": {
+                    "type": "string"
+                },
+                "effective_public_url": {
+                    "description": "EffectivePublicURL is the resolved base URL the github\ntransport uses for webhook payload URLs — i.e.\n` + "`" + `streams.public_url` + "`" + ` (org config) when set, falling back to\nSERVER_URL (env). Returned for github streams only; lets\nthe detail page evaluate whether the operator's \"is my\nwebhook reachable?\" check passes WITHOUT needing to know\nabout the org-config override itself. Empty when neither\nsource has a value.",
                     "type": "string"
                 },
                 "id": {
@@ -20142,6 +20520,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/api.StreamDTO"
                     }
+                }
+            }
+        },
+        "api.SubscribePositionRequest": {
+            "type": "object",
+            "properties": {
+                "stream_id": {
+                    "type": "string"
                 }
             }
         },
@@ -20196,6 +20582,20 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "api.UpdateStreamRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "transport": {
+                    "$ref": "#/definitions/api.TransportRequestField"
                 }
             }
         },
@@ -31266,6 +31666,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sentry_dsn_frontend": {
+                    "type": "string"
+                },
+                "server_url": {
+                    "description": "ServerURL is the operator-configured public origin for this helix\ninstance (env SERVER_URL → WebServer.URL). Empty when not\nconfigured; the frontend then falls back to\n` + "`" + `window.location.origin` + "`" + `. The github-stream New Stream dialog\nuses this to surface a webhook URL that's actually reachable by\nGitHub — ` + "`" + `window.location.origin` + "`" + ` is wrong whenever the user is\nhitting the app via localhost / a dev port that GitHub can't\nreach.",
                     "type": "string"
                 },
                 "stripe_enabled": {

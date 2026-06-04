@@ -90,6 +90,25 @@ definitions:
       to:
         type: string
     type: object
+  api.GitHubRepoDTO:
+    properties:
+      full_name:
+        type: string
+      private:
+        type: boolean
+    type: object
+  api.GitHubReposResponse:
+    properties:
+      repos:
+        items:
+          $ref: '#/definitions/api.GitHubRepoDTO'
+        type: array
+      source:
+        description: |-
+          Source identifies which token paid for this list — useful
+          when debugging "I can't see repo X" reports.
+        type: string
+    type: object
   api.HireGrantInput:
     properties:
       tool_name:
@@ -117,6 +136,23 @@ definitions:
       id:
         type: string
     type: object
+  api.InstallGitHubWebhookResponse:
+    properties:
+      payload_url:
+        type: string
+      warning:
+        description: |-
+          Warning is a non-fatal message about the just-installed
+          webhook — e.g. "SERVER_URL is a loopback address so GitHub's
+          servers can't actually deliver to this URL". The webhook IS
+          installed on GitHub; the warning just tells the operator
+          what needs fixing on their side for deliveries to flow.
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
   api.PositionDTO:
     properties:
       id:
@@ -125,6 +161,22 @@ definitions:
         type: string
       role_id:
         type: string
+    type: object
+  api.PositionSubscriptionDTO:
+    properties:
+      created_at:
+        type: string
+      stream_id:
+        type: string
+    type: object
+  api.PositionSubscriptionsResponse:
+    properties:
+      position_id:
+        type: string
+      subscriptions:
+        items:
+          $ref: '#/definitions/api.PositionSubscriptionDTO'
+        type: array
     type: object
   api.PublishRequest:
     properties:
@@ -209,6 +261,17 @@ definitions:
     properties:
       can_publish:
         type: boolean
+      config:
+        additionalProperties: true
+        description: |-
+          Config is the parsed transport-specific configuration so the
+          detail page can render and edit it without round-tripping
+          through the raw JSON column. Shape depends on Kind:
+            - github   → {"repo": "owner/name", "events": ["…"]}
+            - webhook  → {"inbound_path": "…", "outbound_url": "…"}
+            - postmark → {"inbound_address": "…"}
+            - local    → omitted (no config)
+        type: object
       created_at:
         type: string
       created_by:
@@ -216,6 +279,17 @@ definitions:
       description:
         type: string
       disable_reason:
+        type: string
+      effective_public_url:
+        description: |-
+          EffectivePublicURL is the resolved base URL the github
+          transport uses for webhook payload URLs — i.e.
+          `streams.public_url` (org config) when set, falling back to
+          SERVER_URL (env). Returned for github streams only; lets
+          the detail page evaluate whether the operator's "is my
+          webhook reachable?" check passes WITHOUT needing to know
+          about the org-config override itself. Empty when neither
+          source has a value.
         type: string
       id:
         type: string
@@ -245,6 +319,11 @@ definitions:
         items:
           $ref: '#/definitions/api.StreamDTO'
         type: array
+    type: object
+  api.SubscribePositionRequest:
+    properties:
+      stream_id:
+        type: string
     type: object
   api.ToolDTO:
     properties:
@@ -280,6 +359,15 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  api.UpdateStreamRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      transport:
+        $ref: '#/definitions/api.TransportRequestField'
     type: object
   api.UpdateWorkerIdentityRequest:
     properties:
@@ -8177,6 +8265,17 @@ definitions:
       rudderstack_write_key:
         type: string
       sentry_dsn_frontend:
+        type: string
+      server_url:
+        description: |-
+          ServerURL is the operator-configured public origin for this helix
+          instance (env SERVER_URL → WebServer.URL). Empty when not
+          configured; the frontend then falls back to
+          `window.location.origin`. The github-stream New Stream dialog
+          uses this to surface a webhook URL that's actually reachable by
+          GitHub — `window.location.origin` is wrong whenever the user is
+          hitting the app via localhost / a dev port that GitHub can't
+          reach.
         type: string
       stripe_enabled:
         description: Stripe top-ups enabled
@@ -17029,6 +17128,49 @@ paths:
       summary: 'Helix-org: get org chart'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/github/repos:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubReposResponse'
+        "412":
+          description: no GitHub token configured
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list GitHub repos accessible to the org''s connected token'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/github/webhook:
+    post:
+      parameters:
+      - description: Raw GitHub webhook delivery
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: Delivery accepted but no matching streams
+        "204":
+          description: Delivery accepted and fanned out
+        "401":
+          description: Bad or missing X-Hub-Signature-256
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: transport.github not configured
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 'Helix-org: inbound GitHub webhook'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/positions:
     get:
       produces:
@@ -17165,6 +17307,84 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: update a position'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/positions/{id}/subscriptions:
+    get:
+      parameters:
+      - description: Position ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PositionSubscriptionsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a position''s subscriptions'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Position ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: stream to subscribe to
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.SubscribePositionRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PositionSubscriptionDTO'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.PositionSubscriptionDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: subscribe a position to a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id}:
+    delete:
+      parameters:
+      - description: Position ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Stream ID
+        in: path
+        name: stream_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: unsubscribe a position from a stream'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/roles:
@@ -17449,6 +17669,41 @@ paths:
       summary: 'Helix-org: get a stream'
       tags:
       - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Stream patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateStreamRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.StreamDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update a stream'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/streams/{id}/events:
     get:
       parameters:
@@ -17467,6 +17722,38 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: SSE stream of events for one stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/github/install-webhook:
+    post:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InstallGitHubWebhookResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "412":
+          description: pre-conditions not met
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: GitHub API call failed
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: auto-install the webhook for a github stream'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/streams/{id}/publish:

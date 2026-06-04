@@ -34,6 +34,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -171,6 +172,59 @@ func (t *Transport) config(ctx context.Context) (Config, error) {
 // match that for safety.
 const maxBody = 25 << 20
 
+// decodeWebhookPayload normalises the raw POST body into a typed
+// map regardless of the content type GitHub used. GitHub's
+// webhook UI offers two options:
+//   - `application/json` — body is the JSON payload directly.
+//   - `application/x-www-form-urlencoded` — body is
+//     `payload=<urlencoded-json>`, the form variant the GH UI
+//     defaults to in some flows.
+//
+// helix-org's install code always asks for `application/json`,
+// but operators who set the webhook up manually before the
+// install endpoint shipped (or whose existing hook was adopted
+// idempotently with a stale content type) can end up sending us
+// form-encoded deliveries. Honour both so deliveries never drop
+// on the content-type axis alone.
+func decodeWebhookPayload(contentType string, body []byte) (map[string]any, error) {
+	ct := contentType
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = ct[:i]
+	}
+	ct = strings.TrimSpace(strings.ToLower(ct))
+	var payload map[string]any
+	switch ct {
+	case "application/x-www-form-urlencoded":
+		// GitHub form-encodes the JSON as `payload=<json>`.
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return nil, fmt.Errorf("parse form body: %w", err)
+		}
+		raw := vals.Get("payload")
+		if raw == "" {
+			return nil, errors.New("form body missing `payload` field")
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return nil, fmt.Errorf("parse form payload json: %w", err)
+		}
+		return payload, nil
+	case "", "application/json":
+		// Default to JSON when the content type is empty (some
+		// proxies strip the header) or explicitly JSON.
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, fmt.Errorf("parse json body: %w", err)
+		}
+		return payload, nil
+	default:
+		// Try JSON anyway — GitHub doesn't use other types, but
+		// being permissive avoids breakage on rare proxies.
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, fmt.Errorf("parse body (content-type %q): %w", ct, err)
+		}
+		return payload, nil
+	}
+}
+
 // HandleInbound is the http.Handler GitHub POSTs each signed
 // delivery to. It HMAC-verifies the body, then fans the parsed
 // payload out to every Stream whose repo + events whitelist
@@ -213,9 +267,10 @@ func (t *Transport) HandleInbound() http.Handler {
 			return
 		}
 
-		var payload map[string]any
-		if err := json.Unmarshal(body, &payload); err != nil {
-			http.Error(w, "parse json: "+err.Error(), http.StatusBadRequest)
+		payload, err := decodeWebhookPayload(r.Header.Get("Content-Type"), body)
+		if err != nil {
+			t.logger.Warn("github.inbound: decode body", "err", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -296,6 +351,137 @@ func (t *Transport) HandleInbound() http.Handler {
 				"delivery", deliveryID, "from", msg.From)
 		}
 
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+// HandleInboundForStream is the per-stream variant of HandleInbound.
+// It HMAC-verifies the delivery the same way, but pins fanout to a
+// single Stream identified by streamID rather than scanning every
+// github stream in the org. The stream's own (repo, events)
+// configuration still applies — a delivery for the wrong repo or
+// for an event the stream doesn't whitelist returns 204 (dropped)
+// so GitHub stops retrying. Use this handler when you want one
+// GitHub webhook → one helix stream (the recommended setup on the
+// detail page); the org-level handler stays for fan-out delivery
+// across every matching github stream.
+func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		cfg, err := t.config(r.Context())
+		if err != nil {
+			t.logger.Error("github.inbound.stream: config", "err", err)
+			http.Error(w, "transport not configured", http.StatusServiceUnavailable)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+		if err != nil {
+			http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !verifySignature(cfg.WebhookSecret, body, r.Header.Get("X-Hub-Signature-256")) {
+			t.logger.Warn("github.inbound.stream: bad signature",
+				"stream", streamID,
+				"delivery", r.Header.Get("X-GitHub-Delivery"),
+				"event", r.Header.Get("X-GitHub-Event"))
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+		payload, err := decodeWebhookPayload(r.Header.Get("Content-Type"), body)
+		if err != nil {
+			t.logger.Warn("github.inbound.stream: decode body", "stream", streamID, "err", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		eventType := r.Header.Get("X-GitHub-Event")
+		deliveryID := r.Header.Get("X-GitHub-Delivery")
+		stream, err := t.store.Streams.Get(r.Context(), t.orgID, streamID)
+		if err != nil {
+			t.logger.Warn("github.inbound.stream: lookup", "stream", streamID, "err", err)
+			http.Error(w, "stream not found", http.StatusNotFound)
+			return
+		}
+		if stream.Transport.Kind != transport.KindGitHub {
+			http.Error(w, "stream is not a github transport", http.StatusBadRequest)
+			return
+		}
+		streamCfg, err := stream.Transport.GitHubConfig()
+		if err != nil {
+			t.logger.Error("github.inbound.stream: parse stream config", "stream", streamID, "err", err)
+			http.Error(w, "stream config invalid", http.StatusInternalServerError)
+			return
+		}
+		repo := repoFullName(payload)
+		if repo == "" {
+			t.logger.Info("github.inbound.stream: no repository in payload",
+				"stream", streamID, "event", eventType, "delivery", deliveryID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Stream-level filters: drop on repo or event-whitelist
+		// mismatch with 204 so GitHub stops retrying. This is the
+		// same drop semantics as the org-level handler.
+		if !strings.EqualFold(streamCfg.Repo, repo) {
+			t.logger.Info("github.inbound.stream: repo mismatch",
+				"stream", streamID, "stream_repo", streamCfg.Repo, "payload_repo", repo,
+				"event", eventType, "delivery", deliveryID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !contains(streamCfg.Events, eventType) {
+			t.logger.Info("github.inbound.stream: event not whitelisted",
+				"stream", streamID, "event", eventType, "delivery", deliveryID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Inject the event header into the body's top level for
+		// roles, same as HandleInbound.
+		payload["event"] = eventType
+		extraJSON, err := json.Marshal(payload)
+		if err != nil {
+			t.logger.Error("github.inbound.stream: re-marshal", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		msg := streaming.Message{
+			From:      sender(payload),
+			Subject:   subjectFor(eventType, payload),
+			Body:      bodyFor(eventType, payload),
+			ThreadID:  threadIDFor(payload),
+			MessageID: deliveryID,
+			Extra:     extraJSON,
+		}
+		now := nowUTC()
+		event, err := streaming.NewMessageEvent(
+			streaming.EventID("e-"+uuid.NewString()),
+			stream.ID,
+			"",
+			msg,
+			now,
+			t.orgID,
+		)
+		if err != nil {
+			t.logger.Error("github.inbound.stream: build event", "stream", streamID, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := t.store.Events.Append(r.Context(), event); err != nil {
+			t.logger.Error("github.inbound.stream: append", "stream", streamID, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if t.broadcaster != nil {
+			t.broadcaster.Notify(stream.ID)
+		}
+		if t.dispatcher != nil {
+			t.dispatcher.Dispatch(r.Context(), event)
+		}
+		t.logger.Info("github.inbound.stream",
+			"stream", stream.ID, "repo", repo, "event", eventType,
+			"delivery", deliveryID, "from", msg.From)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
@@ -485,9 +671,13 @@ func numberFromAny(v any) (int64, bool) {
 	return 0, false
 }
 
+// contains is the events-whitelist check. "*" anywhere in the list
+// is a wildcard meaning "deliver every event the repo emits" — the
+// same convention GitHub's webhook API uses for `events: ["*"]`.
+// Otherwise an exact string match.
 func contains(haystack []string, needle string) bool {
 	for _, s := range haystack {
-		if s == needle {
+		if s == "*" || s == needle {
 			return true
 		}
 	}

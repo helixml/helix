@@ -77,6 +77,28 @@ func (r *streamsRepo) List(ctx context.Context, orgID string) ([]streaming.Strea
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
+// Update rewrites the mutable subset (name, description, transport
+// kind + config) of the row identified by (id, orgID). Immutable
+// fields on the passed Stream are ignored. Returns store.ErrNotFound
+// when no row matches.
+func (r *streamsRepo) Update(ctx context.Context, s streaming.Stream) error {
+	cfg := ""
+	if len(s.Transport.Config) > 0 {
+		cfg = string(s.Transport.Config)
+	}
+	updates := map[string]any{
+		"name":             s.Name,
+		"description":      s.Description,
+		"transport_kind":   string(s.Transport.Kind),
+		"transport_config": cfg,
+	}
+	return r.Repository.Update(ctx,
+		store.WithOrg(s.OrganizationID),
+		store.WithID(string(s.ID)),
+		store.WithUpdates(updates),
+	)
+}
+
 func (r *streamsRepo) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
 	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }

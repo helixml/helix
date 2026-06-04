@@ -56,6 +56,11 @@ func registerHelixOrgConfigSpecs(r *configregistry.Registry) {
 		Description: "Base URL of the Helix server this org talks to. Defaults to localhost because we're embedded in the api container.",
 	})
 	r.Register(configregistry.Spec{
+		Key:         "streams.public_url",
+		Type:        configregistry.TypeString,
+		Description: "Externally-reachable base URL helix is hosted at (e.g. https://helix.example.com). When set, the github-stream auto-installer uses this as the webhook payload URL instead of SERVER_URL. Lets org admins fix a loopback SERVER_URL via the UI without touching .env. Leave empty to fall back to SERVER_URL.",
+	})
+	r.Register(configregistry.Spec{
 		Key:         "helix.api_key",
 		Type:        configregistry.TypeString,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request (rare — most calls forward the user's own api key). Auto-provisioned at startup against the first admin user.",

@@ -108,6 +108,12 @@ type Streams interface {
 	Create(ctx context.Context, s streaming.Stream) error
 	Get(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error)
 	List(ctx context.Context, orgID string) ([]streaming.Stream, error)
+	// Update replaces the mutable fields on a Stream: name,
+	// description, and the entire transport (kind + config). The
+	// composite (id, orgID) identifies the row; ID, OrganizationID,
+	// CreatedBy and CreatedAt are immutable and ignored. Returns
+	// store.ErrNotFound when the row doesn't exist.
+	Update(ctx context.Context, s streaming.Stream) error
 	// Delete removes a stream row. Composite key (id, orgID). Callers
 	// (REST handler, MCP delete_stream tool when added) are
 	// responsible for any cascading subscription / role-manifest

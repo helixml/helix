@@ -420,6 +420,34 @@ func (s *streamsRepo) List(_ context.Context, orgID string) ([]streaming.Stream,
 	return out, nil
 }
 
+func (s *streamsRepo) Update(_ context.Context, st streaming.Stream) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := orgKey{OrgID: st.OrganizationID, ID: string(st.ID)}
+	existing, ok := s.rows[k]
+	if !ok {
+		return fmt.Errorf("stream %q in org %q: %w", st.ID, st.OrganizationID, store.ErrNotFound)
+	}
+	// Re-check the composite (org_id, name) uniqueness when name
+	// changes — mirror the gorm idx_stream_org_name constraint.
+	if st.Name != existing.Name {
+		for k2, ex := range s.rows {
+			if k2 == k {
+				continue
+			}
+			if k2.OrgID == st.OrganizationID && ex.Name == st.Name {
+				return fmt.Errorf("stream name %q already in use in org %q", st.Name, st.OrganizationID)
+			}
+		}
+	}
+	// Mutable fields only — keep CreatedBy / CreatedAt / ID / OrgID.
+	existing.Name = st.Name
+	existing.Description = st.Description
+	existing.Transport = st.Transport
+	s.rows[k] = existing
+	return nil
+}
+
 func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.StreamID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
