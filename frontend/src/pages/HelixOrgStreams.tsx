@@ -55,10 +55,17 @@ import { useListOAuthProviders } from '../services/oauthProvidersService'
 //     only sees public repos)
 //   - `admin:repo_hook`: register / edit / delete webhooks on a
 //     repo (what the auto-install endpoint calls)
+//   - `read:org`: read org membership + repos. Without it, `gh
+//     auth status` inside the worker sandbox warns about the
+//     missing scope on every invocation, and a few `gh` subcommands
+//     that touch org-owned resources (issue listing across orgs,
+//     team assignment) fail. The webhook-install path doesn't need
+//     it, but the worker-side `gh` does, so we request it on the
+//     same flow.
 // We pass these explicitly when starting the OAuth flow from the
 // New Stream dialog, rather than relying on the org-wide Connected
 // Services button (which requests no scopes by default).
-const GITHUB_STREAM_SCOPES = 'repo,admin:repo_hook'
+const GITHUB_STREAM_SCOPES = 'repo,admin:repo_hook,read:org'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
