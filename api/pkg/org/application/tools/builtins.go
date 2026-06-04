@@ -71,6 +71,15 @@ type Deps struct {
 	// uses helix.Hire to persist the hiring user; claude / dev
 	// runtimes use runtime.NoopHireHook.
 	HireHook runtime.HireHook
+
+	// ProjectConfig is the read/write port for a Worker's helix
+	// project configuration (startup script, skills, etc). Backs
+	// the get_worker_project + configure_worker_project MCP tools.
+	// Wire the helix runtime impl in production; tests + claude/dev
+	// runtimes can leave it nil — the default is NoopProjectConfig
+	// which returns ErrProjectConfigUnsupported. The MCP tool wraps
+	// that into a friendly error message.
+	ProjectConfig runtime.ProjectConfig
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
@@ -79,11 +88,12 @@ type Deps struct {
 // left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
 	return Deps{
-		Store:     s,
-		Now:       func() time.Time { return time.Now().UTC() },
-		NewID:     uuid.NewString,
-		Workspace: runtime.NoopWorkspaceSync{},
-		HireHook:  runtime.NoopHireHook{},
+		Store:         s,
+		Now:           func() time.Time { return time.Now().UTC() },
+		NewID:         uuid.NewString,
+		Workspace:     runtime.NoopWorkspaceSync{},
+		HireHook:      runtime.NoopHireHook{},
+		ProjectConfig: runtime.NoopProjectConfig{},
 	}
 }
 
@@ -110,6 +120,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&InviteWorkers{deps: deps},
 		&Publish{deps: deps},
 		&DM{deps: deps},
+		&ConfigureWorkerProject{deps: deps},
 		// Reads. Each is a thin wrapper around a store call; together
 		// they replace the jsonapi GET handlers the server used to expose.
 		&ListRoles{deps: deps},
@@ -121,6 +132,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&GetWorker{deps: deps},
 		&ListWorkerGrants{deps: deps},
 		&GetWorkerEnvironment{deps: deps},
+		&GetWorkerProject{deps: deps},
 		&ListStreams{deps: deps},
 		&GetStream{deps: deps},
 		&ListStreamEvents{deps: deps},

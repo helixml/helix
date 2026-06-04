@@ -168,6 +168,29 @@ func (c *inProcHelixClient) GetProject(ctx context.Context, id string) (types.Pr
 	return *resp, nil
 }
 
+// UpdateProject applies a partial patch to a project. Routes
+// through HelixAPIServer.updateProject which only writes fields
+// whose pointers are non-nil — same semantics as the public REST
+// endpoint. Used by the helix-org runtime's ProjectConfig impl to
+// back the configure_worker_project MCP tool.
+func (c *inProcHelixClient) UpdateProject(ctx context.Context, id string, patch types.ProjectUpdateRequest) (types.Project, error) {
+	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/projects/"+id, patch, map[string]string{"id": id})
+	if err != nil {
+		return types.Project{}, err
+	}
+	resp, herr := c.server.updateProject(nil, r)
+	if herr != nil {
+		if herr.StatusCode == http.StatusNotFound {
+			return types.Project{}, fmt.Errorf("%w: %s", runtimehelix.ErrProjectNotFound, herr.Message)
+		}
+		return types.Project{}, fmt.Errorf("update project %s: %s", id, herr.Error())
+	}
+	if resp == nil {
+		return types.Project{}, errors.New("update project: nil response")
+	}
+	return *resp, nil
+}
+
 // PutProjectSecret upserts a project-scoped secret. Routes through
 // HelixAPIServer.createProjectSecret. Helix's underlying store does an
 // upsert on (project_id, name) so re-calling with the same name updates.

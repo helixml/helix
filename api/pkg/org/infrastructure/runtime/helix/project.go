@@ -42,6 +42,14 @@ type ProjectService interface {
 	// exist; WorkerProject uses errors.Is to detect this.
 	GetProject(ctx context.Context, id string) (types.Project, error)
 
+	// UpdateProject applies a partial patch to a Helix project. Used
+	// by the helix runtime's ProjectConfig impl to back the
+	// configure_worker_project MCP tool. Patch semantics follow
+	// types.ProjectUpdateRequest — only non-nil fields are written.
+	// Returns the post-update project so callers can confirm what
+	// landed without an extra GetProject round-trip.
+	UpdateProject(ctx context.Context, id string, patch types.ProjectUpdateRequest) (types.Project, error)
+
 	// PutProjectSecret upserts an env-var injected into the agent's
 	// container at session start.
 	PutProjectSecret(ctx context.Context, projectID, name, value string) error

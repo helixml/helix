@@ -134,3 +134,63 @@ type NoopHireHook struct{}
 func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ string) error {
 	return nil
 }
+
+// ProjectConfig is the port tools use to read and patch a Worker's
+// per-Worker Helix project configuration — the startup script today,
+// and any other field on Helix's ProjectUpdateRequest tomorrow
+// (skills, guidelines, default agent app, …).
+//
+// Implementations key by orgID + workerID (the operator-facing
+// identifier on the org chart); the helix runtime impl resolves
+// worker→projectID via WorkerRuntimeState internally so MCP tool
+// callers never see project IDs. Other runtimes (claude, dev) plug
+// in NoopProjectConfig — the configure_worker_project tool reports
+// "not supported on this runtime" when invoked.
+//
+// Patch semantics: only fields set on the patch are written; nil
+// fields leave the underlying value alone. Used by
+// configure_worker_project for partial updates from chat
+// ("change the startup script but leave skills alone").
+type ProjectConfig interface {
+	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID) (ProjectConfigSnapshot, error)
+	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
+}
+
+// ProjectConfigSnapshot is the read shape returned by
+// ProjectConfig.GetWorkerProjectConfig. ProjectID is exposed so
+// the UI / debug tools can show it; MCP tool callers typically
+// ignore it (they referenced the worker, not the project).
+//
+// Each new field on Helix's Project that we want to surface via
+// the MCP tools gets added here. Field additions are append-only
+// from the JSON wire format (existing tool clients keep working).
+type ProjectConfigSnapshot struct {
+	ProjectID     string `json:"project_id"`
+	StartupScript string `json:"startup_script"`
+}
+
+// ProjectConfigPatch is the write shape passed to
+// ProjectConfig.UpdateWorkerProjectConfig. Pointer fields = "only
+// touch what's set"; nil fields leave the underlying value alone.
+// Mirrors Helix's `types.ProjectUpdateRequest` pointer convention.
+type ProjectConfigPatch struct {
+	StartupScript *string `json:"startup_script,omitempty"`
+}
+
+// NoopProjectConfig satisfies ProjectConfig without doing anything
+// — the default for tools.Deps so production code paths that
+// don't wire a real impl don't crash. The MCP tools surface a
+// clear "not configured" error rather than corrupt data.
+type NoopProjectConfig struct{}
+
+func (NoopProjectConfig) GetWorkerProjectConfig(_ context.Context, _ string, _ orgchart.WorkerID) (ProjectConfigSnapshot, error) {
+	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
+}
+
+func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, _ orgchart.WorkerID, _ ProjectConfigPatch) (ProjectConfigSnapshot, error) {
+	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
+}
+
+// ErrProjectConfigUnsupported is what the noop impl returns. Tools
+// translate it into a friendly snackbar / MCP error.
+var ErrProjectConfigUnsupported = errors.New("project config access not wired on this runtime")

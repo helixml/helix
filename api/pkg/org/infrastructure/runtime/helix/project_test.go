@@ -29,6 +29,9 @@ type fakeProjectService struct {
 	getProjectCalls    int
 	getProjectResp     types.Project
 	getProjectErr      error
+	updateProjectCalls     int
+	updateProjectPatchLast types.ProjectUpdateRequest
+	updateProjectErr       error
 	putSecretCalls     int
 	putSecretLast      map[string]string
 	createGitRepoCalls int
@@ -76,6 +79,22 @@ func (f *fakeProjectService) GetProject(_ context.Context, _ string) (types.Proj
 	defer f.mu.Unlock()
 	f.getProjectCalls++
 	return f.getProjectResp, f.getProjectErr
+}
+
+func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch types.ProjectUpdateRequest) (types.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updateProjectCalls++
+	f.updateProjectPatchLast = patch
+	// Start from the seeded GetProject response so updates are
+	// visible to subsequent GetProject calls. Mirrors the in-proc
+	// adapter's "return the post-update project" contract.
+	updated := f.getProjectResp
+	if patch.StartupScript != nil {
+		updated.StartupScript = *patch.StartupScript
+	}
+	f.getProjectResp = updated
+	return updated, f.updateProjectErr
 }
 
 func (f *fakeProjectService) PutProjectSecret(_ context.Context, _, name, value string) error {

@@ -195,6 +195,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// used to make.
 	deps.HireHook = &runtimehelix.Hire{Store: st}
 
+	// ProjectConfig backs the get_worker_project +
+	// configure_worker_project MCP tools — owner-only read/patch
+	// of a Worker's helix project config (startup script today,
+	// skills/guidelines later). Reuses the in-proc client for the
+	// underlying Helix project read/write.
+	projectConfig, err := runtimehelix.NewProjectConfig(st, inProcClient)
+	if err != nil {
+		return nil, fmt.Errorf("init project config: %w", err)
+	}
+	deps.ProjectConfig = projectConfig
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
