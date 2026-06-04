@@ -1071,6 +1071,15 @@ type ServerConfigForFrontend struct {
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
 	DefaultChatSystemPrompt string `json:"default_chat_system_prompt"`
+	// ServerURL is the operator-configured public origin for this helix
+	// instance (env SERVER_URL → WebServer.URL). Empty when not
+	// configured; the frontend then falls back to
+	// `window.location.origin`. The github-stream New Stream dialog
+	// uses this to surface a webhook URL that's actually reachable by
+	// GitHub — `window.location.origin` is wrong whenever the user is
+	// hitting the app via localhost / a dev port that GitHub can't
+	// reach.
+	ServerURL string `json:"server_url,omitempty"`
 }
 
 // a short version of a session that we keep for the dashboard

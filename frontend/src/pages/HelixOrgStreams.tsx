@@ -277,6 +277,30 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   const [description, setDescription] = useState('')
   const [kind, setKind] = useState('local')
   const [configText, setConfigText] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  // The operator-configured public origin is what we want to show in
+  // the github-stream URL hint; window.location.origin is the
+  // FALLBACK, but if the user opened helix at localhost the hint
+  // would be useless to paste into a real GitHub repo. server_url
+  // arrives via /api/v1/config (loaded into account.serverConfig).
+  const serverURL = (account.serverConfig as any)?.server_url as string | undefined
+  const dialogOrigin = (serverURL && serverURL.length > 0) ? serverURL : window.location.origin
+  const orgName = account.organizationTools.organization?.name
+  const webhookURL = `${dialogOrigin}/api/v1/orgs/${encodeURIComponent(orgName || '<org>')}/github/webhook`
+  const isLocalhostHint = /(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(dialogOrigin)
+
+  const copyWebhookURL = async () => {
+    try {
+      await navigator.clipboard.writeText(webhookURL)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard API can fail under non-https / restricted contexts.
+      // Surface the failure quietly; the user can still select+copy.
+      snackbar.error('Could not copy — select the URL manually')
+    }
+  }
 
   const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
 
@@ -364,15 +388,25 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                 <strong>After Create</strong>, paste this into your GitHub repo's webhook settings (Settings → Webhooks → Add webhook):
               </Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
-                Payload URL: <code>{`${window.location.origin}/api/v1/orgs/${(account.organizationTools.organization?.name) || '<org>'}/github/webhook`}</code>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all', flex: 1 }}>
+                  <strong>Payload URL:</strong> <code>{webhookURL}</code>
+                </Typography>
+                <Button size="small" variant="outlined" onClick={copyWebhookURL} sx={{ minWidth: 56, fontSize: '0.65rem' }}>
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </Stack>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', mt: 0.5 }}>
+                <strong>Content type:</strong> <code>application/json</code>
               </Typography>
               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                Content type: <code>application/json</code>
+                <strong>Secret:</strong> same value as <code>transport.github.webhook_secret</code> on the Settings page
               </Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                Secret: same value as <code>transport.github.webhook_secret</code> on the Settings page
-              </Typography>
+              {isLocalhostHint && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'warning.main', fontFamily: 'monospace', fontSize: '0.65rem' }}>
+                  ⚠ Your helix origin is a loopback address — GitHub's servers cannot reach it. Configure SERVER_URL to your public origin (e.g. behind a reverse proxy or cloudflared tunnel), or expose this listen-port publicly, before pasting into GitHub.
+                </Typography>
+              )}
             </Box>
           )}
           {kind !== 'local' && (
