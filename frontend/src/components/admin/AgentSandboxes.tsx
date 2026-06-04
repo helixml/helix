@@ -831,18 +831,24 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
         </Alert>
       )}
 
-      {/* Summary Stats */}
+      {/* Summary Stats. "Running Sandboxes" only makes sense in the
+          all-sandboxes aggregate view - when a specific sandbox is
+          selected, the filter scope is a single row and the count is
+          always 1, which is noise. Hide it in the detail view and
+          rebalance the remaining two cards to fill the row. */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-            <Typography variant="h4">{runningSandboxes}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Running Sandboxes
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} sm={4}>
+        {!selectedSandboxId && (
+          <Grid item xs={12} sm={4}>
+            <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+              <Typography variant="h4">{runningSandboxes}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Running Sandboxes
+              </Typography>
+            </Paper>
+          </Grid>
+        )}
+        <Grid item xs={12} sm={selectedSandboxId ? 6 : 4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
             <Typography variant="h4">{runningContainers}</Typography>
@@ -851,7 +857,7 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
             </Typography>
           </Paper>
         </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} sm={selectedSandboxId ? 6 : 4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
             <Typography variant="h4">{totalClients}</Typography>
