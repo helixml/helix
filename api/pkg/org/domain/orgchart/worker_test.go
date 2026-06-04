@@ -97,9 +97,8 @@ var (
 	_ orgchart.Worker = (*orgchart.AIWorker)(nil)
 )
 
-// TestWorkerOrganizationIDFromConstructor pins H5.2+: the OrganizationID
-// accessor returns the orgID supplied at construction time. Workers are
-// always scoped to an org under the multi-tenant graph.
+// TestWorkerOrganizationIDFromConstructor: the OrganizationID accessor
+// returns the orgID supplied at construction time.
 func TestWorkerOrganizationIDFromConstructor(t *testing.T) {
 	ai, err := orgchart.NewAIWorker("w-bot", "p-eng", "# bot", "org-acme")
 	if err != nil {

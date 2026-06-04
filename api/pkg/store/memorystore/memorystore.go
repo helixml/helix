@@ -25,11 +25,9 @@ type MemoryStore struct {
 
 	sessions     map[string]*types.Session
 	interactions map[string]*types.Interaction
-	// H1.3c: in-process server adapter tests seed apps + projects so
-	// GetApp / GetProject return real rows rather than blanket NotFound.
-	apps     map[string]*types.App
-	projects map[string]*types.Project
-	mu       sync.RWMutex
+	apps         map[string]*types.App
+	projects     map[string]*types.Project
+	mu           sync.RWMutex
 
 	// OnInteractionUpdated is called after every UpdateInteraction call.
 	// Test binaries use this to detect completion events.
@@ -351,8 +349,6 @@ func (m *MemoryStore) GetSpecTaskExternalAgentByID(_ context.Context, _ string) 
 	return nil, store.ErrNotFound
 }
 
-// App methods — seedable via SeedApp; without a seed entry GetApp
-// returns "not found" so non-app-touching tests keep their semantics.
 func (m *MemoryStore) GetApp(_ context.Context, id string) (*types.App, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -364,8 +360,7 @@ func (m *MemoryStore) GetApp(_ context.Context, id string) (*types.App, error) {
 	return &cp, nil
 }
 
-// SeedApp inserts an app row so GetApp / UpdateApp can round-trip it.
-// Test helper (not part of the store.Store interface).
+// SeedApp inserts an app for tests (not part of store.Store).
 func (m *MemoryStore) SeedApp(app *types.App) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -373,8 +368,6 @@ func (m *MemoryStore) SeedApp(app *types.App) {
 	m.apps[app.ID] = &cp
 }
 
-// UpdateApp persists a mutated app row. Required by the in-process
-// adapter tests which round-trip GetAppConfig → UpdateAppConfig.
 func (m *MemoryStore) UpdateApp(_ context.Context, app *types.App) (*types.App, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -387,8 +380,6 @@ func (m *MemoryStore) UpdateApp(_ context.Context, app *types.App) (*types.App, 
 	return &cp, nil
 }
 
-// GetProject returns a seeded project row, or store.ErrNotFound when
-// the ID is unknown.
 func (m *MemoryStore) GetProject(_ context.Context, id string) (*types.Project, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -400,7 +391,7 @@ func (m *MemoryStore) GetProject(_ context.Context, id string) (*types.Project, 
 	return &cp, nil
 }
 
-// SeedProject inserts a project row. Test helper.
+// SeedProject inserts a project for tests (not part of store.Store).
 func (m *MemoryStore) SeedProject(p *types.Project) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

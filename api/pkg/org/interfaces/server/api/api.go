@@ -1915,10 +1915,9 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadGateway, fmt.Errorf("create github webhook: %w", err))
 		return
 	}
-	// Persist webhook_id + html_url back on the stream so the
-	// detail page can deep-link out without re-calling GitHub.
+	htmlURL := githubclient.WebhookSettingsURL(owner, repoName, hook.ID)
 	cfg.WebhookID = hook.ID
-	cfg.WebhookHTMLURL = hook.HTMLURL
+	cfg.WebhookHTMLURL = htmlURL
 	cfgRaw, err := json.Marshal(cfg)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("re-marshal config: %w", err))
@@ -1931,7 +1930,7 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, InstallGitHubWebhookResponse{
 		WebhookID:      hook.ID,
-		WebhookHTMLURL: hook.HTMLURL,
+		WebhookHTMLURL: htmlURL,
 		PayloadURL:     payloadURL,
 	})
 }

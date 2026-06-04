@@ -155,10 +155,9 @@ func TestWorkersHumanAndAI(t *testing.T) {
 
 }
 
-// TestWorkerOrganizationIDRoundTrip pins H5.2+ at the storage seam:
-// a Worker created with an OrgID round-trips through Create → Get with
-// the OrgID preserved. The composite (id, org_id) PK means lookups must
-// be scoped to the same org the row was created under.
+// TestWorkerOrganizationIDRoundTrip: a Worker created with an OrgID
+// round-trips through Create → Get with the OrgID preserved (composite
+// (id, org_id) PK means lookups are scoped to the creating org).
 func TestWorkerOrganizationIDRoundTrip(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)

@@ -1,105 +1,74 @@
-// React Query hooks for the helix-org chart page. The chart is the
-// only React surface helix-org exposes today; the rest of the
-// org-graph (workers, roles, positions, streams, settings) is driven
-// through MCP tools or the JSON REST API. Routes are scoped by
-// :org_id captured from the URL by useHelixOrgBase().
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
+import {
+  ApiChart,
+  ApiChartNode,
+  ApiCreatePositionRequest,
+  ApiCreateRoleRequest,
+  ApiCreateStreamRequest,
+  ApiEventCard,
+  ApiGitHubReposResponse,
+  ApiHireGrantInput,
+  ApiHireWorkerRequest,
+  ApiHireWorkerResponse,
+  ApiInstallGitHubWebhookResponse,
+  ApiPositionDTO,
+  ApiPositionSubscriptionDTO,
+  ApiPositionSubscriptionsResponse,
+  ApiRoleDTO,
+  ApiSettingsResponse,
+  ApiSettingsSpecDTO,
+  ApiStreamDTO,
+  ApiStreamsResponse,
+  ApiToolDTO,
+  ApiUpdateStreamRequest,
+  ApiWorkerBadge,
+  ApiWorkerChatDTO,
+  ApiWorkerDTO,
+  ApiWorkerDetailDTO,
+} from '../api/api'
 
-// ---- Wire types ----------------------------------------------------------
+// Re-exported aliases. Generated Api* types mark every field
+// optional; consumers use them as if fields are present. strict
+// null checks are off project-wide so plain aliases suffice.
+export type WorkerBadge = ApiWorkerBadge
+export type ChartNode = ApiChartNode
+export type RoleDTO = ApiRoleDTO
+export type WorkerDTO = ApiWorkerDTO
+export type WorkerDetailDTO = ApiWorkerDetailDTO
+export type ToolDTO = ApiToolDTO
+export type StreamDTO = ApiStreamDTO
+export type EventCard = ApiEventCard
+export type SettingsSpecDTO = ApiSettingsSpecDTO
+export type PositionDTO = ApiPositionDTO
+export type SettingsResponse = ApiSettingsResponse
+export type StreamsResponse = ApiStreamsResponse
+export type GitHubRepoDTO = NonNullable<ApiGitHubReposResponse['repos']>[number]
+export type GitHubReposResponse = ApiGitHubReposResponse
+export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
+export type PositionSubscription = ApiPositionSubscriptionDTO
+export type PositionSubscriptionsResponse = ApiPositionSubscriptionsResponse
+export type Chart = ApiChart
 
-export interface WorkerBadge {
-  id: string
-  kind: string
-}
-
-export interface ChartNode {
-  position_id: string
-  role_id: string
-  parent_id?: string
-  workers?: WorkerBadge[]
-  children?: ChartNode[]
-}
-
-export interface RoleBadge {
-  id: string
-}
-
-export interface Chart {
-  roots: ChartNode[]
-  roles?: RoleBadge[]
-}
-
-export interface CreateRoleRequest {
-  id: string
-  content: string
-  tools?: string[]
-  streams?: string[]
-}
-
-export interface CreatePositionRequest {
-  id: string
-  role_id: string
-  parent_id?: string
-}
-
-export interface PositionDTO {
-  id: string
-  role_id: string
-  parent_id?: string
-}
-
-export interface RoleDTO {
-  id: string
-  content: string
-  tools?: string[]
-  streams?: string[]
-  created_at?: string
-  updated_at?: string
-}
-
-export interface WorkerDTO {
-  id: string
-  kind: string
-  position_id?: string
-  identity_content: string
-  organization_id?: string
-  tools?: string[]
-}
-
-export interface WorkerDetailDTO {
-  worker: WorkerDTO
-  role?: RoleDTO
-  position?: PositionDTO
-  // AgentAppID is the Helix agent app the Worker chats through. Empty
-  // until the Worker has been activated at least once. The Worker
-  // detail page disables the "Chat" button when missing.
-  agent_app_id?: string
-  // ProjectID is the Helix project that owns the per-Worker agent app.
-  // The Worker detail page deep-links the chat button to the project's
-  // Human Desktop session rather than the bare agent app.
-  project_id?: string
-}
-
-export interface HireGrantInput {
-  tool_name: string
-}
-
-export interface HireWorkerRequest {
-  id?: string
+export type HireGrantInput = ApiHireGrantInput
+export interface HireWorkerRequest extends Omit<ApiHireWorkerRequest, 'kind'> {
   position_id: string
   kind: 'human' | 'ai'
   identity_content: string
-  grants?: HireGrantInput[]
 }
+export type HireWorkerResponse = ApiHireWorkerResponse
+export type CreateRoleRequest = ApiCreateRoleRequest & { id: string; content: string }
+export type CreatePositionRequest = ApiCreatePositionRequest & { id: string; role_id: string }
+export type CreateStreamRequest = ApiCreateStreamRequest & { name: string }
+export type UpdateStreamRequest = ApiUpdateStreamRequest
 
-export interface HireWorkerResponse {
+export interface HelixModelInfo {
   id: string
-  activation_id?: string
+  name?: string
+  description?: string
+  context_length?: number
 }
-
-// ---- Query keys ----------------------------------------------------------
 
 export const QUERY_KEYS = {
   chart: (orgID: string) => ['helix-org', orgID, 'chart'] as const,
@@ -113,124 +82,9 @@ export const QUERY_KEYS = {
   modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
   streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
-  // Position subscriptions are the canonical surface for "what
-  // streams does this slot consume". The worker detail page resolves
-  // worker → position then loads via this key.
   positionSubs: (orgID: string, positionID: string) => ['helix-org', orgID, 'positions', positionID, 'subscriptions'] as const,
 }
 
-export interface EventCard {
-  id: string
-  stream_id: string
-  source?: string
-  created_at: string
-  body: string
-  has_message: boolean
-  from?: string
-  to?: string
-  subject?: string
-  message_body?: string
-}
-
-export interface StreamDTO {
-  id: string
-  name: string
-  description?: string
-  kind: string
-  created_by: string
-  created_at: string
-  // Subscribers are POSITION IDs subscribed to this stream
-  // (subscriptions are position-anchored). Drives the chart's dashed
-  // edges from each subscribed position to this stream's pseudo-node.
-  subscribers?: string[]
-  can_publish: boolean
-  disable_reason?: string
-  recent_events?: EventCard[]
-  // Config is the parsed transport-specific configuration. Shape
-  // depends on `kind`:
-  //   - github   → { repo: string, events: string[] }
-  //   - webhook  → { inbound_path?: string, outbound_url?: string }
-  //   - postmark → { inbound_address?: string }
-  //   - local    → undefined
-  config?: Record<string, unknown>
-  // EffectivePublicURL is the resolved base URL helix uses for
-  // github webhook payload URLs (the streams.public_url org
-  // config override applied on top of SERVER_URL). Returned
-  // for github streams; the detail page evaluates the loopback
-  // warning against this, not against window.location or the
-  // env value alone.
-  effective_public_url?: string
-}
-
-export interface StreamsResponse {
-  streams: StreamDTO[]
-  recent?: unknown[]
-}
-
-export interface CreateStreamRequest {
-  id?: string
-  name: string
-  description?: string
-  transport?: {
-    kind: string
-    config?: Record<string, unknown>
-  }
-}
-
-// UpdateStreamRequest is the body of PUT /streams/{id}. ID,
-// created_by, created_at and the owning org are immutable; everything
-// else can be rewritten. Omit `transport` to keep the existing
-// transport row untouched; pass just `transport.config` (no kind) to
-// tweak the config without swapping transports.
-export interface UpdateStreamRequest {
-  name: string
-  description?: string
-  transport?: {
-    kind?: string
-    config?: Record<string, unknown>
-  }
-}
-
-export interface SettingsSpecDTO {
-  key: string
-  type: string
-  required: boolean
-  description: string
-  configured: boolean
-  // value is the current REDACTED value — secrets are masked. Treat
-  // as display-only; to update, send a fresh value via setSetting.
-  value: string
-}
-
-export interface SettingsResponse {
-  owner: string
-  public_url?: string
-  db_path?: string
-  envs_dir?: string
-  specs: SettingsSpecDTO[]
-}
-
-// HelixModelInfo is the subset of /v1/models response shape the
-// settings page renders for the model dropdown. /v1/models returns
-// the OpenAI-compat envelope { data: [...] } with extra fields like
-// name + description we surface in the dropdown label/help.
-export interface HelixModelInfo {
-  id: string
-  name?: string
-  description?: string
-  context_length?: number
-}
-
-export interface ToolDTO {
-  name: string
-  description?: string
-}
-
-// useHelixOrgBase resolves the current `:org_id` URL param into the
-// `/api/v1/orgs/<org>` prefix. The org-graph JSON resources live
-// directly under the org segment — chart, workers, … — no extra
-// namespace. Returns empty string when no org segment is present so
-// callers can gate their queries.
 export function useHelixOrgBase(): { base: string; orgID: string } {
   const { params } = useRouter()
   const orgID = (params.org_id as string) || ''
@@ -238,148 +92,110 @@ export function useHelixOrgBase(): { base: string; orgID: string } {
   return { base, orgID }
 }
 
-// ---- Queries -------------------------------------------------------------
-
 export function useHelixOrgChart(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.chart(orgID),
     queryFn: async () => {
-      const data = await api.get<Chart>(`${base}/chart`)
-      return data
+      const res = await api.getApiClient().v1OrgsChartDetail(orgID)
+      return res.data as Chart
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-// useEnsureWorkerChat provisions (or fast-paths) the Worker's per-
-// Worker Helix project + agent app, returning the agent_app_id. The
-// chart UI's "Start new chat" button calls this when the worker has
-// no agent app yet (e.g. the human owner on a fresh org), then
-// navigates to /agent/<agent_app_id>. Idempotent.
 export function useEnsureWorkerChat() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (workerId: string) => {
-      const data = await api.post<unknown, { agent_app_id: string; project_id?: string }>(
-        `${base}/workers/${encodeURIComponent(workerId)}/chat`,
-        undefined,
-      )
-      return data
+      const res = await api.getApiClient().v1OrgsWorkersChatCreate(workerId, orgID)
+      return res.data as ApiWorkerChatDTO & { agent_app_id: string }
     },
     onSuccess: (_data, workerId) => {
-      // Invalidate the worker detail cache so the page re-renders
-      // with the freshly-populated agent_app_id.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
     },
   })
 }
 
-// useListHelixOrgWorkers fetches every worker in the current org.
-// Drives the Workers list page. Returns WorkerDTO entries (not
-// WorkerDetailDTO — the detail page hydrates that per-worker).
 export function useListHelixOrgWorkers(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.workers(orgID),
     queryFn: async () => {
-      const data = await api.get<WorkerDTO[]>(`${base}/workers`)
-      return data ?? []
+      const res = await api.getApiClient().v1OrgsWorkersDetail(orgID)
+      return (res.data ?? []) as WorkerDTO[]
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-// useHelixOrgWorker drives the right-rail Worker drawer on the chart.
-// Returns the full WorkerDetailDTO (worker + role + position) so the
-// drawer can show identity / role markdown alongside the fire button.
 export function useHelixOrgWorker(workerId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.worker(orgID, workerId ?? ''),
     queryFn: async () => {
       if (!workerId) return null
-      const data = await api.get<WorkerDetailDTO>(`${base}/workers/${encodeURIComponent(workerId)}`)
-      return data
+      const res = await api.getApiClient().v1OrgsWorkersDetail2(workerId, orgID)
+      return res.data as WorkerDetailDTO
     },
     enabled: !!orgID && !!workerId && (options?.enabled ?? true),
   })
 }
 
-// ---- Mutations -----------------------------------------------------------
-
-// useListHelixOrgTools returns the catalogue of every MCP tool the
-// org can grant to a Role. Drives the role-editor multi-select.
-// Cached aggressively because the catalogue only changes when the
-// server registers a new built-in (i.e. on deploy), not in response
-// to operator actions.
 export function useListHelixOrgTools(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.tools(orgID),
     queryFn: async () => {
-      const data = await api.get<ToolDTO[]>(`${base}/tools`)
-      return data ?? []
+      const res = await api.getApiClient().v1OrgsToolsDetail(orgID)
+      return (res.data ?? []) as ToolDTO[]
     },
     staleTime: 5 * 60 * 1000,
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-// useListHelixOrgRoles fetches every role in the current org. Drives
-// the Roles list page in the helix-org middle-nav. Cached separately
-// from the chart so the list view doesn't repaint when only
-// position/worker rows change.
 export function useListHelixOrgRoles(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.roles(orgID),
     queryFn: async () => {
-      const data = await api.get<RoleDTO[]>(`${base}/roles`)
-      return data ?? []
+      const res = await api.getApiClient().v1OrgsRolesDetail(orgID)
+      return (res.data ?? []) as RoleDTO[]
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-// useHelixOrgRole drives the right-rail Role drawer on the chart.
-// Returns the full RoleDTO (id + content + tools + streams + audit
-// stamps) so the drawer can render the role's markdown and metadata.
 export function useHelixOrgRole(roleId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.role(orgID, roleId ?? ''),
     queryFn: async () => {
       if (!roleId) return null
-      const data = await api.get<RoleDTO>(`${base}/roles/${encodeURIComponent(roleId)}`)
-      return data
+      const res = await api.getApiClient().v1OrgsRolesDetail2(orgID, roleId)
+      return res.data as RoleDTO
     },
     enabled: !!orgID && !!roleId && (options?.enabled ?? true),
   })
 }
 
-// useHireHelixOrgWorker hires a Worker from the chart's "+" panel.
-// Wraps the same hire_worker MCP tool the chat surface uses, so REST
-// and chat hires produce identical store state.
 export function useHireHelixOrgWorker() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: HireWorkerRequest) => {
-      const data = await api.post<HireWorkerRequest, HireWorkerResponse>(
-        `${base}/workers`,
-        payload,
-      )
-      return data
+      const res = await api.getApiClient().v1OrgsWorkersCreate(orgID, payload as ApiHireWorkerRequest)
+      return res.data as HireWorkerResponse
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -388,15 +204,13 @@ export function useHireHelixOrgWorker() {
   })
 }
 
-// useFireHelixOrgWorker tears a Worker down. The owner worker is
-// server-side protected (409).
 export function useFireHelixOrgWorker() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (workerId: string) => {
-      await api.delete(`${base}/workers/${encodeURIComponent(workerId)}`)
+      await api.getApiClient().v1OrgsWorkersDelete(workerId, orgID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -405,19 +219,14 @@ export function useFireHelixOrgWorker() {
   })
 }
 
-// useUpdateHelixOrgRole patches an existing Role. Body fields are
-// optional — omit to leave untouched. Tools/Streams are REPLACED
-// wholesale when provided (pass `[]` to clear). Invalidates both the
-// list cache and the single-role cache so the detail page repaints
-// immediately on save.
 export function useUpdateHelixOrgRole() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: { id: string; content?: string; tools?: string[]; streams?: string[] }) => {
       const { id, ...body } = payload
-      await api.put(`${base}/roles/${encodeURIComponent(id)}`, body)
+      await api.getApiClient().v1OrgsRolesUpdate(orgID, id, body)
     },
     onSuccess: (_data, payload) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -427,14 +236,13 @@ export function useUpdateHelixOrgRole() {
   })
 }
 
-// useCreateHelixOrgRole creates a new Role row in the current org.
 export function useCreateHelixOrgRole() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: CreateRoleRequest) => {
-      await api.post(`${base}/roles`, payload)
+      await api.getApiClient().v1OrgsRolesCreate(orgID, payload)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -443,15 +251,13 @@ export function useCreateHelixOrgRole() {
   })
 }
 
-// useCreateHelixOrgPosition creates a new Position row in the
-// current org under the given Role.
 export function useCreateHelixOrgPosition() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: CreatePositionRequest) => {
-      await api.post(`${base}/positions`, payload)
+      await api.getApiClient().v1OrgsPositionsCreate(orgID, payload)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -459,18 +265,14 @@ export function useCreateHelixOrgPosition() {
   })
 }
 
-// useUpdateHelixOrgPosition rewires a Position. Today only parent_id
-// matters — the chart's drag-and-drop hands a position a new parent
-// so the org reporting structure changes without losing the position
-// itself.
 export function useUpdateHelixOrgPosition() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: { id: string; parent_id?: string; role_id?: string }) => {
       const { id, ...body } = payload
-      await api.put(`${base}/positions/${encodeURIComponent(id)}`, body)
+      await api.getApiClient().v1OrgsPositionsUpdate(orgID, id, body)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -478,16 +280,13 @@ export function useUpdateHelixOrgPosition() {
   })
 }
 
-// useDeleteHelixOrgRole cascades — every Position under the Role is
-// deleted, every Worker in those Positions is fired. The owner Role
-// is server-side protected (409).
 export function useDeleteHelixOrgRole() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (roleId: string) => {
-      await api.delete(`${base}/roles/${encodeURIComponent(roleId)}`)
+      await api.getApiClient().v1OrgsRolesDelete(orgID, roleId)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -496,15 +295,13 @@ export function useDeleteHelixOrgRole() {
   })
 }
 
-// useDeleteHelixOrgPosition cascades — the Worker in the Position
-// (if any) is fired. The root position is server-side protected (409).
 export function useDeleteHelixOrgPosition() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (positionId: string) => {
-      await api.delete(`${base}/positions/${encodeURIComponent(positionId)}`)
+      await api.getApiClient().v1OrgsPositionsDelete(orgID, positionId)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
@@ -512,32 +309,26 @@ export function useDeleteHelixOrgPosition() {
   })
 }
 
-// useHelixOrgSettings reads every registered config spec + its
-// redacted current value. Drives the helix-org Settings page.
 export function useHelixOrgSettings(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.settings(orgID),
     queryFn: async () => {
-      const data = await api.get<SettingsResponse>(`${base}/settings`)
-      return data
+      const res = await api.getApiClient().v1OrgsSettingsDetail(orgID)
+      return res.data as SettingsResponse
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-// useSetHelixOrgSetting writes a single config row. The backend
-// expects the raw JSON wire form per the spec's Type (string specs
-// expect a JSON-encoded string, etc.) — the page is responsible for
-// quoting strings before calling this hook.
 export function useSetHelixOrgSetting() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: { key: string; value: string }) => {
-      await api.put(`${base}/settings/${encodeURIComponent(payload.key)}`, { value: payload.value })
+      await api.getApiClient().v1OrgsSettingsUpdate(payload.key, orgID, { value: payload.value })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.settings(orgID) })
@@ -545,15 +336,13 @@ export function useSetHelixOrgSetting() {
   })
 }
 
-// useDeleteHelixOrgSetting clears the explicit row — the registry then
-// falls back to the spec's default (or empty if no default).
 export function useDeleteHelixOrgSetting() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (key: string) => {
-      await api.delete(`${base}/settings/${encodeURIComponent(key)}`)
+      await api.getApiClient().v1OrgsSettingsDelete(key, orgID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.settings(orgID) })
@@ -561,10 +350,8 @@ export function useDeleteHelixOrgSetting() {
   })
 }
 
-// useHelixProviders fetches the catalogue of providers configured on
-// this Helix instance. Powers the worker.provider dropdown on the
-// settings page. Cached across orgs because the catalogue is a
-// Helix-instance-wide setting, not per-org.
+// /api/v1/providers and /v1/models are not currently in the generated
+// HelixOrg-tagged client surface; left on raw api.get for now.
 export function useHelixProviders(options?: { enabled?: boolean }) {
   const api = useApi()
   return useQuery({
@@ -578,11 +365,6 @@ export function useHelixProviders(options?: { enabled?: boolean }) {
   })
 }
 
-// useHelixModelsForProvider fetches the list of models a provider
-// exposes. Backs the worker.model dropdown — re-fetched whenever the
-// provider changes. /v1/models uses the OpenAI-compatible envelope
-// ({data: [...]}). Returns an empty array on error so the dropdown
-// can render a "no models" placeholder.
 export function useHelixModelsForProvider(provider: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
   return useQuery({
@@ -597,51 +379,41 @@ export function useHelixModelsForProvider(provider: string | undefined, options?
   })
 }
 
-// useListHelixOrgStreams fetches every stream + its current
-// subscribers + recent events. Drives the Streams list page AND the
-// chart's stream-subscription edges.
 export function useListHelixOrgStreams(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.streams(orgID),
     queryFn: async () => {
-      const data = await api.get<StreamsResponse>(`${base}/streams`)
-      return data
+      const res = await api.getApiClient().v1OrgsStreamsDetail(orgID)
+      return res.data as StreamsResponse
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-// useHelixOrgStream fetches a single stream + its current subscribers +
-// recent_events. Drives the per-stream detail page. The SSE endpoint
-// at /streams/{id}/events takes over live updates after first paint;
-// this hook supplies the initial snapshot so the page can render
-// immediately rather than waiting for the first SSE frame.
 export function useHelixOrgStream(streamId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.stream(orgID, streamId ?? ''),
     queryFn: async () => {
       if (!streamId) return null
-      const data = await api.get<StreamDTO>(`${base}/streams/${encodeURIComponent(streamId)}`)
-      return data
+      const res = await api.getApiClient().v1OrgsStreamsDetail2(streamId, orgID)
+      return res.data as StreamDTO
     },
     enabled: !!orgID && !!streamId && (options?.enabled ?? true),
   })
 }
 
-// useCreateHelixOrgStream creates a new Stream. Server falls back to
-// s-<uuid> if `id` is omitted; pass an explicit id for stable handles.
 export function useCreateHelixOrgStream() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: CreateStreamRequest) => {
-      const data = await api.post<CreateStreamRequest, StreamDTO>(`${base}/streams`, payload)
-      return data
+      const res = await api.getApiClient().v1OrgsStreamsCreate(orgID, payload)
+      return res.data as StreamDTO
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
@@ -650,93 +422,44 @@ export function useCreateHelixOrgStream() {
   })
 }
 
-export interface GitHubRepoDTO {
-  full_name: string
-  private?: boolean
-}
-
-export interface GitHubReposResponse {
-  repos: GitHubRepoDTO[]
-  source?: string
-}
-
-export interface InstallGitHubWebhookResponse {
-  webhook_id: number
-  webhook_html_url?: string
-  payload_url: string
-  // Warning is a non-fatal message about the install — for
-  // example, "SERVER_URL is a loopback so GitHub can't actually
-  // deliver here yet". The webhook IS installed on GitHub; the
-  // operator just needs to fix something on their side
-  // (typically SERVER_URL in .env) for deliveries to flow.
-  warning?: string
-}
-
-// useListGitHubRepos returns the repos accessible to the org's
-// connected GitHub OAuth token. Powers the searchable repo dropdown
-// in the New Stream dialog so operators don't have to remember
-// exact `owner/name` strings.
-//
-// We use this query as the "is GitHub connected?" probe too —
-// the dialog disables the `github` transport option until we have
-// a non-null `data`. To keep that probe quiet, the auto-snackbar
-// is suppressed; failure surfaces only as `data === null` and the
-// caller decides how to render it (no toast). Cached for the
-// session — installations don't add many new repos in a short
-// window.
+// Probes "is GitHub connected?" — must stay quiet on failure (the
+// caller renders the disabled-transport hint, not a toast). The
+// generated client throws on non-2xx, so we swallow here.
 export function useListGitHubRepos(options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: ['helix-org', 'github-repos', orgID],
     queryFn: async () => {
-      const data = await api.get<GitHubReposResponse>(
-        `${base}/github/repos`,
-        undefined,
-        { snackbar: false },
-      )
-      return data
+      try {
+        const res = await api.getApiClient().v1OrgsGithubReposDetail(orgID)
+        return res.data as GitHubReposResponse
+      } catch {
+        return null
+      }
     },
     enabled: !!orgID && (options?.enabled ?? true),
-    // Always-fresh on mount. Operators routinely flip GitHub
-    // org-level OAuth approval BETWEEN dialog opens (to give the
-    // helix OAuth app access to private org repos like
-    // helixml/helix) and expect the dropdown to reflect that on
-    // the next try — not 60s later when the cache happens to
-    // expire. Trade-off: one extra round-trip per dialog open,
-    // which the cached browser keeps cheap.
     staleTime: 0,
     refetchOnMount: 'always',
   })
 }
 
-// useInstallGitHubWebhook calls the auto-install endpoint that
-// registers the webhook on GitHub for a github-kind stream.
-// Idempotent server-side: re-running the mutation adopts an
-// existing webhook rather than creating a duplicate.
-//
-// Failure handling: useApi.post swallows non-2xx as null AND
-// already fires an error snackbar with the server's message. We
-// re-raise so useMutation.isError / .error flip and the caller's
-// catch branch runs (and skips the "Webhook installed!" success
-// snackbar) — the user only sees the auto-snackbar, no duplicate.
+// Throws InstallWebhookFailedError on non-2xx so callers can detect
+// the "snackbar already shown" sentinel and skip their own toast.
 export function useInstallGitHubWebhook() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (streamId: string) => {
-      const data = await api.post<undefined, InstallGitHubWebhookResponse>(
-        `${base}/streams/${encodeURIComponent(streamId)}/github/install-webhook`,
-        undefined,
-      )
-      if (!data) {
-        // useApi.post already fired the error snackbar with the
-        // server's message; throw with a sentinel the caller can
-        // detect so it skips its own (now redundant) error toast.
-        throw new InstallWebhookFailedError()
+      try {
+        const res = await api.getApiClient().v1OrgsStreamsGithubInstallWebhookCreate(streamId, orgID)
+        return res.data as InstallGitHubWebhookResponse
+      } catch (e: any) {
+        const msg = e?.response?.data?.error ?? e?.message ?? 'install webhook failed'
+        const failed = new InstallWebhookFailedError(msg)
+        throw failed
       }
-      return data
     },
     onSuccess: (_data, streamId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, streamId) })
@@ -745,32 +468,21 @@ export function useInstallGitHubWebhook() {
   })
 }
 
-// InstallWebhookFailedError is thrown by useInstallGitHubWebhook
-// when the underlying useApi.post returned null. The error toast
-// was already shown by useApi; callers should treat this as "the
-// user has been told" and skip their own snackbar.error.
 export class InstallWebhookFailedError extends Error {
-  constructor() {
-    super('install webhook failed (snackbar already shown)')
+  constructor(message = 'install webhook failed') {
+    super(message)
     this.name = 'InstallWebhookFailedError'
   }
 }
 
-// useUpdateHelixOrgStream rewrites the mutable subset of a stream
-// (name, description, transport). Powers the Edit flow on the
-// stream detail page. The server returns the post-update DTO so we
-// can `setQueryData` rather than wait for a refetch.
 export function useUpdateHelixOrgStream() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ streamId, payload }: { streamId: string; payload: UpdateStreamRequest }) => {
-      const data = await api.put<UpdateStreamRequest, StreamDTO>(
-        `${base}/streams/${encodeURIComponent(streamId)}`,
-        payload,
-      )
-      return data
+      const res = await api.getApiClient().v1OrgsStreamsUpdate(streamId, orgID, payload)
+      return res.data as StreamDTO
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
@@ -780,16 +492,13 @@ export function useUpdateHelixOrgStream() {
   })
 }
 
-// useDeleteHelixOrgStream tears a stream down. Subscriptions and
-// events are NOT cascade-deleted in this iteration; the operator
-// is expected to drain them first.
 export function useDeleteHelixOrgStream() {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (streamId: string) => {
-      await api.delete(`${base}/streams/${encodeURIComponent(streamId)}`)
+      await api.getApiClient().v1OrgsStreamsDelete(streamId, orgID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
@@ -798,56 +507,29 @@ export function useDeleteHelixOrgStream() {
   })
 }
 
-// ---- Position subscriptions ---------------------------------------------
-
-// PositionSubscription is one row in a position's subscription set —
-// mirror of api.PositionSubscriptionDTO. The Worker detail page lists
-// these for the worker's filling position, the chart's dashed
-// subscription edges hang off them.
-export interface PositionSubscription {
-  stream_id: string
-  created_at: string
-}
-
-export interface PositionSubscriptionsResponse {
-  position_id: string
-  subscriptions: PositionSubscription[]
-}
-
-// useListPositionSubscriptions fetches the canonical "what streams
-// does this position consume" set. The Worker detail page resolves
-// worker → position before calling this; null positionID disables
-// the query so callers don't have to gate at the call site.
 export function useListPositionSubscriptions(positionID: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useQuery({
     queryKey: QUERY_KEYS.positionSubs(orgID, positionID ?? ''),
     queryFn: async () => {
       if (!positionID) return null
-      const data = await api.get<PositionSubscriptionsResponse>(`${base}/positions/${encodeURIComponent(positionID)}/subscriptions`)
-      return data
+      const res = await api.getApiClient().v1OrgsPositionsSubscriptionsDetail(positionID, orgID)
+      return res.data as PositionSubscriptionsResponse
     },
     enabled: !!orgID && !!positionID && (options?.enabled ?? true),
   })
 }
 
-// useSubscribePosition adds a (position, stream) subscription.
-// Idempotent server-side (returns 200 with the existing row); we
-// invalidate the position's sub list + the streams list so the
-// chart's dashed edges and the worker detail panel both refresh.
 export function useSubscribePosition(positionID: string | undefined) {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (streamID: string) => {
       if (!positionID) throw new Error('positionID is required to subscribe')
-      const data = await api.post<{ stream_id: string }, PositionSubscription>(
-        `${base}/positions/${encodeURIComponent(positionID)}/subscriptions`,
-        { stream_id: streamID },
-      )
-      return data
+      const res = await api.getApiClient().v1OrgsPositionsSubscriptionsCreate(positionID, orgID, { stream_id: streamID })
+      return res.data as PositionSubscription
     },
     onSuccess: () => {
       if (positionID) {
@@ -859,15 +541,14 @@ export function useSubscribePosition(positionID: string | undefined) {
   })
 }
 
-// useUnsubscribePosition drops a (position, stream) subscription.
 export function useUnsubscribePosition(positionID: string | undefined) {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID } = useHelixOrgBase()
+  const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (streamID: string) => {
       if (!positionID) throw new Error('positionID is required to unsubscribe')
-      await api.delete(`${base}/positions/${encodeURIComponent(positionID)}/subscriptions/${encodeURIComponent(streamID)}`)
+      await api.getApiClient().v1OrgsPositionsSubscriptionsDelete(positionID, streamID, orgID)
     },
     onSuccess: () => {
       if (positionID) {

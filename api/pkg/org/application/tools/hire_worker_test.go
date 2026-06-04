@@ -512,10 +512,8 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	}
 }
 
-// TestHireWorkerInheritsCallerOrgID pins H5.3: the new Worker
-// inherits its OrganizationID from the hiring caller's OrgID, so
-// tenancy travels through the hire chain — w-owner in org-test can
-// only ever produce Workers in org-test.
+// TestHireWorkerInheritsCallerOrgID: the new Worker inherits its
+// OrganizationID from the hiring caller's OrgID.
 func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)

@@ -10,12 +10,8 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
-// TestRunStampsOwnerWorkerWithOrganizationID pins H5.2: when the
-// caller passes Params.OrganizationID, the owner Worker bootstrap
-// creates is stamped with that OrgID. This is the first concrete
-// multi-tenant scaffolding — H5.3 will make the (org_id,
-// worker_id) lookup composite so two helix.Organizations can
-// bootstrap independently without colliding on "w-owner".
+// TestRunStampsOwnerWorkerWithOrganizationID: when the caller passes
+// Params.OrganizationID, the owner Worker is stamped with that OrgID.
 func TestRunStampsOwnerWorkerWithOrganizationID(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
@@ -44,9 +40,8 @@ func TestRunStampsOwnerWorkerWithOrganizationID(t *testing.T) {
 	}
 }
 
-// TestRunRequiresOrganizationID pins H5.3: bootstrap is multi-tenant
-// and the caller MUST pass OrganizationID. The single-tenant
-// back-compat that returned a Worker with empty OrgID is gone.
+// TestRunRequiresOrganizationID: bootstrap is multi-tenant; the
+// caller MUST pass OrganizationID.
 func TestRunRequiresOrganizationID(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)

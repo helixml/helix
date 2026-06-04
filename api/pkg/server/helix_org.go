@@ -397,25 +397,14 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}, nil
 }
 
-// helixOrgConfig is just enough of the surrounding config to bring
-// up the embedded org. LocalFSPath is optional after H4.4 — the
-// org store goes through helix's Postgres connection; LocalFSPath
-// is only used to root the working-directory tree, falling back to
-// os.TempDir() when empty.
+// helixOrgConfig is enough of the surrounding config to bring up the
+// embedded org. LocalFSPath roots the per-Worker working-directory
+// tree (falls back to os.TempDir() when empty). APIServer=nil
+// disables helix-org entirely.
 type helixOrgConfig struct {
-	LocalFSPath string
-	// GitRepositoryService is the production git-write surface
-	// helix-org's Workspace uses to mirror role.md / identity.md /
-	// canonical files onto each Worker's per-Worker repo. The H1.1
-	// lift replaced the loopback-HTTP file push with this direct
-	// call into the same servicer the HTTP handlers use.
+	LocalFSPath          string
 	GitRepositoryService runtimehelix.WorkspaceGit
-	// APIServer is the live HelixAPIServer instance. The embedded
-	// helix-org module needs it to build the in-process adapter that
-	// satisfies runtimehelix.ProjectService + SpawnerClient +
-	// chat.ChatBridgeClient. Nil disables helix-org entirely (init
-	// returns nil, nil).
-	APIServer *HelixAPIServer
+	APIServer            *HelixAPIServer
 }
 
 // dynamicProjectApplier is a chat.ProjectEnsurer that re-reads

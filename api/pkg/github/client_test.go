@@ -29,43 +29,12 @@ import (
 	"testing"
 )
 
-func TestApiHookURLToHTMLURL(t *testing.T) {
+func TestWebhookSettingsURL(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{
-			name: "standard api hook URL",
-			in:   "https://api.github.com/repos/helixml/helix/hooks/123",
-			want: "https://github.com/helixml/helix/settings/hooks/123",
-		},
-		{
-			name: "owner with dashes + repo with dots",
-			in:   "https://api.github.com/repos/owner-with-dashes/repo.with.dots/hooks/45",
-			want: "https://github.com/owner-with-dashes/repo.with.dots/settings/hooks/45",
-		},
-		{
-			name: "non-api-prefix URL passes through verbatim (GHE custom domain)",
-			in:   "https://github.example.com/api/v3/repos/foo/bar/hooks/1",
-			want: "https://github.example.com/api/v3/repos/foo/bar/hooks/1",
-		},
-		{
-			name: "empty input",
-			in:   "",
-			want: "",
-		},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := apiHookURLToHTMLURL(tc.in)
-			if got != tc.want {
-				t.Errorf("apiHookURLToHTMLURL(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
+	got := WebhookSettingsURL("helixml", "helix", 123)
+	want := "https://github.com/helixml/helix/settings/hooks/123"
+	if got != want {
+		t.Errorf("WebhookSettingsURL = %q, want %q", got, want)
 	}
 }
 
@@ -239,9 +208,6 @@ func TestUpsertWebhookCreatesWhenAbsent(t *testing.T) {
 	}
 	if got.ID != 999 {
 		t.Errorf("ID = %d, want 999", got.ID)
-	}
-	if got.HTMLURL != "https://github.com/helixml/helix/settings/hooks/999" {
-		t.Errorf("HTMLURL = %q", got.HTMLURL)
 	}
 	// One GET (list) + one POST (create).
 	calls := fake.recordedCalls()

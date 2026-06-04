@@ -384,8 +384,7 @@ func (c *concurrencyClient) StopExternalAgent(ctx context.Context, sid string) e
 // TestSpawnerPublishesTranscriptViaEntryStream verifies the bridge
 // subscribes via pubsub.GetSessionQueue, feeds frames through
 // EntryStream, and republishes settled events as activation Stream
-// events. After H1.3d the bridge consumes pubsub directly (no
-// WebSocket roundtrip).
+// events.
 func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
@@ -455,11 +454,9 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	}
 }
 
-// TestSpawnerOpensFreshOnStaleSession pins the resume-then-fallback
-// path: when the persisted session ID resume fails (Helix reports
-// hadStreamErr on a resume call), the spawner opens a fresh session
-// and persists the new ID. H1.3c rewrites EnsureAndSend; this test
-// ensures the fallback survives.
+// TestSpawnerOpensFreshOnStaleSession: when the persisted session ID
+// resume fails (Helix reports hadStreamErr), the spawner opens a
+// fresh session and persists the new ID.
 func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)

@@ -1,23 +1,13 @@
-// Package runtime owns the ports that describe where an AI Worker
-// physically executes. Two contracts live here today, lifted from
-// helix-org/agent in B3d:
+// Package runtime owns the ports describing where an AI Worker
+// physically executes. Two contracts live here:
 //
-//   - Spawner: run a single activation and block until the agent
-//     process exits.
+//   - Spawner: run a single activation and block until the agent exits.
 //   - WorkspaceSync: mirror canonical Role / Identity content into
 //     the runtime's per-Worker workspace.
 //
-// They are wired separately by the current callers (the dispatcher
-// takes a Spawner; the tools.Deps takes a WorkspaceSync) because the
-// helix-runtime constructors build them at different points with
-// different dependencies. A unified `Runtime` interface combining
-// both is a candidate follow-up — both contracts already satisfy one
-// struct (runtimehelix's per-Worker types), so the unification is
-// purely API-shape work.
-//
-// The sole concrete runtime lives at api/pkg/org/runtime/helix/
-// (lifted in H1.0–H1.3d). The dev-only claude-subprocess runtime
-// (helix-org/agent/claude) was deleted in B9.
+// Wired separately by callers (dispatcher → Spawner; tools.Deps →
+// WorkspaceSync). The sole concrete runtime lives at
+// api/pkg/org/infrastructure/runtime/helix/.
 package runtime
 
 import (

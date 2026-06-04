@@ -215,13 +215,10 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 }
 
 // SessionPreamble exposes the late-joiner catch-up snapshot the
-// HTTP-WS handler in api/pkg/server emits before any patches arrive.
-// In-process subscribers (Spawner bridge, chat bridge after H1.3d)
-// call Snapshot before subscribing so they see a baseline frame
-// equivalent to what the browser WS would receive.
-//
-// Empty snapshot ([]byte{}) is a valid "no streaming in progress"
-// response — no preamble frame is emitted.
+// HTTP-WS handler emits before any patches arrive. In-process
+// subscribers call Snapshot before subscribing so they see a baseline
+// frame equivalent to the browser WS. Empty snapshot means no
+// streaming in progress; no preamble is emitted.
 type SessionPreamble interface {
 	Snapshot(ctx context.Context, sessionID string) ([]byte, error)
 }
