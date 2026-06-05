@@ -218,11 +218,11 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		"content": "# Engineer v1\nBuild stuff.",
 	})
 	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
-		"id": "w-a", "positionId": "p-eng-a", "kind": "ai",
+		"id": "w-a", "roleId": "r-eng", "parentId": "w-owner", "kind": "ai",
 		"identityContent": "# Alice",
 	})
 	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
-		"id": "w-b", "positionId": "p-eng-b", "kind": "ai",
+		"id": "w-b", "roleId": "r-eng", "parentId": "w-owner", "kind": "ai",
 		"identityContent": "# Bob",
 	})
 
@@ -469,17 +469,17 @@ func TestDM(t *testing.T) {
 	// old grants model they had slightly different sets (Bob had only
 	// dm); under Role.Tools both get both, which is fine — Bob simply
 	// never calls read_events in this test.
-	ownerRole, _ := orgchart.NewRole(
-		"r-owner",
-		"# Owner",
+	// Alice and Bob share a Role with both dm + read_events. Subscriptions
+	// are worker-anchored, so the DM subscribes each worker independently.
+	memberRole, _ := orgchart.NewRole(
+		"r-member",
+		"# Member",
 		[]tool.Name{tools.DMName, tools.ReadEventsName},
 		nil,
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	// Subscriptions are position-anchored; give alice + bob distinct
-	// positions so the DM subscribes both positions independently.
+	mustCreate(t, s.Roles.Create(ctx, memberRole))
 	alice, _ := orgchart.NewHumanWorker("w-alice", "r-member", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
 	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", nil, "", "org-test")
