@@ -263,7 +263,12 @@ func (c *InternalHelixServer) dispatchAndPublish(req *types.RunnerLLMInferenceRe
 	publishErr := func(msg string) {
 		log.Warn().Str("request_id", req.RequestID).Str("sandbox_id", sandboxID).Str("err", msg).Msg("dispatch inference -> sandbox failed")
 		reply, _ := json.Marshal(&types.RunnerNatsReplyResponse{Error: msg})
-		_ = c.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), reply)
+		// Use a fresh context: the dispatch ctx may already be cancelled/expired
+		// (that is often *why* we are publishing an error), and the caller must
+		// still receive the failure rather than hang until its own timeout.
+		pubCtx, pubCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer pubCancel()
+		_ = c.pubsub.Publish(pubCtx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), reply)
 	}
 
 	// Open a connection back to the sandbox over its RevDial tunnel. The
@@ -277,6 +282,15 @@ func (c *InternalHelixServer) dispatchAndPublish(req *types.RunnerLLMInferenceRe
 		return
 	}
 	defer conn.Close()
+	// A raw RevDial conn does not honor ctx once dialed, so a sandbox that never
+	// finishes the response (hung upstream, half-open tunnel) would block the
+	// reads below forever and leak this goroutine + the connection. Close the
+	// conn when the 5-minute budget expires so the reads unblock — this restores
+	// the bound the previous http.Client{Timeout} gave us.
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://hydra/api/v1/inference"+path, bytes.NewReader(body))
 	if err != nil {
