@@ -983,10 +983,11 @@ const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionI
   const [id, setId] = useState('')
   const [kind, setKind] = useState<'ai' | 'human'>('human')
   const [identity, setIdentity] = useState('')
+  const [identityError, setIdentityError] = useState(false)
 
   const submit = async () => {
     if (!identity.trim()) {
-      snackbar.error('identity content is required')
+      setIdentityError(true)
       return
     }
     const body: HireWorkerRequest = {
@@ -1034,10 +1035,13 @@ const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionI
           label="Identity content"
           placeholder="Short persona / profile in markdown."
           value={identity}
-          onChange={(e) => setIdentity(e.target.value)}
+          onChange={(e) => { setIdentity(e.target.value); if (e.target.value.trim()) setIdentityError(false) }}
           multiline
           minRows={6}
           fullWidth
+          required
+          error={identityError}
+          helperText={identityError ? 'Identity content is required' : undefined}
         />
         <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
           <Button variant="contained" onClick={submit} disabled={hire.isPending}>
