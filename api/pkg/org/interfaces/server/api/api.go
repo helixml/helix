@@ -451,14 +451,32 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	workers, err := a.deps.Store.Workers.List(r.Context(), orgID)
+	ctx := r.Context()
+	workers, err := a.deps.Store.Workers.List(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
 	}
+	// Resolve each worker's tools via Position → Role.Tools. Cache by
+	// position so a chart with many workers in the same role only
+	// pays for the lookup once.
+	posCache := map[orgchart.PositionID][]string{}
 	out := make([]WorkerDTO, 0, len(workers))
 	for _, wk := range workers {
-		out = append(out, workerDTO(wk, nil))
+		tools, ok := posCache[wk.Position()]
+		if !ok {
+			tools = nil
+			if pos, err := a.deps.Store.Positions.Get(ctx, orgID, wk.Position()); err == nil {
+				if role, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID); err == nil {
+					tools = make([]string, 0, len(role.Tools))
+					for _, t := range role.Tools {
+						tools = append(tools, string(t))
+					}
+				}
+			}
+			posCache[wk.Position()] = tools
+		}
+		out = append(out, workerDTO(wk, tools))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

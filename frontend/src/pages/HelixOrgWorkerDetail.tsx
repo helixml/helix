@@ -390,8 +390,8 @@ const HelixOrgWorkerDetail: FC = () => {
                     {isOwner ? 'Owner — protected' : 'Fire worker'}
                   </Button>
                   <Typography variant="caption" color="text.secondary">
-                    Tears down the worker's per-Worker Helix project, removes grants,
-                    deletes the row.
+                    Tears down the worker's per-Worker Helix project and deletes the
+                    row. Tool capability comes from the Role, so nothing extra to revoke.
                   </Typography>
                 </Stack>
               </Paper>
