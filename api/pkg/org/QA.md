@@ -287,30 +287,98 @@ bare composer at `/agent/<id>`.
    shows the project id. Re-click the button to navigate
    straight to the desktop (Ensure fast-paths).
 
-## §12. Worker sandbox: Zed launch, `gh` auth, stale-session recovery
+## §12. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
 Pins the chain `desktop click → fresh container → Zed launches
-→ WebSocket connects → Claude responds → gh works`.
+→ WebSocket connects → Claude responds → per-Worker startup
+script runs → tooling works`. The base desktop image stays
+lean; anything a particular Worker needs (e.g. `gh`) is
+operator-configurable per project via `configure_worker_project`
+(§12b).
 
-**§12a. Zed launches in a fresh container** (regression: build-time
-`gh --version` left `/home/retro/.local/` root-owned, blocking Zed's
-`~/.local/share/zed/extensions` mkdir, so the agent never came up
-and chat queued forever). Hire a fresh AI worker; once the
-container appears, the desktop viewer renders the GNOME shell + Zed
-pane. API logs show `External agent added message … role=assistant`
-as Claude processes the hire-time activation. No
-`no external agent WebSocket connection` warnings for this session.
+**§12a. Zed launches in a fresh container.** Hire a fresh AI
+worker; once the container appears, the desktop viewer renders
+the GNOME shell + Zed pane. API logs show `External agent added
+message … role=assistant` as Claude processes the hire-time
+activation. No `no external agent WebSocket connection` warnings
+for this session. `/home/retro/.local/` is `retro`-owned (any
+build-time tool that touches `${HOME}` as root will poison it
+and stop Zed from creating `~/.local/share/zed/extensions` —
+the desktop image must not invoke such tools during build).
 
-**§12b. `gh` is installed + GH_TOKEN auto-injected.** Open a
-terminal inside the desktop:
+**§12b. `gh` is available + GH_TOKEN auto-injected.** Tools
+beyond the base image are a **per-Worker concern**, set on the
+Worker's helix project via the `configure_worker_project` MCP
+tool (`startupScript` field) — NOT baked into the desktop image
+or wired into the image-level startup scripts. `GH_TOKEN` is
+plumbed by the helix-org spawner on every activation from the
+org's connected GitHub OAuth (`SpawnSecretInjector` →
+`PutProjectSecret("GH_TOKEN")` → env var on next container
+boot); no operator step is needed for the token itself.
+
+Pre-conditions:
+- At least one org member has connected GitHub on Connected
+  Services with `repo, admin:repo_hook, read:org` scopes. The
+  `Reconnect with stream permissions →` flow in §8 grants them.
+  Without a connected member the resolver returns "" and
+  `GH_TOKEN` stays unset (soft skip — not an error).
+- The Worker's project `startupScript` installs `gh`. From the
+  hiring manager prompt (or an operator's MCP call):
+  ```
+  configure_worker_project(
+    workerId: "w-…",
+    startupScript: """
+      #!/bin/bash
+      set -e
+      type -p gh >/dev/null || {
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+          | sudo dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg
+        sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+          | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+        sudo apt-get update && sudo apt-get install -y gh
+      }
+    """
+  )
+  ```
+  Re-running is a no-op (the `type -p gh` guard short-circuits
+  once gh is present). The script runs as `retro` on every
+  fresh container start.
+
+Open a terminal inside the desktop and verify:
+- `gh --version` resolves (installed by the startupScript).
 - `gh auth status` reports `✓ Logged in to github.com account
   <login> (GH_TOKEN)` with scopes `repo, admin:repo_hook,
   read:org`. (If `read:org` is missing, re-auth via §8's
-  "Reconnect with stream permissions →".)
+  `Reconnect with stream permissions →`.)
 - `gh issue comment <number> --repo <owner>/<repo> --body "from
   helix-org worker"` succeeds. Comment lands on the issue under
   the operator's GitHub identity (the org's OAuth token is what
   signs the call).
+
+Verifying the env var: open a terminal in the desktop and run
+`env | grep GH_TOKEN` (NOT `su - retro -c …` — a login shell
+strips the inherited env and will lie). The token is injected
+on docker create, so any non-login shell inside the container
+sees it.
+
+Server-side cross-checks if `gh auth status` still says no
+token:
+- `SELECT id, name, project_id FROM secrets WHERE name='GH_TOKEN'
+  AND project_id=<worker's project_id>;` — secret row present
+  means the SpawnSecretInjector ran. Absent means the resolver
+  returned "" (no member with GitHub OAuth — fix the
+  pre-condition).
+- `grep "Injected project secrets into desktop env" api-logs |
+  grep <session_id>` — present means the env actually reached
+  `agent.Env` on container create. If this line is missing for
+  a session whose secret row exists, the projection path is
+  broken (runtime regression).
+- `PutProjectSecret` upserts: every activation overwrites
+  `GH_TOKEN` with whatever the resolver returns. OAuth rotation
+  propagates on the next session without re-hiring. No WARN
+  `put project secret failed … already exists` should appear in
+  steady state; if it does, the upsert path regressed.
 
 **§12c. Stale-session recovery after `./stack build-ubuntu`.**
 Image rebuilds leave every pre-existing exploratory session row
@@ -367,7 +435,8 @@ container from the current image, and chat works.
   and from the streams list (no orphans).
 - §11 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
   never on `…/agent/<id>`.
-- §12 — fresh sandbox: Zed launches; `gh auth status` green;
+- §12 — fresh sandbox: Zed launches; with a `configure_worker_project`
+  startupScript that installs `gh`, `gh auth status` green;
   `gh issue comment` round-trips. Stale-session recovery
   procedure unblocks all pre-existing workers after a desktop
   rebuild.
