@@ -113,3 +113,32 @@ func TestDispatchHireEnqueuesSpawn(t *testing.T) {
 		t.Fatalf("ActivationID = %q, want %q", got[0].Triggers[0].ActivationID, activation.ID("a-hire-1"))
 	}
 }
+
+// TestDispatchManualEnqueuesSpawn pins the manual-activation wiring:
+// the worker UI's "Start Desktop" button hits POST /workers/{id}/activate,
+// which calls Dispatcher.DispatchManual; the dispatcher must enqueue a
+// TriggerManual activation against the worker's per-Worker queue with
+// the caller-supplied pre-allocated audit-row ID. Without this, the
+// activate endpoint becomes a no-op and the desktop stays in whatever
+// MCP-clobbered state it was already in.
+func TestDispatchManualEnqueuesSpawn(t *testing.T) {
+	t.Parallel()
+	d, s, rec := newDispatcherWithSpawner(t)
+	seedAIWorker(t, s, "w-manual")
+
+	d.DispatchManual(context.Background(), "org-test", "w-manual", "/tmp/env-manual", activation.ID("a-manual-1"))
+
+	got := drainActivations(t, rec, 500*time.Millisecond)
+	if len(got) != 1 {
+		t.Fatalf("activations = %d, want 1 (DispatchManual must spawn the worker); got %+v", len(got), got)
+	}
+	if got[0].WorkerID != "w-manual" {
+		t.Fatalf("spawned worker = %q, want %q", got[0].WorkerID, "w-manual")
+	}
+	if len(got[0].Triggers) != 1 || got[0].Triggers[0].Kind != activation.TriggerManual {
+		t.Fatalf("trigger kind = %+v, want one TriggerManual", got[0].Triggers)
+	}
+	if got[0].Triggers[0].ActivationID != activation.ID("a-manual-1") {
+		t.Fatalf("ActivationID = %q, want %q", got[0].Triggers[0].ActivationID, activation.ID("a-manual-1"))
+	}
+}

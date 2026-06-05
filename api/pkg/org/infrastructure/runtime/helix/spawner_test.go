@@ -141,6 +141,51 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 }
 
+// TestSpawnerAttachesHelixOrgMCPEveryActivation pins the bug-fix
+// invariant: the helix-org MCP is re-attached to the Worker's agent
+// app on every activation, after ensureProject runs. helix's project-
+// apply path wholesale-replaces Config.Helix on update, so without
+// this re-attach the MCP is gone from the second activation onward
+// and the desktop runtime boots without the helix-org tools — the
+// regression behind /workers/<id>/mcp not appearing in Zed.
+func TestSpawnerAttachesHelixOrgMCPEveryActivation(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.MCPAuthBearer = "k_service"
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn 1: %v", err)
+	}
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent}}); err != nil {
+		t.Fatalf("spawn 2: %v", err)
+	}
+	svc := cfg.ProjectService.(*fakeProjectService)
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	// Two activations should mean two UpdateAppConfig calls for the
+	// MCP attach (one per activation, after ensureProject). The
+	// helix-side apply path clobbers the MCP list each time so this
+	// must NOT be debounced.
+	if svc.updateAppCalls != 2 {
+		t.Errorf("UpdateAppConfig calls = %d, want 2 (one MCP re-attach per activation)", svc.updateAppCalls)
+	}
+	mcp := findMCP(svc.updateAppLastCfg, HelixOrgMCPName)
+	if mcp == nil {
+		t.Fatalf("last UpdateApp missing helix MCP entry: %+v", svc.updateAppLastCfg)
+	}
+	if !strings.HasSuffix(mcp.URL, "/workers/w-eng/mcp") {
+		t.Errorf("MCP URL = %q, want /workers/w-eng/mcp suffix", mcp.URL)
+	}
+	if mcp.Headers["Authorization"] != "Bearer k_service" {
+		t.Errorf("MCP fallback bearer not applied; Authorization = %q", mcp.Headers["Authorization"])
+	}
+}
+
 // TestBridgeRendersEntryPatchEvents verifies that the bridge's
 // EntryStream callback produces the same line shapes the claude
 // bridge emits — assistant text, tool_use, tool_result.

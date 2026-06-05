@@ -245,7 +245,14 @@ func (c *inProcHelixClient) PutProjectSecret(ctx context.Context, projectID, nam
 		return nil
 	}
 
-	updateBody := types.Secret{Value: []byte(value)}
+	// updateSecret decodes the body into a fresh types.Secret and
+	// preserves Owner/ProjectID/AppID from the existing row — but NOT
+	// Name. If we omit Name here it gets blanked to "", and
+	// GetProjectSecretsAsEnvVars later emits an env var "=<value>",
+	// which Docker rejects as `invalid environment variable: =<value>`
+	// at container-create time. Always pass Name so the row keeps its
+	// identity.
+	updateBody := types.Secret{Name: name, Value: []byte(value)}
 	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/secrets/"+existingID, updateBody, map[string]string{"id": existingID})
 	if err != nil {
 		return err
@@ -323,7 +330,7 @@ func (c *inProcHelixClient) CreateBranch(ctx context.Context, repoID, branch, ba
 }
 
 // GetAppConfig returns the typed config for an App. Used by
-// WorkerProject.attachMCPToApp to round-trip MCP entries.
+// runtimehelix.AttachHelixOrgMCP to round-trip MCP entries.
 func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.AppConfig, error) {
 	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/apps/"+id, nil, map[string]string{"id": id})
 	if err != nil {

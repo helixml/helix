@@ -12620,6 +12620,62 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/workers/{id}/activate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: manually trigger a worker activation",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerActivateDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/workers/{id}/chat": {
             "post": {
                 "security": [
@@ -24940,6 +24996,23 @@
                 "type": "object",
                 "properties": {
                     "content": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.WorkerActivateDTO": {
+                "type": "object",
+                "properties": {
+                    "activation_id": {
+                        "type": "string"
+                    },
+                    "agent_app_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
                         "type": "string"
                     }
                 }

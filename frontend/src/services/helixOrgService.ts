@@ -23,6 +23,7 @@ import {
   ApiStreamsResponse,
   ApiToolDTO,
   ApiUpdateStreamRequest,
+  ApiWorkerActivateDTO,
   ApiWorkerBadge,
   ApiWorkerChatDTO,
   ApiWorkerDTO,
@@ -116,6 +117,28 @@ export function useEnsureWorkerChat() {
     },
     onSuccess: (_data, workerId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
+    },
+  })
+}
+
+// useActivateWorker manually triggers an activation for a Worker.
+// Wired to the worker page's "Start Desktop" button so the click goes
+// through the full activation pipeline (ensureProject → AttachHelixOrgMCP
+// → ensureSession → container start) instead of the generic
+// /sessions/{id}/resume — which doesn't re-attach the helix-org MCP
+// and so leaves the desktop without the org-graph tools.
+//
+// The accepts an orgID override so callers that aren't running inside
+// the helix-org base context (e.g. TeamDesktopPage opened in a new
+// tab from the worker detail page) can pass the org slug explicitly.
+export function useActivateWorker(orgIDOverride?: string) {
+  const api = useApi()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (workerId: string) => {
+      const res = await api.getApiClient().v1OrgsWorkersActivateCreate(workerId, orgID)
+      return res.data as ApiWorkerActivateDTO
     },
   })
 }

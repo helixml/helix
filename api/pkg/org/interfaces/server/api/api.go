@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -28,6 +29,8 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+
+	"path/filepath"
 )
 
 // resolveOrgID returns the orgID stashed on ctx by the helix-org
@@ -47,6 +50,11 @@ func resolveOrgID(r *http.Request) (string, error) {
 // one-directional — server/api is below server, not next to it.
 type Dispatcher interface {
 	Dispatch(ctx context.Context, ev streaming.Event)
+	// DispatchManual enqueues an operator-driven activation for the
+	// given Worker. Called by activateWorker after the synchronous
+	// ensureProject step. activationID is the pre-allocated audit-row
+	// ID; empty means the Spawner mints its own.
+	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
 }
 
 // ProjectEnsurer provisions (or fast-paths) the per-Worker Helix
@@ -172,6 +180,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},
 		{Pattern: "DELETE /workers/{id}", Handler: http.HandlerFunc(a.fireWorker)},
 		{Pattern: "POST /workers/{id}/chat", Handler: http.HandlerFunc(a.ensureWorkerChat)},
+		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
@@ -706,6 +715,119 @@ func (a *apiHandler) ensureWorkerChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, WorkerChatDTO{AgentAppID: agentAppID, ProjectID: projectID})
+}
+
+// activateWorker manually triggers an activation for a Worker. The
+// worker page's "Start Desktop" button hits this endpoint instead of
+// /sessions/{id}/resume so the full activation pipeline runs:
+// ensureProject → AttachHelixOrgMCP → ensureSession → Helix spins
+// up the desktop container as part of the session start. This is the
+// path that guarantees the helix-org MCP entry is present on the
+// agent app when Zed reads /sessions/{id}/zed-config inside the
+// container — plain resume reads but doesn't write Config.Helix, so
+// it can't fix an MCP-clobbered agent app on its own.
+//
+// Synchronous up to ensureProject so the response carries the
+// project + agent_app IDs the UI needs to navigate the user to the
+// desktop. The session-start work runs async on the per-Worker
+// queue inside the dispatcher.
+//
+// @Summary Helix-org: manually trigger a worker activation
+// @Tags HelixOrg
+// @Param id path string true "Worker ID"
+// @Success 202 {object} api.WorkerActivateDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/workers/{id}/activate [post]
+func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.ProjectEnsurer == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("project ensurer not wired"))
+		return
+	}
+	if a.deps.Dispatcher == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("dispatcher not wired"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.WorkerID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
+		return
+	}
+	if _, err := a.deps.Store.Workers.Get(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
+		return
+	}
+	// Every identity in helix-org (human or AI, owner or hired) has a
+	// chat agent and a desktop; activation runs the same pipeline for
+	// all of them. No kind gating — the UI calls this for any worker
+	// the operator clicks Restart Desktop on.
+
+	// 1. Synchronously ensure the project + MCP attach. Side effect:
+	// dynamicProjectApplier.Ensure re-attaches the helix-org MCP on
+	// the agent app, which is the immediate user-visible fix the
+	// operator clicked Start Desktop for.
+	projectID, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure project for %s: %w", id, err))
+		return
+	}
+
+	// 2. Look up the persisted session id (may be empty if this is
+	// the first activation). The UI uses it to navigate straight to
+	// the desktop viewer; on first activation, it'll wait for the
+	// next state refresh.
+	var sessionID string
+	if state, err := runtimehelix.LoadState(ctx, a.deps.Store, orgID, id); err == nil {
+		sessionID = state.SessionID
+	}
+
+	// 3. Pre-allocate the audit row so the response can carry the
+	// activation_id synchronously. Mirrors hire_worker's pattern —
+	// the Spawner picks the row up (matched by Trigger.ActivationID)
+	// and Completes it when the activation finishes, rather than
+	// minting a sibling.
+	var activationID activation.ID
+	if a.deps.Store.Activations != nil && a.deps.NewID != nil && a.deps.Now != nil {
+		activationID = activation.ID("a-" + a.deps.NewID())
+		act, err := activation.New(
+			activationID,
+			id,
+			[]activation.Trigger{{Kind: activation.TriggerManual}},
+			a.deps.Now(),
+			orgID,
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("build manual activation: %w", err))
+			return
+		}
+		if err := a.deps.Store.Activations.Create(ctx, act); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("persist manual activation: %w", err))
+			return
+		}
+	}
+
+	// 4. Enqueue. The dispatcher's per-Worker queue coalesces with
+	// any in-flight activation, so a double-click on Start Desktop
+	// folds into a single follow-up rather than two parallel runs.
+	envPath := ""
+	if a.deps.EnvsDir != "" {
+		envPath = filepath.Join(a.deps.EnvsDir, string(id))
+	}
+	a.deps.Dispatcher.DispatchManual(ctx, orgID, id, envPath, activationID)
+
+	writeJSON(w, http.StatusAccepted, WorkerActivateDTO{
+		ActivationID: string(activationID),
+		ProjectID:    projectID,
+		AgentAppID:   agentAppID,
+		SessionID:    sessionID,
+	})
 }
 
 // updateWorkerIdentity rewrites a Worker's IdentityContent. The

@@ -38,6 +38,8 @@ func BuildPrompt(workerID orgchart.WorkerID, mandate string, triggers []activati
 			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
 		case activation.TriggerEvent:
 			ctx.WriteString(renderTrigger(t))
+		case activation.TriggerManual:
+			ctx.WriteString("An operator manually woke you up from the worker UI. Re-read your role and identity (per the mandate above), summarise your current state, and stand by — the operator will follow up with instructions on the next message.\n")
 		default:
 			fmt.Fprintf(&ctx, "Activation kind: %q.\n", t.Kind)
 		}
@@ -139,6 +141,8 @@ func DescribeTrigger(t activation.Trigger) string {
 		return "hire"
 	case activation.TriggerEvent:
 		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.StreamID, t.Source)
+	case activation.TriggerManual:
+		return "manual"
 	default:
 		return string(t.Kind)
 	}

@@ -251,6 +251,13 @@ export interface ApiUpdateWorkerRoleRequest {
   content?: string;
 }
 
+export interface ApiWorkerActivateDTO {
+  activation_id?: string;
+  agent_app_id?: string;
+  project_id?: string;
+  session_id?: string;
+}
+
 export interface ApiWorkerBadge {
   id?: string;
   kind?: string;
@@ -12184,6 +12191,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersActivateCreate
+     * @summary Helix-org: manually trigger a worker activation
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/activate
+     * @secure
+     */
+    v1OrgsWorkersActivateCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/activate`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 

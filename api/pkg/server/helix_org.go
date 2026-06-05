@@ -429,12 +429,28 @@ type dynamicProjectApplier struct {
 // runtimehelix.WorkerProject from the current registry state and
 // delegates. WorkerProject.Ensure is itself idempotent — first call
 // applies, subsequent calls fast-path on the existing project.
+//
+// After Ensure succeeds, re-attaches the helix-org MCP entry on the
+// per-Worker agent app. ApplyProject (called inside WorkerProject.Ensure)
+// wholesale-replaces Config.Helix on update, so any MCPs we attached
+// previously are wiped — we re-attach here to keep the MCP present.
+// The Spawner does the same on its own activations; owner-chat goes
+// through this path only.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
-	applier, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
+	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
-	return applier.Ensure(ctx, orgID, workerID)
+	projectID, agentAppID, repoID, err = applier.Ensure(ctx, orgID, workerID)
+	if err != nil {
+		return "", "", "", err
+	}
+	if agentAppID != "" && applier.HelixOrgURL != "" {
+		if attachErr := runtimehelix.AttachHelixOrgMCP(ctx, d.projectSvc, agentAppID, applier.HelixOrgURL, workerID, mcpBearer); attachErr != nil && d.logger != nil {
+			d.logger.Warn("dynamic project applier: attach helix-org MCP", "worker", workerID, "app", agentAppID, "err", attachErr)
+		}
+	}
+	return projectID, agentAppID, repoID, nil
 }
 
 // buildHelixOrgProjectApplier constructs the WorkerProject that
@@ -450,6 +466,12 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 // (worker.runtime/credentials/provider/model, helix.url/api_key)
 // take effect immediately. The struct it returns is cheap to build
 // and short-lived — one apply call, then discarded.
+//
+// Also returns the service api_key as a separate value (mcpBearer)
+// for the caller to feed into runtimehelix.AttachHelixOrgMCP as the
+// fallback bearer when no per-request bearer is on ctx. The bearer
+// is no longer carried on WorkerProject because Ensure doesn't touch
+// MCPs — MCP attachment is a separate, explicit step.
 func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	orgID string,
@@ -457,30 +479,35 @@ func buildHelixOrgProjectApplier(
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
-) (*runtimehelix.WorkerProject, error) {
+) (*runtimehelix.WorkerProject, string, error) {
 	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
 	if apiKey == "" {
-		return nil, fmt.Errorf("helix.api_key not set")
+		return nil, "", fmt.Errorf("helix.api_key not set")
 	}
 	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
 	if err != nil {
-		return nil, fmt.Errorf("read helix.url: %w", err)
+		return nil, "", fmt.Errorf("read helix.url: %w", err)
 	}
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, cfg)
-	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
+	// HelixOrgMCPBackend.ServeHTTP parses `<org>/workers/<id>/mcp`
+	// from the suffix path, so the org segment is required in the
+	// URL Zed will dial. The previous form
+	// `/api/v1/mcp/helix-org/workers/<id>/mcp` made the backend read
+	// "workers" as the org slug and 404 every request — the helix-org
+	// MCP was effectively unreachable from inside the sandbox.
+	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
 	return &runtimehelix.WorkerProject{
-		Service:       projectSvc,
-		Workspace:     helixOrgWorkspaceRef,
-		Store:         orgStore,
-		HelixOrgURL:   helixOrgURL,
-		OrgID:         orgID,
-		Runtime:       runtime,
-		Credentials:   credentials,
-		Provider:      provider,
-		Model:         model,
-		MCPAuthBearer: apiKey,
-		Logger:        logger,
-	}, nil
+		Service:     projectSvc,
+		Workspace:   helixOrgWorkspaceRef,
+		Store:       orgStore,
+		HelixOrgURL: helixOrgURL,
+		OrgID:       orgID,
+		Runtime:     runtime,
+		Credentials: credentials,
+		Provider:    provider,
+		Model:       model,
+		Logger:      logger,
+	}, apiKey, nil
 }
 
 // helixOrgWorkspaceRef is the production Workspace, set at
@@ -611,7 +638,13 @@ func buildHelixOrgSpawnerConfig(
 	}
 
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, cfg)
-	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org"
+	// HelixOrgMCPBackend.ServeHTTP parses `<org>/workers/<id>/mcp`
+	// from the suffix path, so the org segment is required in the
+	// URL Zed will dial. The previous form
+	// `/api/v1/mcp/helix-org/workers/<id>/mcp` made the backend read
+	// "workers" as the org slug and 404 every request — the helix-org
+	// MCP was effectively unreachable from inside the sandbox.
+	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
 	specsMandate, _ := cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	return runtimehelix.SpawnerConfig{
 		Client:         spawnerClient,

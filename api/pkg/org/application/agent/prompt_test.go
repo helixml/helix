@@ -159,3 +159,22 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildPromptManualTrigger pins the operator-driven activation path.
+// The prompt body must be operator-aware so the Worker doesn't treat the
+// activation as either a hire (first-time setup) or an event (no event
+// envelope to read). Standard wrapper still renders the mandate so the
+// Worker re-reads its role / identity per the helix-specs branch.
+func TestBuildPromptManualTrigger(t *testing.T) {
+	t.Parallel()
+	prompt := BuildPrompt("w-eng", "[mandate]", []activation.Trigger{{Kind: activation.TriggerManual}})
+	if !strings.Contains(prompt, "operator manually woke you up") {
+		t.Errorf("manual trigger body missing\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "[mandate]") {
+		t.Errorf("mandate wrapper missing\n%s", prompt)
+	}
+	if got := DescribeTrigger(activation.Trigger{Kind: activation.TriggerManual}); got != "manual" {
+		t.Errorf("DescribeTrigger(manual) = %q, want %q", got, "manual")
+	}
+}

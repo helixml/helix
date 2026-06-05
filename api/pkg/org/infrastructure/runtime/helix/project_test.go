@@ -545,9 +545,19 @@ func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	}
 }
 
-// TestEnsureAttachesMCPToAgentApp verifies the GetApp + UpdateApp pair
-// runs and the config carries the /workers/<id>/mcp URL.
-func TestEnsureAttachesMCPToAgentApp(t *testing.T) {
+// TestEnsureDoesNotTouchAgentAppMCPs pins the new contract: MCP
+// attachment is NOT WorkerProject.Ensure's responsibility. It moved
+// out into runtimehelix.AttachHelixOrgMCP, called explicitly by the
+// Spawner (per-activation) and dynamicProjectApplier (per owner-chat
+// ensureWorker). Ensure mutates the project + repo + helix-specs
+// files only.
+//
+// Why this matters: the helix project-apply path wholesale-replaces
+// agentApp.Config.Helix on update, so any MCP attached during Ensure
+// is clobbered on the next re-apply. Keeping MCP attachment outside
+// Ensure means there's exactly one place that writes the MCP entry,
+// and it's the last write before the desktop boots.
+func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
 	svc := newFakeProjectService()
@@ -559,50 +569,11 @@ func TestEnsureAttachesMCPToAgentApp(t *testing.T) {
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.getAppCalls < 1 || svc.updateAppCalls < 1 {
-		t.Fatalf("MCP attach must call GetApp+UpdateApp; got get=%d update=%d", svc.getAppCalls, svc.updateAppCalls)
+	if svc.getAppCalls != 0 {
+		t.Errorf("Ensure must not read agent app config; GetAppConfig calls = %d", svc.getAppCalls)
 	}
-	mcp := findMCP(svc.updateAppLastCfg, "helix")
-	if mcp == nil {
-		t.Fatalf("UpdateApp config missing 'helix' MCP entry: %+v", svc.updateAppLastCfg)
-	}
-	if !strings.Contains(mcp.URL, "/workers/w-eng/mcp") {
-		t.Errorf("MCP URL = %q, want contains /workers/w-eng/mcp", mcp.URL)
-	}
-}
-
-// findMCP returns the AssistantMCP named `name` on assistants[0], or
-// nil if not present.
-func findMCP(cfg types.AppConfig, name string) *types.AssistantMCP {
-	if len(cfg.Helix.Assistants) == 0 {
-		return nil
-	}
-	for i := range cfg.Helix.Assistants[0].MCPs {
-		if cfg.Helix.Assistants[0].MCPs[i].Name == name {
-			return &cfg.Helix.Assistants[0].MCPs[i]
-		}
-	}
-	return nil
-}
-
-// TestEnsureMCPAttachUsesBearerFromContext pins the per-call bearer
-// behaviour.
-func TestEnsureMCPAttachUsesBearerFromContext(t *testing.T) {
-	t.Parallel()
-	st, wid := newProjectTestStore(t, "# Role")
-	svc := newFakeProjectService()
-	git := newFakeGitForProject()
-	a := newApplierGit(svc, git, st)
-
-	ctx := WithBearerToken(context.Background(), "k_bob")
-	if _, _, _, err := a.Ensure(ctx, "org-test", wid); err != nil {
-		t.Fatalf("Ensure: %v", err)
-	}
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	mcp := findMCP(svc.updateAppLastCfg, "helix")
-	if mcp == nil || mcp.Headers["Authorization"] != "Bearer k_bob" {
-		t.Errorf("MCP entry missing Authorization=Bearer k_bob; got %+v", mcp)
+	if svc.updateAppCalls != 0 {
+		t.Errorf("Ensure must not write agent app config; UpdateAppConfig calls = %d", svc.updateAppCalls)
 	}
 }
 
