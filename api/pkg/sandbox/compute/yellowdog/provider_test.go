@@ -205,7 +205,7 @@ func TestProvisionTaskAddFailureCancelsWR(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/work/taskGroups/tg-xyz/tasks":
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"status":400,"title":"bad task"}`))
-		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/work/requirements/wr-abc/transition/CANCELLED"):
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/work/requirements/wr-abc/transition/CANCELLING"):
 			cancelled = true
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{}`))
@@ -219,7 +219,7 @@ func TestProvisionTaskAddFailureCancelsWR(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	if !cancelled {
-		t.Fatal("expected rollback PUT to /work/requirements/wr-abc/transition/CANCELLED")
+		t.Fatal("expected rollback PUT to /work/requirements/wr-abc/transition/CANCELLING")
 	}
 }
 
@@ -239,7 +239,7 @@ func TestDeprovisionForceAddsAbortQuery(t *testing.T) {
 	if got.Method != http.MethodPut {
 		t.Fatalf("wrong method: %s", got.Method)
 	}
-	if got.URL.Path != "/work/requirements/wr-xyz/transition/CANCELLED" {
+	if got.URL.Path != "/work/requirements/wr-xyz/transition/CANCELLING" {
 		t.Fatalf("wrong path: %s", got.URL.Path)
 	}
 	if got.URL.Query().Get("abort") != "true" {
@@ -277,20 +277,26 @@ func TestDeprovisionRejectsNilHandle(t *testing.T) {
 	}
 }
 
-func TestListReturnsAllPages(t *testing.T) {
+func TestListDecodesFlatArrayAndFiltersClientSide(t *testing.T) {
+	// GET /work/requirements returns a flat JSON array, NOT a paged
+	// {items, nextSliceId} envelope. The server-side `search` param
+	// is silently ignored - we still send it but cannot rely on it,
+	// so we re-filter client-side on (namespace, tag). Both confirmed
+	// against live YD on 2026-06-05.
 	f := newFakeServer(t)
-	page := 0
 	f.handler = func(w http.ResponseWriter, r *http.Request) {
-		page++
-		if page == 1 {
-			_, _ = w.Write([]byte(`{"items":[{"id":"wr-1","name":"a","status":"RUNNING"}],"nextSliceId":"cursor-2"}`))
-		} else {
-			// Confirm cursor was passed back.
-			if got := r.URL.Query().Get("sliceReference"); got != "cursor-2" {
-				t.Errorf("expected sliceReference=cursor-2, got %q", got)
-			}
-			_, _ = w.Write([]byte(`{"items":[{"id":"wr-2","name":"b","status":"COMPLETED"}]}`))
+		if got := r.URL.Query().Get("search"); got != `{"namespace":"test-ns","tag":"test-dep"}` {
+			t.Errorf("unexpected search query: %q", got)
 		}
+		// Return a mix: two that match the provider's (ns, tag) and
+		// two that don't. The client-side filter must keep only the
+		// matching ones.
+		_, _ = w.Write([]byte(`[
+			{"id":"ours-1","namespace":"test-ns","tag":"test-dep","name":"a","status":"RUNNING"},
+			{"id":"foreign-1","namespace":"other-ns","tag":"test-dep","name":"x","status":"RUNNING"},
+			{"id":"foreign-2","namespace":"test-ns","tag":"other-tag","name":"y","status":"RUNNING"},
+			{"id":"ours-2","namespace":"test-ns","tag":"test-dep","name":"b","status":"COMPLETED"}
+		]`))
 	}
 	p := f.provider(t)
 	out, err := p.List(context.Background())
@@ -298,7 +304,13 @@ func TestListReturnsAllPages(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	if len(out) != 2 {
-		t.Fatalf("expected 2 handles, got %d", len(out))
+		t.Fatalf("expected 2 filtered handles, got %d", len(out))
+	}
+	ids := []string{out[0].ProviderID, out[1].ProviderID}
+	for _, got := range ids {
+		if got != "ours-1" && got != "ours-2" {
+			t.Fatalf("client-side filter let through foreign WR: %q", got)
+		}
 	}
 	if out[0].State != compute.StateReady {
 		t.Fatalf("expected StateReady for RUNNING WR, got %q", out[0].State)
@@ -368,7 +380,9 @@ func TestHealthCheckUnknownStatusReturnsError(t *testing.T) {
 func TestListUnknownStatusSurfacesAsFailed(t *testing.T) {
 	f := newFakeServer(t)
 	f.handler = func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"items":[{"id":"wr-1","status":"WEIRD"}]}`))
+		// Namespace + tag must match the fakeServer-provider config
+		// for the client-side filter to retain this row.
+		_, _ = w.Write([]byte(`[{"id":"wr-1","namespace":"test-ns","tag":"test-dep","status":"WEIRD"}]`))
 	}
 	p := f.provider(t)
 	out, err := p.List(context.Background())

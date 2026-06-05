@@ -371,12 +371,6 @@ type taskPayload struct {
 	Timeout     string            `json:"timeout,omitempty"`
 }
 
-// pageOf is the standard YD pagination envelope.
-type pageOf[T any] struct {
-	Items       []T    `json:"items"`
-	NextSliceID string `json:"nextSliceId,omitempty"`
-}
-
 // --- HTTP helper methods (one per YD call we make) ----------------------
 
 func (p *Provider) submitWorkRequirement(ctx context.Context, wr *workRequirement) (*workRequirement, error) {
@@ -404,30 +398,47 @@ func (p *Provider) getWorkRequirement(ctx context.Context, id string) (*workRequ
 }
 
 func (p *Provider) searchWorkRequirements(ctx context.Context, namespace, tag string) ([]workRequirement, error) {
-	// Walk pagination - reconciliation needs the complete set.
-	var all []workRequirement
-	var slice string
-	for {
-		q := url.Values{}
-		q.Set("search", fmt.Sprintf(`{"namespace":%q,"tag":%q}`, namespace, tag))
-		if slice != "" {
-			q.Set("sliceReference", slice)
-		}
-		var page pageOf[workRequirement]
-		if err := doJSON(ctx, p.httpc, p.creds, p.baseURL, http.MethodGet, "/work/requirements", q, nil, &page, p.retry); err != nil {
-			return nil, err
-		}
-		all = append(all, page.Items...)
-		if page.NextSliceID == "" {
-			break
-		}
-		slice = page.NextSliceID
+	// Three surprises confirmed live on 2026-06-05:
+	//
+	//   1. GET /work/requirements returns a flat JSON array, NOT the
+	//      {items, nextSliceId} envelope the OpenAPI spec describes.
+	//
+	//   2. The `search` query parameter is silently ignored by the
+	//      server - even garbage like `search=not-json` returns 200
+	//      with the full unfiltered list. We still send it (in case
+	//      it starts working someday) but cannot rely on it.
+	//
+	//   3. The API key's visibility scope is the only actual filter:
+	//      we see WRs created by this key and no others. The result
+	//      set is naturally small for a dedicated-key deployment.
+	//
+	// Because (2) is unsafe to assume, we re-filter client-side on
+	// (namespace, tag) so a future YD account that contains WRs from
+	// other tools using the same key won't be mistaken for ours.
+	q := url.Values{}
+	q.Set("search", fmt.Sprintf(`{"namespace":%q,"tag":%q}`, namespace, tag))
+	var raw []workRequirement
+	if err := doJSON(ctx, p.httpc, p.creds, p.baseURL, http.MethodGet, "/work/requirements", q, nil, &raw, p.retry); err != nil {
+		return nil, err
 	}
-	return all, nil
+	out := raw[:0]
+	for _, wr := range raw {
+		if wr.Namespace == namespace && wr.Tag == tag {
+			out = append(out, wr)
+		}
+	}
+	return out, nil
 }
 
 func (p *Provider) cancelWorkRequirement(ctx context.Context, id string, force bool) error {
-	path := "/work/requirements/" + url.PathEscape(id) + "/transition/CANCELLED"
+	// YD enforces a state machine: RUNNING/HELD -> CANCELLING ->
+	// CANCELLED. We can only request the transition to CANCELLING;
+	// the platform propagates to CANCELLED on its own once the
+	// in-flight tasks drain (or are aborted, if abort=true).
+	// Trying to PUT .../transition/CANCELLED directly returns
+	// HTTP 403 InvalidWorkRequirementStatusException. Confirmed
+	// live 2026-06-05.
+	path := "/work/requirements/" + url.PathEscape(id) + "/transition/CANCELLING"
 	var query url.Values
 	if force {
 		query = url.Values{"abort": []string{"true"}}
