@@ -405,6 +405,10 @@ func NewServer(
 	// ErrNoRunner and enqueueRequest falls back to the scheduler path.
 	if apiServer.inferenceServer != nil {
 		apiServer.inferenceServer.SetInferenceRouter(apiServer.inferenceRouter)
+		// Inference is dispatched to a sandbox over its RevDial tunnel, keyed
+		// by sandbox id — never by network host. Works for sandboxes on any
+		// network, including behind NAT.
+		apiServer.inferenceServer.SetDialer(apiServer.connman)
 	}
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{

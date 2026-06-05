@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,6 +188,12 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// Port proxy - forward HTTP requests to a port on the desktop container's network
 	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
+
+	// Inference proxy - forward OpenAI requests (chat/embeddings) to the local
+	// inference-proxy, which routes to the active profile's model containers.
+	// The API reaches this over the sandbox's outbound RevDial tunnel, so the
+	// sandbox needs no inbound network reachability.
+	api.PathPrefix("/inference/").HandlerFunc(s.handleInferenceProxy)
 
 	// Golden cache management
 	api.HandleFunc("/dev-containers/{session_id}/blkio", s.handleGetDevContainerBlkio).Methods("GET")
@@ -594,6 +602,43 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			break
 		}
 	}
+}
+
+// inferenceProxyAddr is the host:port of the local inference-proxy process
+// (same sandbox container). inference-proxy listens on 0.0.0.0:8090 by default;
+// hydra reaches it over loopback. Overridable for non-default deployments.
+func inferenceProxyAddr() string {
+	if v := strings.TrimSpace(os.Getenv("HELIX_INFERENCE_PROXY_ADDR")); v != "" {
+		return v
+	}
+	return "127.0.0.1:8090"
+}
+
+// handleInferenceProxy forwards an OpenAI request (arriving over the RevDial
+// tunnel under /api/v1/inference/*) to the local inference-proxy. The API server
+// reaches this endpoint via the sandbox's outbound tunnel, so the sandbox needs
+// no inbound reachability.
+//
+// FlushInterval -1 streams each write immediately, so SSE chat completions
+// arrive chunk-by-chunk rather than being buffered — important in this
+// double-proxy path (API -> hydra -> inference-proxy), matching how
+// anthropic.Proxy streams. Cancellation is bounded by r.Context(): when the API
+// side closes the tunnel conn (e.g. its dispatch deadline fires), this request's
+// context is cancelled and ReverseProxy aborts the upstream call.
+func (s *Server) handleInferenceProxy(w http.ResponseWriter, r *http.Request) {
+	const prefix = "/api/v1/inference"
+	r.URL.Path = strings.TrimPrefix(r.URL.Path, prefix)
+	if r.URL.Path == "" {
+		r.URL.Path = "/"
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: inferenceProxyAddr()})
+	proxy.FlushInterval = -1
+	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		log.Warn().Err(err).Str("path", req.URL.Path).Msg("Failed to proxy inference request")
+		http.Error(w, fmt.Sprintf("failed to connect to inference-proxy: %s", err), http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // handleDevContainerWebSocketProxy handles WebSocket upgrade requests to dev container ports
