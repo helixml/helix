@@ -40,7 +40,7 @@ const HelixOrgChart: FC = () => {
   }
 
   return (
-    <Page topbarTitle="Overview">
+    <Page breadcrumbTitle="Overview">
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Box>
