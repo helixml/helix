@@ -38,7 +38,7 @@ func (t *ListRoles) Name() tool.Name                 { return ListRolesName }
 func (t *ListRoles) InputSchema() *jsonschema.Schema { return listRolesSchema }
 func (t *ListRoles) Description() string {
 	return "List every Role: id, markdown content, and timestamps. Use this to discover what " +
-		"roles exist before creating a Position."
+		"roles exist before hiring."
 }
 
 func (t *ListRoles) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {

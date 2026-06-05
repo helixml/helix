@@ -58,7 +58,7 @@ func TestSubscriptionsUniquePositionStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if found.PositionID != "p-1" || found.StreamID != "s-1" {
+	if found.WorkerID != "p-1" || found.StreamID != "s-1" {
 		t.Fatalf("subscription = %+v", found)
 	}
 
@@ -77,24 +77,21 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Subscriptions are position-anchored. Seed w-1 in position p-1
-	// and subscribe p-1 to s-a; ListForWorker(w-1) must walk
-	// worker → position → subscribed streams.
-	pos, err := orgchart.NewPosition("p-1", "r-owner", nil, "org-test")
-	if err != nil {
-		t.Fatalf("new position: %v", err)
+	// Subscriptions are worker-anchored. Seed w-1 and subscribe
+	// w-1 → s-a; ListForWorker(w-1) joins events on subscribed
+	// streams.
+	role, _ := orgchart.NewRole("r-test", "# Test", nil, nil, base, "org-test")
+	if err := s.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("Create role: %v", err)
 	}
-	if err := s.Positions.Create(ctx, pos); err != nil {
-		t.Fatalf("create position: %v", err)
-	}
-	worker, err := orgchart.NewAIWorker("w-1", "p-1", "# w-1", "org-test")
+	worker, err := orgchart.NewAIWorker("w-1", "r-test", nil, "# w-1", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	sub, _ := streaming.NewSubscription("p-1", "s-a", base, "org-test")
+	sub, _ := streaming.NewSubscription("w-1", "s-a", base, "org-test")
 	if err := s.Subscriptions.Create(ctx, sub); err != nil {
 		t.Fatalf("Create subscription: %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 func TestHireRecorderPersistsHiringUser(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
-	w, _ := orgchart.NewAIWorker("w-alice", "p-x", "# Alice", "org-test")
+	w, _ := orgchart.NewAIWorker("w-alice", "r-x", nil, "# Alice", "org-test")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestHireRecorderPersistsHiringUser(t *testing.T) {
 func TestHireRecorderEmptyUserIDIsNoop(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
-	w, _ := orgchart.NewAIWorker("w-alice", "p-x", "# Alice", "org-test")
+	w, _ := orgchart.NewAIWorker("w-alice", "r-x", nil, "# Alice", "org-test")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}

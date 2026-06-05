@@ -70,8 +70,8 @@ Immediately call **`create_role`** with:
 - `content`: the markdown above
 - `tools`: an array of every MCP tool name from the `## Tools (MCP)`
   section. **This is load-bearing** — the Role's `tools` is the live
-  MCP surface for every Worker filling a Position bound to it. Skip
-  it and your Workers will be mute.
+  MCP surface for every Worker holding it. Skip it and your Workers
+  will be mute.
 
 Just do it. The owner can edit or delete after.
 
@@ -88,22 +88,24 @@ direction most likely to want a tweak:
 > - **Constraints** — what they should never do
 >
 > Say what you'd change, or say **"next"** to hire someone into this
-> Role and I'll set up the Position and Worker too.
+> Role and I'll set up the Worker too.
 
 If I name an edit, call `update_role` and show the new version.
 If I say "next" (or anything indicating I want to hire), drive the
 hire conversationally: ask only for a name + one-line vibe for the
 person, then chain:
 
-1. `create_position` under `p-root` (unless I said otherwise).
-2. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`. The
-   Worker's MCP tools come live from the Role you just saved; no
-   `grants` parameter is needed (or accepted).
-3. **Stand up their streams.** For each stream the Role's Streams
+1. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`, `roleId`
+   pointing at the Role you just saved, `parentId` set to the manager
+   Worker (default `w-owner`). The Worker's MCP tools come live from
+   the Role you just saved; no `grants` parameter is needed (or
+   accepted).
+2. **Stand up their streams.** For each stream the Role's Streams
    section lists:
    - call `list_streams` first — another Worker may already have
      created it
-   - if it exists, `subscribe` the new Worker
+   - if it exists, `subscribe` the new Worker (subscriptions are
+     per-Worker — they die when the Worker is fired)
    - if not, `create_stream` then `subscribe`
 
    A Worker hired without their streams subscribed is half-hired —

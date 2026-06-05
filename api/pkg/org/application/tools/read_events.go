@@ -161,23 +161,17 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return marshalEvents(fresh), nil
 	}
 
-	// Subscriptions are position-anchored. Resolve worker → position
-	// → subscribed streams. A worker with no position has no streams
-	// to wait on; the timer below still ticks so the long-poll
-	// returns empty rather than blocking forever.
-	worker, err := t.deps.Store.Workers.Get(ctx, orgID, workerID)
-	if err != nil {
+	// Resolve worker → subscribed streams.
+	if _, err := t.deps.Store.Workers.Get(ctx, orgID, workerID); err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", workerID, err)
 	}
-	streamIDs := make([]streaming.StreamID, 0)
-	if pos := worker.Position(); pos != "" {
-		subs, err := t.deps.Store.Subscriptions.ListForPosition(ctx, orgID, pos)
-		if err != nil {
-			return nil, fmt.Errorf("list subscriptions for position %q: %w", pos, err)
-		}
-		for _, sub := range subs {
-			streamIDs = append(streamIDs, sub.StreamID)
-		}
+	subs, err := t.deps.Store.Subscriptions.ListForWorker(ctx, orgID, workerID)
+	if err != nil {
+		return nil, fmt.Errorf("list subscriptions for worker %q: %w", workerID, err)
+	}
+	streamIDs := make([]streaming.StreamID, 0, len(subs))
+	for _, sub := range subs {
+		streamIDs = append(streamIDs, sub.StreamID)
 	}
 	wake := t.deps.Hub.Subscribe(streamIDs)
 	defer t.deps.Hub.Unsubscribe(streamIDs, wake)

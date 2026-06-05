@@ -15,11 +15,12 @@ import (
 type workerView struct {
 	ID       orgchart.WorkerID   `json:"id"`
 	Kind     orgchart.WorkerKind `json:"kind"`
-	Position orgchart.PositionID `json:"position,omitempty"`
+	RoleID   orgchart.RoleID     `json:"roleId,omitempty"`
+	ParentID *orgchart.WorkerID  `json:"parentId,omitempty"`
 }
 
 func workerViewOf(w orgchart.Worker) workerView {
-	return workerView{ID: w.ID(), Kind: w.Kind(), Position: w.Position()}
+	return workerView{ID: w.ID(), Kind: w.Kind(), RoleID: w.RoleID(), ParentID: w.ParentID()}
 }
 
 // ListWorkers returns every Worker — humans and AIs.
@@ -36,7 +37,7 @@ type listWorkersArgs struct{}
 func (t *ListWorkers) Name() tool.Name                 { return ListWorkersName }
 func (t *ListWorkers) InputSchema() *jsonschema.Schema { return listWorkersSchema }
 func (t *ListWorkers) Description() string {
-	return "List every Worker: id, kind (human|ai), and Positions held."
+	return "List every Worker: id, kind (human|ai), Role, and reporting parent."
 }
 
 func (t *ListWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {

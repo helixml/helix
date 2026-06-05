@@ -1,9 +1,9 @@
 // Package bootstrap creates the per-org initial owner Role (with the
-// structural tool list), the root Position, and the owner Worker. The
-// Worker's MCP surface is derived live from r-owner.Tools — there is
-// no separate per-Worker grants step. Run once per helix.Organization;
-// subsequent calls for the same org return ErrAlreadyInitialised,
-// leaving other orgs free to bootstrap independently.
+// structural tool list) and the owner Worker. The Worker's MCP surface
+// is derived live from r-owner.Tools — there is no separate per-Worker
+// grants step. Run once per helix.Organization; subsequent calls for
+// the same org return ErrAlreadyInitialised, leaving other orgs free
+// to bootstrap independently.
 package bootstrap
 
 import (
@@ -36,7 +36,6 @@ type Params struct {
 type Result struct {
 	WorkerID        orgchart.WorkerID
 	RoleID          orgchart.RoleID
-	PositionID      orgchart.PositionID
 	EnvironmentPath string
 }
 
@@ -45,9 +44,9 @@ type Result struct {
 var ErrAlreadyInitialised = errors.New("org is already initialised")
 
 // Run performs the bootstrap for one helix.Organization: create the
-// owner's Role, Position, Worker, Environment row, and grant every
-// structural tool. Each row is stamped with params.OrganizationID, so
-// the org-delete FK cascade reaps them automatically.
+// owner's Role, Worker, and Environment row. Each row is stamped with
+// params.OrganizationID, so the org-delete FK cascade reaps them
+// automatically.
 func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	if params.EnvironmentPath == "" {
 		return Result{}, fmt.Errorf("environmentPath is required")
@@ -73,12 +72,11 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	// The owner Role's Tools is the single source of truth for what
 	// MCP tools the owner Worker sees: the MCP handler reads
-	// Worker → Position → Role.Tools live on every request.
+	// Worker → Role.Tools live on every request.
 	defaults := []tool.Name{
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
 		tools.UpdateIdentityName,
-		tools.CreatePositionName,
 		tools.HireWorkerName,
 		tools.CreateStreamName,
 		tools.StreamMembersName,
@@ -89,9 +87,6 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.DMName,
 		tools.ListRolesName,
 		tools.GetRoleName,
-		tools.ListPositionsName,
-		tools.GetPositionName,
-		tools.ListPositionChildrenName,
 		tools.ListWorkersName,
 		tools.GetWorkerName,
 		tools.GetWorkerEnvironmentName,
@@ -110,17 +105,9 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create owner role: %w", err)
 	}
 
-	rootPos, err := orgchart.NewPosition("p-root", ownerRole.ID, nil, params.OrganizationID)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := s.Positions.Create(ctx, rootPos); err != nil {
-		return Result{}, fmt.Errorf("create root position: %w", err)
-	}
-
 	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /helix-org to " +
 		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
-	owner, err := orgchart.NewHumanWorker(orgchart.WorkerID("w-owner"), rootPos.ID, ownerIdentity, params.OrganizationID)
+	owner, err := orgchart.NewHumanWorker(orgchart.WorkerID("w-owner"), ownerRole.ID, nil, ownerIdentity, params.OrganizationID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -143,7 +130,6 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	return Result{
 		WorkerID:        owner.ID(),
 		RoleID:          ownerRole.ID,
-		PositionID:      rootPos.ID,
 		EnvironmentPath: params.EnvironmentPath,
 	}, nil
 }

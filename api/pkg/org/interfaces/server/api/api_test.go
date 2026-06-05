@@ -84,22 +84,21 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder, dst any) {
 	}
 }
 
-// TestGetOrgChart_EmptyStore_Returns200WithEmptyTree pins the
-// empty-store contract: a fresh org has no positions, the chart
-// endpoint must still respond 200 with an empty roots array (vs
-// failing, returning null, or 204).
-func TestGetOrgChart_EmptyStore_Returns200WithEmptyTree(t *testing.T) {
+// TestGetOrgOverview_EmptyStore_Returns200WithEmptyGroups pins the
+// empty-store contract: a fresh org has no roles, the overview
+// endpoint must still respond 200 with empty arrays.
+func TestGetOrgOverview_EmptyStore_Returns200WithEmptyGroups(t *testing.T) {
 	deps, _, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 
-	rec := do(t, h, "GET", "/chart", nil)
+	rec := do(t, h, "GET", "/overview", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
-	var chart orgapi.Chart
-	decode(t, rec, &chart)
-	if len(chart.Roots) != 0 {
-		t.Fatalf("expected empty roots, got %+v", chart.Roots)
+	var overview orgapi.OrgOverview
+	decode(t, rec, &overview)
+	if len(overview.Groups) != 0 {
+		t.Fatalf("expected empty groups, got %+v", overview.Groups)
 	}
 }
 
@@ -112,8 +111,8 @@ func TestGetWorkers_ListsSeededWorkers(t *testing.T) {
 	ctx := context.Background()
 
 	seedOwnerPosition(t, st, ctx)
-	mustCreateAIWorker(t, st, ctx, "w-alice", "p-root", "alice identity")
-	mustCreateAIWorker(t, st, ctx, "w-bob", "p-root", "bob identity")
+	mustCreateAIWorker(t, st, ctx, "w-alice", "r-owner", "alice identity")
+	mustCreateAIWorker(t, st, ctx, "w-bob", "r-owner", "bob identity")
 
 	rec := do(t, h, "GET", "/workers", nil)
 	if rec.Code != http.StatusOK {
@@ -226,7 +225,7 @@ func TestPostWorkerRole_UpdatesRoleAssignment(t *testing.T) {
 	ctx := context.Background()
 
 	seedOwnerPosition(t, st, ctx)
-	mustCreateAIWorker(t, st, ctx, "w-alice", "p-root", "alice identity")
+	mustCreateAIWorker(t, st, ctx, "w-alice", "r-owner", "alice identity")
 
 	rec := do(t, h, "POST", "/workers/w-alice/role", orgapi.UpdateWorkerRoleRequest{Content: "# Owner v2\nupdated body"})
 	if rec.Code != http.StatusNoContent {
@@ -260,18 +259,11 @@ func seedOwnerPosition(t *testing.T, st *store.Store, ctx context.Context) {
 	if err := st.Roles.Create(ctx, ro); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	pos, err := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	if err != nil {
-		t.Fatalf("NewPosition: %v", err)
-	}
-	if err := st.Positions.Create(ctx, pos); err != nil {
-		t.Fatalf("create position: %v", err)
-	}
 }
 
-func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, pos, identity string) {
+func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, role, identity string) {
 	t.Helper()
-	w, err := orgchart.NewAIWorker(orgchart.WorkerID(id), orgchart.PositionID(pos), identity, "org-test")
+	w, err := orgchart.NewAIWorker(orgchart.WorkerID(id), orgchart.RoleID(role), nil, identity, "org-test")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

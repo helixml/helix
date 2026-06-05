@@ -10,18 +10,17 @@ import (
 
 // Role is a job description. Owner-only: Workers cannot edit their own
 // Role. The owner edits Content (and Tools) via UpdateRole, and the
-// new value fans out to every Worker filling a Position with this
-// Role.
+// new value fans out to every Worker holding this Role.
 //
 // Content is the canonical markdown the Worker reads on activation
 // (it lands in role.md inside the Worker's Environment). Identity
 // (name, voice, personality) is per-Worker, not per-Role.
 //
 // Tools is the live source of truth for a Worker's MCP surface: the
-// helix-org MCP server resolves Worker → Position → Role on every
-// request and registers exactly the tools in Role.Tools. To change a
-// Worker's capabilities, call update_role; capability is not a
-// per-Worker attribute.
+// helix-org MCP server resolves Worker → Role on every request and
+// registers exactly the tools in Role.Tools. To change a Worker's
+// capabilities, call update_role; capability is not a per-Worker
+// attribute.
 //
 // Streams is a typed manifest the Role's prompt is expected to
 // subscribe its Workers to. The store does NOT auto-subscribe; the

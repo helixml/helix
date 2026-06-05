@@ -72,26 +72,15 @@ func (t *InviteWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		workerIDs = append(workerIDs, wid)
 	}
 
-	// Subscriptions are position-anchored. Walk worker → position and
-	// subscribe each unique position once. Multiple invited workers
-	// in the same position collapse onto a single subscription row.
-	seenPositions := map[orgchart.PositionID]bool{}
+	// Subscriptions are worker-anchored. Subscribe each invited
+	// worker. Idempotent per worker.
 	for _, wid := range workerIDs {
-		w, err := t.deps.Store.Workers.Get(ctx, orgID, wid)
-		if err != nil {
-			return nil, fmt.Errorf("get worker %q: %w", wid, err)
-		}
-		pid := w.Position()
-		if pid == "" || seenPositions[pid] {
-			continue
-		}
-		seenPositions[pid] = true
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, pid, streamID); err == nil {
+		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
 			continue
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
-		sub, err := streaming.NewSubscription(string(pid), streamID, t.deps.Now(), orgID)
+		sub, err := streaming.NewSubscription(string(wid), streamID, t.deps.Now(), orgID)
 		if err != nil {
 			return nil, err
 		}

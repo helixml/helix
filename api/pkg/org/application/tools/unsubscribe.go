@@ -41,20 +41,9 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 		return nil, fmt.Errorf("unsubscribe: caller has no OrgID")
 	}
 	streamID := streaming.StreamID(args.StreamID)
-	// Subscriptions are position-anchored: resolve caller → position
-	// → delete that subscription. The position is unaffected; only
-	// its link to this stream is dropped.
 	workerID := inv.Caller.ID()
-	worker, err := t.deps.Store.Workers.Get(ctx, orgID, workerID)
-	if err != nil {
-		return nil, fmt.Errorf("get caller worker %q: %w", workerID, err)
-	}
-	positionID := worker.Position()
-	if positionID == "" {
-		return nil, fmt.Errorf("unsubscribe: caller worker %q is unassigned (no position)", workerID)
-	}
-	if err := t.deps.Store.Subscriptions.Delete(ctx, orgID, positionID, streamID); err != nil {
+	if err := t.deps.Store.Subscriptions.Delete(ctx, orgID, workerID, streamID); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"workerId": string(workerID), "positionId": string(positionID), "streamId": string(streamID)})
+	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
 }

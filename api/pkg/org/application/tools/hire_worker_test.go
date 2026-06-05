@@ -69,11 +69,7 @@ func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, orgchart.Worke
 	if err := st.Roles.Create(ctx, ownerRole); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	if err := st.Positions.Create(ctx, rootPos); err != nil {
-		t.Fatalf("create position: %v", err)
-	}
-	caller, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	if err := st.Workers.Create(ctx, caller); err != nil {
 		t.Fatalf("create owner worker: %v", err)
 	}
@@ -104,7 +100,7 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-renee",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindHuman,
 		IdentityContent: "# Renee",
 	})
@@ -163,7 +159,7 @@ func TestHireWorkerReturnsActivationID(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -218,7 +214,7 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -237,7 +233,7 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	}
 	// New worker's position is NOT subscribed (would loop the
 	// dispatcher when the new worker publishes).
-	newWorkerPos := orgchart.PositionID("p-eng")
+	newWorkerPos := orgchart.WorkerID("p-eng")
 	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", newWorkerPos, streamID); err == nil {
 		t.Fatalf("new worker's position must NOT be subscribed to its own activation stream")
 	}
@@ -256,7 +252,7 @@ func TestHireWorkerEnvDirCreated(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -282,7 +278,7 @@ func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "",
 	})
@@ -331,7 +327,7 @@ func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -359,7 +355,7 @@ func TestHireWorkerSkipsHireHandlerWithoutUserID(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -385,7 +381,7 @@ func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -415,7 +411,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -443,7 +439,7 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -495,7 +491,7 @@ func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
-		PositionID:      "p-root",
+		RoleID:          "r-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})

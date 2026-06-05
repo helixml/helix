@@ -157,19 +157,7 @@ type Route struct {
 func Routes(deps Deps) []Route {
 	a := &apiHandler{deps: deps}
 	return []Route{
-		{Pattern: "GET /chart", Handler: http.HandlerFunc(a.getChart)},
-		{Pattern: "GET /positions", Handler: http.HandlerFunc(a.listPositions)},
-		{Pattern: "POST /positions", Handler: http.HandlerFunc(a.createPosition)},
-		{Pattern: "GET /positions/{id}", Handler: http.HandlerFunc(a.getPosition)},
-		{Pattern: "PUT /positions/{id}", Handler: http.HandlerFunc(a.updatePosition)},
-		{Pattern: "DELETE /positions/{id}", Handler: http.HandlerFunc(a.deletePosition)},
-		// Subscriptions are position-anchored — the Worker Detail page
-		// resolves the worker → position and edits its subscription
-		// set through these endpoints. {position_id} accepts the
-		// canonical position id (e.g. p-eng-1).
-		{Pattern: "GET /positions/{id}/subscriptions", Handler: http.HandlerFunc(a.listPositionSubscriptions)},
-		{Pattern: "POST /positions/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribePosition)},
-		{Pattern: "DELETE /positions/{id}/subscriptions/{stream_id}", Handler: http.HandlerFunc(a.unsubscribePosition)},
+		{Pattern: "GET /overview", Handler: http.HandlerFunc(a.getOverview)},
 		{Pattern: "GET /roles", Handler: http.HandlerFunc(a.listRoles)},
 		{Pattern: "POST /roles", Handler: http.HandlerFunc(a.createRole)},
 		{Pattern: "GET /roles/{id}", Handler: http.HandlerFunc(a.getRole)},
@@ -179,6 +167,11 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /workers", Handler: http.HandlerFunc(a.hireWorker)},
 		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},
 		{Pattern: "DELETE /workers/{id}", Handler: http.HandlerFunc(a.fireWorker)},
+		// Subscriptions are worker-anchored — the Worker Detail page
+		// edits the worker's subscription set through these endpoints.
+		{Pattern: "GET /workers/{id}/subscriptions", Handler: http.HandlerFunc(a.listWorkerSubscriptions)},
+		{Pattern: "POST /workers/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeWorker)},
+		{Pattern: "DELETE /workers/{id}/subscriptions/{stream_id}", Handler: http.HandlerFunc(a.unsubscribeWorker)},
 		{Pattern: "POST /workers/{id}/chat", Handler: http.HandlerFunc(a.ensureWorkerChat)},
 		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
@@ -226,27 +219,23 @@ type apiHandler struct {
 	deps Deps
 }
 
-// ---- Org chart ----------------------------------------------------------
+// ---- Org overview -------------------------------------------------------
 
-// getChart returns the org chart tree.
+// getOverview returns the workers-grouped-by-role payload used by the
+// React Overview page (replaces the old position-tree chart).
 //
-// @Summary Helix-org: get org chart
-// @Description Returns the positions+workers tree rendered by the helix-org React UI
+// @Summary Helix-org: get org overview
+// @Description Returns roles + workers grouped by role for the helix-org React Overview page.
 // @Tags HelixOrg
 // @Produce json
-// @Success 200 {object} api.Chart
+// @Success 200 {object} api.OrgOverview
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/chart [get]
-func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/overview [get]
+func (a *apiHandler) getOverview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	positions, err := a.deps.Store.Positions.List(ctx, orgID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("list positions: %w", err))
 		return
 	}
 	workers, err := a.deps.Store.Workers.List(ctx, orgID)
@@ -259,118 +248,32 @@ func (a *apiHandler) getChart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list roles: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, buildChart(positions, workers, roles))
+	writeJSON(w, http.StatusOK, buildOverview(workers, roles))
 }
 
-// buildChart walks positions + workers into the tree the chart
-// renders. Exported so it can be reused by future in-process
-// consumers (e.g. an MCP tool surfacing the same shape) without going
-// through HTTP.
-func buildChart(positions []orgchart.Position, workers []orgchart.Worker, roles []orgchart.Role) Chart {
-	byPos := make(map[orgchart.PositionID][]orgchart.Worker)
-	for _, w := range workers {
-		if pid := w.Position(); pid != "" {
-			byPos[pid] = append(byPos[pid], w)
-		}
+// buildOverview groups workers by their RoleID.
+func buildOverview(workers []orgchart.Worker, roles []orgchart.Role) OrgOverview {
+	byRole := make(map[orgchart.RoleID][]WorkerBadge)
+	for _, wk := range workers {
+		rid := wk.RoleID()
+		byRole[rid] = append(byRole[rid], WorkerBadge{ID: string(wk.ID()), Kind: string(wk.Kind())})
 	}
-	idx := make(map[orgchart.PositionID]orgchart.Position, len(positions))
-	for _, p := range positions {
-		idx[p.ID] = p
-	}
-	// Sort positions so the resulting tree is deterministic and
-	// friendly to React diffing.
-	sorted := append([]orgchart.Position(nil), positions...)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-
-	childrenOf := make(map[orgchart.PositionID][]orgchart.Position)
-	var roots []orgchart.Position
-	for _, p := range sorted {
-		if p.ParentID == nil {
-			roots = append(roots, p)
-			continue
-		}
-		if _, ok := idx[*p.ParentID]; ok {
-			childrenOf[*p.ParentID] = append(childrenOf[*p.ParentID], p)
-		} else {
-			// Orphan — parent not in this snapshot; treat as root so the
-			// chart still surfaces the node rather than dropping it.
-			roots = append(roots, p)
-		}
-	}
-
-	var build func(p orgchart.Position) ChartNode
-	build = func(p orgchart.Position) ChartNode {
-		n := ChartNode{
-			PositionID: string(p.ID),
-			RoleID:     string(p.RoleID),
-		}
-		if p.ParentID != nil {
-			n.ParentID = string(*p.ParentID)
-		}
-		for _, wk := range byPos[p.ID] {
-			n.Workers = append(n.Workers, WorkerBadge{
-				ID:   string(wk.ID()),
-				Kind: string(wk.Kind()),
-			})
-		}
-		sort.SliceStable(n.Workers, func(i, j int) bool { return n.Workers[i].ID < n.Workers[j].ID })
-		for _, c := range childrenOf[p.ID] {
-			n.Children = append(n.Children, build(c))
-		}
-		return n
-	}
-	out := Chart{Roots: make([]ChartNode, 0, len(roots))}
-	for _, r := range roots {
-		out.Roots = append(out.Roots, build(r))
-	}
-	// Roles list — every role visible to the org, sorted by ID,
-	// surfaced so the React chart can render empty role groups (a
-	// role with no positions yet still appears as a group ready to
-	// receive its first position).
 	sortedRoles := append([]orgchart.Role(nil), roles...)
 	sort.SliceStable(sortedRoles, func(i, j int) bool { return sortedRoles[i].ID < sortedRoles[j].ID })
-	out.Roles = make([]RoleBadge, 0, len(sortedRoles))
+	out := OrgOverview{
+		Roles:  make([]RoleBadge, 0, len(sortedRoles)),
+		Groups: make([]RoleGroup, 0, len(sortedRoles)),
+	}
 	for _, ro := range sortedRoles {
 		out.Roles = append(out.Roles, RoleBadge{ID: string(ro.ID)})
+		group := RoleGroup{RoleID: string(ro.ID), Workers: byRole[ro.ID]}
+		sort.SliceStable(group.Workers, func(i, j int) bool { return group.Workers[i].ID < group.Workers[j].ID })
+		out.Groups = append(out.Groups, group)
 	}
 	return out
 }
 
-// ---- Positions / Roles / Workers ----------------------------------------
-
-// listPositions returns every Position row.
-//
-// @Summary Helix-org: list positions
-// @Tags HelixOrg
-// @Produce json
-// @Success 200 {array} api.PositionDTO
-// @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/positions [get]
-func (a *apiHandler) listPositions(w http.ResponseWriter, r *http.Request) {
-	orgID, err := resolveOrgID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	positions, err := a.deps.Store.Positions.List(r.Context(), orgID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("list positions: %w", err))
-		return
-	}
-	out := make([]PositionDTO, 0, len(positions))
-	for _, p := range positions {
-		out = append(out, positionDTO(p))
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-func positionDTO(p orgchart.Position) PositionDTO {
-	dto := PositionDTO{ID: string(p.ID), RoleID: string(p.RoleID)}
-	if p.ParentID != nil {
-		dto.ParentID = string(*p.ParentID)
-	}
-	return dto
-}
+// ---- Roles / Workers ----------------------------------------------------
 
 // listTools returns the catalogue of available MCP tools the org
 // can grant to its roles. Powers the role editor's multi-select.
@@ -457,24 +360,23 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
 	}
-	// Resolve each worker's tools via Position → Role.Tools. Cache by
-	// position so a chart with many workers in the same role only
-	// pays for the lookup once.
-	posCache := map[orgchart.PositionID][]string{}
+	// Resolve each worker's tools via Role.Tools. Cache by role so a
+	// org with many workers in the same role only pays for the
+	// lookup once.
+	roleCache := map[orgchart.RoleID][]string{}
 	out := make([]WorkerDTO, 0, len(workers))
 	for _, wk := range workers {
-		tools, ok := posCache[wk.Position()]
+		rid := wk.RoleID()
+		tools, ok := roleCache[rid]
 		if !ok {
 			tools = nil
-			if pos, err := a.deps.Store.Positions.Get(ctx, orgID, wk.Position()); err == nil {
-				if role, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID); err == nil {
-					tools = make([]string, 0, len(role.Tools))
-					for _, t := range role.Tools {
-						tools = append(tools, string(t))
-					}
+			if role, err := a.deps.Store.Roles.Get(ctx, orgID, rid); err == nil {
+				tools = make([]string, 0, len(role.Tools))
+				for _, t := range role.Tools {
+					tools = append(tools, string(t))
 				}
 			}
-			posCache[wk.Position()] = tools
+			roleCache[rid] = tools
 		}
 		out = append(out, workerDTO(wk, tools))
 	}
@@ -513,8 +415,8 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(req.PositionID) == "" {
-		writeError(w, http.StatusBadRequest, errors.New("position_id is required"))
+	if strings.TrimSpace(req.RoleID) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("role_id is required"))
 		return
 	}
 	if strings.TrimSpace(req.Kind) == "" {
@@ -535,26 +437,19 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 	// hire_worker reads its args off tool.Invocation.Args using the
 	// same JSON shape MCP delivers — we marshal HireWorkerRequest into
 	// the wire form so there is exactly one parser.
-	type wireGrant struct {
-		ToolName string `json:"toolName"`
-	}
 	type wireArgs struct {
-		ID              string      `json:"id,omitempty"`
-		PositionID      string      `json:"positionId"`
-		Kind            string      `json:"kind"`
-		IdentityContent string      `json:"identityContent"`
-		Grants          []wireGrant `json:"grants,omitempty"`
+		ID              string `json:"id,omitempty"`
+		RoleID          string `json:"roleId"`
+		ParentID        string `json:"parentId,omitempty"`
+		Kind            string `json:"kind"`
+		IdentityContent string `json:"identityContent"`
 	}
 	wargs := wireArgs{
 		ID:              strings.TrimSpace(req.ID),
-		PositionID:      strings.TrimSpace(req.PositionID),
+		RoleID:          strings.TrimSpace(req.RoleID),
+		ParentID:        strings.TrimSpace(req.ParentID),
 		Kind:            strings.TrimSpace(req.Kind),
 		IdentityContent: req.IdentityContent,
-	}
-	for _, g := range req.Grants {
-		if name := strings.TrimSpace(g.ToolName); name != "" {
-			wargs.Grants = append(wargs.Grants, wireGrant{ToolName: name})
-		}
 	}
 	argsJSON, err := json.Marshal(wargs)
 	if err != nil {
@@ -616,14 +511,18 @@ func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 // workerDTO converts a orgchart.Worker to its wire form. tools may be
 // nil — callers populating per-worker grants pass the sorted list.
 func workerDTO(wk orgchart.Worker, tools []string) WorkerDTO {
-	return WorkerDTO{
+	dto := WorkerDTO{
 		ID:              string(wk.ID()),
 		Kind:            string(wk.Kind()),
-		PositionID:      string(wk.Position()),
+		RoleID:          string(wk.RoleID()),
 		IdentityContent: wk.IdentityContent(),
 		OrganizationID:  wk.OrganizationID(),
 		Tools:           tools,
 	}
+	if p := wk.ParentID(); p != nil {
+		dto.ParentID = string(*p)
+	}
+	return dto
 }
 
 // getWorker returns a Worker + the role/position it fills.
@@ -654,32 +553,25 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tools are derived from the Worker's Position's Role.Tools.
+	// Tools are derived from the Worker's Role.Tools.
 	var (
 		toolNames []string
-		posDTO    *PositionDTO
 		roDTO     *RoleDTO
 	)
-	if pid := wk.Position(); pid != "" {
-		pos, err := a.deps.Store.Positions.Get(ctx, orgID, pid)
+	if rid := wk.RoleID(); rid != "" {
+		ro, err := a.deps.Store.Roles.Get(ctx, orgID, rid)
 		if err == nil {
-			pd := positionDTO(pos)
-			posDTO = &pd
-			ro, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID)
-			if err == nil {
-				rd := roleDTO(ro)
-				roDTO = &rd
-				toolNames = make([]string, 0, len(ro.Tools))
-				for _, t := range ro.Tools {
-					toolNames = append(toolNames, string(t))
-				}
-				sort.Strings(toolNames)
+			rd := roleDTO(ro)
+			roDTO = &rd
+			toolNames = make([]string, 0, len(ro.Tools))
+			for _, t := range ro.Tools {
+				toolNames = append(toolNames, string(t))
 			}
+			sort.Strings(toolNames)
 		}
 	}
 
 	detail := WorkerDetailDTO{Worker: workerDTO(wk, toolNames)}
-	detail.Position = posDTO
 	detail.Role = roDTO
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with worker" to the
@@ -934,19 +826,14 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
-	pid := wk.Position()
-	if pid == "" {
-		writeError(w, http.StatusConflict, errors.New("worker has no position"))
+	rid := wk.RoleID()
+	if rid == "" {
+		writeError(w, http.StatusConflict, errors.New("worker has no role"))
 		return
 	}
-	pos, err := a.deps.Store.Positions.Get(ctx, orgID, pid)
+	existing, err := a.deps.Store.Roles.Get(ctx, orgID, rid)
 	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get position %s: %w", pid, err))
-		return
-	}
-	existing, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get role %s: %w", pos.RoleID, err))
+		writeError(w, errStatus(err), fmt.Errorf("get role %s: %w", rid, err))
 		return
 	}
 	existing.Content = req.Content
@@ -1124,11 +1011,9 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, sub := range subs {
-			// Subscriptions are position-anchored. The chart UI uses
-			// these to draw subscription edges from the SUBSCRIBED
-			// POSITION to the stream node, so we return position IDs
+			// Subscriptions are worker-anchored — return worker ids
 			// directly. The Streams page renders them as chips.
-			dto.Subscribers = append(dto.Subscribers, string(sub.PositionID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
 		events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50)
 		if err != nil {
@@ -1272,11 +1157,9 @@ func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID); err == nil {
 		for _, sub := range subs {
-			// Subscriptions are position-anchored. The chart UI uses
-			// these to draw subscription edges from the SUBSCRIBED
-			// POSITION to the stream node, so we return position IDs
+			// Subscriptions are worker-anchored — return worker ids
 			// directly. The Streams page renders them as chips.
-			dto.Subscribers = append(dto.Subscribers, string(sub.PositionID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
 	}
 	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50); err == nil {
@@ -1413,7 +1296,7 @@ func (a *apiHandler) updateStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, updated.ID); err == nil {
 		for _, sub := range subs {
-			dto.Subscribers = append(dto.Subscribers, string(sub.PositionID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
 	}
 	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, updated.ID, 50); err == nil {
@@ -1643,44 +1526,40 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(ev.ID)})
 }
 
-// listPositionSubscriptions returns the position's current
-// subscription set. Drives the Worker detail page's Subscriptions
-// panel (resolve worker → position → call this) and the chart's
-// subscription edges (chart already loads all streams + per-stream
-// subscribers; this is the read-side for the position-anchored
-// model).
+// listWorkerSubscriptions returns the worker's current subscription
+// set. Drives the Worker detail page's Subscriptions panel.
 //
-// @Summary Helix-org: list a position's subscriptions
+// @Summary Helix-org: list a worker's subscriptions
 // @Tags HelixOrg
-// @Param id path string true "Position ID"
-// @Success 200 {object} api.PositionSubscriptionsResponse
+// @Param id path string true "Worker ID"
+// @Success 200 {object} api.WorkerSubscriptionsResponse
 // @Failure 404 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/positions/{id}/subscriptions [get]
-func (a *apiHandler) listPositionSubscriptions(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/workers/{id}/subscriptions [get]
+func (a *apiHandler) listWorkerSubscriptions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	pid := orgchart.PositionID(r.PathValue("id"))
-	if pid == "" {
-		writeError(w, http.StatusBadRequest, errors.New("position id is required"))
+	wid := orgchart.WorkerID(r.PathValue("id"))
+	if wid == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	if _, err := a.deps.Store.Positions.Get(ctx, orgID, pid); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get position %s: %w", pid, err))
+	if _, err := a.deps.Store.Workers.Get(ctx, orgID, wid); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", wid, err))
 		return
 	}
-	subs, err := a.deps.Store.Subscriptions.ListForPosition(ctx, orgID, pid)
+	subs, err := a.deps.Store.Subscriptions.ListForWorker(ctx, orgID, wid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list subscriptions: %w", err))
 		return
 	}
-	resp := PositionSubscriptionsResponse{PositionID: string(pid), Subscriptions: make([]PositionSubscriptionDTO, 0, len(subs))}
+	resp := WorkerSubscriptionsResponse{WorkerID: string(wid), Subscriptions: make([]WorkerSubscriptionDTO, 0, len(subs))}
 	for _, sub := range subs {
-		resp.Subscriptions = append(resp.Subscriptions, PositionSubscriptionDTO{
+		resp.Subscriptions = append(resp.Subscriptions, WorkerSubscriptionDTO{
 			StreamID:  string(sub.StreamID),
 			CreatedAt: sub.CreatedAt.Format(time.RFC3339),
 		})
@@ -1688,32 +1567,32 @@ func (a *apiHandler) listPositionSubscriptions(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// subscribePosition adds a subscription on the given position to the
+// subscribeWorker adds a subscription on the given worker to the
 // stream in the request body. Idempotent — re-subscribing returns
 // 200 with the existing row's metadata.
 //
-// @Summary Helix-org: subscribe a position to a stream
+// @Summary Helix-org: subscribe a worker to a stream
 // @Tags HelixOrg
-// @Param id path string true "Position ID"
-// @Param payload body api.SubscribePositionRequest true "stream to subscribe to"
-// @Success 200 {object} api.PositionSubscriptionDTO
-// @Success 201 {object} api.PositionSubscriptionDTO
+// @Param id path string true "Worker ID"
+// @Param payload body api.SubscribeWorkerRequest true "stream to subscribe to"
+// @Success 200 {object} api.WorkerSubscriptionDTO
+// @Success 201 {object} api.WorkerSubscriptionDTO
 // @Failure 404 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/positions/{id}/subscriptions [post]
-func (a *apiHandler) subscribePosition(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/workers/{id}/subscriptions [post]
+func (a *apiHandler) subscribeWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	pid := orgchart.PositionID(r.PathValue("id"))
-	if pid == "" {
-		writeError(w, http.StatusBadRequest, errors.New("position id is required"))
+	wid := orgchart.WorkerID(r.PathValue("id"))
+	if wid == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	var req SubscribePositionRequest
+	var req SubscribeWorkerRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -1723,16 +1602,16 @@ func (a *apiHandler) subscribePosition(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream_id is required"))
 		return
 	}
-	if _, err := a.deps.Store.Positions.Get(ctx, orgID, pid); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get position %s: %w", pid, err))
+	if _, err := a.deps.Store.Workers.Get(ctx, orgID, wid); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", wid, err))
 		return
 	}
 	if _, err := a.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
 		return
 	}
-	if existing, err := a.deps.Store.Subscriptions.Find(ctx, orgID, pid, streamID); err == nil {
-		writeJSON(w, http.StatusOK, PositionSubscriptionDTO{
+	if existing, err := a.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
+		writeJSON(w, http.StatusOK, WorkerSubscriptionDTO{
 			StreamID:  string(existing.StreamID),
 			CreatedAt: existing.CreatedAt.Format(time.RFC3339),
 		})
@@ -1742,7 +1621,7 @@ func (a *apiHandler) subscribePosition(w http.ResponseWriter, r *http.Request) {
 	if a.deps.Now != nil {
 		now = a.deps.Now()
 	}
-	sub, err := streaming.NewSubscription(string(pid), streamID, now, orgID)
+	sub, err := streaming.NewSubscription(string(wid), streamID, now, orgID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -1751,36 +1630,36 @@ func (a *apiHandler) subscribePosition(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("create subscription: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, PositionSubscriptionDTO{
+	writeJSON(w, http.StatusCreated, WorkerSubscriptionDTO{
 		StreamID:  string(sub.StreamID),
 		CreatedAt: sub.CreatedAt.Format(time.RFC3339),
 	})
 }
 
-// unsubscribePosition drops the (position, stream) subscription row.
+// unsubscribeWorker drops the (worker, stream) subscription row.
 //
-// @Summary Helix-org: unsubscribe a position from a stream
+// @Summary Helix-org: unsubscribe a worker from a stream
 // @Tags HelixOrg
-// @Param id path string true "Position ID"
+// @Param id path string true "Worker ID"
 // @Param stream_id path string true "Stream ID"
 // @Success 204
 // @Failure 404 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id} [delete]
-func (a *apiHandler) unsubscribePosition(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id} [delete]
+func (a *apiHandler) unsubscribeWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	pid := orgchart.PositionID(r.PathValue("id"))
+	wid := orgchart.WorkerID(r.PathValue("id"))
 	streamID := streaming.StreamID(r.PathValue("stream_id"))
-	if pid == "" || streamID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("position id and stream id are required"))
+	if wid == "" || streamID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id and stream id are required"))
 		return
 	}
-	if err := a.deps.Store.Subscriptions.Delete(ctx, orgID, pid, streamID); err != nil {
+	if err := a.deps.Store.Subscriptions.Delete(ctx, orgID, wid, streamID); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete subscription: %w", err))
 		return
 	}

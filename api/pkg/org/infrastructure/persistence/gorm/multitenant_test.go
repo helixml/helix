@@ -41,14 +41,7 @@ func TestWorkers_SameIDAcrossOrgs(t *testing.T) {
 		if err := s.Roles.Create(ctx, r); err != nil {
 			t.Fatalf("Roles.Create(%s): %v", org, err)
 		}
-		pos, err := orgchart.NewPosition("p-root", "r-owner", nil, org)
-		if err != nil {
-			t.Fatalf("NewPosition(%s): %v", org, err)
-		}
-		if err := s.Positions.Create(ctx, pos); err != nil {
-			t.Fatalf("Positions.Create(%s): %v", org, err)
-		}
-		w, err := orgchart.NewHumanWorker("w-owner", "p-root", "# Owner identity", org)
+		w, err := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "# Owner identity", org)
 		if err != nil {
 			t.Fatalf("NewHumanWorker(%s): %v", org, err)
 		}
@@ -113,7 +106,7 @@ func TestWorkers_ListFiltersByOrg(t *testing.T) {
 	}
 }
 
-func TestPositions_ListFiltersByOrg(t *testing.T) {
+func TestWorkers_ListFiltersByOrg_Owner(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
@@ -121,12 +114,12 @@ func TestPositions_ListFiltersByOrg(t *testing.T) {
 	mustSeedOwner(t, s, orgA)
 	mustSeedOwner(t, s, orgB)
 
-	got, err := s.Positions.List(ctx, orgA)
+	got, err := s.Workers.List(ctx, orgA)
 	if err != nil {
-		t.Fatalf("Positions.List(%s): %v", orgA, err)
+		t.Fatalf("Workers.List(%s): %v", orgA, err)
 	}
-	if len(got) != 1 || got[0].OrganizationID != orgA {
-		t.Errorf("Positions.List(%s) = %+v, want one position in %s", orgA, got, orgA)
+	if len(got) != 1 || got[0].OrganizationID() != orgA {
+		t.Errorf("Workers.List(%s) returned %+v, want one worker in %s", orgA, got, orgA)
 	}
 }
 
@@ -149,9 +142,9 @@ func TestRoles_SameIDAcrossOrgs(t *testing.T) {
 	}
 }
 
-// mustSeedOwner installs the canonical owner trio (Role, Position,
-// Worker) for the given org. Mirrors what bootstrap.Run would create
-// at the JSON-API entry point.
+// mustSeedOwner installs the canonical owner pair (Role + Worker) for
+// the given org. Mirrors what bootstrap.Run would create at the
+// JSON-API entry point.
 func mustSeedOwner(t *testing.T, s *store.Store, orgID string) {
 	t.Helper()
 	ctx := context.Background()
@@ -163,14 +156,7 @@ func mustSeedOwner(t *testing.T, s *store.Store, orgID string) {
 	if err := s.Roles.Create(ctx, r); err != nil {
 		t.Fatalf("Roles.Create(%s): %v", orgID, err)
 	}
-	pos, err := orgchart.NewPosition("p-root", "r-owner", nil, orgID)
-	if err != nil {
-		t.Fatalf("NewPosition: %v", err)
-	}
-	if err := s.Positions.Create(ctx, pos); err != nil {
-		t.Fatalf("Positions.Create(%s): %v", orgID, err)
-	}
-	w, err := orgchart.NewHumanWorker("w-owner", "p-root", "# Owner", orgID)
+	w, err := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "# Owner", orgID)
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}

@@ -13,9 +13,9 @@ import (
 )
 
 // CreateRole defines a new Role: an ID, the canonical markdown
-// content that every Worker filling a Position with this Role will
-// read at activation, and the Role's MCP tool list. Owner-only:
-// holding create_role in your own Role is the authorisation.
+// content that every Worker holding this Role will read at
+// activation, and the Role's MCP tool list. Owner-only: holding
+// create_role in your own Role is the authorisation.
 type CreateRole struct {
 	deps Deps
 }
@@ -28,8 +28,8 @@ func (t *CreateRole) Name() tool.Name                 { return CreateRoleName }
 func (t *CreateRole) InputSchema() *jsonschema.Schema { return createRoleSchema }
 func (t *CreateRole) Description() string {
 	return "Define a new Role with markdown content. The content is what every Worker " +
-		"filling this Role reads on activation. `tools` is the live MCP surface for " +
-		"every Worker filling a Position bound to this Role — populate it with every " +
+		"holding this Role reads on activation. `tools` is the live MCP surface for " +
+		"every Worker in this Role — populate it with every " +
 		"MCP tool the Role needs. `streams` is a typed manifest of Stream IDs the " +
 		"Role's prompt expects to operate on (the hiring caller still drives " +
 		"create_stream/subscribe explicitly). Use update_role to amend any field later " +

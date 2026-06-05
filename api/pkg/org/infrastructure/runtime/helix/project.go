@@ -162,12 +162,10 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		return "", "", "", err
 	}
 	var roleContent, roleName string
-	if posID := worker.Position(); posID != "" {
-		if pos, err := a.Store.Positions.Get(ctx, orgID, posID); err == nil {
-			if role, err := a.Store.Roles.Get(ctx, orgID, pos.RoleID); err == nil {
-				roleContent = role.Content
-				roleName = string(role.ID)
-			}
+	if rid := worker.RoleID(); rid != "" {
+		if role, err := a.Store.Roles.Get(ctx, orgID, rid); err == nil {
+			roleContent = role.Content
+			roleName = string(role.ID)
 		}
 	}
 	runtime := a.Runtime

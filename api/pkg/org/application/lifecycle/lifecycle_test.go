@@ -31,16 +31,16 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 	st := orggorm.GetOrgTestDB(t)
 	const orgID = "org-test"
 
-	// Seed a position + worker + their activation stream the same way
+	// Seed a role + worker + their activation stream the same way
 	// hire_worker would.
-	pos, err := orgchart.NewPosition("p-ai", "r-owner", nil, orgID)
+	role, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, time.Now().UTC(), orgID)
 	if err != nil {
-		t.Fatalf("new position: %v", err)
+		t.Fatalf("new role: %v", err)
 	}
-	if err := st.Positions.Create(ctx, pos); err != nil {
-		t.Fatalf("create position: %v", err)
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("create role: %v", err)
 	}
-	worker, err := orgchart.NewAIWorker("w-ghost", pos.ID, "# Ghost", orgID)
+	worker, err := orgchart.NewAIWorker("w-ghost", role.ID, nil, "# Ghost", orgID)
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
