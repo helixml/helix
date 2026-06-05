@@ -356,15 +356,30 @@ Open a terminal inside the desktop and verify:
   the operator's GitHub identity (the org's OAuth token is what
   signs the call).
 
-Server-side cross-checks if the env var is missing:
-- `SELECT name, owner FROM secrets WHERE name='GH_TOKEN' AND
-  owner=<worker-project's user_id>;` — secret row present means
-  the SpawnSecretInjector ran. Absent means the resolver
+Verifying the env var: open a terminal in the desktop and run
+`env | grep GH_TOKEN` (NOT `su - retro -c …` — a login shell
+strips the inherited env and will lie). The token is injected
+on docker create, so any non-login shell inside the container
+sees it.
+
+Server-side cross-checks if `gh auth status` still says no
+token:
+- `SELECT id, name, project_id FROM secrets WHERE name='GH_TOKEN'
+  AND project_id=<worker's project_id>;` — secret row present
+  means the SpawnSecretInjector ran. Absent means the resolver
   returned "" (no member with GitHub OAuth — fix the
   pre-condition).
-- Secret present but env empty means the project-secret →
-  container-env projection broke. That's a runtime regression,
-  not a §12b config error.
+- `grep "Injected project secrets into desktop env" api-logs |
+  grep <session_id>` — present means the env actually reached
+  `agent.Env` on container create. If this line is missing for
+  a session whose secret row exists, the projection path is
+  broken (runtime regression).
+- WARN `put project secret failed … already exists for this
+  project` is **expected** on every activation after the first
+  for now (PutProjectSecret is not idempotent against existing
+  secrets). The first-activation token sticks; OAuth rotation
+  does NOT propagate — re-hire the worker, or delete + recreate
+  the secret manually, to refresh.
 
 **§12c. Stale-session recovery after `./stack build-ubuntu`.**
 Image rebuilds leave every pre-existing exploratory session row
