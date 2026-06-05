@@ -29,6 +29,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 
 import Page from '../components/system/Page'
@@ -40,6 +41,7 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
+  useActivateWorker,
   useEnsureWorkerChat,
   useFireHelixOrgWorker,
   useHelixOrgWorker,
@@ -62,6 +64,7 @@ const HelixOrgWorkerDetail: FC = () => {
   const { data, isLoading } = useHelixOrgWorker(workerId)
   const fire = useFireHelixOrgWorker()
   const ensureChat = useEnsureWorkerChat()
+  const activate = useActivateWorker()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
   const isOwner = workerId === OWNER_WORKER
@@ -146,6 +149,31 @@ const HelixOrgWorkerDetail: FC = () => {
     }
   }
 
+  // handleRestartDesktop manually triggers a fresh activation for this
+  // Worker. The /activate endpoint runs ensureProject synchronously
+  // (which re-attaches the helix-org MCP that helix's project-apply
+  // wipes on update), then enqueues a manual trigger; the spawner
+  // picks it up, opens or resumes the per-Worker chat session, and
+  // helix spins the desktop container back up as part of session
+  // start. The intended use case: the operator stopped the desktop
+  // ("reset it") and wants it back online with the MCP correctly
+  // attached. Plain "resume" doesn't re-attach because it only
+  // restarts the container — Config.Helix isn't touched.
+  //
+  // We stay on this page rather than navigating: the user's desktop
+  // tab may already be open in another window; if not, "Open Human
+  // Desktop" above is one click away.
+  const handleRestartDesktop = async () => {
+    if (!workerId) return
+    if (activate.isPending) return
+    try {
+      await activate.mutateAsync(workerId)
+      snackbar.success('Activation queued — desktop will come up shortly')
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'activate failed')
+    }
+  }
+
   const handleFire = async () => {
     if (!workerId) return
     try {
@@ -226,17 +254,42 @@ const HelixOrgWorkerDetail: FC = () => {
                       label flips to "Launching Human Desktop…"); subsequent clicks open
                       the same session immediately.
                     </Typography>
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon />}
-                      onClick={openChat}
-                      disabled={launching}
-                    >
-                      {launching
-                        ? 'Launching Human Desktop…'
-                        : (projectID ? 'Open Human Desktop' : 'Provision + open Human Desktop')}
-                    </Button>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon />}
+                        onClick={openChat}
+                        disabled={launching}
+                      >
+                        {launching
+                          ? 'Launching Human Desktop…'
+                          : (projectID ? 'Open Human Desktop' : 'Provision + open Human Desktop')}
+                      </Button>
+                      {/* Restart Desktop kicks a fresh manual
+                          activation. Re-attaches the helix-org MCP
+                          and brings the container back up after a
+                          manual stop. Every identity has the same
+                          chat+desktop surface, so the button shows
+                          for all workers — human and AI — once the
+                          worker has been provisioned at least once
+                          (no agent app to activate against
+                          otherwise). */}
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        startIcon={activate.isPending ? <CircularProgress size={16} color="inherit" /> : <PowerSettingsNewIcon />}
+                        onClick={handleRestartDesktop}
+                        disabled={activate.isPending || !projectID}
+                      >
+                        {activate.isPending ? 'Activating…' : 'Restart Desktop'}
+                      </Button>
+                    </Stack>
+                    {!projectID && (
+                      <Typography variant="caption" color="text.secondary">
+                        Restart Desktop is available after the first "Open Human Desktop".
+                      </Typography>
+                    )}
                   </Stack>
                 </Paper>
 

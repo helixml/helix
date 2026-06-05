@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -132,11 +131,7 @@ type WorkerProject struct {
 	// `.context/agent.md` on every Worker's helix-specs branch. Empty
 	// string skips the push.
 	AgentMD string
-	// MCPAuthBearer is added as an `Authorization: Bearer <value>`
-	// header on the helix-org MCP entry attached to each Worker's
-	// agent app.
-	MCPAuthBearer string
-	Logger        *slog.Logger
+	Logger  *slog.Logger
 }
 
 // Ensure applies a Helix project for the given Worker if one
@@ -290,28 +285,12 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		}
 	}
 	a.republishWorkerFiles(ctx, workerID, repoID, roleContent, worker.IdentityContent())
-	// Attach helix-org's MCP server to the auto-provisioned Agent App.
-	if resp.AgentAppID != "" && a.HelixOrgURL != "" {
-		mcpURL := strings.TrimRight(a.HelixOrgURL, "/") + "/workers/" + string(workerID) + "/mcp"
-		// Prefer the per-request bearer from ctx so the attached MCP
-		// entry authenticates as the actual user who triggered this
-		// project apply.
-		bearer := BearerFromContext(ctx)
-		if bearer == "" {
-			bearer = a.MCPAuthBearer
-		}
-		var headers map[string]string
-		if bearer != "" {
-			headers = map[string]string{"Authorization": "Bearer " + bearer}
-		}
-		if err := a.attachMCPToApp(ctx, resp.AgentAppID, "helix", "http", mcpURL, headers); err != nil {
-			if a.Logger != nil {
-				a.Logger.Warn("attach MCP to agent app", "worker", workerID, "app", resp.AgentAppID, "err", err)
-			}
-		} else if a.Logger != nil {
-			a.Logger.Info("helix mcp attached", "worker", workerID, "app", resp.AgentAppID, "mcp", mcpURL)
-		}
-	}
+	// NB: helix-org MCP attachment is NOT done here. applyProject
+	// (helix project handler) wholesale-replaces agentApp.Config.Helix
+	// on update, so anything we attach now is clobbered on the next
+	// re-apply. The Spawner and dynamicProjectApplier call
+	// AttachHelixOrgMCP themselves *after* this Ensure returns — that's
+	// the single place MCP mutation lives.
 	if err := SaveProject(ctx, a.Store, orgID, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
 		return "", "", "", fmt.Errorf("persist helix project IDs: %w", err)
 	}
@@ -358,41 +337,3 @@ func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgch
 	}
 }
 
-// attachMCPToApp upserts an MCP entry on the first assistant of the
-// given app, identified by name. Works against typed
-// types.AssistantMCP / types.AppConfig rather than raw JSON so the
-// shape Helix expects is checked at compile time.
-func (a *WorkerProject) attachMCPToApp(ctx context.Context, appID, name, transport, mcpURL string, headers map[string]string) error {
-	if appID == "" {
-		return errors.New("attachMCPToApp: appID is empty")
-	}
-	cfg, err := a.Service.GetAppConfig(ctx, appID)
-	if err != nil {
-		return fmt.Errorf("get app: %w", err)
-	}
-	if len(cfg.Helix.Assistants) == 0 {
-		return errors.New("attachMCPToApp: app has no assistants")
-	}
-	asst := &cfg.Helix.Assistants[0]
-	entry := types.AssistantMCP{
-		Name:      name,
-		Transport: transport,
-		URL:       mcpURL,
-		Headers:   headers,
-	}
-	replaced := false
-	for i := range asst.MCPs {
-		if asst.MCPs[i].Name == name {
-			asst.MCPs[i] = entry
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		asst.MCPs = append(asst.MCPs, entry)
-	}
-	if err := a.Service.UpdateAppConfig(ctx, appID, cfg); err != nil {
-		return fmt.Errorf("update app: %w", err)
-	}
-	return nil
-}

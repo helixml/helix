@@ -114,6 +114,26 @@ func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgc
 	})
 }
 
+// DispatchManual fires an operator-driven activation. Used by the
+// worker UI's "Start Desktop" button to put the per-Worker project
+// through the full activation pipeline (ensureProject → AttachHelixOrgMCP
+// → ensureSession), which re-attaches the helix-org MCP entry that
+// applyProject's wholesale Config.Helix replace wipes between
+// activations. Without this path, restarting a paused desktop via
+// /sessions/{id}/resume alone leaves the desktop without the helix-org
+// MCP until the next AI activation or owner-chat call.
+//
+// Returns immediately; the activation runs on the per-Worker queue
+// goroutine. activationID semantics match DispatchHire — callers that
+// pre-allocate the audit row pass its ID through; empty means the
+// Spawner mints its own. No-op if the Spawner is nil.
+func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID) {
+	d.queue.Enqueue(orgID, workerID, envPath, activation.Trigger{
+		Kind:         activation.TriggerManual,
+		ActivationID: activationID,
+	})
+}
+
 // Dispatch fans an Event out to every AI Worker subscribed to its
 // Stream (skipping the Worker that sourced the event) and emits an
 // outbound webhook POST if the Stream's Transport is configured for

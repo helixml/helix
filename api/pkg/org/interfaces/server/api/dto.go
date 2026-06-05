@@ -92,6 +92,21 @@ type WorkerChatDTO struct {
 	ProjectID  string `json:"project_id,omitempty"`
 }
 
+// WorkerActivateDTO is the POST /workers/{id}/activate response. The
+// handler runs ensureProject synchronously (so ProjectID and
+// AgentAppID are always populated on a 202) then enqueues the manual
+// activation. SessionID is the persisted per-Worker chat session id
+// from WorkerRuntimeState; empty until the first activation has run
+// at least once. ActivationID is the pre-allocated audit-row id so
+// the UI can poll activation progress without a follow-up listing
+// round-trip.
+type WorkerActivateDTO struct {
+	ActivationID string `json:"activation_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	AgentAppID   string `json:"agent_app_id,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+}
+
 // WorkerDetailDTO is the full GET /workers/{id} response — Worker
 // fields plus the surrounding context the UI's detail pane needs
 // (the role markdown of the Position the Worker fills, sibling worker

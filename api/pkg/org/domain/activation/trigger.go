@@ -31,6 +31,15 @@ const (
 	// TriggerEvent fires whenever a Worker receives an event on a
 	// Stream they subscribe to.
 	TriggerEvent TriggerKind = "event"
+
+	// TriggerManual fires when an operator manually wakes a Worker
+	// from the UI (the worker page's "Start Desktop" button).
+	// Functionally identical to TriggerHire in terms of the activation
+	// pipeline — ensureProject + AttachHelixOrgMCP + ensureSession —
+	// just with a different label so the audit row + activation marker
+	// distinguish "operator clicked the button" from "Worker was just
+	// hired" or "Stream event arrived".
+	TriggerManual TriggerKind = "manual"
 )
 
 // Trigger is the per-activation context the runtime gives to the

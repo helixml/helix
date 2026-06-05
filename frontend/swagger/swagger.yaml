@@ -379,6 +379,17 @@ definitions:
       content:
         type: string
     type: object
+  api.WorkerActivateDTO:
+    properties:
+      activation_id:
+        type: string
+      agent_app_id:
+        type: string
+      project_id:
+        type: string
+      session_id:
+        type: string
+    type: object
   api.WorkerBadge:
     properties:
       id:
@@ -18095,6 +18106,32 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: get worker detail'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/activate:
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.WorkerActivateDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: manually trigger a worker activation'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/workers/{id}/chat:
