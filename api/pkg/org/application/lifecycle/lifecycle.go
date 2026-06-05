@@ -123,16 +123,9 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// the worker leaves them alone. A new hire into the same position
 	// inherits the same set of streams. DeletePosition is the only
 	// cascade that drops subscriptions.
-
-	if grants, err := s.Store.Grants.ListByWorker(ctx, orgID, id); err == nil {
-		for _, g := range grants {
-			if err := s.Store.Grants.Delete(ctx, orgID, g.ID); err != nil {
-				s.logger().Warn("fire: delete grant", "worker", id, "grant", g.ID, "err", err)
-			}
-		}
-	} else {
-		s.logger().Warn("fire: list grants", "worker", id, "err", err)
-	}
+	//
+	// Tool capability is derived from Role.Tools, so there is no
+	// per-Worker grants cascade either.
 
 	if env, err := s.Store.Environments.Get(ctx, orgID, id); err == nil {
 		if env.Path != "" {

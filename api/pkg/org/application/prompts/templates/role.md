@@ -68,6 +68,10 @@ Immediately call **`create_role`** with:
 - `id`: kebab-case from the title, prefixed `r-`
   (e.g. `r-marketing-director`)
 - `content`: the markdown above
+- `tools`: an array of every MCP tool name from the `## Tools (MCP)`
+  section. **This is load-bearing** — the Role's `tools` is the live
+  MCP surface for every Worker filling a Position bound to it. Skip
+  it and your Workers will be mute.
 
 Just do it. The owner can edit or delete after.
 
@@ -92,8 +96,9 @@ hire conversationally: ask only for a name + one-line vibe for the
 person, then chain:
 
 1. `create_position` under `p-root` (unless I said otherwise).
-2. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`, grants
-   matching the Role's Tools section.
+2. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`. The
+   Worker's MCP tools come live from the Role you just saved; no
+   `grants` parameter is needed (or accepted).
 3. **Stand up their streams.** For each stream the Role's Streams
    section lists:
    - call `list_streams` first — another Worker may already have

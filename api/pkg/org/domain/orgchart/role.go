@@ -9,19 +9,25 @@ import (
 )
 
 // Role is a job description. Owner-only: Workers cannot edit their own
-// Role. The owner edits Content via UpdateRole, and the new content
-// fans out to every Worker filling a Position with this Role.
+// Role. The owner edits Content (and Tools) via UpdateRole, and the
+// new value fans out to every Worker filling a Position with this
+// Role.
 //
 // Content is the canonical markdown the Worker reads on activation
 // (it lands in role.md inside the Worker's Environment). Identity
 // (name, voice, personality) is per-Worker, not per-Role.
 //
-// Tools and Streams are typed manifests: the list of MCP tools the
-// Role's prompt expects to be granted on hire, and the list of
-// Streams it expects to operate on. They are reference data only —
-// hire_worker does NOT enforce them, does NOT auto-grant, and does
-// NOT auto-subscribe. The hiring caller is responsible for issuing
-// matching grants and subscriptions.
+// Tools is the live source of truth for a Worker's MCP surface: the
+// helix-org MCP server resolves Worker → Position → Role on every
+// request and registers exactly the tools in Role.Tools. To change a
+// Worker's capabilities, call update_role; capability is not a
+// per-Worker attribute.
+//
+// Streams is a typed manifest the Role's prompt is expected to
+// subscribe its Workers to. The store does NOT auto-subscribe; the
+// hiring caller drives create_stream/subscribe explicitly because
+// stream lifecycle (creation, transport config, cross-Role sharing)
+// can't be derived mechanically from the Role.
 type Role struct {
 	ID             RoleID
 	OrganizationID string

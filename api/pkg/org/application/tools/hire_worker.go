@@ -18,8 +18,8 @@ import (
 
 // HireWorker brings a Worker into existence: a Worker row carrying the
 // per-hire IdentityContent, an Environment row pointing at
-// <Deps.EnvsDir>/<workerID>/, any tool grants bundled inline, and — for
-// AI Workers — a hire activation through the Dispatcher.
+// <Deps.EnvsDir>/<workerID>/, and — for AI Workers — a hire activation
+// through the Dispatcher.
 //
 // State lives in the domain (DB), not on disk. role.md / identity.md /
 // agent.md are projected into the Worker's Environment by the Spawner
@@ -27,12 +27,11 @@ import (
 // lets the env layer evolve (local files today, remote workspaces
 // tomorrow) without touching the tools.
 //
-// Grants are passed inline so the Worker is fully-authorised before the
-// Spawner starts their process. Without this, claude would race the
-// owner's follow-up grant_tool calls and hit 403s on its first action.
-// Grants are data; the tool does not decide what to grant. The
-// separate grant_tool tool stays for granting to Workers that already
-// exist.
+// A Worker's MCP tool surface is derived live from their Position's
+// Role.Tools: change the Role and every Worker filling a Position
+// pointing at it sees the new tool set on the next MCP request. There
+// is no per-Worker grants table and no `grants` parameter on this
+// tool — capability is the Role's responsibility.
 //
 // hire_worker does not subscribe to Streams; the hiring Worker does
 // that explicitly after the Worker is alive, typically via the Worker's
@@ -67,9 +66,9 @@ func (t *HireWorker) InputSchema() *jsonschema.Schema { return hireWorkerSchema 
 func (t *HireWorker) Description() string {
 	return "Hire a Worker into a Position. The Worker's identityContent (per-hire persona / " +
 		"profile) is stored in the domain alongside the Worker row; the spawner projects " +
-		"role and identity into the Environment at activation time. Optional `grants` are " +
-		"issued atomically with the hire so the Worker is authorised before the agent " +
-		"process boots.\n\n" +
+		"role and identity into the Environment at activation time. The Worker's MCP tool " +
+		"surface comes from their Position's Role.Tools — to change a Worker's " +
+		"capabilities, edit the Role.\n\n" +
 		"Always supply `id` as a short, real-sounding handle: a lowercase given name " +
 		"prefixed with `w-`, e.g. `w-mark`, `w-priya`, `w-jordan`. Pick a name that fits " +
 		"the Position and isn't already taken. Do NOT pass a UUID and do NOT omit `id` " +
@@ -79,49 +78,11 @@ func (t *HireWorker) Description() string {
 		"to a UUID."
 }
 
-type hireWorkerGrant struct {
-	ToolName string `json:"toolName"`
-}
-
 type hireWorkerArgs struct {
 	ID              string              `json:"id,omitempty"`
 	PositionID      string              `json:"positionId"`
 	Kind            orgchart.WorkerKind `json:"kind"`
 	IdentityContent string              `json:"identityContent"`
-	Grants          []hireWorkerGrant   `json:"grants,omitempty"`
-}
-
-// UnmarshalJSON tolerates LLM tool-call quirks where the `grants`
-// field arrives as a JSON-encoded string instead of an inline array.
-// Sonnet does this intermittently when nested arrays appear in tool
-// schemas. We accept either form so callers don't have to retry-and-
-// fall-back. Anything else still fails the standard way.
-func (a *hireWorkerArgs) UnmarshalJSON(data []byte) error {
-	type plain hireWorkerArgs
-	type tolerant struct {
-		*plain
-		Grants json.RawMessage `json:"grants,omitempty"`
-	}
-	t := tolerant{plain: (*plain)(a)}
-	if err := json.Unmarshal(data, &t); err != nil {
-		return err
-	}
-	if len(t.Grants) == 0 || string(t.Grants) == "null" {
-		a.Grants = nil
-		return nil
-	}
-	if err := json.Unmarshal(t.Grants, &a.Grants); err == nil {
-		return nil
-	}
-	// Try once more by unwrapping a string-encoded payload.
-	var s string
-	if err := json.Unmarshal(t.Grants, &s); err != nil {
-		return fmt.Errorf("grants: not an array or string: %w", err)
-	}
-	if err := json.Unmarshal([]byte(s), &a.Grants); err != nil {
-		return fmt.Errorf("grants (string-wrapped): %w", err)
-	}
-	return nil
 }
 
 func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -188,20 +149,6 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	}
 	if err := t.deps.Store.Environments.Create(ctx, env); err != nil {
 		return nil, fmt.Errorf("create environment: %w", err)
-	}
-
-	for i, g := range args.Grants {
-		if g.ToolName == "" {
-			return nil, fmt.Errorf("grants[%d]: toolName is required", i)
-		}
-		grantID := orgchart.GrantID("g-" + t.deps.NewID())
-		grantRow, err := orgchart.NewToolGrant(grantID, id, tool.Name(g.ToolName), orgID)
-		if err != nil {
-			return nil, fmt.Errorf("grants[%d]: %w", i, err)
-		}
-		if err := t.deps.Store.Grants.Create(ctx, grantRow); err != nil {
-			return nil, fmt.Errorf("grants[%d] (%s): %w", i, g.ToolName, err)
-		}
 	}
 
 	if args.Kind == orgchart.WorkerKindAI {

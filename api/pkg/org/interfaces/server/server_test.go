@@ -13,13 +13,15 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
-// newTestServer seeds a CEO Worker with a ping grant and a hire_worker
-// grant (the latter pointing at a tool deliberately not registered, so
-// we can assert it's filtered out of the MCP list). Returns the running
+// newTestServer seeds a CEO Worker whose Role lists both ping and
+// hire_worker — but only ping is actually registered with the server.
+// That lets us assert the MCP surface is the intersection of (a)
+// Role.Tools and (b) tools the server knows. Returns the running
 // httptest.Server and the workerID to act as.
 func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 	t.Helper()
@@ -34,7 +36,14 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := orgchart.NewRole("r-ceo", "# CEO\nTop of org.", nil, nil, time.Now().UTC(), "org-test")
+	role, _ := orgchart.NewRole(
+		"r-ceo",
+		"# CEO\nTop of org.",
+		[]tool.Name{tools.PingName, "hire_worker"},
+		nil,
+		time.Now().UTC(),
+		"org-test",
+	)
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
@@ -45,14 +54,6 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 	ai, _ := orgchart.NewAIWorker("w-ceo", "p-root", "", "org-test")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
-	}
-	grant, _ := orgchart.NewToolGrant("g-1", "w-ceo", "hire_worker", "org-test")
-	if err := s.Grants.Create(ctx, grant); err != nil {
-		t.Fatalf("seed grant: %v", err)
-	}
-	pingGrant, _ := orgchart.NewToolGrant("g-ping", "w-ceo", tools.PingName, "org-test")
-	if err := s.Grants.Create(ctx, pingGrant); err != nil {
-		t.Fatalf("seed ping grant: %v", err)
 	}
 	return srv, "w-ceo"
 }
@@ -74,11 +75,73 @@ func connectMCP(t *testing.T, baseURL string, workerID orgchart.WorkerID) *mcp.C
 	return session
 }
 
+// newTestServerRoleDerived seeds a Worker whose MCP surface comes from
+// Role.Tools rather than per-Worker grants. The Role lists ping; no rows
+// are inserted into org_grants. Asserting that ping appears on the
+// Worker's MCP endpoint pins the new "Role.Tools is the live source of
+// truth" contract — see feat/org-role-tools-as-source-of-truth.
+func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
+	t.Helper()
+	s := orggorm.GetOrgTestDB(t)
+
+	reg := tools.NewRegistry()
+	if err := reg.Register(tools.Ping{}); err != nil {
+		t.Fatalf("register ping: %v", err)
+	}
+
+	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	role, _ := orgchart.NewRole(
+		"r-ceo",
+		"# CEO\nTop of org.",
+		[]tool.Name{tools.PingName},
+		nil,
+		time.Now().UTC(),
+		"org-test",
+	)
+	if err := s.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("seed role: %v", err)
+	}
+	root, _ := orgchart.NewPosition("p-root", "r-ceo", nil, "org-test")
+	if err := s.Positions.Create(ctx, root); err != nil {
+		t.Fatalf("seed root: %v", err)
+	}
+	ai, _ := orgchart.NewAIWorker("w-ceo", "p-root", "", "org-test")
+	if err := s.Workers.Create(ctx, ai); err != nil {
+		t.Fatalf("seed worker: %v", err)
+	}
+	return srv, "w-ceo"
+}
+
+// TestMCPListToolsFromRole pins the new contract: a Worker's MCP surface
+// is derived live from their Position's Role.Tools, with no grants rows
+// involved. Hiring a Worker into a Role with `ping` listed must make
+// ping appear on the MCP endpoint without any explicit grant call.
+func TestMCPListToolsFromRole(t *testing.T) {
+	t.Parallel()
+	srv, workerID := newTestServerRoleDerived(t)
+	session := connectMCP(t, srv.URL, workerID)
+
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	got := make(map[string]bool, len(res.Tools))
+	for _, tl := range res.Tools {
+		got[tl.Name] = true
+	}
+	if !got["ping"] {
+		t.Errorf("ping missing from role-derived list: %+v", got)
+	}
+}
+
 // TestMCPListTools confirms that the MCP tool list a worker sees is the
-// intersection of (a) their grants and (b) tools the server has actually
-// registered. The CEO holds grants for both ping and hire_worker, but
-// only ping is registered on the test registry — so hire_worker must
-// not appear. create_role is neither granted nor registered.
+// intersection of (a) their Role.Tools and (b) tools the server has
+// actually registered. The CEO's Role lists both ping and hire_worker,
+// but only ping is registered on the test registry — so hire_worker
+// must not appear. create_role is in neither the role nor the registry.
 func TestMCPListTools(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServer(t)
@@ -96,10 +159,10 @@ func TestMCPListTools(t *testing.T) {
 		t.Errorf("ping missing from list: %+v", got)
 	}
 	if got["hire_worker"] {
-		t.Errorf("granted-but-unregistered tool hire_worker leaked into list")
+		t.Errorf("role-listed-but-unregistered tool hire_worker leaked into list")
 	}
 	if got["create_role"] {
-		t.Errorf("ungranted tool create_role appeared in list")
+		t.Errorf("role-omitted tool create_role appeared in list")
 	}
 }
 
@@ -140,9 +203,10 @@ func TestMCPInvokePing(t *testing.T) {
 	}
 }
 
-// TestMCPUngrantedToolHidden confirms that a tool the worker doesn't
-// hold isn't visible. Calling a hidden tool surfaces as a protocol-level
-// "tool not found", not a 403 — the LLM never sees ungranted tools at all.
+// TestMCPUngrantedToolHidden confirms that a tool not listed in the
+// Worker's Role.Tools isn't visible. Calling a hidden tool surfaces as
+// a protocol-level "tool not found", not a 403 — the LLM never sees
+// tools its Role doesn't carry.
 func TestMCPUngrantedToolHidden(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServer(t)
@@ -159,9 +223,9 @@ func TestMCPUngrantedToolHidden(t *testing.T) {
 
 // newTestServerWithPrompts mirrors newTestServer but also attaches a
 // prompts registry containing new_role. Whether the worker actually
-// sees the prompt depends on whether they hold the gating grant
-// (create_role); callers exercise both branches.
-func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Server, orgchart.WorkerID) {
+// sees the prompt depends on whether their Role.Tools includes the
+// gating tool (create_role); callers exercise both branches.
+func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.Server, orgchart.WorkerID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -182,25 +246,21 @@ func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Ser
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := orgchart.NewRole("r-ceo", "# CEO", nil, nil, time.Now().UTC(), "org-test")
+	roleTools := []tool.Name{tools.PingName}
+	if includeCreateRole {
+		roleTools = append(roleTools, tools.CreateRoleName)
+	}
+	role, _ := orgchart.NewRole("r-ceo", "# CEO", roleTools, nil, time.Now().UTC(), "org-test")
 	_ = s.Roles.Create(ctx, role)
 	root, _ := orgchart.NewPosition("p-root", "r-ceo", nil, "org-test")
 	_ = s.Positions.Create(ctx, root)
 	ai, _ := orgchart.NewAIWorker("w-ceo", "p-root", "", "org-test")
 	_ = s.Workers.Create(ctx, ai)
-	pingGrant, _ := orgchart.NewToolGrant("g-ping", "w-ceo", tools.PingName, "org-test")
-	_ = s.Grants.Create(ctx, pingGrant)
-	if grantCreateRole {
-		g, _ := orgchart.NewToolGrant("g-create-role", "w-ceo", tools.CreateRoleName, "org-test")
-		if err := s.Grants.Create(ctx, g); err != nil {
-			t.Fatalf("seed create_role grant: %v", err)
-		}
-	}
 	return srv, "w-ceo"
 }
 
 // TestMCPListPromptsVisibleWithGrant confirms that a prompt gated on a
-// tool grant shows up exactly when the worker holds that grant.
+// tool shows up exactly when the worker's Role.Tools includes it.
 func TestMCPListPromptsVisibleWithGrant(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServerWithPrompts(t, true)
@@ -220,8 +280,8 @@ func TestMCPListPromptsVisibleWithGrant(t *testing.T) {
 }
 
 // TestMCPListPromptsHiddenWithoutGrant confirms the gating: a worker
-// without create_role does NOT see the new_role prompt, because the
-// final tool call would fail anyway.
+// whose Role doesn't list create_role does NOT see the new_role
+// prompt, because the final tool call would fail anyway.
 func TestMCPListPromptsHiddenWithoutGrant(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServerWithPrompts(t, false)

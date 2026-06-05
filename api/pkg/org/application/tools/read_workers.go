@@ -93,48 +93,6 @@ func (t *GetWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	return json.Marshal(workerViewOf(w))
 }
 
-// ListWorkerGrants returns every ToolGrant held by one Worker.
-type ListWorkerGrants struct {
-	deps Deps
-}
-
-const ListWorkerGrantsName tool.Name = "list_worker_grants"
-
-var listWorkerGrantsSchema = mustSchema[listWorkerGrantsArgs]()
-
-type listWorkerGrantsArgs struct {
-	WorkerID string `json:"workerId"`
-}
-
-func (t *ListWorkerGrants) Name() tool.Name                 { return ListWorkerGrantsName }
-func (t *ListWorkerGrants) InputSchema() *jsonschema.Schema { return listWorkerGrantsSchema }
-func (t *ListWorkerGrants) Description() string {
-	return "List the ToolGrants held by a Worker — i.e. the tools they may invoke over MCP."
-}
-
-func (t *ListWorkerGrants) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	var args listWorkerGrantsArgs
-	if err := json.Unmarshal(inv.Args, &args); err != nil {
-		return nil, fmt.Errorf("parse args: %w", err)
-	}
-	if args.WorkerID == "" {
-		return nil, fmt.Errorf("workerId is required")
-	}
-	orgID := inv.Caller.OrganizationID()
-	if orgID == "" {
-		return nil, fmt.Errorf("list_worker_grants: caller has no OrgID")
-	}
-	grants, err := t.deps.Store.Grants.ListByWorker(ctx, orgID, orgchart.WorkerID(args.WorkerID))
-	if err != nil {
-		return nil, fmt.Errorf("list grants for %q: %w", args.WorkerID, err)
-	}
-	out := make([]grantView, 0, len(grants))
-	for _, g := range grants {
-		out = append(out, grantViewOf(g))
-	}
-	return json.Marshal(map[string]any{"grants": out})
-}
-
 // GetWorkerEnvironment returns the on-disk Environment record for a Worker.
 type GetWorkerEnvironment struct {
 	deps Deps

@@ -1,7 +1,9 @@
-// Package bootstrap creates the per-org initial owner Worker and grants
-// the structural tools. Run once per helix.Organization — subsequent
-// calls for the same org return ErrAlreadyInitialised, leaving other
-// orgs free to bootstrap independently.
+// Package bootstrap creates the per-org initial owner Role (with the
+// structural tool list), the root Position, and the owner Worker. The
+// Worker's MCP surface is derived live from r-owner.Tools — there is
+// no separate per-Worker grants step. Run once per helix.Organization;
+// subsequent calls for the same org return ErrAlreadyInitialised,
+// leaving other orgs free to bootstrap independently.
 package bootstrap
 
 import (
@@ -11,8 +13,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
@@ -71,21 +71,15 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	now := time.Now().UTC()
 
-	// The same list seeds two things: the owner Role's tools manifest
-	// (what the chart UI shows for r-owner) AND the owner Worker's
-	// actual ToolGrants (the rows the MCP authoriser checks at call
-	// time). The two used to drift — r-owner.Tools was always nil so
-	// the chart's role detail page showed an empty Tools list, even
-	// though w-owner had every tool via grants. Keeping a single
-	// source for both stops that confusion.
+	// The owner Role's Tools is the single source of truth for what
+	// MCP tools the owner Worker sees: the MCP handler reads
+	// Worker → Position → Role.Tools live on every request.
 	defaults := []tool.Name{
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
 		tools.UpdateIdentityName,
 		tools.CreatePositionName,
 		tools.HireWorkerName,
-		tools.GrantToolName,
-		tools.RevokeToolName,
 		tools.CreateStreamName,
 		tools.StreamMembersName,
 		tools.SubscribeName,
@@ -100,12 +94,10 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.ListPositionChildrenName,
 		tools.ListWorkersName,
 		tools.GetWorkerName,
-		tools.ListWorkerGrantsName,
 		tools.GetWorkerEnvironmentName,
 		tools.ListStreamsName,
 		tools.GetStreamName,
 		tools.ListStreamEventsName,
-		tools.GetGrantName,
 		tools.ReadEventsName,
 		tools.WorkerLogName,
 	}
@@ -146,21 +138,6 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	if err := tools.EnsureActivationStream(ctx, s, params.OrganizationID, owner.ID(), owner.ID(), now); err != nil {
 		return Result{}, fmt.Errorf("owner activation stream: %w", err)
-	}
-
-	for _, name := range defaults {
-		g, err := orgchart.NewToolGrant(
-			orgchart.GrantID("g-owner-"+uuid.NewString()),
-			owner.ID(),
-			name,
-			params.OrganizationID,
-		)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := s.Grants.Create(ctx, g); err != nil {
-			return Result{}, fmt.Errorf("grant %q: %w", name, err)
-		}
 	}
 
 	return Result{

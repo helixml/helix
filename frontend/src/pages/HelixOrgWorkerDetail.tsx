@@ -317,7 +317,7 @@ const HelixOrgWorkerDetail: FC = () => {
                 {worker.tools && worker.tools.length > 0 && (
                   <Box>
                     <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                      Tool grants ({worker.tools.length})
+                      Tools ({worker.tools.length})
                     </Typography>
                     <Stack direction="row" flexWrap="wrap" gap={0.5}>
                       {worker.tools.map((t) => (
@@ -325,8 +325,8 @@ const HelixOrgWorkerDetail: FC = () => {
                       ))}
                     </Stack>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                      Grants on this specific worker (rows in <code>org_grants</code>) — distinct from
-                      the role's tool manifest.
+                      Derived from the Role's Tools list. Edit the Role to change what this
+                      Worker can call.
                     </Typography>
                   </Box>
                 )}
@@ -390,8 +390,8 @@ const HelixOrgWorkerDetail: FC = () => {
                     {isOwner ? 'Owner — protected' : 'Fire worker'}
                   </Button>
                   <Typography variant="caption" color="text.secondary">
-                    Tears down the worker's per-Worker Helix project, removes grants,
-                    deletes the row.
+                    Tears down the worker's per-Worker Helix project and deletes the
+                    row. Tool capability comes from the Role, so nothing extra to revoke.
                   </Typography>
                 </Stack>
               </Paper>

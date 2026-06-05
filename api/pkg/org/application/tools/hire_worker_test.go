@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
+
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -245,61 +247,6 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	}
 }
 
-// TestHireWorkerGrantsBeforeDispatch checks that all bundled grants
-// land in the store BEFORE the dispatcher fires. This is load-bearing
-// — an AI Worker that activates before its grants land will 403 on its
-// first tool call.
-func TestHireWorkerGrantsBeforeDispatch(t *testing.T) {
-	t.Parallel()
-	deps, dispatcher, _, caller := newHireTestEnv(t)
-
-	// Wrap the dispatcher so we can read the grant count AT the moment
-	// DispatchHire fires.
-	var grantsAtDispatch int
-	captured := dispatcherCapturingGrants{
-		inner: dispatcher,
-		onHire: func() {
-			grants, _ := deps.Store.Grants.ListByWorker(context.Background(), "org-test", "w-alice")
-			grantsAtDispatch = len(grants)
-		},
-	}
-	deps.Dispatcher = &captured
-	tl := &HireWorker{deps: deps}
-
-	args, _ := json.Marshal(hireWorkerArgs{
-		ID:              "w-alice",
-		PositionID:      "p-root",
-		Kind:            orgchart.WorkerKindAI,
-		IdentityContent: "# Alice",
-		Grants: []hireWorkerGrant{
-			{ToolName: "publish"},
-			{ToolName: "subscribe"},
-		},
-	})
-	if _, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: args}); err != nil {
-		t.Fatalf("Invoke: %v", err)
-	}
-	if grantsAtDispatch != 2 {
-		t.Fatalf("grants present at DispatchHire time = %d, want 2", grantsAtDispatch)
-	}
-}
-
-type dispatcherCapturingGrants struct {
-	inner  *fakeDispatcher
-	onHire func()
-}
-
-func (d *dispatcherCapturingGrants) Dispatch(ctx context.Context, e streaming.Event) {
-	d.inner.Dispatch(ctx, e)
-}
-
-func (d *dispatcherCapturingGrants) DispatchHire(ctx context.Context, orgID string, w orgchart.WorkerID, envPath string, activationID activation.ID) {
-	if d.onHire != nil {
-		d.onHire()
-	}
-	d.inner.DispatchHire(ctx, orgID, w, envPath, activationID)
-}
-
 // TestHireWorkerEnvDirCreated checks the on-disk Environment dir is
 // created at the configured path.
 func TestHireWorkerEnvDirCreated(t *testing.T) {
@@ -510,6 +457,33 @@ func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	if state.HiringUserID != "" {
 		t.Errorf("HiringUserID = %q, want empty", state.HiringUserID)
 	}
+}
+
+// TestHireWorkerSchemaHasNoGrantsField pins the new contract: the
+// hire_worker tool no longer accepts a `grants` field. A Worker's MCP
+// surface is derived live from their Position's Role.Tools; per-Worker
+// grants do not exist. Asserting on the JSON schema is the durable
+// check — the schema is what the LLM sees.
+func TestHireWorkerSchemaHasNoGrantsField(t *testing.T) {
+	t.Parallel()
+	tl := &HireWorker{}
+	schema := tl.InputSchema()
+	if schema == nil {
+		t.Fatal("InputSchema() = nil")
+	}
+	if _, ok := schema.Properties["grants"]; ok {
+		t.Errorf("hire_worker input schema still advertises `grants` property; "+
+			"Role.Tools is now the live source of truth (got properties: %v)",
+			propNames(schema.Properties))
+	}
+}
+
+func propNames(m map[string]*jsonschema.Schema) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // TestHireWorkerInheritsCallerOrgID: the new Worker inherits its

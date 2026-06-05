@@ -23,7 +23,6 @@ var orgRowTypes = []any{
 	&positionRow{},
 	&workerRow{},
 	&workerRuntimeStateRow{},
-	&grantRow{},
 	&streamRow{},
 	&subscriptionRow{},
 	&eventRow{},
@@ -33,13 +32,15 @@ var orgRowTypes = []any{
 }
 
 // orgTableNames returns the SQL table names for orgRowTypes. Used by
-// the schema-reset path and the FK installer.
+// the schema-reset path and the FK installer. The `org_grants` table
+// is intentionally absent — capability is derived from Role.Tools, so
+// the table is dropped on first boot of this revision (see
+// migration_scripts).
 var orgTableNames = []string{
 	"org_roles",
 	"org_positions",
 	"org_workers",
 	"org_worker_runtime_state",
-	"org_grants",
 	"org_streams",
 	"org_subscriptions",
 	"org_events",
@@ -102,7 +103,6 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Positions:          newPositionsRepo(db),
 		Workers:            workers,
 		WorkerRuntimeState: newWorkerRuntimeStateRepo(db),
-		Grants:             newGrantsRepo(db),
 		Streams:            newStreamsRepo(db),
 		Subscriptions:      newSubscriptionsRepo(db),
 		Events:             newEventsRepo(db, workers),

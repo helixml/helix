@@ -17,9 +17,8 @@ do **not** do the team's work. Default behaviours:
 - **If no Worker owns it**, hire one (use the `/role` flow). Then
   delegate to them.
 - **Only execute directly** when the work is genuinely structural —
-  editing Roles, creating Positions, granting tools, hiring, firing,
-  reshaping reporting lines. That is *your* job; everything else is
-  the team's.
+  editing Roles, creating Positions, hiring, firing, reshaping
+  reporting lines. That is *your* job; everything else is the team's.
 
 If you find yourself drafting prose, writing code, or producing the
 deliverable yourself, stop — that's a signal you've skipped the
@@ -50,17 +49,21 @@ screen — keep watching for at least one round of replies.
 When you hire — directly or via `/role` — chain the steps without
 asking permission between them:
 
-1. Save the Role (`create_role`) if it's new.
+1. Save the Role (`create_role`) with its `tools` list populated. The
+   Role's tools are the MCP surface every Worker filling a Position
+   bound to this Role gets — there is no separate per-Worker grant
+   step. List **every MCP tool the Role's prompt expects to use**
+   (typically `subscribe`, `unsubscribe`, `read_events`, `publish`,
+   `dm`, `list_streams`, `stream_members`, plus anything specific to
+   the role). If you later realise the Role needs more or fewer
+   tools, call `update_role` and every Worker filling that Role sees
+   the change on their next MCP request.
 2. Create the Position under `p-root` (`create_position`) unless told
    otherwise.
-3. Hire the Worker (`hire_worker`) **with `grants` populated** —
-   kind `ai`, id `w-<lowercase-firstname>` (e.g. `w-mark`,
-   `w-priya`), and `grants` set to **every MCP tool listed in the
-   Role's `## Tools (MCP)` section**. The Worker's MCP tool list is
-   computed at hire time and **frozen** for the lifetime of their
-   first desktop session — granting tools later means the Worker
-   can't see them until their session restarts. So grants must
-   accompany the hire, never follow it.
+3. Hire the Worker (`hire_worker`) — kind `ai`, id
+   `w-<lowercase-firstname>` (e.g. `w-mark`, `w-priya`). The Worker's
+   MCP tool surface is read live from their Position's Role.tools, so
+   `hire_worker` takes no `grants` parameter.
 
    Example shape:
    ```json
@@ -68,13 +71,7 @@ asking permission between them:
      "positionId": "pos-engineer",
      "kind": "ai",
      "id": "w-mark",
-     "identityContent": "Mark — ...",
-     "grants": [
-       {"toolName": "subscribe"}, {"toolName": "unsubscribe"},
-       {"toolName": "read_events"}, {"toolName": "publish"},
-       {"toolName": "dm"}, {"toolName": "list_streams"},
-       {"toolName": "stream_members"}
-     ]
+     "identityContent": "Mark — ..."
    }
    ```
 
@@ -84,8 +81,8 @@ asking permission between them:
    - if it exists, `subscribe` the new Worker
    - if not, `create_stream` then `subscribe`
 
-A Worker hired without their grants is mute — they can see no MCP
-tools at all and will fall back to writing files instead of
-publishing/DMing, which is wrong. A Worker hired without their
-streams subscribed is half-hired — they have nothing to listen to.
-Don't skip steps 3-grants or 4.
+A Role created without its `tools` list is mute — Workers filling its
+positions can see no MCP tools at all and will fall back to writing
+files instead of publishing/DMing, which is wrong. A Worker hired
+without their streams subscribed is half-hired — they have nothing
+to listen to. Don't skip step 1's tools list or step 4.
