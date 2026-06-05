@@ -27,7 +27,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
 // New returns a fresh *store.Store backed by in-memory repos. Use
@@ -40,7 +39,6 @@ func New() *store.Store {
 		Positions:          &positionsRepo{rows: map[orgKey]orgchart.Position{}},
 		Workers:            workers,
 		WorkerRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Grants:             &grantsRepo{rows: map[orgKey]orgchart.ToolGrant{}},
 		Streams:            &streamsRepo{rows: map[orgKey]streaming.Stream{}},
 		Subscriptions:      subs,
 		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs, workers: workers},
@@ -308,68 +306,6 @@ func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, workerID orgch
 			delete(r.rows, k)
 		}
 	}
-	return nil
-}
-
-// ---- Grants -------------------------------------------------------------
-
-type grantsRepo struct {
-	mu   sync.RWMutex
-	rows map[orgKey]orgchart.ToolGrant
-}
-
-func (g *grantsRepo) Create(_ context.Context, gr orgchart.ToolGrant) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	k := orgKey{OrgID: gr.OrganizationID, ID: string(gr.ID)}
-	if _, ok := g.rows[k]; ok {
-		return fmt.Errorf("grant %q in org %q: already exists", gr.ID, gr.OrganizationID)
-	}
-	g.rows[k] = gr
-	return nil
-}
-
-func (g *grantsRepo) Get(_ context.Context, orgID string, id orgchart.GrantID) (orgchart.ToolGrant, error) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	if gr, ok := g.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
-		return gr, nil
-	}
-	return orgchart.ToolGrant{}, fmt.Errorf("grant %q in org %q: %w", id, orgID, store.ErrNotFound)
-}
-
-func (g *grantsRepo) ListByWorker(_ context.Context, orgID string, workerID orgchart.WorkerID) ([]orgchart.ToolGrant, error) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	out := make([]orgchart.ToolGrant, 0)
-	for k, gr := range g.rows {
-		if k.OrgID == orgID && gr.WorkerID == workerID {
-			out = append(out, gr)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
-}
-
-func (g *grantsRepo) FindForWorkerAndTool(_ context.Context, orgID string, workerID orgchart.WorkerID, toolName tool.Name) (orgchart.ToolGrant, error) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	for k, gr := range g.rows {
-		if k.OrgID == orgID && gr.WorkerID == workerID && gr.ToolName == toolName {
-			return gr, nil
-		}
-	}
-	return orgchart.ToolGrant{}, fmt.Errorf("grant for worker %q tool %q in org %q: %w", workerID, toolName, orgID, store.ErrNotFound)
-}
-
-func (g *grantsRepo) Delete(_ context.Context, orgID string, id orgchart.GrantID) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	k := orgKey{OrgID: orgID, ID: string(id)}
-	if _, ok := g.rows[k]; !ok {
-		return fmt.Errorf("grant %q in org %q: %w", id, orgID, store.ErrNotFound)
-	}
-	delete(g.rows, k)
 	return nil
 }
 

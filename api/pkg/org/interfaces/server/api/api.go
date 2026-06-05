@@ -635,30 +635,34 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
-	grants, err := a.deps.Store.Grants.ListByWorker(ctx, orgID, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("list grants: %w", err))
-		return
-	}
-	tools := make([]string, 0, len(grants))
-	for _, g := range grants {
-		tools = append(tools, string(g.ToolName))
-	}
-	sort.Strings(tools)
 
-	detail := WorkerDetailDTO{Worker: workerDTO(wk, tools)}
+	// Tools are derived from the Worker's Position's Role.Tools.
+	var (
+		toolNames []string
+		posDTO    *PositionDTO
+		roDTO     *RoleDTO
+	)
 	if pid := wk.Position(); pid != "" {
 		pos, err := a.deps.Store.Positions.Get(ctx, orgID, pid)
 		if err == nil {
 			pd := positionDTO(pos)
-			detail.Position = &pd
+			posDTO = &pd
 			ro, err := a.deps.Store.Roles.Get(ctx, orgID, pos.RoleID)
 			if err == nil {
 				rd := roleDTO(ro)
-				detail.Role = &rd
+				roDTO = &rd
+				toolNames = make([]string, 0, len(ro.Tools))
+				for _, t := range ro.Tools {
+					toolNames = append(toolNames, string(t))
+				}
+				sort.Strings(toolNames)
 			}
 		}
 	}
+
+	detail := WorkerDetailDTO{Worker: workerDTO(wk, toolNames)}
+	detail.Position = posDTO
+	detail.Role = roDTO
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with worker" to the
 	// per-project Human Desktop session. Missing state = the worker

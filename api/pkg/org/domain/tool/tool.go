@@ -14,8 +14,7 @@
 // surface — ID and OrganizationID) so orgchart.Worker satisfies it
 // structurally without orgchart having to import tool. This pattern
 // keeps the dependency DAG one-way (orgchart -> tool, never back),
-// which matters because orgchart.Role.Tools is []tool.Name and
-// orgchart.ToolGrant.ToolName is tool.Name.
+// which matters because orgchart.Role.Tools is []tool.Name.
 package tool
 
 import (

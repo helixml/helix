@@ -1,5 +1,5 @@
 // Package store defines the persistence contracts for the org-graph
-// subsystem (workers, positions, roles, grants, streams, events,
+// subsystem (workers, positions, roles, streams, events,
 // subscriptions, activations, environments, configs). The concrete
 // implementation lives in the sibling gorm sub-package — dialect-
 // portable GORM, wired against helix's Postgres connection.
@@ -14,7 +14,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
 // ErrNotFound signals that the requested record does not exist.
@@ -88,15 +87,6 @@ type WorkerRuntimeState interface {
 	Set(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend, key, value string) error
 	SetMany(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string, kv map[string]string) error
 	Clear(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) error
-}
-
-// Grants persists tool grants.
-type Grants interface {
-	Create(ctx context.Context, g orgchart.ToolGrant) error
-	Get(ctx context.Context, orgID string, id orgchart.GrantID) (orgchart.ToolGrant, error)
-	ListByWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]orgchart.ToolGrant, error)
-	FindForWorkerAndTool(ctx context.Context, orgID string, workerID orgchart.WorkerID, toolName tool.Name) (orgchart.ToolGrant, error)
-	Delete(ctx context.Context, orgID string, id orgchart.GrantID) error
 }
 
 // Streams persists named event sources. Streams are created explicitly
@@ -181,7 +171,6 @@ type Store struct {
 	Positions          Positions
 	Workers            Workers
 	WorkerRuntimeState WorkerRuntimeState
-	Grants             Grants
 	Streams            Streams
 	Subscriptions      Subscriptions
 	Events             Events

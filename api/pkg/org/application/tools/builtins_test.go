@@ -52,7 +52,22 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 
 	// Seed owner directly: role, position, worker, environment, structural grants.
 	now := time.Now().UTC()
-	ownerRole, err := orgchart.NewRole("r-owner", "# Owner\nBootstrap owner.", nil, nil, now, "org-test")
+	ownerRole, err := orgchart.NewRole(
+		"r-owner",
+		"# Owner\nBootstrap owner.",
+		[]tool.Name{
+			tools.CreateRoleName,
+			tools.UpdateRoleName,
+			tools.CreatePositionName,
+			tools.HireWorkerName,
+			tools.CreateStreamName,
+			tools.SubscribeName,
+			tools.PublishName,
+		},
+		nil,
+		now,
+		"org-test",
+	)
 	if err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
@@ -67,20 +82,6 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	}
 	ownerEnv, _ := environment.New("w-owner", ownerEnvPath, now, "org-test")
 	mustCreate(t, s.Environments.Create(ctx, ownerEnv))
-	for _, name := range []tool.Name{
-		tools.CreateRoleName,
-		tools.UpdateRoleName,
-		tools.CreatePositionName,
-		tools.HireWorkerName,
-		tools.GrantToolName,
-		tools.CreateStreamName,
-		tools.SubscribeName,
-		tools.PublishName,
-	} {
-		grantID := orgchart.GrantID("g-owner-" + name)
-		g, _ := orgchart.NewToolGrant(grantID, "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
@@ -93,6 +94,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	invokeExpectID(t, ownerSession, tools.CreateRoleName, map[string]any{
 		"id":      "r-ceo",
 		"content": "# CEO\nLead the company. Subscribe to s-general.",
+		"tools":   []string{"publish", "subscribe"},
 	})
 
 	invokeExpectID(t, ownerSession, tools.CreatePositionName, map[string]any{
@@ -106,10 +108,6 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		"positionId":      "p-ceo",
 		"kind":            "ai",
 		"identityContent": "# Meina Gladstone\nCEO. Decisive, warm, direct.",
-		"grants": []map[string]any{
-			{"toolName": "publish"},
-			{"toolName": "subscribe"},
-		},
 	})
 
 	// hire_worker creates the env directory but does not write files —
@@ -203,22 +201,25 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{
+			tools.CreateRoleName,
+			tools.UpdateRoleName,
+			tools.UpdateIdentityName,
+			tools.CreatePositionName,
+			tools.HireWorkerName,
+		},
+		nil,
+		now,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
 	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	for _, name := range []tool.Name{
-		tools.CreateRoleName,
-		tools.UpdateRoleName,
-		tools.UpdateIdentityName,
-		tools.CreatePositionName,
-		tools.HireWorkerName,
-	} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-"+name), "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
@@ -318,29 +319,37 @@ func TestStreamMembers(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{tools.CreateStreamName, tools.StreamMembersName, tools.SubscribeName},
+		nil,
+		now,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
 	// Subscriptions are position-anchored — give w-listener its own
 	// position so a subscribe-by-listener doesn't accidentally
-	// subscribe w-owner too (both used to share p-root in this test).
-	listenerPos, _ := orgchart.NewPosition("p-listener", "r-owner", nil, "org-test")
+	// subscribe w-owner too. The listener Position also points at its
+	// own Role so its MCP surface (just subscribe) is independent of
+	// the owner's.
+	listenerRole, _ := orgchart.NewRole(
+		"r-listener",
+		"# Listener",
+		[]tool.Name{tools.SubscribeName},
+		nil,
+		now,
+		"org-test",
+	)
+	mustCreate(t, s.Roles.Create(ctx, listenerRole))
+	listenerPos, _ := orgchart.NewPosition("p-listener", "r-listener", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, listenerPos))
 	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	worker, _ := orgchart.NewAIWorker("w-listener", "p-listener", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, worker))
-	for _, name := range []tool.Name{
-		tools.CreateStreamName,
-		tools.StreamMembersName,
-		tools.SubscribeName,
-	} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-owner-"+name), "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
-	g, _ := orgchart.NewToolGrant("g-listener-sub", "w-listener", tools.SubscribeName, "org-test")
-	mustCreate(t, s.Grants.Create(ctx, g))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 	listenerSession := connectMCP(t, srv.URL, "w-listener")
@@ -383,7 +392,14 @@ func TestInviteWorkers(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{tools.CreateStreamName, tools.InviteWorkersName, tools.StreamMembersName},
+		nil,
+		now,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
@@ -391,10 +407,14 @@ func TestInviteWorkers(t *testing.T) {
 	// position so the invite resolves to per-worker sub rows. With
 	// everyone sharing p-root, inviting alice+bob would subscribe
 	// p-root once and the owner (also in p-root) would end up listed
-	// as a member through that shared subscription.
-	alicePos, _ := orgchart.NewPosition("p-alice", "r-owner", nil, "org-test")
+	// as a member through that shared subscription. Alice and Bob
+	// don't drive MCP calls in this test, so their (empty) Role.Tools
+	// is fine.
+	memberRole, _ := orgchart.NewRole("r-member", "# Member", nil, nil, now, "org-test")
+	mustCreate(t, s.Roles.Create(ctx, memberRole))
+	alicePos, _ := orgchart.NewPosition("p-alice", "r-member", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, alicePos))
-	bobPos, _ := orgchart.NewPosition("p-bob", "r-owner", nil, "org-test")
+	bobPos, _ := orgchart.NewPosition("p-bob", "r-member", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, bobPos))
 	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
@@ -402,14 +422,6 @@ func TestInviteWorkers(t *testing.T) {
 	mustCreate(t, s.Workers.Create(ctx, alice))
 	bob, _ := orgchart.NewAIWorker("w-bob", "p-bob", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
-	for _, name := range []tool.Name{
-		tools.CreateStreamName,
-		tools.InviteWorkersName,
-		tools.StreamMembersName,
-	} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-owner-"+name), "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
@@ -479,7 +491,18 @@ func TestDM(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	// Alice and Bob share a Role with both dm + read_events. In the
+	// old grants model they had slightly different sets (Bob had only
+	// dm); under Role.Tools both get both, which is fine — Bob simply
+	// never calls read_events in this test.
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{tools.DMName, tools.ReadEventsName},
+		nil,
+		now,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
@@ -493,12 +516,6 @@ func TestDM(t *testing.T) {
 	mustCreate(t, s.Workers.Create(ctx, alice))
 	bob, _ := orgchart.NewAIWorker("w-bob", "p-bob", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
-	for _, name := range []tool.Name{tools.DMName, tools.ReadEventsName} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-alice-"+name), "w-alice", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
-	bobDMGrant, _ := orgchart.NewToolGrant("g-bob-dm", "w-bob", tools.DMName, "org-test")
-	mustCreate(t, s.Grants.Create(ctx, bobDMGrant))
 
 	aliceSession := connectMCP(t, srv.URL, "w-alice")
 	bobSession := connectMCP(t, srv.URL, "w-bob")
@@ -600,24 +617,27 @@ func TestReadsOverMCP(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{
+			tools.CreateStreamName,
+			tools.SubscribeName,
+			tools.PublishName,
+			tools.ListWorkersName,
+			tools.ListStreamsName,
+			tools.ListStreamEventsName,
+			tools.ReadEventsName,
+		},
+		nil,
+		now,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
 	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	for _, name := range []tool.Name{
-		tools.CreateStreamName,
-		tools.SubscribeName,
-		tools.PublishName,
-		tools.ListWorkersName,
-		tools.ListStreamsName,
-		tools.ListStreamEventsName,
-		tools.ReadEventsName,
-	} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-owner-"+name), "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
@@ -719,7 +739,14 @@ func TestWorkerLog(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{tools.WorkerLogName},
+		nil,
+		now,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
@@ -744,11 +771,6 @@ func TestWorkerLog(t *testing.T) {
 			"org-test",
 		)
 		mustCreate(t, s.Events.Append(ctx, ev))
-	}
-
-	for _, name := range []tool.Name{tools.WorkerLogName} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-owner-"+name), "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
 	}
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -832,7 +854,14 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	ctx := context.Background()
 	base := time.Now().UTC().Truncate(time.Second)
 
-	ownerRole, _ := orgchart.NewRole("r-owner", "# Owner", nil, nil, base, "org-test")
+	ownerRole, _ := orgchart.NewRole(
+		"r-owner",
+		"# Owner",
+		[]tool.Name{tools.WorkerLogName},
+		nil,
+		base,
+		"org-test",
+	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
@@ -878,10 +907,6 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		mustCreate(t, s.Events.Append(ctx, ev))
 	}
 
-	for _, name := range []tool.Name{tools.WorkerLogName} {
-		g, _ := orgchart.NewToolGrant(orgchart.GrantID("g-owner-"+name), "w-owner", name, "org-test")
-		mustCreate(t, s.Grants.Create(ctx, g))
-	}
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
 	type result struct {

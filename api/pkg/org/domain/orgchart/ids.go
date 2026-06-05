@@ -1,14 +1,14 @@
-// Package orgchart owns the org-chart aggregate: Role, Position,
-// Worker (interface plus HumanWorker / AIWorker), and ToolGrant. All
-// entities mutually reference each other (Role lists Tool names and
-// Stream IDs; Position instantiates a Role; Worker fills a Position;
-// ToolGrant ties a Worker to a Tool name) — collapsing them into one
-// Go package resolves the cycle that per-entity packages produced.
+// Package orgchart owns the org-chart aggregate: Role, Position, and
+// Worker (interface plus HumanWorker / AIWorker). All entities
+// reference each other (Role lists Tool names and Stream IDs;
+// Position instantiates a Role; Worker fills a Position) — collapsing
+// them into one Go package resolves the cycle that per-entity
+// packages produced.
 //
-// Lifted from the previous api/pkg/org/{role,position,worker,grant}
-// leaf packages and api/pkg/org/domain/{position,worker,grant}.go in
-// the DDD restructure. IDs lose their per-entity package prefix
-// (role.ID -> orgchart.RoleID, etc).
+// Lifted from the previous api/pkg/org/{role,position,worker} leaf
+// packages and api/pkg/org/domain/{position,worker}.go in the DDD
+// restructure. IDs lose their per-entity package prefix (role.ID ->
+// orgchart.RoleID, etc).
 //
 // The ID types are Go type aliases (`type WorkerID = string`) rather
 // than distinct named types. This is deliberate: orgchart's Role
@@ -36,6 +36,3 @@ type PositionID = string
 // WorkerID identifies a Worker. Convention: `w-<lowercase-firstname>`
 // (e.g. `w-mark`, `w-priya`).
 type WorkerID = string
-
-// GrantID identifies a ToolGrant. Convention: `g-<uuid>`.
-type GrantID = string

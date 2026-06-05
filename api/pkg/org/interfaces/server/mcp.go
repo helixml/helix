@@ -59,10 +59,10 @@ func (s *Server) mcpHandler() http.Handler {
 }
 
 // buildMCPServer assembles a fresh *mcp.Server tailored to the worker in
-// the request URL. Tools are filtered by the worker's grants — the LLM
-// only ever sees what the owner authorised — and each tool handler
-// closes over the grant so scope and enforcement mode are bound at
-// registration time.
+// the request URL. The advertised tools are derived live from the
+// Worker's Position's Role.Tools: changing the Role updates every
+// Worker filling a Position that points at it. There is no per-Worker
+// grants table — capability is the Role's responsibility.
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
@@ -83,9 +83,14 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		return nil
 	}
 
-	grants, err := s.store.Grants.ListByWorker(ctx, orgID, workerID)
+	position, err := s.store.Positions.Get(ctx, orgID, worker.Position())
 	if err != nil {
-		s.logger.Info("mcp.grants_lookup_failed", "worker", workerID, "err", err.Error())
+		s.logger.Info("mcp.position_lookup_failed", "worker", workerID, "position", worker.Position(), "err", err.Error())
+		return nil
+	}
+	role, err := s.store.Roles.Get(ctx, orgID, position.RoleID)
+	if err != nil {
+		s.logger.Info("mcp.role_lookup_failed", "worker", workerID, "role", position.RoleID, "err", err.Error())
 		return nil
 	}
 
@@ -94,17 +99,17 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
-	heldTools := make(map[tool.Name]bool, len(grants))
-	for _, g := range grants {
-		heldTools[g.ToolName] = true
-		tool, err := s.registry.Get(g.ToolName)
+	heldTools := make(map[tool.Name]bool, len(role.Tools))
+	for _, toolName := range role.Tools {
+		heldTools[toolName] = true
+		t, err := s.registry.Get(toolName)
 		if err != nil {
-			// A grant pointing at a tool we don't know about. Skip silently;
-			// removing the grant is the owner's job.
-			s.logger.Info("mcp.unknown_tool_grant", "worker", workerID, "tool", g.ToolName)
+			// Role lists a tool the server doesn't know about. Skip
+			// silently; removing it is the owner's job (update_role).
+			s.logger.Info("mcp.unknown_tool_in_role", "worker", workerID, "role", role.ID, "tool", toolName)
 			continue
 		}
-		registerToolForWorker(srv, tool, worker, g, s.logger.With("worker", workerID, "tool", g.ToolName))
+		registerToolForWorker(srv, t, worker, s.logger.With("worker", workerID, "tool", toolName))
 	}
 
 	if s.prompts != nil {
@@ -119,12 +124,12 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 	return srv
 }
 
-// registerToolForWorker binds a single granted tool onto the per-worker
-// MCP server. The handler closes over caller and grant so each call
+// registerToolForWorker binds a single tool onto the per-Worker MCP
+// server. The handler closes over the caller so each invocation
 // dispatches with the right Invocation without re-querying the store.
-// The grant is what authorises the call; there's nothing else on it
-// the tool needs at invocation time.
-func registerToolForWorker(srv *mcp.Server, t tool.Tool, caller orgchart.Worker, _ orgchart.ToolGrant, logger interface {
+// Authorisation is by virtue of the tool appearing in the Worker's
+// Role.Tools; there is no grant object to consult at call time.
+func registerToolForWorker(srv *mcp.Server, t tool.Tool, caller orgchart.Worker, logger interface {
 	Info(msg string, args ...any)
 }) {
 	srv.AddTool(&mcp.Tool{
