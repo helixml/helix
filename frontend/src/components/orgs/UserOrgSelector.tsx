@@ -395,12 +395,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: handleProjectsClick,
         label: "Projects",
       },
-      // Helix Org chart. Alpha-gated: only rendered for users granted
+      // Helix Org overview. Alpha-gated: only rendered for users granted
       // the 'helix-org' alpha_features flag. Slots in right under
       // Projects so it sits with the other primary org-level surfaces.
       ...(helixOrgEnabled ? [{
         icon: <Network size={NAV_BUTTON_SIZE} />,
-        tooltip: "View org chart",
+        tooltip: "View org overview",
         isActive: router.name.startsWith('helix_org'),
         onClick: handleHelixOrgClick,
         label: "Org",

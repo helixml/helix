@@ -9251,31 +9251,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/chart": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Returns the positions+workers tree rendered by the helix-org React UI",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: get org chart",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.Chart"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/orgs/{org}/github/repos": {
             "get": {
                 "security": [
@@ -9345,345 +9320,26 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/positions": {
+        "/api/v1/orgs/{org}/overview": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
+                "description": "Returns roles + workers grouped by role for the helix-org React Overview page.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: list positions",
+                "summary": "Helix-org: get org overview",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.PositionDTO"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: create a position",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or id",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Position spec",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.CreatePositionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.PositionDTO"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/positions/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: get a position",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or id",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Position ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.PositionDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: update a position",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or id",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Position ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Patch fields",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.UpdatePositionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.PositionDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: delete a position (cascade-fires its workers)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or id",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Position ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/positions/{id}/subscriptions": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list a position's subscriptions",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Position ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.PositionSubscriptionsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: subscribe a position to a stream",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Position ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "stream to subscribe to",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.SubscribePositionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.PositionSubscriptionDTO"
-                        }
-                    },
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.PositionSubscriptionDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: unsubscribe a position from a stream",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Position ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Stream ID",
-                        "name": "stream_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "$ref": "#/definitions/api.OrgOverview"
                         }
                     }
                 }
@@ -9872,7 +9528,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: delete a role (cascade-deletes positions + fires workers)",
+                "summary": "Helix-org: delete a role (cascade-fires its workers)",
                 "parameters": [
                     {
                         "type": "string",
@@ -10699,6 +10355,131 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a worker's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSubscriptionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe a worker to a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "stream to subscribe to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SubscribeWorkerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSubscriptionDTO"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSubscriptionDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe a worker from a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "stream_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -20246,63 +20027,6 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "api.Chart": {
-            "type": "object",
-            "properties": {
-                "roles": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.RoleBadge"
-                    }
-                },
-                "roots": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.ChartNode"
-                    }
-                }
-            }
-        },
-        "api.ChartNode": {
-            "type": "object",
-            "properties": {
-                "children": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.ChartNode"
-                    }
-                },
-                "parent_id": {
-                    "type": "string"
-                },
-                "position_id": {
-                    "type": "string"
-                },
-                "role_id": {
-                    "type": "string"
-                },
-                "workers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.WorkerBadge"
-                    }
-                }
-            }
-        },
-        "api.CreatePositionRequest": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "parent_id": {
-                    "type": "string"
-                },
-                "role_id": {
-                    "type": "string"
-                }
-            }
-        },
         "api.CreateRoleRequest": {
             "type": "object",
             "properties": {
@@ -20412,23 +20136,9 @@ const docTemplate = `{
                 }
             }
         },
-        "api.HireGrantInput": {
-            "type": "object",
-            "properties": {
-                "tool_name": {
-                    "type": "string"
-                }
-            }
-        },
         "api.HireWorkerRequest": {
             "type": "object",
             "properties": {
-                "grants": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.HireGrantInput"
-                    }
-                },
                 "id": {
                     "type": "string"
                 },
@@ -20438,7 +20148,10 @@ const docTemplate = `{
                 "kind": {
                     "type": "string"
                 },
-                "position_id": {
+                "parent_id": {
+                    "type": "string"
+                },
+                "role_id": {
                     "type": "string"
                 }
             }
@@ -20472,41 +20185,19 @@ const docTemplate = `{
                 }
             }
         },
-        "api.PositionDTO": {
+        "api.OrgOverview": {
             "type": "object",
             "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "parent_id": {
-                    "type": "string"
-                },
-                "role_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.PositionSubscriptionDTO": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "stream_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.PositionSubscriptionsResponse": {
-            "type": "object",
-            "properties": {
-                "position_id": {
-                    "type": "string"
-                },
-                "subscriptions": {
+                "groups": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/api.PositionSubscriptionDTO"
+                        "$ref": "#/definitions/api.RoleGroup"
+                    }
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.RoleBadge"
                     }
                 }
             }
@@ -20573,6 +20264,20 @@ const docTemplate = `{
                 }
             }
         },
+        "api.RoleGroup": {
+            "type": "object",
+            "properties": {
+                "role_id": {
+                    "type": "string"
+                },
+                "workers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.WorkerBadge"
+                    }
+                }
+            }
+        },
         "api.SetSettingRequest": {
             "type": "object",
             "properties": {
@@ -20623,7 +20328,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "value": {
-                    "description": "Value is the current REDACTED value — secrets in object configs\nare masked per the registry's redaction rules. Frontend MUST\ntreat this as display-only.",
                     "type": "string"
                 }
             }
@@ -20635,7 +20339,6 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "config": {
-                    "description": "Config is the parsed transport-specific configuration so the\ndetail page can render and edit it without round-tripping\nthrough the raw JSON column. Shape depends on Kind:\n  - github   → {\"repo\": \"owner/name\", \"events\": [\"…\"]}\n  - webhook  → {\"inbound_path\": \"…\", \"outbound_url\": \"…\"}\n  - postmark → {\"inbound_address\": \"…\"}\n  - local    → omitted (no config)",
                     "type": "object",
                     "additionalProperties": true
                 },
@@ -20652,7 +20355,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "effective_public_url": {
-                    "description": "EffectivePublicURL is the resolved base URL the github\ntransport uses for webhook payload URLs — i.e.\n` + "`" + `streams.public_url` + "`" + ` (org config) when set, falling back to\nSERVER_URL (env). Returned for github streams only; lets\nthe detail page evaluate whether the operator's \"is my\nwebhook reachable?\" check passes WITHOUT needing to know\nabout the org-config override itself. Empty when neither\nsource has a value.",
                     "type": "string"
                 },
                 "id": {
@@ -20682,7 +20384,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "recent": {
-                    "description": "Recent is the unified firehose across every Stream rendered as\nthe \"All streams\" landing view. Capped at 50 newest-first.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/api.EventCard"
@@ -20696,7 +20397,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.SubscribePositionRequest": {
+        "api.SubscribeWorkerRequest": {
             "type": "object",
             "properties": {
                 "stream_id": {
@@ -20723,17 +20424,6 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "kind": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.UpdatePositionRequest": {
-            "type": "object",
-            "properties": {
-                "parent_id": {
-                    "type": "string"
-                },
-                "role_id": {
                     "type": "string"
                 }
             }
@@ -20842,7 +20532,10 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
-                "position_id": {
+                "parent_id": {
+                    "type": "string"
+                },
+                "role_id": {
                     "type": "string"
                 },
                 "tools": {
@@ -20857,23 +20550,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "agent_app_id": {
-                    "description": "AgentAppID is the Helix agent app this Worker chats through.\nEmpty until the Worker has been activated at least once. The\nchart UI deep-links a \"chat with this worker\" button to\n/orgs/\u003corg\u003e/agent/\u003cagent_app_id\u003e when set.",
+                    "description": "AgentAppID + ProjectID — see WorkerChatDTO comments.",
                     "type": "string"
                 },
-                "position": {
-                    "description": "Position the Worker fills (nil if unassigned).",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/api.PositionDTO"
-                        }
-                    ]
-                },
                 "project_id": {
-                    "description": "ProjectID is the Helix project the per-Worker agent app lives\nin. The chart UI uses this to open the Human Desktop session\n(/orgs/\u003corg\u003e/projects/\u003cproject_id\u003e/desktop/\u003csession_id\u003e) rather\nthan the bare agent app, so the chat happens in the same\nZed/desktop context as a regular project.",
                     "type": "string"
                 },
                 "role": {
-                    "description": "Role of the Position this Worker fills (nil if the Worker is\nunassigned or the position/role is gone).",
+                    "description": "Role this Worker holds (nil if the role row is gone).",
                     "allOf": [
                         {
                             "$ref": "#/definitions/api.RoleDTO"
@@ -20882,6 +20566,31 @@ const docTemplate = `{
                 },
                 "worker": {
                     "$ref": "#/definitions/api.WorkerDTO"
+                }
+            }
+        },
+        "api.WorkerSubscriptionDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "stream_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.WorkerSubscriptionsResponse": {
+            "type": "object",
+            "properties": {
+                "subscriptions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.WorkerSubscriptionDTO"
+                    }
+                },
+                "worker_id": {
+                    "type": "string"
                 }
             }
         },

@@ -174,8 +174,8 @@ const HelixOrgRoles: FC = () => {
             <Typography variant="h5" sx={{ mb: 1 }}>Roles</Typography>
             <Typography variant="body2" color="text.secondary">
               A Role defines a job description: the markdown content tells a Worker what they're for, the
-              tools list grants MCP access, and the streams list subscribes to inbound events. Each role
-              groups one or more Positions on the chart.
+              tools list grants MCP access, and the streams list flags which inbound events the Role's
+              prompt expects. Workers hold a Role directly — capability and prompt come from here.
             </Typography>
           </Box>
 
@@ -245,8 +245,8 @@ const HelixOrgRoles: FC = () => {
           onCancel={() => setDeleting(undefined)}
         >
           <Typography variant="body1">
-            Deleting role <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> cascades:
-            every position under it is deleted and every worker in those positions is fired.
+            Deleting role <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> cascades: every
+            Worker holding this Role is fired and their per-Worker subscriptions are dropped.
             This is irreversible.
           </Typography>
         </DeleteConfirmWindow>

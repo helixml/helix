@@ -11,19 +11,23 @@ of repeating steps.
 
 ## Mental model
 
-- **Role** — flat container, groups positions sharing a role id.
-- **Position** — slot inside one role, holds at most one worker.
-  Has top (target), bottom (manager→subordinate source), and right
-  (drag-to-subscribe source) handles.
-- **Reporting edge** — position bottom → position top.
-- **Subscription edge** — position right → stream pseudo-node. The
-  position consumes events from the stream. POSITION-anchored —
-  hiring/firing a worker doesn't change which streams the slot
-  receives.
+- **Role** — the job description. Carries the markdown a Worker
+  reads at activation plus the tool list that becomes the Worker's
+  live MCP surface. There is no separate per-Worker grants table —
+  capability is the Role's responsibility.
+- **Worker** — a human or AI agent. Holds a single `role_id` (the
+  capability binding) and an optional `parent_id` (the Worker it
+  reports to). The owner Worker `w-owner` has no parent.
+- **Subscription** — a `(org, worker, stream)` row. Worker-anchored:
+  firing a Worker drops the row, and a new hire into the same Role
+  does NOT automatically inherit. The hiring playbook re-subscribes
+  new hires explicitly (see `bootstrap/templates/owner_role.md`).
+  This lets two Workers in the same Role consume different streams
+  (specialisation) or only the on-call subset of a Role wake up on
+  an event (load patterns).
 
-Layout is dagre + bezier edges. Stream pseudo-nodes live in a
-dedicated column to the right of the org tree so they never overlap
-the role grid.
+The chart UI is gone. The Overview tab groups Workers by Role
+(role cards, click a Role to edit, click a Worker to open detail).
 
 ## Setup
 
@@ -31,437 +35,222 @@ Acting user has the `helix-org` alpha flag and is a member of the
 test org. Sign in at `/login`, click **Org** in the primary
 sidebar. Tests run against `…/orgs/<org>/helix-org/*`.
 
-## §1. Bootstrap + sidebar (regression: 500 on first chart load)
+## §1. Bootstrap + sidebar
 
-1. Land on `…/helix-org/chart`. Middle sidebar shows highlighted
-   **Chart** plus **Roles / Workers / Streams / Settings**.
-2. Canvas shows `r-owner` containing `p-root` holding `w-owner`,
-   with a dashed amber edge to `s-activations-w-owner`.
-3. **Every** helix-org request on first chart load is 2xx (DevTools
-   network tab). The page fires `/chart /workers /roles /streams`
-   in parallel; before the bootstrap-race fix, only the first
-   succeeded and the rest 500-ed with
-   `create owner role: already exists`.
+1. Land on `…/helix-org/overview`. Middle sidebar shows highlighted
+   **Overview** plus **Roles / Workers / Streams / Settings**.
+2. Overview shows one Role card: `r-owner` with one Worker badge
+   `w-owner`. No other roles, no other workers.
+3. Network tab: `/overview /workers /roles /streams` requests all
+   2xx in parallel (bootstrap-race regression — see §1 in prior
+   plan: first request used to win, the rest 500-ed with
+   `create owner role: already exists`).
+4. Confirm DB:
+   ```sql
+   SELECT id, role_id, parent_id FROM org_workers;
+   ```
+   One row: `(w-owner, r-owner, NULL)`. No `org_positions` table
+   exists (`SELECT to_regclass('org_positions')` → NULL).
 
-## §2. Build the chart
+## §2. Roles list + tool editor (regression: 25-tool bootstrap)
 
-Covers role / position creation, parent edges, parallel-edge
-geometry, and edge severing — the load-bearing pieces of the
-chart UX.
+`Role.Tools` is the live MCP surface for every Worker holding the
+Role. Editing a Role's Tools changes capability for every Worker
+in that Role on their next MCP request.
 
-1. **+ New Role** → ID `r-engineer`, content `# Engineer`. Frame
-   appears next to `r-owner`.
-2. `r-engineer` header **+** → Position `p-eng-1`. Snackbar tells
-   you to draw an edge to a manager.
-3. Repeat to create `p-eng-2`, `p-eng-3`, `p-eng-4`, plus orphan
-   positions `p-ceo`, `p-cto` under `r-owner`.
-4. Drag `p-root` bottom → `p-eng-1` top. Bezier appears; snackbar
-   `p-eng-1 now reports to p-root`; dagre reflows.
-5. Wire `p-ceo → p-eng-2`, `p-cto → p-eng-3`, `p-root → p-eng-4`,
-   then **re-wire** `p-ceo → p-eng-3`. Last edge wins (positions
-   have a single parent); previous `p-cto → p-eng-3` silently
-   drops. **No trunk collapse** — every reporting line is its own
-   bezier (regression: smoothstep used to merge them).
-6. Click a bezier to select it; press **Delete** or **Backspace**.
-   Edge disappears; snackbar confirms. Both keys must work
-   (xyflow defaults to Backspace only — Linux/Windows users
-   couldn't sever otherwise).
-7. Hard refresh — everything persists.
-
-## §3. Hire workers + cascade semantics
-
-Pins the AI-hire path (regression: API nil-deref), the owner
-protections (regression: deletable owner), and the cascade dialogs.
-
-1. **Hire worker** on `p-eng-1` → kind `human`, handle `w-alice`.
-   Chip appears in the slot.
-2. **Hire worker** on `p-eng-2` → kind **AI**, handle `w-ai-1`.
-   AI chip renders with the robot icon.
-3. Click the `w-ai-1` chip → URL becomes
-   `…/helix-org/workers/w-ai-1`. The chart MUST NOT crash the API
-   on this click (regression: nil-deref in `WorkerProject.Ensure`).
-4. Try **Fire worker** on `w-owner`. Friendly snackbar surfaces
-   the 409 `cannot fire the owner worker`; chip stays.
-5. Hire `w-carol` into `p-eng-2`, click its position-card trash →
-   confirm. Dialog body enumerates the cascade:
-   `Deleting position p-eng-2 will cascade: • fire worker w-carol`.
-   Position + worker gone.
-6. Hire `w-newbie` into `p-eng-3`, then trash `r-engineer`'s
-   header. Dialog enumerates `3 positions … 2 workers (w-alice,
-   w-newbie)`. Confirm — frame, positions, workers, all edges go.
-7. `r-owner` trash icon is hidden; the API also refuses with 409
-   if hit directly.
-
-## §4. Cross-org isolation, persistence, theme
-
-1. Switch to a second org via the top-left selector. Chart shows a
-   fresh `r-owner / p-root / w-owner` baseline — no leakage from
-   the first org. Hire something in the second org and switch
-   back: first org unchanged.
-2. Restart the API container (or wait for Air's next rebuild) and
-   re-open the chart. Everything persists (regression:
-   `ResetSchema=true` on production wiring used to drop every
-   `org_*` table on boot).
-3. Toggle the top-right sun/moon. Both modes render the chart,
-   minimap, controls, edge strokes, handle dots, and card borders
-   cleanly.
-
-## §5. Roles list + tool editor (regression: 25-tool bootstrap)
-
-`Role.Tools` is the live MCP surface for every Worker filling a
-Position bound to that Role — there is no separate per-Worker grants
-table. Editing a Role's Tools changes capability for every Worker in
-that Role on their next MCP request.
-
-1. Click **Roles** in the middle sidebar. Columns: ID / Content /
-   Tools / Streams / Updated.
-2. `r-owner`'s **Tools count is 25** — the bootstrap seed. A
-   regression that drops or duplicates entries shows up here first.
+1. **Roles** in the middle sidebar. Columns: ID / Content / Tools /
+   Streams / Updated.
+2. `r-owner`'s **Tools count is 21** — the bootstrap seed. Drop
+   from 25 reflects removed position tools (create_position,
+   list_positions, get_position, list_position_children) — pin so
+   re-adding them is a deliberate, visible change.
 3. `r-owner` vertical-dot menu offers **Open** and a **Delete**
    disabled with `Owner — protected`.
-4. **+ New Role** → `r-test-dm`, any content. Detail page opens,
+4. **+ New Role** → `r-test-dm`, content `# DM`. Detail page opens,
    Tools field empty.
-5. Click the Tools dropdown. 25 options render (checkbox +
-   monospace tool name + one-line description). Tick `dm` — popper
-   stays open (`disableCloseOnSelect`). Press Escape.
-6. **Save** (was disabled) is enabled. Click → snackbar
-   `role r-test-dm saved` → button disables again.
-7. Hard refresh — the `dm` chip persists. Re-open the dropdown,
-   untick `dm`, **Save**. Tools back to `[]`. Delete `r-test-dm`
-   via the right-rail Delete (cleanup).
-8. **Live propagation.** Bind a Position to `r-test-dm`, hire an AI
-   Worker into it. Add `publish` via the dropdown + Save. Hit the
+5. Click the Tools dropdown. ~21 options render. Tick `dm` —
+   popper stays open (`disableCloseOnSelect`). Press Escape.
+6. **Save** → snackbar `role r-test-dm saved` → button disables.
+7. Hard refresh — `dm` chip persists.
+8. **Live propagation.** Hire an AI Worker into `r-test-dm`
+   (§3.2). Add `publish` via the dropdown + Save. Hit the
    Worker's MCP endpoint
    (`/api/v1/mcp/helix-org/<org>/workers/<id>/mcp` → `tools/list`):
    `publish` is now in the list without any `hire_worker`,
-   `grant_tool`, or session restart. Remove it from the role +
-   Save: the next `tools/list` no longer includes it.
+   `grant_tool`, or session restart. Remove + Save: next
+   `tools/list` no longer includes it.
 
-## §6. Workers list
+## §3. Hire workers + cascade semantics
 
-`…/helix-org/workers` table — columns ID / Kind / Position /
-Identity / Tools. **No +New Worker button** (hires come from chart
-position cards so role+position is explicit at hire time). The
-vertical-dot menu offers **Open** and **Fire**; `w-owner`'s Fire
-shows `Owner — protected`.
+Pins the AI-hire path, the owner protections, and the cascade
+dialogs.
 
-## §7. Streams list, detail, live tail
+1. **+ New Worker** (the Workers tab grew a primary action button
+   now that the chart canvas is gone). Form: `id`, `kind`,
+   `role_id` (dropdown), `parent_id` (optional, defaults to
+   `w-owner`), `identity_content`.
+2. Submit kind `ai`, id `w-ai-1`, role `r-test-dm`,
+   parent `w-owner`. Row appears in the Workers table — Role
+   column shows `r-test-dm`, Reports to shows `w-owner`.
+3. Click the `w-ai-1` row → URL becomes
+   `…/helix-org/workers/w-ai-1`. The detail page must NOT crash
+   the API on first load (regression: nil-deref in
+   `WorkerProject.Ensure` when the worker had no role/position
+   resolution).
+4. Try **Fire worker** on `w-owner`. Friendly snackbar surfaces
+   the 409 `cannot fire the owner worker`.
+5. Hire `w-carol` into `r-test-dm`, fire from her detail page →
+   confirm dialog. Worker gone from list.
+6. Delete `r-test-dm` from the Roles tab — dialog enumerates
+   "fires every Worker holding this Role". Confirm; both the
+   role and `w-ai-1` go.
+7. `r-owner` Delete is hidden / API refuses with 409.
+
+## §4. Cross-org isolation, persistence, theme
+
+1. Switch to a second org via the top-left selector. Overview
+   shows the fresh `r-owner / w-owner` baseline — no leakage from
+   the first org. Hire something in the second org and switch
+   back: first org unchanged.
+2. Restart the API container. Everything persists (regression:
+   `ResetSchema=true` on production wiring used to drop every
+   `org_*` table on boot).
+3. Toggle the top-right sun/moon. Both modes render the
+   overview cards cleanly.
+
+## §5. Workers list
+
+`…/helix-org/workers` table — columns ID / Kind / Role / Reports
+to / Identity / Tools. Vertical-dot menu offers **Open** and
+**Fire**; `w-owner`'s Fire shows `Owner — protected`. Filter by
+Role using the column header search (regression: roles can repeat
+across workers, so the list must be filterable, not grouped).
+
+## §6. Streams list, detail, live tail
 
 Every **AI** Worker has an auto-created `s-activations-<workerID>`
 stream (humans don't need spawner activation, so `w-owner` is the
-only human with one — seeded at bootstrap so chat lands somewhere).
-The Streams surface lives at `…/helix-org/streams`.
+only human with one — seeded at bootstrap so chat lands
+somewhere). The Streams surface lives at `…/helix-org/streams`.
 
-1. **Streams list** — columns ID / Name / Transport / Subscribers /
-   Created. Every AI worker on the chart has a matching
+1. **Streams list** — columns ID / Name / Transport / Subscribers
+   / Created. Every AI worker has a matching
    `s-activations-<workerID>` row, plus `s-activations-w-owner`.
-2. **Chart anchoring** (regression: every stream dangled off
-   w-owner). With AI workers hired, dashed amber edges run from
-   each subscribing position to the stream pseudo-node:
-   - `p-root → s-activations-w-owner` (owner watches its own).
-   - `p-root → s-activations-<hire>` (hiring caller's position
-     subscribes automatically).
-   - **NO** edge from `p-eng-N` to its own activation stream —
-     a worker's own slot is not subscribed (would loop dispatch).
-3. Stream nodes sit in the right-side column, not in line with
-   the role grid; reporting edges run vertical between role
-   frames, subscription edges run horizontal to the stream
-   column. No overlap regardless of layout.
-4. **Detail page**: click any stream id in the table (or the
-   pseudo-node on the chart). URL becomes
+2. **Subscribers column** shows worker ids (not position ids).
+   For a freshly-hired `w-ai-1`, `s-activations-w-ai-1`'s
+   subscriber list is `[w-owner]` (the hiring caller is auto-
+   subscribed) and explicitly NOT `[w-ai-1]` (a worker
+   subscribed to its own activation stream would loop dispatch).
+3. **Detail page**: click any stream id. URL becomes
    `…/helix-org/streams/<id>`. Header shows id (monospace) +
    transport kind chip + description + `created by … · ts` +
    subscribers chip-list. Messages section lists EventCard rows
-   newest-first: `<from> [→ <to>]` left, ISO timestamp right,
-   subject (if any), then either canonical message body or raw
-   body, finally event id.
-5. **Live SSE tail**: publish a new event to the open stream
-   (chart → Streams → top-right **+ New Stream** to make a
-   `local` test stream, then publish via the chat composer or
-   `POST /streams/<id>/publish`). The new event appears at the
-   top within ~1.5s without reload; total count does NOT double
-   (each SSE frame replaces — flicker is normal).
+   newest-first.
+4. **Live SSE tail**: publish a new event. The new event appears
+   at the top within ~1.5s without reload.
 
-## §8. GitHub streams — one-click setup
+## §7. GitHub streams — one-click setup
 
-Operator picks ONLY which repo; helix calls GitHub's REST API to
-register the webhook (URL, content-type, secret, `events: ["*"]`)
-on their behalf using their connected OAuth.
+(Unchanged from prior revision; full procedure in the previous
+QA.md history. Position-removal did not touch the github
+transport.) Pre-conditions: GitHub OAuth connected with `repo,
+admin:repo_hook, read:org`. `SERVER_URL` is a public host
+(loopback refused).
 
-**Pre-conditions:** GitHub OAuth connection on Connected Services
-(else `Repository` dropdown 412s). `SERVER_URL` is a public host;
-the install endpoint refuses 412 on loopback URLs (GitHub itself
-won't register a hook pointing at localhost).
+Create → pick repo → submit → webhook installed end-to-end.
+Detail page exposes **Edit on GitHub →** and **Re-install**.
 
-**Create:**
-1. **+ New Stream** → Transport = `github`.
-2. **Repository** is a searchable Autocomplete populated from
-   `GET /github/repos`. If the dropdown is empty or shows
-   "Connect a GitHub account on Connected Services first" but
-   you've already connected, the issue is missing scopes — click
-   **Reconnect with stream permissions →** for the popup flow
-   that requests `repo, admin:repo_hook, read:org` (the broader
-   Connect button in Connected Services requests no scopes by
-   default).
-3. **Create**. Stream row inserts + install-webhook call fires in
-   sequence. Success toast: `Stream created · webhook installed
-   on GitHub (id <hookID>)`. If install fails (e.g. no admin),
-   the stream is still created and the toast tells the operator
-   to retry from the detail page.
+## §8. Worker-anchored subscriptions (regression: position survival)
 
-**Detail page — Connect to GitHub panel** has three states:
-   - **Installed**: "Helix has registered a webhook on
-     `owner/name` (id N)". Buttons **Edit on GitHub →** (opens
-     `https://github.com/<owner>/<name>/settings/hooks/<id>`) +
-     **Re-install** (idempotent — adopts the existing hook
-     rather than creating a duplicate).
-   - **Not installed**: "Install webhook on GitHub" button.
-   - **Loopback warning** (red banner): SERVER_URL is localhost
-     — points at the helix-org Settings page where
-     `streams.public_url` overrides SERVER_URL without a
-     container restart.
+Subscriptions are keyed on `(org, worker, stream)`. Firing a
+Worker drops their subscription rows; a new hire into the same
+Role does NOT inherit.
 
-**End-to-end** (real cloudflared / ngrok):
-4. Set `SERVER_URL` (or `streams.public_url` on Settings) to a
-   public host. Create a github stream for a repo you own.
-5. Edit on GitHub → confirm Payload URL matches the per-stream
-   URL, Content type `application/json`, "Send me everything"
-   selected.
-6. Open an issue (or comment) on the repo. Within seconds the
-   stream's detail page shows the delivery (SSE).
+1. **Worker detail Subscriptions panel** (`…/workers/<id>`, below
+   the Role's Tools): N-count reflects the worker's subscription
+   set. Multi-select dropdown shows every stream with description
+   + checkbox state, with `disableCloseOnSelect` (same shape as
+   the role tool editor in §2). Toggling updates this worker's
+   set. Caption: "Subscriptions are per-Worker — they die when
+   this Worker is fired. A new hire into the same Role won't
+   inherit them."
+2. **Dies on fire**: hire AI `w-cycle` into a fresh Role,
+   subscribe `w-cycle` → a test stream, fire `w-cycle`. Inspect
+   `org_subscriptions` — no row references `w-cycle`. Publish a
+   message to that stream and verify no activation fires (no
+   recipient).
+3. **No automatic inheritance on rehire**: hire `w-cycle-2`
+   into the same Role. Publish to the test stream. `w-cycle-2`
+   does NOT activate (regression in the other direction: prior
+   position-anchored model used to inherit; that flexibility was
+   the bug we removed). The hiring playbook re-subscribes
+   explicitly to opt in.
+4. **Specialisation check**: hire two AI Workers `w-secrev`
+   and `w-perfrev` into one shared role `r-code-reviewer`.
+   Subscribe `w-secrev` → `s-security-prs` and `w-perfrev` →
+   `s-perf-prs`. Publish to `s-security-prs`: only `w-secrev`
+   activates. Position-anchored subs could not express this.
 
-## §9. Position-anchored subscriptions
-
-Subscriptions are keyed on `(org, position, stream)`, NOT
-`(org, worker, stream)`. Hires/fires don't touch them; only
-DeletePosition cascades.
-
-1. **Drag to subscribe**: hover any position card → small amber
-   dot on the right (the dedicated stream-source handle). Drag
-   onto a stream pseudo-node → snackbar `<position> now consumes
-   <stream>`. Dashed amber edge renders on next refetch
-   (≤1.5s). Re-drag the same pair is idempotent.
-2. **Survives fire**: hire `w-cycle` (AI) into `p-cycle`,
-   subscribe `p-cycle` to a stream, then fire `w-cycle`. The
-   dashed edge stays — `lifecycle.Fire` is forbidden from
-   touching subscriptions. Hire `w-cycle-2` into `p-cycle` and
-   publish to that stream: the new hire activates without any
-   explicit subscribe call (it inherits).
-3. **Worker detail Subscriptions panel** (`…/workers/<id>`,
-   below the Role's Tools): N-count reflects the worker's
-   POSITION's subscription set. Multi-select dropdown shows every stream
-   with description + checkbox state, with
-   `disableCloseOnSelect` (same shape as the role tool editor in
-   §5). Toggling updates the position's set; caption beneath
-   reads "Subscriptions are position-anchored — they outlive the
-   worker. Whoever fills `<position>` next inherits this set."
-   Unassigned workers (no position) render the panel as a
-   read-only stub.
-4. **DeletePosition cascades**: deleting `p-cycle` removes its
-   subscription rows.
-
-## §10. Stream delete (regression: orphan activation streams)
+## §9. Stream delete (regression: orphan activation streams)
 
 Firing a worker used to leave its `s-activations-<workerID>`
-stream behind, and the chart had no in-canvas affordance to
-delete a stream.
+stream behind.
 
-1. Hire a fresh AI `w-cleanup`. Its activation stream
-   pseudo-node + dashed edge appear (per §7.2).
-2. Fire `w-cleanup`. Position returns to **Hire worker**; the
-   `s-activations-w-cleanup` pseudo-node disappears within ~1s
-   (`lifecycle.Fire` cascade). Events on that stream survive in
-   `org_events` as an audit trail (not keyed on Streams).
-3. Hover any stream pseudo-node → trash icon top-right. Click →
-   `ConfirmDeleteDialog` enumerates the cascade (stream + N
-   subscriptions, events retained). Confirm; pseudo-node
-   vanishes; Streams list page reflects the deletion without a
-   reload (shared cache invalidation).
+1. Hire a fresh AI `w-cleanup`. Its activation stream row + an
+   entry in `s-activations-w-cleanup`'s subscriber list appear.
+2. Fire `w-cleanup`. `s-activations-w-cleanup` row disappears
+   from the Streams list within ~1s (`lifecycle.Fire` cascade).
+   Events on that stream survive in `org_events` as an audit
+   trail.
 
-## §11. Chat → Human Desktop (regression: bare /agent route)
+## §10. Chat → Human Desktop (regression: bare /agent route)
 
 Chat MUST happen inside the per-Worker project's Human Desktop
 session — same surface a normal project uses — not the legacy
 bare composer at `/agent/<id>`.
 
-1. `…/helix-org/workers/<id>`. Button label is **Open Human
-   Desktop** (project provisioned) or **Provision + open Human
-   Desktop** (right-rail "Project" empty).
-2. Click. Label flips to `Provisioning agent app…` while
-   `ensureWorkerChat` runs.
-3. **Lands on `…/projects/<project_id>/desktop/<session_id>`**
-   in a new tab. Landing on `…/agent/<id>` is a regression — the
-   button must never reach the legacy bare composer.
-4. The desktop viewer renders with a `Send message to agent…`
-   composer. Round-trip pinned in §12.
-5. Refresh the worker detail page. Right-rail **Project** field
-   shows the project id. Re-click the button to navigate
-   straight to the desktop (Ensure fast-paths).
+(Procedure unchanged from prior revision; position-removal did
+not touch the desktop pipeline.) Click **Open Human Desktop** on
+the worker detail page → lands on
+`…/projects/<project_id>/desktop/<session_id>` in a new tab.
 
-## §12. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
+## §11. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
-Pins the chain `desktop click → fresh container → Zed launches
-→ WebSocket connects → Claude responds → per-Worker startup
-script runs → tooling works`. The base desktop image stays
-lean; anything a particular Worker needs (e.g. `gh`) is
-operator-configurable per project via `configure_worker_project`
-(§12b).
-
-**§12a. Zed launches in a fresh container.** Hire a fresh AI
-worker; once the container appears, the desktop viewer renders
-the GNOME shell + Zed pane. API logs show `External agent added
-message … role=assistant` as Claude processes the hire-time
-activation. No `no external agent WebSocket connection` warnings
-for this session. `/home/retro/.local/` is `retro`-owned (any
-build-time tool that touches `${HOME}` as root will poison it
-and stop Zed from creating `~/.local/share/zed/extensions` —
-the desktop image must not invoke such tools during build).
-
-**§12b. `gh` is available + GH_TOKEN auto-injected.** Tools
-beyond the base image are a **per-Worker concern**, set on the
-Worker's helix project via the `configure_worker_project` MCP
-tool (`startupScript` field) — NOT baked into the desktop image
-or wired into the image-level startup scripts. `GH_TOKEN` is
-plumbed by the helix-org spawner on every activation from the
-org's connected GitHub OAuth (`SpawnSecretInjector` →
-`PutProjectSecret("GH_TOKEN")` → env var on next container
-boot); no operator step is needed for the token itself.
-
-Pre-conditions:
-- At least one org member has connected GitHub on Connected
-  Services with `repo, admin:repo_hook, read:org` scopes. The
-  `Reconnect with stream permissions →` flow in §8 grants them.
-  Without a connected member the resolver returns "" and
-  `GH_TOKEN` stays unset (soft skip — not an error).
-- The Worker's project `startupScript` installs `gh`. From the
-  hiring manager prompt (or an operator's MCP call):
-  ```
-  configure_worker_project(
-    workerId: "w-…",
-    startupScript: """
-      #!/bin/bash
-      set -e
-      type -p gh >/dev/null || {
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-          | sudo dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg
-        sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-          | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-        sudo apt-get update && sudo apt-get install -y gh
-      }
-    """
-  )
-  ```
-  Re-running is a no-op (the `type -p gh` guard short-circuits
-  once gh is present). The script runs as `retro` on every
-  fresh container start.
-
-Open a terminal inside the desktop and verify:
-- `gh --version` resolves (installed by the startupScript).
-- `gh auth status` reports `✓ Logged in to github.com account
-  <login> (GH_TOKEN)` with scopes `repo, admin:repo_hook,
-  read:org`. (If `read:org` is missing, re-auth via §8's
-  `Reconnect with stream permissions →`.)
-- `gh issue comment <number> --repo <owner>/<repo> --body "from
-  helix-org worker"` succeeds. Comment lands on the issue under
-  the operator's GitHub identity (the org's OAuth token is what
-  signs the call).
-
-Verifying the env var: open a terminal in the desktop and run
-`env | grep GH_TOKEN` (NOT `su - retro -c …` — a login shell
-strips the inherited env and will lie). The token is injected
-on docker create, so any non-login shell inside the container
-sees it.
-
-Server-side cross-checks if `gh auth status` still says no
-token:
-- `SELECT id, name, project_id FROM secrets WHERE name='GH_TOKEN'
-  AND project_id=<worker's project_id>;` — secret row present
-  means the SpawnSecretInjector ran. Absent means the resolver
-  returned "" (no member with GitHub OAuth — fix the
-  pre-condition).
-- `grep "Injected project secrets into desktop env" api-logs |
-  grep <session_id>` — present means the env actually reached
-  `agent.Env` on container create. If this line is missing for
-  a session whose secret row exists, the projection path is
-  broken (runtime regression).
-- `PutProjectSecret` upserts: every activation overwrites
-  `GH_TOKEN` with whatever the resolver returns. OAuth rotation
-  propagates on the next session without re-hiring. No WARN
-  `put project secret failed … already exists` should appear in
-  steady state; if it does, the upsert path regressed.
-
-**§12c. Stale-session recovery after `./stack build-ubuntu`.**
-Image rebuilds leave every pre-existing exploratory session row
-pointing at a now-dead container. The API's "running" status
-flag is stale; clicking **Open Human Desktop** silently reuses
-the dead pointer and the viewer hangs on
-`Failed to connect to sandbox via RevDial`.
-
-DO NOT use `POST /sessions/<id>/resume` — it returns 200 but
-doesn't actually respawn the runner. Instead (dev-host only;
-production has hydra-driven lifecycle):
-
-```bash
-# 1. kill containers from the old image tag
-docker compose -f docker-compose.dev.yaml exec sandbox-nvidia \
-  docker ps --format "{{.Names}}\t{{.Image}}" | grep ubuntu-external
-docker compose -f docker-compose.dev.yaml exec sandbox-nvidia \
-  docker rm -f <ubuntu-external-…>
-
-# 2. wipe session rows + runtime-state pointers
-docker exec helix-postgres-1 psql -U postgres -d postgres -c "
-  DELETE FROM sessions WHERE id IN ('ses_<stale-1>','ses_<stale-2>');
-  DELETE FROM org_worker_runtime_state
-    WHERE key='session_id'
-      AND value IN ('ses_<stale-1>','ses_<stale-2>');"
-```
-
-Next click on **Open Human Desktop** sees no exploratory session,
-calls `v1ProjectsExploratorySessionCreate`, spawns a fresh
-container from the current image, and chat works.
+(Unchanged. Position-removal did not touch the sandbox /
+spawner pipeline. Procedures in the prior QA.md history.)
 
 ## Pass criteria
 
-- §1 — first chart load is 2xx end-to-end (no bootstrap-race
-  500).
-- §2 — parallel reporting edges render as distinct beziers;
-  Delete *and* Backspace both sever; refresh persists.
-- §3 — AI chip click doesn't crash the API; owner refuses fire
-  (409); cascade dialogs enumerate collateral before confirm.
+- §1 — bootstrap creates one Worker (`w-owner` with `role_id =
+  r-owner`, `parent_id = NULL`); no `org_positions` table.
+- §2 — `r-owner.tools.length == 21`; multi-select adds/removes a
+  tool; refresh persists; an edit propagates to every Worker in
+  the role on the next MCP `tools/list`.
+- §3 — AI worker creation doesn't crash the API; owner refuses
+  fire (409); role delete dialog enumerates the affected workers
+  before confirm.
 - §4 — cross-org isolation holds; restart persists; both themes
   render.
-- §5 — `r-owner.tools.length == 25`; multi-select adds/removes a
-  tool; refresh persists; an edit propagates to every Worker in the
-  role on the next MCP `tools/list` (no grants, no hire-time
-  freeze).
-- §7 — activation streams anchor to the SUBJECT worker's
-  position (never universally to p-root); stream column right
-  of the org tree; live SSE replaces, doesn't append.
-- §8 — github stream Create installs the webhook end-to-end with
-  no manual URL copy; loopback `SERVER_URL` refused with a clear
-  message; **Edit on GitHub →** opens the right hook on
-  github.com.
-- §9 — position subscriptions survive fire; new hires inherit;
-  DeletePosition cascades.
-- §10 — fire removes the worker's activation stream from chart
-  and from the streams list (no orphans).
-- §11 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
+- §6 — activation streams' subscribers list contains the hiring
+  caller's worker id (not their position id); live SSE replaces,
+  doesn't append.
+- §8 — subscriptions are worker-keyed; fire drops them; new
+  hires do NOT inherit; two workers in the same role can hold
+  disjoint subscription sets.
+- §9 — fire removes the worker's activation stream (no orphans).
+- §10 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
   never on `…/agent/<id>`.
-- §12 — fresh sandbox: Zed launches; with a `configure_worker_project`
-  startupScript that installs `gh`, `gh auth status` green;
-  `gh issue comment` round-trips. Stale-session recovery
-  procedure unblocks all pre-existing workers after a desktop
-  rebuild.
+- §11 — fresh sandbox: Zed launches; per-Worker `gh`
+  startupScript installs cleanly; `gh auth status` green.
 - No console errors beyond the three Vite WS errors at startup.
 
 ## Known limitations
 
-- Position has at most one parent — a second incoming reporting
-  edge replaces the first.
-- A role frame can be empty (zero positions); the canvas shows
-  "No positions yet — click + to add one".
-- A position holds at most one worker — hiring into a filled
-  position is rejected.
-- `w-owner` / `r-owner` / `p-root` are protected at the API; UI
-  hides the trash affordance and surfaces a friendly 409.
+- A Worker holds at most one Role.
+- A Worker's `parent_id` points at at most one other Worker.
+  Hierarchy is a tree (no co-managers in the current model).
+- `w-owner` / `r-owner` are protected at the API; UI hides the
+  trash affordance and surfaces a friendly 409.
+- The Overview tab does not currently visualise the reporting
+  tree (parent_id chains). It groups by Role. Future iteration
+  can layer a tree view on the same data.

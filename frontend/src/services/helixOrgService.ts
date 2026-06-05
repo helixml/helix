@@ -2,21 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
-  ApiChart,
-  ApiChartNode,
-  ApiCreatePositionRequest,
   ApiCreateRoleRequest,
   ApiCreateStreamRequest,
   ApiEventCard,
   ApiGitHubReposResponse,
-  ApiHireGrantInput,
   ApiHireWorkerRequest,
   ApiHireWorkerResponse,
   ApiInstallGitHubWebhookResponse,
-  ApiPositionDTO,
-  ApiPositionSubscriptionDTO,
-  ApiPositionSubscriptionsResponse,
+  ApiOrgOverview,
   ApiRoleDTO,
+  ApiRoleGroup,
   ApiSettingsResponse,
   ApiSettingsSpecDTO,
   ApiStreamDTO,
@@ -28,13 +23,14 @@ import {
   ApiWorkerChatDTO,
   ApiWorkerDTO,
   ApiWorkerDetailDTO,
+  ApiWorkerSubscriptionDTO,
+  ApiWorkerSubscriptionsResponse,
 } from '../api/api'
 
 // Re-exported aliases. Generated Api* types mark every field
 // optional; consumers use them as if fields are present. strict
 // null checks are off project-wide so plain aliases suffice.
 export type WorkerBadge = ApiWorkerBadge
-export type ChartNode = ApiChartNode
 export type RoleDTO = ApiRoleDTO
 export type WorkerDTO = ApiWorkerDTO
 export type WorkerDetailDTO = ApiWorkerDetailDTO
@@ -42,25 +38,24 @@ export type ToolDTO = ApiToolDTO
 export type StreamDTO = ApiStreamDTO
 export type EventCard = ApiEventCard
 export type SettingsSpecDTO = ApiSettingsSpecDTO
-export type PositionDTO = ApiPositionDTO
 export type SettingsResponse = ApiSettingsResponse
 export type StreamsResponse = ApiStreamsResponse
 export type GitHubRepoDTO = NonNullable<ApiGitHubReposResponse['repos']>[number]
 export type GitHubReposResponse = ApiGitHubReposResponse
 export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
-export type PositionSubscription = ApiPositionSubscriptionDTO
-export type PositionSubscriptionsResponse = ApiPositionSubscriptionsResponse
-export type Chart = ApiChart
+export type WorkerSubscription = ApiWorkerSubscriptionDTO
+export type WorkerSubscriptionsResponse = ApiWorkerSubscriptionsResponse
+export type OrgOverview = ApiOrgOverview
+export type RoleGroup = ApiRoleGroup
 
-export type HireGrantInput = ApiHireGrantInput
 export interface HireWorkerRequest extends Omit<ApiHireWorkerRequest, 'kind'> {
-  position_id: string
+  role_id: string
+  parent_id?: string
   kind: 'human' | 'ai'
   identity_content: string
 }
 export type HireWorkerResponse = ApiHireWorkerResponse
 export type CreateRoleRequest = ApiCreateRoleRequest & { id: string; content: string }
-export type CreatePositionRequest = ApiCreatePositionRequest & { id: string; role_id: string }
 export type CreateStreamRequest = ApiCreateStreamRequest & { name: string }
 export type UpdateStreamRequest = ApiUpdateStreamRequest
 
@@ -72,7 +67,7 @@ export interface HelixModelInfo {
 }
 
 export const QUERY_KEYS = {
-  chart: (orgID: string) => ['helix-org', orgID, 'chart'] as const,
+  overview: (orgID: string) => ['helix-org', orgID, 'overview'] as const,
   worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
   workers: (orgID: string) => ['helix-org', orgID, 'workers'] as const,
   role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
@@ -83,7 +78,7 @@ export const QUERY_KEYS = {
   modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
   streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
-  positionSubs: (orgID: string, positionID: string) => ['helix-org', orgID, 'positions', positionID, 'subscriptions'] as const,
+  workerSubs: (orgID: string, workerID: string) => ['helix-org', orgID, 'workers', workerID, 'subscriptions'] as const,
 }
 
 export function useHelixOrgBase(): { base: string; orgID: string } {
@@ -93,14 +88,14 @@ export function useHelixOrgBase(): { base: string; orgID: string } {
   return { base, orgID }
 }
 
-export function useHelixOrgChart(options?: { enabled?: boolean }) {
+export function useHelixOrgOverview(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.chart(orgID),
+    queryKey: QUERY_KEYS.overview(orgID),
     queryFn: async () => {
-      const res = await api.getApiClient().v1OrgsChartDetail(orgID)
-      return res.data as Chart
+      const res = await api.getApiClient().v1OrgsOverviewDetail(orgID)
+      return res.data as OrgOverview
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
@@ -221,7 +216,7 @@ export function useHireHelixOrgWorker() {
       return res.data as HireWorkerResponse
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
     },
   })
@@ -236,7 +231,7 @@ export function useFireHelixOrgWorker() {
       await api.getApiClient().v1OrgsWorkersDelete(workerId, orgID)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
     },
   })
@@ -252,7 +247,7 @@ export function useUpdateHelixOrgRole() {
       await api.getApiClient().v1OrgsRolesUpdate(orgID, id, body)
     },
     onSuccess: (_data, payload) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.role(orgID, payload.id) })
     },
@@ -268,37 +263,8 @@ export function useCreateHelixOrgRole() {
       await api.getApiClient().v1OrgsRolesCreate(orgID, payload)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
-    },
-  })
-}
-
-export function useCreateHelixOrgPosition() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async (payload: CreatePositionRequest) => {
-      await api.getApiClient().v1OrgsPositionsCreate(orgID, payload)
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
-    },
-  })
-}
-
-export function useUpdateHelixOrgPosition() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async (payload: { id: string; parent_id?: string; role_id?: string }) => {
-      const { id, ...body } = payload
-      await api.getApiClient().v1OrgsPositionsUpdate(orgID, id, body)
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },
   })
 }
@@ -312,22 +278,8 @@ export function useDeleteHelixOrgRole() {
       await api.getApiClient().v1OrgsRolesDelete(orgID, roleId)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
-    },
-  })
-}
-
-export function useDeleteHelixOrgPosition() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async (positionId: string) => {
-      await api.getApiClient().v1OrgsPositionsDelete(orgID, positionId)
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
     },
   })
 }
@@ -440,7 +392,7 @@ export function useCreateHelixOrgStream() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
@@ -510,7 +462,7 @@ export function useUpdateHelixOrgStream() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, vars.streamId) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
@@ -525,60 +477,60 @@ export function useDeleteHelixOrgStream() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
 
-export function useListPositionSubscriptions(positionID: string | undefined, options?: { enabled?: boolean }) {
+export function useListWorkerSubscriptions(workerID: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.positionSubs(orgID, positionID ?? ''),
+    queryKey: QUERY_KEYS.workerSubs(orgID, workerID ?? ''),
     queryFn: async () => {
-      if (!positionID) return null
-      const res = await api.getApiClient().v1OrgsPositionsSubscriptionsDetail(positionID, orgID)
-      return res.data as PositionSubscriptionsResponse
+      if (!workerID) return null
+      const res = await api.getApiClient().v1OrgsWorkersSubscriptionsDetail(workerID, orgID)
+      return res.data as WorkerSubscriptionsResponse
     },
-    enabled: !!orgID && !!positionID && (options?.enabled ?? true),
+    enabled: !!orgID && !!workerID && (options?.enabled ?? true),
   })
 }
 
-export function useSubscribePosition(positionID: string | undefined) {
+export function useSubscribeWorker(workerID: string | undefined) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (streamID: string) => {
-      if (!positionID) throw new Error('positionID is required to subscribe')
-      const res = await api.getApiClient().v1OrgsPositionsSubscriptionsCreate(positionID, orgID, { stream_id: streamID })
-      return res.data as PositionSubscription
+      if (!workerID) throw new Error('workerID is required to subscribe')
+      const res = await api.getApiClient().v1OrgsWorkersSubscriptionsCreate(workerID, orgID, { stream_id: streamID })
+      return res.data as WorkerSubscription
     },
     onSuccess: () => {
-      if (positionID) {
-        qc.invalidateQueries({ queryKey: QUERY_KEYS.positionSubs(orgID, positionID) })
+      if (workerID) {
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
       }
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
 
-export function useUnsubscribePosition(positionID: string | undefined) {
+export function useUnsubscribeWorker(workerID: string | undefined) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (streamID: string) => {
-      if (!positionID) throw new Error('positionID is required to unsubscribe')
-      await api.getApiClient().v1OrgsPositionsSubscriptionsDelete(positionID, streamID, orgID)
+      if (!workerID) throw new Error('workerID is required to unsubscribe')
+      await api.getApiClient().v1OrgsWorkersSubscriptionsDelete(workerID, streamID, orgID)
     },
     onSuccess: () => {
-      if (positionID) {
-        qc.invalidateQueries({ queryKey: QUERY_KEYS.positionSubs(orgID, positionID) })
+      if (workerID) {
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
       }
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.chart(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
