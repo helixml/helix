@@ -983,10 +983,13 @@ const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionI
   const [id, setId] = useState('')
   const [kind, setKind] = useState<'ai' | 'human'>('human')
   const [identity, setIdentity] = useState('')
+  const [identityTouched, setIdentityTouched] = useState(false)
+
+  const identityError = identityTouched && !identity.trim()
 
   const submit = async () => {
+    setIdentityTouched(true)
     if (!identity.trim()) {
-      snackbar.error('identity content is required')
       return
     }
     const body: HireWorkerRequest = {
@@ -998,7 +1001,7 @@ const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionI
     try {
       const res = await hire.mutateAsync(body)
       snackbar.success(`hired ${res.id}`)
-      setId(''); setIdentity(''); onClose()
+      setId(''); setIdentity(''); setIdentityTouched(false); onClose()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'hire failed')
     }
@@ -1032,9 +1035,13 @@ const HireDrawer: FC<{ positionId: string; onClose: () => void }> = ({ positionI
         <TextField
           size="small"
           label="Identity content"
+          required
           placeholder="Short persona / profile in markdown."
           value={identity}
           onChange={(e) => setIdentity(e.target.value)}
+          onBlur={() => setIdentityTouched(true)}
+          error={identityError}
+          helperText={identityError ? 'Identity content is required' : undefined}
           multiline
           minRows={6}
           fullWidth
