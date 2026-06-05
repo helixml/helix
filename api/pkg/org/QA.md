@@ -106,18 +106,22 @@ protections (regression: deletable owner), and the cascade dialogs.
    minimap, controls, edge strokes, handle dots, and card borders
    cleanly.
 
-## §5. Roles list + tool editor (regression: 29-tool bootstrap)
+## §5. Roles list + tool editor (regression: 25-tool bootstrap)
+
+`Role.Tools` is the live MCP surface for every Worker filling a
+Position bound to that Role — there is no separate per-Worker grants
+table. Editing a Role's Tools changes capability for every Worker in
+that Role on their next MCP request.
 
 1. Click **Roles** in the middle sidebar. Columns: ID / Content /
    Tools / Streams / Updated.
-2. `r-owner`'s **Tools count is 29** — the bootstrap seed shares
-   one slice with the owner Worker's grants; a regression would
-   drift the two apart.
+2. `r-owner`'s **Tools count is 25** — the bootstrap seed. A
+   regression that drops or duplicates entries shows up here first.
 3. `r-owner` vertical-dot menu offers **Open** and a **Delete**
    disabled with `Owner — protected`.
 4. **+ New Role** → `r-test-dm`, any content. Detail page opens,
    Tools field empty.
-5. Click the Tools dropdown. 29 options render (checkbox +
+5. Click the Tools dropdown. 25 options render (checkbox +
    monospace tool name + one-line description). Tick `dm` — popper
    stays open (`disableCloseOnSelect`). Press Escape.
 6. **Save** (was disabled) is enabled. Click → snackbar
@@ -125,6 +129,13 @@ protections (regression: deletable owner), and the cascade dialogs.
 7. Hard refresh — the `dm` chip persists. Re-open the dropdown,
    untick `dm`, **Save**. Tools back to `[]`. Delete `r-test-dm`
    via the right-rail Delete (cleanup).
+8. **Live propagation.** Bind a Position to `r-test-dm`, hire an AI
+   Worker into it. Add `publish` via the dropdown + Save. Hit the
+   Worker's MCP endpoint
+   (`/api/v1/mcp/helix-org/<org>/workers/<id>/mcp` → `tools/list`):
+   `publish` is now in the list without any `hire_worker`,
+   `grant_tool`, or session restart. Remove it from the role +
+   Save: the next `tools/list` no longer includes it.
 
 ## §6. Workers list
 
@@ -237,8 +248,8 @@ DeletePosition cascades.
    publish to that stream: the new hire activates without any
    explicit subscribe call (it inherits).
 3. **Worker detail Subscriptions panel** (`…/workers/<id>`,
-   below Tool grants): N-count reflects the worker's POSITION's
-   subscription set. Multi-select dropdown shows every stream
+   below the Role's Tools): N-count reflects the worker's
+   POSITION's subscription set. Multi-select dropdown shows every stream
    with description + checkbox state, with
    `disableCloseOnSelect` (same shape as the role tool editor in
    §5). Toggling updates the position's set; caption beneath
@@ -420,8 +431,10 @@ container from the current image, and chat works.
   (409); cascade dialogs enumerate collateral before confirm.
 - §4 — cross-org isolation holds; restart persists; both themes
   render.
-- §5 — `r-owner.tools.length == 29`; multi-select adds/removes a
-  tool; refresh persists.
+- §5 — `r-owner.tools.length == 25`; multi-select adds/removes a
+  tool; refresh persists; an edit propagates to every Worker in the
+  role on the next MCP `tools/list` (no grants, no hire-time
+  freeze).
 - §7 — activation streams anchor to the SUBJECT worker's
   position (never universally to p-root); stream column right
   of the org tree; live SSE replaces, doesn't append.
