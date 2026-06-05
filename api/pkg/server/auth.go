@@ -144,6 +144,38 @@ func randString(nByte int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// isSameOriginRedirect returns true if candidate is a relative path or shares
+// the scheme+host with serverURL. Empty input is rejected so the caller falls
+// back to the configured WebServer.URL rather than 302-ing to an empty
+// Location. Used to keep the logout redirect_uri query parameter from being
+// weaponized as an open-redirect/phishing primitive.
+func isSameOriginRedirect(candidate, serverURL string) bool {
+	if candidate == "" {
+		return false
+	}
+	// Browsers (notably Chrome) normalize backslashes to forward slashes when
+	// parsing authority components, so `/\evil.com/foo` is treated as host
+	// `evil.com`. Go's net/url does not, which would otherwise let a
+	// backslash-prefixed value slip through the relative-path branch.
+	if strings.ContainsAny(candidate, "\\") {
+		return false
+	}
+	cu, err := url.Parse(candidate)
+	if err != nil {
+		return false
+	}
+	// Relative URLs (no scheme, no host) stay on this origin.
+	if cu.Scheme == "" && cu.Host == "" {
+		return true
+	}
+	su, err := url.Parse(serverURL)
+	if err != nil || su.Host == "" {
+		return false
+	}
+	// Host is case-insensitive per RFC 3986; scheme is case-insensitive too.
+	return strings.EqualFold(cu.Scheme, su.Scheme) && strings.EqualFold(cu.Host, su.Host)
+}
+
 // register godoc
 // @Summary Register
 // @Description Register a new user
@@ -947,10 +979,16 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	// Remove legacy cookies (for backward compatibility during migration)
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
-	// Use redirect_uri from query param if provided (set by frontend from window.location.origin)
-	// This allows the logout redirect to work correctly regardless of which hostname is used
+	// redirect_uri is set by the frontend from window.location.origin so the
+	// post-logout redirect works regardless of which hostname the user hit.
+	// Reject cross-origin values: this endpoint is on insecureRouter and
+	// CSRF-exempt, so without validation any visitor can craft a logout link
+	// that 302s the victim to a phishing site from the trusted Helix origin.
 	postLogoutRedirect := r.URL.Query().Get("redirect_uri")
-	if postLogoutRedirect == "" {
+	if !isSameOriginRedirect(postLogoutRedirect, s.Cfg.WebServer.URL) {
+		if postLogoutRedirect != "" {
+			log.Warn().Str("rejected_redirect_uri", postLogoutRedirect).Msg("Cross-origin logout redirect rejected; falling back to configured WebServer.URL")
+		}
 		postLogoutRedirect = s.Cfg.WebServer.URL
 	}
 

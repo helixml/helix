@@ -997,3 +997,65 @@ func TestNewCookieManager_ExplicitOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSameOriginRedirect(t *testing.T) {
+	const serverURL = "https://helix.example.com"
+
+	tests := []struct {
+		name      string
+		candidate string
+		serverURL string
+		want      bool
+	}{
+		// Empty input is rejected so the caller falls back to WebServer.URL
+		// rather than 302-ing to an empty Location.
+		{"empty", "", serverURL, false},
+
+		// Relative paths stay on the current origin.
+		{"relative root", "/", serverURL, true},
+		{"relative path", "/dashboard", serverURL, true},
+		{"relative deep path", "/a/b/c?x=1#frag", serverURL, true},
+
+		// Same-origin absolute URLs are accepted.
+		{"same origin root", "https://helix.example.com", serverURL, true},
+		{"same origin path", "https://helix.example.com/welcome", serverURL, true},
+		{"same origin uppercase host", "https://Helix.Example.com/x", serverURL, true},
+		{"same origin uppercase scheme", "HTTPS://helix.example.com/x", serverURL, true},
+
+		// Cross-origin absolute URLs are rejected.
+		{"different host", "https://evil.com/fake-login", serverURL, false},
+		{"different host with same suffix", "https://evilhelix.example.com/", serverURL, false},
+		{"different scheme", "http://helix.example.com/", serverURL, false},
+		{"port mismatch", "https://helix.example.com:8443/", serverURL, false},
+
+		// Protocol-relative URLs are cross-origin in browsers.
+		{"protocol relative", "//evil.com/foo", serverURL, false},
+
+		// Backslash bypass: browsers normalize \ to / when parsing the
+		// authority component, so `/\evil.com/foo` becomes host `evil.com`.
+		{"backslash authority", "/\\evil.com/foo", serverURL, false},
+		{"double backslash", "\\\\evil.com/foo", serverURL, false},
+		{"mixed slash backslash", "/\\/evil.com", serverURL, false},
+
+		// Non-http schemes must never be honored.
+		{"javascript scheme", "javascript:alert(1)", serverURL, false},
+		{"data scheme", "data:text/html,<script>alert(1)</script>", serverURL, false},
+
+		// Garbage that fails url.Parse is rejected.
+		{"control char", "http://\x00.example.com", serverURL, false},
+
+		// Misconfigured serverURL (no host) is treated as untrusted base.
+		{"server url empty", "https://helix.example.com/", "", false},
+		{"server url no host", "/path", "not-a-url", true}, // relative still OK
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isSameOriginRedirect(tt.candidate, tt.serverURL)
+			if got != tt.want {
+				t.Errorf("isSameOriginRedirect(%q, %q) = %v, want %v",
+					tt.candidate, tt.serverURL, got, tt.want)
+			}
+		})
+	}
+}
