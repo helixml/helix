@@ -3,39 +3,44 @@
 ## Key Files
 
 - `api/pkg/config/config.go:223` — `Notifications.AppURL` field (`APP_URL`, defaults to `https://app.helix.ml`)
-- `api/pkg/config/config.go:448` — `WebServer.URL` field (`SERVER_URL`)
-- `api/pkg/trigger/slack/slack_project_updates.go:119,154,241,272` — uses `s.cfg.Notifications.AppURL` as base URL for task links
-- `api/pkg/trigger/slack/slack_project_updates.go:354` — `buildTaskLink()` helper
+- `api/pkg/config/config.go:51-58` — `LoadServerConfig()` runs `envconfig.Process` and returns
+- `api/pkg/config/config.go:448-449` — `WebServer.URL` field (`SERVER_URL`)
+- `api/pkg/trigger/slack/slack_project_updates.go:119,154,241` — uses `s.cfg.Notifications.AppURL`
+- `api/pkg/services/attention_service.go:191-194` — also uses `s.cfg.Notifications.AppURL`
+- `api/pkg/notification/notification_email.go:166,179,204` — email templates use the same field via `e.cfg.AppURL` (where `e.cfg` is `*config.Notifications`)
+
+## Implementation Notes (discovered)
+
+`Notifications.AppURL` is **not just used by Slack** — it's the same field that drives:
+- Slack project update task links (the reported bug)
+- Attention service Slack thread reply links
+- Email notification session URLs
+
+Originally I planned to remove the field entirely, but that would break email and attention-service URLs. The cleaner fix is:
+
+**Make `APP_URL` fall back to `SERVER_URL` instead of hardcoded `https://app.helix.ml`.**
+
+`Notifications.AppURL` and `WebServer.URL` are conceptually distinct (one might want a public URL different from the API listen URL — e.g. behind a CDN/edge), so keeping both is valid. The bug is only in the **default**: when `APP_URL` is unset, falling back to `https://app.helix.ml` is wrong for self-hosted installs.
 
 ## Approach
 
-**Remove `APP_URL` and unify on `SERVER_URL`.**
+1. Remove the `default:"https://app.helix.ml"` tag from `Notifications.AppURL`
+2. In `LoadServerConfig()`, after `envconfig.Process`, set `cfg.Notifications.AppURL = cfg.WebServer.URL` if empty
+3. Existing tests for Slack (`slack_bot_test.go`) pass `https://app.helix.ml` explicitly to `buildProjectUpdateAttachment`, so they continue to work without modification.
+4. Email tests construct `Notifications{AppURL: "..."}` directly — also unaffected.
 
-The `Notifications.AppURL` field is redundant — `WebServer.URL` (`SERVER_URL`) already captures the public URL of the instance. Having two env vars for the same concept is the bug.
+## Behaviour matrix after fix
 
-Change the Slack bot to use `cfg.WebServer.URL` (already available on the server struct) instead of `cfg.Notifications.AppURL`.
+| `SERVER_URL` set | `APP_URL` set | Resulting `Notifications.AppURL` |
+|---|---|---|
+| `https://meta.helix.ml` | (unset) | `https://meta.helix.ml` (the fix) |
+| `https://meta.helix.ml` | `https://public.helix.ml` | `https://public.helix.ml` (override still works) |
+| (unset) | (unset) | empty (degraded but acceptable — `SERVER_URL` is normally required for the API to function) |
 
-If `APP_URL` has any unique uses beyond the Slack bot, keep it but make it fall back to `SERVER_URL` when unset (instead of hard-coding `https://app.helix.ml`):
+## Out of Scope
 
-```go
-// In config initialisation / after envconfig.Process():
-if cfg.Notifications.AppURL == "" {
-    cfg.Notifications.AppURL = cfg.WebServer.URL
-}
-```
+- `Janitor.AppURL` and `Stripe.AppURL` are different fields with no envconfig tag at all and are never populated programmatically — they're already broken, but unrelated to this bug. Leaving them alone.
 
-But simply removing `APP_URL` from `Notifications` and wiring `buildTaskLink` directly to `cfg.WebServer.URL` is cleaner — fewer moving parts.
+## Workaround (immediate, no code change)
 
-## Decision
-
-Remove `Notifications.AppURL`. Pass `cfg.WebServer.URL` wherever task URLs are built in the Slack trigger code. Update tests that reference `APP_URL` or the `https://app.helix.ml` default.
-
-## Workaround (immediate)
-
-Until the fix is deployed, add `APP_URL=https://meta.helix.ml` to `.env`.
-
-## Patterns Found
-
-- PR footer links already correctly use `s.Cfg.WebServer.URL` — Slack was the only outlier.
-- `buildTaskLink` in `slack_project_updates.go` accepts a `baseURL` parameter; the fix is just passing the right value into it.
-- There may be test assertions using the `https://app.helix.ml` default that need updating.
+Set `APP_URL=https://meta.helix.ml` in `.env`.

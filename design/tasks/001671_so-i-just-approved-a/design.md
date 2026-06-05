@@ -1,58 +1,37 @@
 # Design
 
-## Fix 1 — Stop `onClose()` from conflicting with `onImplementationStarted()`
+## Status: Already fixed on an unmerged branch
 
-**File:** `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, `handleSubmitReview` (~line 932)
+After merging latest `main` (helix-4 at `49ef585ba`), I checked the codebase and found this bug is **already fixed** on unmerged branch `feature/001920-after-approving-a-task` (commit `aa8afd883`, "After approval, jump to chat/desktop and stop the auto-open bounce", authored Fri May 8 2026 by Luke Marsden).
 
-Currently:
-```typescript
-if (onImplementationStarted) {
-  onImplementationStarted();
-}
-onClose(); // always fires, overrides the navigation from onImplementationStarted
-```
+### What the existing branch does
 
-Fix: skip `onClose()` when `onImplementationStarted` has handled navigation:
-```typescript
-if (onImplementationStarted) {
-  onImplementationStarted();
-  return;
-}
-onClose();
-```
+Three coordinated changes:
 
-This is the primary fix. `onImplementationStarted` is the caller's signal that it owns post-approval navigation.
+**1. `frontend/src/lib/specTaskAutoOpen.ts` (new file)** — extracts the sessionStorage helpers (`AUTO_OPENED_KEY`, `getAutoOpenedSpecTasks`, `addAutoOpenedSpecTask`) into a shared module so both the detail page and review page can use them.
 
-## Fix 2 — Mark task as auto-opened before navigating away from the review page
+**2. `frontend/src/pages/SpecTaskReviewPage.tsx`**
+- Adds a mount-time `useEffect` that calls `addAutoOpenedSpecTask(taskId)`. This means *any* way of reaching the review page (deep link, notification, breadcrumb, post-approval redirect) marks the task as already-auto-opened, so navigating back to the task detail page never re-fires the auto-open.
+- Changes `handleApproved` destination from `project-specs` (kanban — where `openTask` is silently ignored) to `project-task-detail` (the chat/desktop view the user actually wants).
 
-**File:** `frontend/src/pages/SpecTaskReviewPage.tsx`, `handleApproved`
+**3. `frontend/src/components/tasks/SpecTaskDetailContent.tsx`**
+- Imports the helpers from the new shared module.
+- Adds a defence-in-depth `!task?.spec_approved_at` guard to the auto-open `useEffect`. Even before React Query refreshes `task.status` away from `spec_review`, the auto-open won't fire for an already-approved task.
 
-The auto-open guard in `SpecTaskDetailContent` uses sessionStorage key `"helix_auto_opened_spec_tasks"`. If the user came to the review page directly (not via the auto-open flow), this key doesn't contain the task ID, so the guard doesn't fire and the effect redirects them back.
+### Why this approach is better than the one I originally proposed
 
-Fix: write the task ID into sessionStorage in `handleApproved` before navigating:
-```typescript
-const handleApproved = () => {
-  // Prevent SpecTaskDetailContent's auto-open effect from redirecting back to review
-  const key = "helix_auto_opened_spec_tasks";
-  const existing = new Set<string>(JSON.parse(sessionStorage.getItem(key) || "[]"));
-  existing.add(taskId);
-  sessionStorage.setItem(key, JSON.stringify([...existing]));
+I'd suggested also modifying `DesignReviewContent.handleSubmitReview` to skip `onClose()` after `onImplementationStarted()`. The existing branch doesn't need to — once `handleApproved` and `handleBack` both navigate to `project-task-detail`, the redundant second navigation is harmless (same destination). And the `spec_approved_at` guard is more semantically correct than my "write to sessionStorage in handleApproved" idea — it covers the race condition properly.
 
-  account.orgNavigate('project-task-detail', { id: projectId, taskId });
-};
-```
+## Recommendation
 
-Note: also change the destination from `project-specs` to `project-task-detail` — the user wants to see the agent desktop, not the kanban board. The `openTask` param passed to `project-specs` only works in workspace mode (which isn't the default), so the previous navigation landed on kanban with no task visible.
+Just merge `feature/001920-after-approving-a-task` (or rebase the single commit `aa8afd883` onto current main). No new design work needed.
 
-## Key Files
+If a PR exists for that branch, review and merge it. If not, open one.
+
+## Files changed by the existing fix
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/spec-tasks/DesignReviewContent.tsx` | Don't call `onClose()` after `onImplementationStarted()` returns |
-| `frontend/src/pages/SpecTaskReviewPage.tsx` | Write task ID to sessionStorage + navigate to `project-task-detail` |
-
-## Notes
-
-- The sessionStorage key `"helix_auto_opened_spec_tasks"` is defined at the top of `SpecTaskDetailContent.tsx` (line 116). Duplicate the write logic in `SpecTaskReviewPage` rather than exporting it — it's two lines of sessionStorage manipulation, not worth an abstraction.
-- The backend `approveSpecs` handler already correctly updates task status to `spec_approved` and kicks off implementation. No backend changes needed.
-- The original bug report mentioned "probably because of a use effect" — that's Fix 2 (`SpecTaskDetailContent` line 844). Fix 1 is the immediate cause that gets the user to the detail page in the first place.
+| `frontend/src/lib/specTaskAutoOpen.ts` | New shared module |
+| `frontend/src/pages/SpecTaskReviewPage.tsx` | Mark task on mount + change approval destination |
+| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Use shared module + add `spec_approved_at` guard |

@@ -50,17 +50,20 @@ This only triggers when `hoverButtonPosition` is set (button is visible) and cur
 
 ## 3. Fix pseudo-highlight truncation spanning code blocks
 
-**Root cause:** `applyHighlight` uses `range.extractContents()` + `range.insertNode(mark)`, which physically moves DOM nodes into a single wrapping `<mark>`. When the range spans a SyntaxHighlighter code block, this disrupts the nested `<span>` structure that SyntaxHighlighter created, causing truncation or breakage.
+**Update during implementation:** Discovery showed `helix` already migrated `applyHighlight` to use the **CSS Custom Highlight API** (`CSS.highlights` + `new Highlight(range)`) — see `DesignReviewContent.tsx:879-899` and the GlobalStyles rule at line 1116. This is non-destructive (no DOM mutation), so the original `extractContents` problem from `helix-4` doesn't apply here.
 
-**Fix:** Replace the single-mark approach with a text-node-walking approach. Walk all text nodes intersecting the range and wrap each selected portion in its own `<mark>`. This leaves the surrounding element structure (including SyntaxHighlighter's spans) intact.
+**Investigation outcome:** Chrome's CSS Custom Highlight API has a known limitation — `::highlight() { color: ... }` does NOT reliably override inherited text color. Pixel-level inspection (`screenshots/11-zoomed-highlight-text.png`) confirmed that text inside the highlight stayed white in dark mode despite the `color: #000` rule being present in the registered CSS rule.
 
-- Change `highlightMarkRef` from `useRef<HTMLElement | null>` to `useRef<HTMLElement[]>` (array of marks)
-- New `applyHighlight`: use `document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT)`, iterate text nodes, check `range.intersectsNode`, create a clamped sub-range for each, and call `surroundContents(mark)` (works reliably on pure-text ranges)
-- New `removeHighlight`: iterate `highlightMarksRef.current`, call `mark.replaceWith(...mark.childNodes)` on each, then reset the array
+**False-start fixes (both reverted):**
+1. First attempt: dropped `color: #000` — broke dark mode (white text on light blue, illegible).
+2. Second attempt: restored `color: #000` — same dark-mode bug, because Chrome ignores the override.
 
-**CSS consideration:** SyntaxHighlighter tokens use `color` on `<span>` elements. The `.comment-highlight` mark only sets `background-color`, so syntax colors are preserved. If needed, the highlight CSS can use higher specificity to ensure visibility.
+**Final fix:** Use a translucent saturated blue (`rgba(25, 118, 210, 0.4)`) for the background and **no** `color` override. The translucency lets the underlying page colors show through, so:
+- Light mode (dark text on light Paper): highlight tints to a softer light blue; dark text remains legible.
+- Dark mode (white text on dark Paper): highlight tints to a darker blue; white text remains legible against it.
+- Code blocks: highlight paints across each text line; Prism syntax token colours show through unchanged.
 
-**Pattern note:** This codebase uses React MUI with all styling inline via `sx` props and `GlobalStyles`. The `.comment-highlight` class is defined via `GlobalStyles` at line ~1028.
+**Verified** in both light (`screenshots/13-translucent-lightmode.png`, `14-translucent-codeblock-lightmode.png`) and dark (`screenshots/12-translucent-test.png`, `16-translucent-darkmode-actual.png`) modes — highlight visible and text legible across normal paragraphs and code blocks.
 
 ## 4. No hover button when cursor is over a comment panel
 

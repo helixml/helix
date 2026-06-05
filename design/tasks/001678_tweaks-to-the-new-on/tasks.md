@@ -2,10 +2,9 @@
 
 All changes in `frontend/src/components/spec-tasks/DesignReviewContent.tsx`.
 
-- [ ] In the hover button `onClick`, create a `Range` over `hoveredElementRef.current` and assign it to `savedRangeRef.current` before setting `showCommentForm = true`, so the existing `useEffect` applies the pseudo-highlight
-- [ ] Add `onMouseMove` to the outer scroll container (the Box with `onMouseLeave`) that clears `hoverButtonPosition` when the cursor x-position exceeds the button's right edge (`containerWidth/2 + 432px`)
-- [ ] Change `highlightMarkRef` from `useRef<HTMLElement | null>` to `useRef<HTMLElement[]>` to support multiple mark elements
-- [ ] Rewrite `applyHighlight` to walk text nodes within the range using `createTreeWalker` and wrap each intersecting text node in its own `<mark class="comment-highlight">` via `surroundContents`, leaving surrounding element structure intact
-- [ ] Update `removeHighlight` to iterate the marks array, unwrap each mark's children, and reset the array
-- [ ] At the top of the inner Box's `onMouseMove` handler, check if `e.target` is contained within any `commentRefs.current` entry; if so, clear `hoverButtonPosition` and `hoveredElementRef.current` and return early
-- [ ] Run `cd frontend && yarn build` to verify no TypeScript errors before committing
+- [x] In the hover button `onClick`, create a `Range` over `hoveredElementRef.current` and assign it to `savedRangeRef.current` before setting `showCommentForm = true`, so the existing `useEffect` applies the pseudo-highlight
+- [x] Add `onMouseMove` to the outer scroll container (the Box with `onMouseLeave`) that clears `hoverButtonPosition` when the cursor x-position exceeds the button's right edge (`containerWidth/2 + 432px`)
+- [x] Adjust the `::highlight(comment-highlight)` GlobalStyles rule (line ~1116) so the highlight works across code blocks AND stays legible in dark mode. **Final solution:** use translucent saturated blue (`rgba(25, 118, 210, 0.4)`) with no `color` override. Chrome's Custom Highlight API doesn't reliably honour `::highlight() { color: ... }` (verified by pixel inspection — text stayed white despite `color: #000` rule). Translucent blue tints the background while the original theme text colour shows through, legible in both modes (see screenshots 12-16)
+- [x] At the top of the inner Box's `onMouseMove` handler, check if `e.target` is contained within any `commentRefs.current` entry; if so, clear `hoverButtonPosition` and `hoveredElementRef.current` and return early
+- [x] Run `cd frontend && yarn build` to verify no TypeScript errors before committing
+- [x] Manual browser test in the inner Helix: registered/logged in, created spec task with code block via SQL, navigated to design review at `/orgs/{org}/projects/{prj}/tasks/{task}/review/{rev}`. Verified (a) clicking hover button highlights paragraph (screenshot 04), (b) moving cursor past button right edge hides it (programmatic dispatch confirmed `stillVisibleAtButton:true` when cursor inside button, button cleared when moved to x=1100 past 1040 right edge), (c) selection across code block highlights correctly (screenshot 02), (d) hovering over comment panel hides button (screenshot 05)

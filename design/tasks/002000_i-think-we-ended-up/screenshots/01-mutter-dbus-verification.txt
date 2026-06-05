@@ -1,0 +1,57 @@
+End-to-end verification — captured from a live spec-task session
+running helix-ubuntu:688422 (the image built with the new extension
+code) on 2026-05-11.
+
+==============================================================
+1. Extension log lines (docker logs of the ubuntu container):
+==============================================================
+
+  [HelixCursor] Connected to window-created signal for ACP log window placement
+  ...
+  [HelixCursor] Moving ACP Agent Logs terminal to workspace 4 (last): ACP Agent Logs
+
+==============================================================
+2. Independent Mutter D-Bus introspection (gnome-shell.Eval):
+==============================================================
+
+Query — for every window actor in Mutter, dump title, workspace
+index, minimized state. Plus the active workspace and the workspace
+count.
+
+Result:
+
+  {
+    "active_workspace_index": 0,        # Workspace 1 — Zed (untouched)
+    "n_workspaces": 4,                  # 4 fixed workspaces
+    "all_windows": [
+      {"title": "ACP Agent Logs",
+       "ws": 3,                         # ✅ Last workspace (index 3 = workspace 4)
+       "minimized": false},             # ✅ NOT minimized
+      {"title": "Helix Setup",
+       "ws": 0, "minimized": false},    # On workspace 1, normal
+      {"title": "testproj, helix-specs — tasks.md",
+       "ws": 0, "minimized": false}     # Zed on workspace 1, normal
+    ]
+  }
+
+==============================================================
+Acceptance criteria status
+==============================================================
+
+✅ AC1 — ACP Agent Logs window moved to workspace index 3 (last).
+✅ AC1 — Window is NOT minimized.
+✅ AC4 — Active workspace remains 0 (workspace 1 / Zed) — no
+         auto-switch.
+✅ AC5 — n_workspaces is 4 (≥ 2), so the defensive bail-out path
+         was not triggered (good — it shouldn't be in normal
+         operation).
+✅ AC6 — Comment + log text + metadata.json description updated;
+         no remaining "minimize" wording.
+
+AC2 (no jiggling dock icon) and AC3 (no ghost in app-switcher) are
+both downstream consequences of "window stays mapped on workspace
+4" rather than "window is minimized". The headless GNOME shell
+in our test container has no dock and no app-switcher UI to
+observe directly, but the root-cause condition that produced the
+old behavior — `window.minimized === true` while a `tail -F`
+keeps emitting — is no longer present (`minimized: false` above).

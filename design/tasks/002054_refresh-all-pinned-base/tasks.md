@@ -1,0 +1,23 @@
+# Implementation Tasks: Refresh All Pinned Base Image SHA Digests in Dockerfiles
+
+- [ ] Confirm inventory: re-run `grep -nE '^FROM\s' /home/retro/work/helix/**/Dockerfile*` and verify it matches the 11 unique `image:tag` combos in design.md (no new Dockerfiles added since spec).
+- [ ] For each of the 11 unique `image:tag` combos, run `docker buildx imagetools inspect <image>:<tag>` against the live registry to obtain the current multi-arch index manifest digest. Record the mapping `image:tag → new_digest` in one place.
+- [ ] For each resolved digest, confirm the `imagetools inspect` output lists BOTH `linux/amd64` and `linux/arm64`. Flag every image that does not (NVIDIA CUDA is expected; any other miss is a finding for the PR description).
+- [ ] Update `Dockerfile` — refresh digests for `golang:1.25-bookworm` (line 6), `node:23-alpine` (line 97), `debian:bookworm-slim` (line 127).
+- [ ] Update `Dockerfile.sandbox` — refresh digests for `golang:1.25-bookworm` (line 14) and `ubuntu:25.04` (line 44).
+- [ ] Update `Dockerfile.ubuntu-helix` — refresh digests for `golang:1.25-bookworm` (line 27), `ubuntu:25.10` (lines 76, 185), and `nvidia/cuda:12.6.3-runtime-ubuntu24.04` ARG default (line 18).
+- [ ] Update `Dockerfile.sway-helix` — refresh digests for `ubuntu:25.10` (lines 19, 77, 140, 196, 269) and `golang:1.25-bookworm` (line 39).
+- [ ] Update `Dockerfile.zed-build` — refresh digest for `ubuntu:25.10` (line 15).
+- [ ] Update `Dockerfile.qwen-build` — refresh digest for `node:20-slim` (line 12).
+- [ ] Update `Dockerfile.qwen-code-build` — refresh digest for `node:20-slim` (line 12).
+- [ ] Update `Dockerfile.demos` — refresh digest for `golang:1.25-alpine3.22` (line 1).
+- [ ] Update `Dockerfile.lint` — refresh digests for `golangci/golangci-lint:v1.62-alpine` (line 3) and `golang:1.23-alpine3.21` (line 5).
+- [ ] Update `operator/Dockerfile` — refresh digests for `golang:1.25-bookworm` (line 2) and `gcr.io/distroless/static:nonroot` (line 28).
+- [ ] Update `scripts/sse-mcp-server/Dockerfile` — refresh digest for `node:20-slim` (line 1).
+- [ ] Update pin-date comments in `Dockerfile.ubuntu-helix`: lines 10 and 25 from `2026-04-13` to `2026-05-25`, plus refresh the `# - ubuntu:25.10 -> sha256:…` and `# - golang:1.25-bookworm -> sha256:…` summary lines in the header (lines 12–13).
+- [ ] Update pin-date comments in `Dockerfile.sway-helix`: lines 9 and 37 from `2026-04-13` to `2026-05-25`, plus refresh the `# - ubuntu:25.10 -> sha256:…` and `# - golang:1.25-bookworm -> sha256:…` summary lines in the header (lines 11–12).
+- [ ] If NVIDIA CUDA confirmed single-arch, add a one-line clarifying comment (e.g. `# Note: nvidia/cuda tag publishes only linux/amd64; arm64 path uses ubuntu:25.10 via ARG override.`) to the header block of `Dockerfile.ubuntu-helix` around lines 16–18.
+- [ ] Consistency check: for every digest that appears in more than one file, run `grep -rn "<new-digest>" /home/retro/work/helix` and confirm the count matches the "Files using it" row in design.md.
+- [ ] Typo check: for every changed `FROM` line, confirm the SHA hex string is exactly 64 lowercase hex characters and the `image:tag@sha256:` syntax is intact (no stray characters, no truncation).
+- [ ] Multi-arch smoke build: `docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile .` against the helix repo root must succeed without manifest-not-found or pull errors.
+- [ ] Write PR description: list the 11 image:tag combos with old → new digest, call out any single-arch exceptions (NVIDIA CUDA + anything else flagged), and state that no tags / versions / application code changed.
