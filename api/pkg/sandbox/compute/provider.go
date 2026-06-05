@@ -19,8 +19,8 @@
 // A Provider implementation knows how to talk to one upstream
 // compute system and translates Helix's "I need a sandbox host"
 // intent into that system's primitives. The first concrete
-// implementation is yellowdog (built on top of api/pkg/yellowdog),
-// landing in a follow-up.
+// implementation lives at api/pkg/sandbox/compute/yellowdog and
+// targets the YellowDog REST API.
 package compute
 
 import (

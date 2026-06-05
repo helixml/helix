@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
@@ -92,19 +92,24 @@ type Config struct {
 	// InitialBackoff is the first sleep before retry. Subsequent
 	// sleeps double up to a 10s ceiling, with ±25% jitter.
 	InitialBackoff time.Duration
+
+	// AllowInsecureBaseURL permits BaseURL with an http:// scheme.
+	// Off by default - sending a yd-key auth header over cleartext
+	// is a credential leak. Set true only for an httptest server in
+	// unit tests.
+	AllowInsecureBaseURL bool
 }
 
 // Provider implements compute.Provider against the YellowDog REST API.
 // One Provider instance is created per Helix deployment and shared
-// across goroutines (all methods are safe for concurrent use).
+// across goroutines (all methods are safe for concurrent use - all
+// fields are set at NewProvider time and never mutated).
 type Provider struct {
 	cfg     Config
 	creds   credentials
 	httpc   *http.Client
 	baseURL string
 	retry   retryConfig
-
-	mu sync.RWMutex // guards future mutable state (none today)
 }
 
 // Compile-time conformance check. If compute.Provider drifts and
@@ -117,6 +122,13 @@ func NewProvider(cfg Config) (*Provider, error) {
 	creds := credentials{keyID: cfg.APIKeyID, secret: cfg.APISecret}
 	if !creds.valid() {
 		return nil, errors.New("yellowdog: APIKeyID and APISecret are required")
+	}
+	// Reject CR/LF in credentials to foreclose header-injection. Risk
+	// is theoretical (creds are operator-supplied, not user input) but
+	// the check is trivial and prevents a class of mistakes if creds
+	// ever start flowing through less-trusted paths.
+	if strings.ContainsAny(cfg.APIKeyID, "\r\n") || strings.ContainsAny(cfg.APISecret, "\r\n") {
+		return nil, errors.New("yellowdog: APIKeyID and APISecret must not contain CR or LF")
 	}
 	if cfg.Namespace == "" {
 		return nil, errors.New("yellowdog: Namespace is required")
@@ -134,9 +146,26 @@ func NewProvider(cfg Config) (*Provider, error) {
 	if base == "" {
 		base = defaultBaseURL
 	}
+	// HTTPS is mandatory: the yd-key auth header is sent on every
+	// request. Operators who genuinely need http:// (httptest in unit
+	// tests, or a local mock during dev) must opt in explicitly via
+	// AllowInsecureBaseURL.
+	if !cfg.AllowInsecureBaseURL && !strings.HasPrefix(base, "https://") {
+		return nil, fmt.Errorf("yellowdog: BaseURL must use https:// (got %q); set AllowInsecureBaseURL=true to override (tests only)", base)
+	}
 	httpc := cfg.HTTPClient
 	if httpc == nil {
-		httpc = http.DefaultClient
+		// Build a private client that (a) bounds total request time
+		// so a hung TCP connection from a broken upstream can't pin
+		// a goroutine forever, and (b) refuses to follow redirects
+		// so an upstream 302 cannot replay the yd-key Authorization
+		// header against an attacker-influenced host.
+		httpc = &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	return &Provider{
 		cfg:     cfg,
@@ -155,14 +184,22 @@ func NewProvider(cfg Config) (*Provider, error) {
 func (p *Provider) Name() string { return providerName }
 
 // Provision submits a YD work requirement that runs the configured
-// bash script on a worker matching cfg.WorkerTag, then returns
-// immediately with a Handle in StateProvisioning. The script is
-// responsible for bringing up the helix-sandbox container, which
-// later registers back to the Helix control plane via WebSocket.
+// bash script on a worker matching cfg.WorkerTag, then returns a
+// Handle in StateProvisioning. The script is responsible for bringing
+// up the helix-sandbox container, which later registers back to the
+// Helix control plane via WebSocket.
 //
-// Per the compute.Provider contract this is fire-and-forget: the WR
-// status will be RUNNING long before the helix-sandbox process inside
-// it has finished booting and registering.
+// Per the compute.Provider contract this is fire-and-forget with
+// respect to *boot*: the WR status will be RUNNING long before the
+// helix-sandbox process inside it has finished booting and
+// registering. It is NOT fire-and-forget with respect to *submission*
+// - we make two synchronous calls (POST WR, POST task) and one
+// synchronous rollback (PUT cancel) on the second's failure. These
+// are short JSON requests to the YD control plane (~hundreds of ms);
+// the latency is bounded and caller error reporting is informative.
+// If the upstream is slow this can block the caller for a few
+// seconds, so HTTP handlers should run Provision behind a queue or
+// in a request-scoped goroutine, not inline on the response path.
 func (p *Provider) Provision(ctx context.Context, spec compute.Spec) (*compute.Handle, error) {
 	// One TG with one task: the simplest mapping of "one Provision call
 	// = one new sandbox host". Multi-task batches are out of scope.
@@ -250,14 +287,22 @@ func (p *Provider) List(ctx context.Context) ([]*compute.Handle, error) {
 	}
 	out := make([]*compute.Handle, 0, len(wrs))
 	for _, wr := range wrs {
+		state, _ := wrStatusToState(wr.Status)
+		if state == "" {
+			// Unknown YD status. Surface as Failed so the reconciler
+			// notices the drift rather than silently treating it as
+			// "still provisioning".
+			state = compute.StateFailed
+		}
 		out = append(out, &compute.Handle{
 			ProviderName: providerName,
 			ProviderID:   wr.ID,
-			State:        wrStatusToState(wr.Status),
+			State:        state,
 			CreatedAt:    derefTime(wr.CreatedTime),
 			Metadata: map[string]string{
 				"yd.namespace":     wr.Namespace,
 				"yd.work_req_name": wr.Name,
+				"yd.status":        wr.Status,
 			},
 		})
 	}
@@ -278,7 +323,14 @@ func (p *Provider) HealthCheck(ctx context.Context, h *compute.Handle) error {
 		}
 		return fmt.Errorf("yellowdog: HealthCheck: %w", err)
 	}
-	h.State = wrStatusToState(wr.Status)
+	state, known := wrStatusToState(wr.Status)
+	if !known {
+		// Unknown YD status. Don't claim a State (leave it as-is from
+		// the caller) and surface the drift loudly so we notice when
+		// YD adds a new enum value we haven't taught the mapper.
+		return fmt.Errorf("yellowdog: HealthCheck: WR %s in unknown YD status %q", h.ProviderID, wr.Status)
+	}
+	h.State = state
 	switch h.State {
 	case compute.StateFailed:
 		return fmt.Errorf("yellowdog: HealthCheck: WR %s in FAILED state", h.ProviderID)
@@ -390,22 +442,34 @@ func (p *Provider) cancelWorkRequirement(ctx context.Context, id string, force b
 // has finer-grained distinctions than compute.State exposes, and we
 // collapse the differences (e.g. CANCELLING and CANCELLED both
 // become StateTerminating/StateTerminated).
-func wrStatusToState(s string) compute.State {
+//
+// COMPLETED maps to StateTerminated rather than StateReady because
+// each WR runs exactly one task that brings up exactly one host:
+// when YD reports COMPLETED, the task has finished and the host
+// underneath it is gone. The "host is healthy and running" signal
+// comes from RUNNING, not COMPLETED.
+//
+// Returns ("", false) for unknown statuses so the caller can decide
+// whether to treat that as failure or schema drift. Silently
+// defaulting to StateProvisioning hides real bugs - e.g. YD adding
+// a STARTING enum value would have HealthCheck cheerfully report
+// "still booting" forever.
+func wrStatusToState(s string) (compute.State, bool) {
 	switch s {
 	case "RUNNING":
-		return compute.StateReady
+		return compute.StateReady, true
 	case "HELD":
-		return compute.StateProvisioning
+		return compute.StateProvisioning, true
 	case "COMPLETED":
-		return compute.StateTerminated
+		return compute.StateTerminated, true
 	case "FAILED":
-		return compute.StateFailed
+		return compute.StateFailed, true
 	case "CANCELLING":
-		return compute.StateTerminating
+		return compute.StateTerminating, true
 	case "CANCELLED":
-		return compute.StateTerminated
+		return compute.StateTerminated, true
 	default:
-		return compute.StateProvisioning
+		return "", false
 	}
 }
 

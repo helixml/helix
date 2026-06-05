@@ -25,12 +25,13 @@ const defaultBaseURL = "https://portal.yellowdog.co/api"
 // pagination.
 const maxResponseBodyBytes = 8 << 20
 
-// credentials is the YellowDog API key pair. json:"-" tags + the
-// redaction methods below prevent accidental disclosure via the fmt
-// package or accidental JSON marshalling.
+// credentials is the YellowDog API key pair. Disclosure protection
+// relies on the unexported fields (encoding/json skips them by default)
+// AND on the String/GoString methods below redacting fmt output. Do not
+// add log/error sites that print credentials values.
 type credentials struct {
-	keyID  string `json:"-"`
-	secret string `json:"-"`
+	keyID  string
+	secret string
 }
 
 func (c credentials) valid() bool { return c.keyID != "" && c.secret != "" }

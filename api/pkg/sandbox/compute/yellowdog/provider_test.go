@@ -63,14 +63,15 @@ func readAllBody(r *http.Request) ([]byte, error) {
 func (f *fakeServer) provider(t *testing.T) *Provider {
 	t.Helper()
 	cfg := Config{
-		APIKeyID:      "test-key",
-		APISecret:     "test-secret",
-		BaseURL:       f.srv.URL,
-		Namespace:     "test-ns",
-		DeploymentTag: "test-dep",
-		WorkerTag:     "test-worker",
-		TaskTimeout:   240 * time.Minute,
-		HTTPClient:    f.srv.Client(),
+		APIKeyID:             "test-key",
+		APISecret:            "test-secret",
+		BaseURL:              f.srv.URL,
+		Namespace:            "test-ns",
+		DeploymentTag:        "test-dep",
+		WorkerTag:            "test-worker",
+		TaskTimeout:          240 * time.Minute,
+		HTTPClient:           f.srv.Client(),
+		AllowInsecureBaseURL: true, // httptest serves http://
 	}
 	p, err := NewProvider(cfg)
 	if err != nil {
@@ -342,6 +343,49 @@ func TestHealthCheckMapsStatusToState(t *testing.T) {
 	}
 }
 
+func TestHealthCheckUnknownStatusReturnsError(t *testing.T) {
+	f := newFakeServer(t)
+	f.handler = func(w http.ResponseWriter, r *http.Request) {
+		// Imagine YD adds STARTING in a future release.
+		_, _ = w.Write([]byte(`{"id":"wr-1","status":"STARTING"}`))
+	}
+	p := f.provider(t)
+	priorState := compute.State("priorState")
+	h := &compute.Handle{ProviderID: "wr-1", State: priorState}
+	err := p.HealthCheck(context.Background(), h)
+	if err == nil {
+		t.Fatal("expected error for unknown YD status")
+	}
+	if !strings.Contains(err.Error(), "unknown YD status") {
+		t.Fatalf("expected error mentioning unknown YD status, got %q", err.Error())
+	}
+	// Caller's State must NOT be silently overwritten.
+	if h.State != priorState {
+		t.Fatalf("State should remain unchanged on unknown status; got %q", h.State)
+	}
+}
+
+func TestListUnknownStatusSurfacesAsFailed(t *testing.T) {
+	f := newFakeServer(t)
+	f.handler = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[{"id":"wr-1","status":"WEIRD"}]}`))
+	}
+	p := f.provider(t)
+	out, err := p.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 handle, got %d", len(out))
+	}
+	if out[0].State != compute.StateFailed {
+		t.Fatalf("expected StateFailed for unknown status, got %q", out[0].State)
+	}
+	if out[0].Metadata["yd.status"] != "WEIRD" {
+		t.Fatalf("expected yd.status metadata=WEIRD, got %q", out[0].Metadata["yd.status"])
+	}
+}
+
 func TestHealthCheckNotFoundReturnsError(t *testing.T) {
 	f := newFakeServer(t)
 	f.handler = func(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +411,173 @@ func TestAuthHeaderRedactedInStringer(t *testing.T) {
 	}
 	if !strings.Contains(s, "<redacted>") {
 		t.Fatalf("expected <redacted> marker: %q", s)
+	}
+}
+
+func TestNewProviderRejectsInsecureBaseURLByDefault(t *testing.T) {
+	_, err := NewProvider(Config{
+		APIKeyID:      "k",
+		APISecret:     "s",
+		Namespace:     "n",
+		DeploymentTag: "d",
+		WorkerTag:     "w",
+		BaseURL:       "http://yd.example.com/api",
+	})
+	if err == nil {
+		t.Fatal("expected error for http:// BaseURL without AllowInsecureBaseURL")
+	}
+	if !strings.Contains(err.Error(), "https://") {
+		t.Fatalf("error should mention https://, got %q", err.Error())
+	}
+}
+
+func TestNewProviderAllowsInsecureWhenExplicitlyOptedIn(t *testing.T) {
+	p, err := NewProvider(Config{
+		APIKeyID:             "k",
+		APISecret:            "s",
+		Namespace:            "n",
+		DeploymentTag:        "d",
+		WorkerTag:            "w",
+		BaseURL:              "http://yd.example.com/api",
+		AllowInsecureBaseURL: true,
+	})
+	if err != nil {
+		t.Fatalf("expected success with AllowInsecureBaseURL=true: %v", err)
+	}
+	if p.baseURL != "http://yd.example.com/api" {
+		t.Fatalf("baseURL not preserved: %q", p.baseURL)
+	}
+}
+
+func TestNewProviderRejectsCRLFInCredentials(t *testing.T) {
+	bad := []struct {
+		name      string
+		key, sec  string
+		wantToken string
+	}{
+		{"newline in key", "k\nbad", "secret", "CR or LF"},
+		{"carriage return in secret", "k", "se\rcret", "CR or LF"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewProvider(Config{
+				APIKeyID:      tc.key,
+				APISecret:     tc.sec,
+				Namespace:     "n",
+				DeploymentTag: "d",
+				WorkerTag:     "w",
+			})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.wantToken) {
+				t.Fatalf("error %q missing %q", err.Error(), tc.wantToken)
+			}
+		})
+	}
+}
+
+func TestNewProviderDefaultHTTPClientHasTimeoutAndBlocksRedirects(t *testing.T) {
+	// Build a Provider without explicitly setting HTTPClient so we
+	// exercise the default-construction path.
+	p, err := NewProvider(Config{
+		APIKeyID:      "k",
+		APISecret:     "s",
+		Namespace:     "n",
+		DeploymentTag: "d",
+		WorkerTag:     "w",
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	if p.httpc == http.DefaultClient {
+		t.Fatal("default HTTPClient must NOT be http.DefaultClient (no timeout)")
+	}
+	if p.httpc.Timeout == 0 {
+		t.Fatal("default HTTPClient must have a non-zero Timeout")
+	}
+	if p.httpc.CheckRedirect == nil {
+		t.Fatal("default HTTPClient must have a CheckRedirect that blocks redirects")
+	}
+	// The CheckRedirect should return http.ErrUseLastResponse to
+	// short-circuit the redirect without forwarding the auth header.
+	if got := p.httpc.CheckRedirect(nil, nil); got != http.ErrUseLastResponse {
+		t.Fatalf("expected http.ErrUseLastResponse, got %v", got)
+	}
+}
+
+func TestRetryOn500ThenSuccess(t *testing.T) {
+	f := newFakeServer(t)
+	calls := 0
+	f.handler = func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"status":500,"title":"flake"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"wr-1","status":"RUNNING"}`))
+	}
+	cfg := Config{
+		APIKeyID:             "k",
+		APISecret:            "s",
+		BaseURL:              f.srv.URL,
+		Namespace:            "n",
+		DeploymentTag:        "d",
+		WorkerTag:            "w",
+		HTTPClient:           f.srv.Client(),
+		AllowInsecureBaseURL: true,
+		MaxRetries:           2,
+		InitialBackoff:       1 * time.Millisecond,
+	}
+	p, err := NewProvider(cfg)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	// GET is idempotent, so retry applies.
+	h := &compute.Handle{ProviderID: "wr-1"}
+	if err := p.HealthCheck(context.Background(), h); err != nil {
+		t.Fatalf("HealthCheck: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls (1 fail + 1 retry success), got %d", calls)
+	}
+	if h.State != compute.StateReady {
+		t.Fatalf("expected StateReady after retry, got %q", h.State)
+	}
+}
+
+func TestPOSTIsNotRetried(t *testing.T) {
+	f := newFakeServer(t)
+	calls := 0
+	f.handler = func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"status":500,"title":"flake"}`))
+	}
+	cfg := Config{
+		APIKeyID:             "k",
+		APISecret:            "s",
+		BaseURL:              f.srv.URL,
+		Namespace:            "n",
+		DeploymentTag:        "d",
+		WorkerTag:            "w",
+		HTTPClient:           f.srv.Client(),
+		AllowInsecureBaseURL: true,
+		MaxRetries:           5,
+		InitialBackoff:       1 * time.Millisecond,
+	}
+	p, err := NewProvider(cfg)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = p.Provision(context.Background(), compute.Spec{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// POST is NOT in the idempotent set, so it must be attempted exactly once.
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 POST attempt (no retry), got %d", calls)
 	}
 }
 
