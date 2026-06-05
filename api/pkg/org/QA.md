@@ -374,12 +374,11 @@ token:
   `agent.Env` on container create. If this line is missing for
   a session whose secret row exists, the projection path is
   broken (runtime regression).
-- WARN `put project secret failed … already exists for this
-  project` is **expected** on every activation after the first
-  for now (PutProjectSecret is not idempotent against existing
-  secrets). The first-activation token sticks; OAuth rotation
-  does NOT propagate — re-hire the worker, or delete + recreate
-  the secret manually, to refresh.
+- `PutProjectSecret` upserts: every activation overwrites
+  `GH_TOKEN` with whatever the resolver returns. OAuth rotation
+  propagates on the next session without re-hiring. No WARN
+  `put project secret failed … already exists` should appear in
+  steady state; if it does, the upsert path regressed.
 
 **§12c. Stale-session recovery after `./stack build-ubuntu`.**
 Image rebuilds leave every pre-existing exploratory session row

@@ -191,17 +191,67 @@ func (c *inProcHelixClient) UpdateProject(ctx context.Context, id string, patch 
 	return *resp, nil
 }
 
-// PutProjectSecret upserts a project-scoped secret. Routes through
-// HelixAPIServer.createProjectSecret. Helix's underlying store does an
-// upsert on (project_id, name) so re-calling with the same name updates.
+// PutProjectSecret upserts a project-scoped secret.
+//
+// The underlying store does NOT upsert: store.CreateSecret rejects
+// duplicates on (owner, name, project_id, app_id) with "already
+// exists", and the public POST handler exposes that error verbatim
+// (intentional — UI users editing secrets get duplicate-name form
+// validation). Plain "POST create" therefore breaks the spawner,
+// which runs on every activation and needs idempotent write +
+// in-place value refresh so a rotated OAuth token actually
+// propagates to the next session without re-hiring.
+//
+// So here we list-then-create-or-update:
+//   - GET /api/v1/projects/<id>/secrets and find any secret named
+//     `name`. listProjectSecrets strips Value (we only need the ID).
+//   - If none, POST /api/v1/projects/<id>/secrets to create.
+//   - If one exists, PUT /api/v1/secrets/<existing-id> to overwrite
+//     the value in place. updateSecret preserves owner / project_id
+//     / app_id so the row stays project-scoped.
+//
+// Race note: two concurrent activations for the same project +
+// name could both see "no existing" and both POST — the second
+// would hit the duplicate-name error. The spawner already logs
+// (and tolerates) PutProjectSecret errors as best-effort, and
+// activations for the same worker serialize at the spawner level,
+// so the race window is theoretical for current callers.
 func (c *inProcHelixClient) PutProjectSecret(ctx context.Context, projectID, name, value string) error {
-	body := types.CreateSecretRequest{Name: name, Value: value}
-	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/projects/"+projectID+"/secrets", body, map[string]string{"id": projectID})
+	listReq, err := c.newRequest(ctx, http.MethodGet, "/api/v1/projects/"+projectID+"/secrets", nil, map[string]string{"id": projectID})
 	if err != nil {
 		return err
 	}
-	if _, herr := c.server.createProjectSecret(nil, r); herr != nil {
-		return fmt.Errorf("put project secret: %s", herr.Error())
+	existing, herr := c.server.listProjectSecrets(nil, listReq)
+	if herr != nil {
+		return fmt.Errorf("put project secret (list): %s", herr.Error())
+	}
+	var existingID string
+	for _, s := range existing {
+		if s != nil && s.Name == name {
+			existingID = s.ID
+			break
+		}
+	}
+
+	if existingID == "" {
+		body := types.CreateSecretRequest{Name: name, Value: value}
+		r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/projects/"+projectID+"/secrets", body, map[string]string{"id": projectID})
+		if err != nil {
+			return err
+		}
+		if _, herr := c.server.createProjectSecret(nil, r); herr != nil {
+			return fmt.Errorf("put project secret: %s", herr.Error())
+		}
+		return nil
+	}
+
+	updateBody := types.Secret{Value: []byte(value)}
+	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/secrets/"+existingID, updateBody, map[string]string{"id": existingID})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.updateSecret(nil, r); herr != nil {
+		return fmt.Errorf("put project secret (update): %s", herr.Error())
 	}
 	return nil
 }
