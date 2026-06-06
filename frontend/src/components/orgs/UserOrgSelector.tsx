@@ -400,7 +400,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // Projects so it sits with the other primary org-level surfaces.
       ...(helixOrgEnabled ? [{
         icon: <Network size={NAV_BUTTON_SIZE} />,
-        tooltip: "View org overview",
+        tooltip: "View org chart",
         isActive: router.name.startsWith('helix_org'),
         onClick: handleHelixOrgClick,
         label: "Org",

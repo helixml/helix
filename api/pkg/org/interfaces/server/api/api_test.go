@@ -246,6 +246,70 @@ func TestPostWorkerRole_UpdatesRoleAssignment(t *testing.T) {
 	}
 }
 
+// TestPostWorkerParent_SetClearCycle pins the chart's drag-to-reparent
+// endpoint: setting a parent persists, an empty body clears it, an
+// unknown parent 404s, and an edge that would close a reporting loop is
+// rejected with 409 (the cycle guard).
+func TestPostWorkerParent_SetClearCycle(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	h := orgapi.Handler(deps)
+	ctx := context.Background()
+
+	seedOwnerPosition(t, st, ctx)
+	mustCreateAIWorker(t, st, ctx, "w-owner", "r-owner", "owner identity")
+	mustCreateAIWorker(t, st, ctx, "w-alice", "r-owner", "alice identity")
+	mustCreateAIWorker(t, st, ctx, "w-bob", "r-owner", "bob identity")
+
+	parentOf := func(id string) string {
+		rec := do(t, h, "GET", "/workers/"+id, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s status: got %d, want 200; body=%s", id, rec.Code, rec.Body)
+		}
+		var detail orgapi.WorkerDetailDTO
+		decode(t, rec, &detail)
+		return detail.Worker.ParentID
+	}
+
+	// Set: w-alice reports to w-owner.
+	rec := do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-owner"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("set parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+	}
+	if got := parentOf("w-alice"); got != "w-owner" {
+		t.Fatalf("w-alice parent: got %q, want w-owner", got)
+	}
+
+	// Chain: w-bob reports to w-alice.
+	rec = do(t, h, "POST", "/workers/w-bob/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-alice"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("chain parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+	}
+
+	// Cycle guard: w-alice → w-bob would close w-alice→w-bob→w-alice.
+	rec = do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-bob"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("cycle status: got %d, want 409; body=%s", rec.Code, rec.Body)
+	}
+	if got := parentOf("w-alice"); got != "w-owner" {
+		t.Fatalf("w-alice parent after rejected cycle: got %q, want unchanged w-owner", got)
+	}
+
+	// Unknown parent → 404.
+	rec = do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-ghost"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown parent status: got %d, want 404; body=%s", rec.Code, rec.Body)
+	}
+
+	// Clear: empty body makes w-alice top-level again.
+	rec = do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: ""})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("clear parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+	}
+	if got := parentOf("w-alice"); got != "" {
+		t.Fatalf("w-alice parent after clear: got %q, want empty", got)
+	}
+}
+
 // seedOwnerPosition creates the canonical r-owner / p-root pair that
 // tests hire workers under. Mirrors bootstrap.Run's first two writes
 // without dragging in the bootstrap package's environment-dir

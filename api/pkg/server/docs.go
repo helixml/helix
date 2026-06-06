@@ -10311,6 +10311,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/workers/{id}/parent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: set worker parent (reporting line)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New parent worker id ('' to clear)",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateWorkerParentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/workers/{id}/role": {
             "post": {
                 "security": [
@@ -20466,6 +20523,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "identity": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UpdateWorkerParentRequest": {
+            "type": "object",
+            "properties": {
+                "parent_id": {
                     "type": "string"
                 }
             }

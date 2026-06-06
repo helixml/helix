@@ -185,6 +185,10 @@ export interface ApiUpdateWorkerIdentityRequest {
   identity?: string;
 }
 
+export interface ApiUpdateWorkerParentRequest {
+  parent_id?: string;
+}
+
 export interface ApiUpdateWorkerRoleRequest {
   content?: string;
 }
@@ -12025,6 +12029,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/workers/${id}/identity`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersParentCreate
+     * @summary Helix-org: set worker parent (reporting line)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/parent
+     * @secure
+     */
+    v1OrgsWorkersParentCreate: (
+      id: string,
+      org: string,
+      payload: ApiUpdateWorkerParentRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/parent`,
         method: "POST",
         body: payload,
         secure: true,

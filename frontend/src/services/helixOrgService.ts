@@ -222,6 +222,65 @@ export function useHireHelixOrgWorker() {
   })
 }
 
+// useReparentWorker rewires who a Worker reports to. parentID === ''
+// clears the manager (Worker becomes top-level). Drives the chart's
+// drag-to-reparent: dragging manager → subordinate sets parent_id,
+// deleting the edge clears it. Invalidates overview + the worker list
+// so the new accountability edge renders on the next refetch.
+export function useReparentWorker() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
+      await api.getApiClient().v1OrgsWorkersParentCreate(workerID, orgID, { parent_id: parentID })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+    },
+  })
+}
+
+// useSubscribeWorkerAtChart drives the chart's drag-to-subscribe flow.
+// Each call carries its own (workerID, streamID) because the chart
+// wires arbitrary Workers to arbitrary streams; useSubscribeWorker is
+// bound to a single workerID and so doesn't fit the canvas's onConnect.
+export function useSubscribeWorkerAtChart() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, streamID }: { workerID: string; streamID: string }) => {
+      await api.getApiClient().v1OrgsWorkersSubscriptionsCreate(workerID, orgID, { stream_id: streamID })
+    },
+    onSuccess: (_data, { workerID }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+// useUnsubscribeWorkerAtChart is the chart-scoped counterpart of
+// useSubscribeWorkerAtChart — it drops a (worker, stream) subscription
+// when the user deletes a subscription edge on the canvas.
+export function useUnsubscribeWorkerAtChart() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, streamID }: { workerID: string; streamID: string }) => {
+      await api.getApiClient().v1OrgsWorkersSubscriptionsDelete(workerID, streamID, orgID)
+    },
+    onSuccess: (_data, { workerID }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
 export function useFireHelixOrgWorker() {
   const api = useApi()
   const qc = useQueryClient()

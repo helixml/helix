@@ -26,8 +26,13 @@ of repeating steps.
   (specialisation) or only the on-call subset of a Role wake up on
   an event (load patterns).
 
-The chart UI is gone. The Overview tab groups Workers by Role
-(role cards, click a Role to edit, click a Worker to open detail).
+The Chart tab is a ReactFlow canvas. Roles are group frames that
+contain their Workers (a Role can hold many Workers). Worker → Worker
+edges are reporting lines derived from `worker.parent_id`; drag from a
+manager's bottom handle to a subordinate to set it, delete the edge to
+clear it. Streams hang off the right; drag from a Worker's right handle
+to a Stream to subscribe. Click a Role header to edit it, a Worker to
+open its detail page.
 
 ## Setup
 
@@ -37,11 +42,11 @@ sidebar. Tests run against `…/orgs/<org>/helix-org/*`.
 
 ## §1. Bootstrap + sidebar
 
-1. Land on `…/helix-org/overview`. Middle sidebar shows highlighted
-   **Overview** plus **Roles / Workers / Streams / Settings**.
-2. Overview shows one Role card: `r-owner` with one Worker badge
+1. Land on `…/helix-org/chart`. Middle sidebar shows highlighted
+   **Chart** plus **Roles / Workers / Streams / Settings**.
+2. Chart shows one Role frame: `r-owner` containing one Worker node
    `w-owner`. No other roles, no other workers.
-3. Network tab: `/overview /workers /roles /streams` requests all
+3. Network tab: `/workers /roles /streams` requests all
    2xx in parallel (bootstrap-race regression — see §1 in prior
    plan: first request used to win, the rest 500-ed with
    `create owner role: already exists`).
@@ -85,8 +90,8 @@ in that Role on their next MCP request.
 Pins the AI-hire path, the owner protections, and the cascade
 dialogs.
 
-1. **+ New Worker** (the Workers tab grew a primary action button
-   now that the chart canvas is gone). Form: `id`, `kind`,
+1. **+ New Worker** (the Workers tab primary action button; the Chart
+   also hires via the per-Role hire icon). Form: `id`, `kind`,
    `role_id` (dropdown), `parent_id` (optional, defaults to
    `w-owner`), `identity_content`.
 2. Submit kind `ai`, id `w-ai-1`, role `r-test-dm`,
@@ -108,7 +113,7 @@ dialogs.
 
 ## §4. Cross-org isolation, persistence, theme
 
-1. Switch to a second org via the top-left selector. Overview
+1. Switch to a second org via the top-left selector. The Chart
    shows the fresh `r-owner / w-owner` baseline — no leakage from
    the first org. Hire something in the second org and switch
    back: first org unchanged.
@@ -116,7 +121,7 @@ dialogs.
    `ResetSchema=true` on production wiring used to drop every
    `org_*` table on boot).
 3. Toggle the top-right sun/moon. Both modes render the
-   overview cards cleanly.
+   Chart canvas (role frames, worker nodes, stream nodes) cleanly.
 
 ## §5. Workers list
 
@@ -219,6 +224,41 @@ the worker detail page → lands on
 (Unchanged. Position-removal did not touch the sandbox /
 spawner pipeline. Procedures in the prior QA.md history.)
 
+## §12. Chart canvas: reporting + subscription drag (regression: position-less reparent)
+
+The Chart is a ReactFlow canvas keyed entirely off `worker.parent_id`
+and worker-anchored subscriptions — there are no Position rows. This
+pins the drag interactions and the `POST /workers/{id}/parent` endpoint.
+
+1. On `…/helix-org/chart`, hire two AI workers into a new role
+   `r-eng` via the role frame's hire icon: `w-alice`, `w-bob`. Both
+   appear as Worker nodes inside the `r-eng` frame with no reporting
+   edges (top-level orphans).
+2. Drag from `w-owner`'s **bottom** handle to `w-alice`'s **top**
+   handle. A solid reporting edge appears; snackbar `w-alice now
+   reports to w-owner`. DB: `SELECT parent_id FROM org_workers WHERE
+   id='w-alice'` → `w-owner`. The `r-owner` frame now sits above
+   `r-eng` (dagre lays the role tree out from the cross-role edge).
+3. Drag from `w-alice`'s bottom handle to `w-bob`'s top handle →
+   `w-bob` reports to `w-alice` (intra-role edge; both stay in
+   `r-eng`).
+4. **Cycle guard**: drag from `w-bob`'s bottom handle to `w-alice`'s
+   top handle (would make alice→bob→alice). API returns 409; snackbar
+   surfaces the cycle error; no edge added. DB unchanged.
+5. Select the `w-owner → w-alice` edge, press **Delete** (and retest
+   with **Backspace**). Edge gone; snackbar `w-alice no longer
+   reports to anyone`; `parent_id` cleared in DB.
+6. Create a stream `s-test` (Streams tab). It appears as a dashed
+   node to the right of the tree. Drag from `w-alice`'s **right**
+   (amber) handle to `s-test` → dashed subscription edge; snackbar
+   `w-alice now consumes s-test`. `GET /streams` shows `w-alice` in
+   subscribers.
+7. Delete the subscription edge → `w-alice` drops from the stream's
+   subscriber list (worker-anchored unsubscribe).
+8. Fire `w-alice` from her node's trash icon → confirm dialog lists
+   that her one direct report (`w-bob`) loses its manager. Confirm;
+   node gone, `w-bob`'s edge to her removed.
+
 ## Pass criteria
 
 - §1 — bootstrap creates one Worker (`w-owner` with `role_id =
@@ -251,7 +291,6 @@ spawner pipeline. Procedures in the prior QA.md history.)
 - A Worker's `parent_id` points at at most one other Worker.
   Hierarchy is a tree (no co-managers in the current model).
 - `w-owner` / `r-owner` are protected at the API; UI hides the
-  trash affordance and surfaces a friendly 409.
-- The Overview tab does not currently visualise the reporting
-  tree (parent_id chains). It groups by Role. Future iteration
-  can layer a tree view on the same data.
+  trash/fire affordance and surfaces a friendly 409.
+- Reparenting is cycle-guarded server-side: dragging a manager edge
+  that would close a reporting loop is rejected with a 409.

@@ -294,6 +294,11 @@ definitions:
       identity:
         type: string
     type: object
+  api.UpdateWorkerParentRequest:
+    properties:
+      parent_id:
+        type: string
+    type: object
   api.UpdateWorkerRoleRequest:
     properties:
       content:
@@ -17892,6 +17897,42 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: update worker identity'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/parent:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New parent worker id ('' to clear)
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateWorkerParentRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: set worker parent (reporting line)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/workers/{id}/role:

@@ -127,6 +127,14 @@ type UpdateWorkerRoleRequest struct {
 	Content string `json:"content"`
 }
 
+// UpdateWorkerParentRequest is the body of POST /workers/{id}/parent.
+// ParentID is the Worker this one now reports to; an empty string
+// clears the manager (the Worker becomes top-level). The chart UI
+// posts this when an accountability edge is drawn or deleted.
+type UpdateWorkerParentRequest struct {
+	ParentID string `json:"parent_id"`
+}
+
 // SettingsSpecDTO is one row in GET /settings.
 type SettingsSpecDTO struct {
 	Key         string `json:"key"`
