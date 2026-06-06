@@ -555,8 +555,8 @@ const routes: IApplicationRoute[] = [
   },
 }, {
   name: 'helix_org_chart',
-  path: '/orgs/:org_id/helix-org/overview',
-  meta: { drawer: true, title: 'Helix Org · Overview' },
+  path: '/orgs/:org_id/helix-org/chart',
+  meta: { drawer: true, title: 'Helix Org · Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_roles',

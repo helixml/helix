@@ -23,6 +23,11 @@ type Worker interface {
 	IdentityContent() string
 	OrganizationID() string
 	WithIdentityContent(content string) Worker
+	// WithParentID returns a copy of the Worker reporting to parent.
+	// A nil parent makes the Worker top-level (no manager); the chart
+	// UI uses this when an edge is deleted. Returns an error if the
+	// parent is the Worker itself or an empty (non-nil) id.
+	WithParentID(parent *WorkerID) (Worker, error)
 	isWorker()
 }
 
@@ -64,6 +69,13 @@ func (h *HumanWorker) OrganizationID() string  { return h.orgID }
 func (h *HumanWorker) WithIdentityContent(content string) Worker {
 	return &HumanWorker{id: h.id, roleID: h.roleID, parentID: cloneParent(h.parentID), identityContent: content, orgID: h.orgID}
 }
+func (h *HumanWorker) WithParentID(parent *WorkerID) (Worker, error) {
+	p, err := validateParent(h.id, parent)
+	if err != nil {
+		return nil, err
+	}
+	return &HumanWorker{id: h.id, roleID: h.roleID, parentID: p, identityContent: h.identityContent, orgID: h.orgID}, nil
+}
 func (h *HumanWorker) isWorker() {}
 
 // AIWorker represents a software agent inside the organisation.
@@ -101,6 +113,13 @@ func (a *AIWorker) IdentityContent() string { return a.identityContent }
 func (a *AIWorker) OrganizationID() string  { return a.orgID }
 func (a *AIWorker) WithIdentityContent(content string) Worker {
 	return &AIWorker{id: a.id, roleID: a.roleID, parentID: cloneParent(a.parentID), identityContent: content, orgID: a.orgID}
+}
+func (a *AIWorker) WithParentID(parent *WorkerID) (Worker, error) {
+	p, err := validateParent(a.id, parent)
+	if err != nil {
+		return nil, err
+	}
+	return &AIWorker{id: a.id, roleID: a.roleID, parentID: p, identityContent: a.identityContent, orgID: a.orgID}, nil
 }
 func (a *AIWorker) isWorker() {}
 

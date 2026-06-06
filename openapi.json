@@ -12365,6 +12365,76 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/workers/{id}/parent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: set worker parent (reporting line)",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpdateWorkerParentRequest"
+                            }
+                        }
+                    },
+                    "description": "New parent worker id ('' to clear)",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/workers/{id}/role": {
             "post": {
                 "security": [
@@ -24639,6 +24709,14 @@
                 "type": "object",
                 "properties": {
                     "identity": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.UpdateWorkerParentRequest": {
+                "type": "object",
+                "properties": {
+                    "parent_id": {
                         "type": "string"
                     }
                 }

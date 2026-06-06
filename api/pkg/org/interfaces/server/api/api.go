@@ -176,6 +176,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
+		{Pattern: "POST /workers/{id}/parent", Handler: http.HandlerFunc(a.reparentWorker)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
@@ -780,6 +781,97 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := a.deps.Store.Workers.Update(ctx, existing.WithIdentityContent(req.Identity)); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("update worker: %w", err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// reparentWorker sets (or clears) the Worker this one reports to. The
+// chart UI calls it when an accountability edge is drawn between two
+// Worker nodes (set parent) or deleted (clear parent, empty body).
+//
+// Validation beyond the domain's self-parent check:
+//   - a non-empty parent must reference a Worker that exists in the org
+//   - the new parent must not be a descendant of this Worker, which
+//     would create a reporting cycle
+//
+// @Summary Helix-org: set worker parent (reporting line)
+// @Tags HelixOrg
+// @Accept json
+// @Param id path string true "Worker ID"
+// @Param payload body api.UpdateWorkerParentRequest true "New parent worker id ('' to clear)"
+// @Success 204
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/workers/{id}/parent [post]
+func (a *apiHandler) reparentWorker(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.WorkerID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
+		return
+	}
+	var req UpdateWorkerParentRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	existing, err := a.deps.Store.Workers.Get(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
+		return
+	}
+
+	var parent *orgchart.WorkerID
+	parentID := strings.TrimSpace(req.ParentID)
+	if parentID != "" {
+		pid := orgchart.WorkerID(parentID)
+		// The parent must exist before we wire to it.
+		if _, err := a.deps.Store.Workers.Get(ctx, orgID, pid); err != nil {
+			writeError(w, errStatus(err), fmt.Errorf("get parent worker %s: %w", pid, err))
+			return
+		}
+		// Cycle guard: walk up from the proposed parent via parent_id.
+		// If we reach this Worker, the edge would close a loop. We load
+		// the full set once and chase pointers in memory rather than
+		// issuing a Get per hop.
+		all, err := a.deps.Store.Workers.List(ctx, orgID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
+			return
+		}
+		byID := make(map[orgchart.WorkerID]orgchart.Worker, len(all))
+		for _, wk := range all {
+			byID[wk.ID()] = wk
+		}
+		for cursor := &pid; cursor != nil; {
+			if *cursor == id {
+				writeError(w, http.StatusConflict, fmt.Errorf("reparenting %s under %s would create a reporting cycle", id, pid))
+				return
+			}
+			wk, ok := byID[*cursor]
+			if !ok {
+				break
+			}
+			cursor = wk.ParentID()
+		}
+		parent = &pid
+	}
+
+	updated, err := existing.WithParentID(parent)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := a.deps.Store.Workers.Update(ctx, updated); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("update worker: %w", err))
 		return
 	}

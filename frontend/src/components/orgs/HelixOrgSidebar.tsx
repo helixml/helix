@@ -32,8 +32,8 @@ const HelixOrgSidebar: FC = () => {
     {
       items: [
         {
-          id: 'overview',
-          label: 'Overview',
+          id: 'chart',
+          label: 'Chart',
           icon: <Network size={18} />,
           isActive: currentRouteName === 'helix_org_chart' || currentRouteName === 'helix_org_root',
           onClick: () => navigateTo('helix_org_chart'),
