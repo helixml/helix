@@ -16,8 +16,7 @@ import (
 )
 
 // orgRowTypes is the canonical list of org-* tables. Kept in one
-// place so the schema reset + FK installation loops stay in sync
-// with AutoMigrate.
+// place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
 	&roleRow{},
 	&workerRow{},
@@ -31,11 +30,11 @@ var orgRowTypes = []any{
 }
 
 // orgTableNames returns the SQL table names for orgRowTypes. Used by
-// the schema-reset path and the FK installer. The `org_grants` and
-// `org_positions` tables are intentionally absent — capability is
-// derived from Role.Tools and Workers hold their own role/parent
-// directly, so both tables are dropped on first boot of this
-// revision (see migration_scripts).
+// the FK installer. The legacy `org_grants` and `org_positions`
+// tables are intentionally absent — capability is derived from
+// Role.Tools and Workers hold their own role/parent directly. Those
+// tables are no longer migrated; any pre-existing rows are simply
+// orphaned (left in place, never read).
 var orgTableNames = []string{
 	"org_roles",
 	"org_workers",
@@ -51,14 +50,6 @@ var orgTableNames = []string{
 // Options controls OpenWithDB behaviour for callers that need to
 // opt out of one of the migration steps.
 type Options struct {
-	// ResetSchema drops every org_* table before AutoMigrate. The
-	// composite-PK schema (id, org_id) is not auto-migratable from
-	// the prior single-PK shape — production deployments of the alpha
-	// pass true on the first deploy of the multi-tenant schema and
-	// false thereafter. Tests always pass true so per-test schemas
-	// land in a known-good state.
-	ResetSchema bool
-
 	// InstallOrganizationFK adds `org_id REFERENCES organizations(id)
 	// ON DELETE CASCADE` to every org_* table. Skipped when the
 	// `organizations` table doesn't exist in the current search_path
@@ -73,17 +64,6 @@ type Options struct {
 func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if db == nil {
 		return nil, fmt.Errorf("org-store gorm: db is nil")
-	}
-
-	if opts.ResetSchema {
-		// Drop in reverse-dependency order so FK constraints (when
-		// present) don't block individual drops. Postgres DROP TABLE
-		// IF EXISTS … CASCADE handles the rest.
-		for i := len(orgTableNames) - 1; i >= 0; i-- {
-			if err := db.Migrator().DropTable(orgTableNames[i]); err != nil {
-				return nil, fmt.Errorf("drop %s: %w", orgTableNames[i], err)
-			}
-		}
 	}
 
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
