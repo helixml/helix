@@ -27,11 +27,11 @@ import (
 // lets the env layer evolve (local files today, remote workspaces
 // tomorrow) without touching the tools.
 //
-// A Worker's MCP tool surface is derived live from their Position's
-// Role.Tools: change the Role and every Worker filling a Position
-// pointing at it sees the new tool set on the next MCP request. There
-// is no per-Worker grants table and no `grants` parameter on this
-// tool — capability is the Role's responsibility.
+// A Worker's MCP tool surface is derived live from Role.Tools: change
+// the Role and every Worker holding it sees the new tool set on the
+// next MCP request. There is no per-Worker grants table and no
+// `grants` parameter on this tool — capability is the Role's
+// responsibility.
 //
 // hire_worker does not subscribe to Streams; the hiring Worker does
 // that explicitly after the Worker is alive, typically via the Worker's
@@ -64,14 +64,15 @@ var hireWorkerSchema = mustSchema[hireWorkerArgs]()
 func (t *HireWorker) Name() tool.Name                 { return HireWorkerName }
 func (t *HireWorker) InputSchema() *jsonschema.Schema { return hireWorkerSchema }
 func (t *HireWorker) Description() string {
-	return "Hire a Worker into a Position. The Worker's identityContent (per-hire persona / " +
+	return "Hire a Worker into a Role. The Worker's identityContent (per-hire persona / " +
 		"profile) is stored in the domain alongside the Worker row; the spawner projects " +
 		"role and identity into the Environment at activation time. The Worker's MCP tool " +
-		"surface comes from their Position's Role.Tools — to change a Worker's " +
-		"capabilities, edit the Role.\n\n" +
+		"surface comes from Role.Tools — to change a Worker's capabilities, edit the Role.\n\n" +
+		"`parentId` is the manager Worker this hire reports to. Omit it only for the org " +
+		"owner (bootstrap creates that); every other Worker has a manager.\n\n" +
 		"Always supply `id` as a short, real-sounding handle: a lowercase given name " +
 		"prefixed with `w-`, e.g. `w-mark`, `w-priya`, `w-jordan`. Pick a name that fits " +
-		"the Position and isn't already taken. Do NOT pass a UUID and do NOT omit `id` " +
+		"the Role and isn't already taken. Do NOT pass a UUID and do NOT omit `id` " +
 		"to let the server invent one — the auto-generated `w-<uuid>` form is reserved as " +
 		"a last-resort fallback and is unpleasant to read in logs and UIs. If your first " +
 		"choice collides, try a variant (`w-mark-2`, `w-marko`) rather than falling back " +
@@ -80,7 +81,8 @@ func (t *HireWorker) Description() string {
 
 type hireWorkerArgs struct {
 	ID              string              `json:"id,omitempty"`
-	PositionID      string              `json:"positionId"`
+	RoleID          string              `json:"roleId"`
+	ParentID        string              `json:"parentId,omitempty"`
 	Kind            orgchart.WorkerKind `json:"kind"`
 	IdentityContent string              `json:"identityContent"`
 }
@@ -92,6 +94,9 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	}
 	if err := args.Kind.Validate(); err != nil {
 		return nil, err
+	}
+	if args.RoleID == "" {
+		return nil, fmt.Errorf("roleId is required")
 	}
 	if args.IdentityContent == "" {
 		return nil, fmt.Errorf("identityContent is required")
@@ -105,9 +110,18 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return nil, fmt.Errorf("hire_worker: caller has no OrgID")
 	}
 
-	pos, err := t.deps.Store.Positions.Get(ctx, orgID, orgchart.PositionID(args.PositionID))
-	if err != nil {
-		return nil, fmt.Errorf("position %q: %w", args.PositionID, err)
+	roleID := orgchart.RoleID(args.RoleID)
+	if _, err := t.deps.Store.Roles.Get(ctx, orgID, roleID); err != nil {
+		return nil, fmt.Errorf("role %q: %w", args.RoleID, err)
+	}
+
+	var parent *orgchart.WorkerID
+	if args.ParentID != "" {
+		parentID := orgchart.WorkerID(args.ParentID)
+		if _, err := t.deps.Store.Workers.Get(ctx, orgID, parentID); err != nil {
+			return nil, fmt.Errorf("parent worker %q: %w", args.ParentID, err)
+		}
+		parent = &parentID
 	}
 
 	id := orgchart.WorkerID(args.ID)
@@ -119,13 +133,13 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	var wkr orgchart.Worker
 	switch args.Kind {
 	case orgchart.WorkerKindHuman:
-		w, err := orgchart.NewHumanWorker(id, pos.ID, args.IdentityContent, orgID)
+		w, err := orgchart.NewHumanWorker(id, roleID, parent, args.IdentityContent, orgID)
 		if err != nil {
 			return nil, err
 		}
 		wkr = w
 	case orgchart.WorkerKindAI:
-		w, err := orgchart.NewAIWorker(id, pos.ID, args.IdentityContent, orgID)
+		w, err := orgchart.NewAIWorker(id, roleID, parent, args.IdentityContent, orgID)
 		if err != nil {
 			return nil, err
 		}

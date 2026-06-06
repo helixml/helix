@@ -26,7 +26,9 @@ var subscribeSchema = mustSchema[subscribeArgs]()
 
 func (t *Subscribe) Name() tool.Name { return SubscribeName }
 func (t *Subscribe) Description() string {
-	return "Subscribe the calling Worker to a Stream. Idempotent: a no-op if already subscribed."
+	return "Subscribe the calling Worker to a Stream. Idempotent: a no-op if already subscribed. " +
+		"Subscriptions are per-Worker: firing this Worker drops the subscription, and a new " +
+		"hire into the same Role does not automatically inherit it."
 }
 func (t *Subscribe) InputSchema() *jsonschema.Schema { return subscribeSchema }
 
@@ -51,32 +53,22 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
 
-	// Subscriptions are position-anchored: resolve the calling worker
-	// to its position, then subscribe the position. The LLM still
-	// talks in worker terms (the tool args mention "the calling
-	// worker"); positions are an implementation detail that survives
-	// firings.
 	workerID := inv.Caller.ID()
-	worker, err := t.deps.Store.Workers.Get(ctx, orgID, workerID)
-	if err != nil {
+	if _, err := t.deps.Store.Workers.Get(ctx, orgID, workerID); err != nil {
 		return nil, fmt.Errorf("get caller worker %q: %w", workerID, err)
 	}
-	positionID := worker.Position()
-	if positionID == "" {
-		return nil, fmt.Errorf("subscribe: caller worker %q is unassigned (no position)", workerID)
-	}
-	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, positionID, streamID); err == nil {
-		return json.Marshal(map[string]string{"workerId": string(workerID), "positionId": string(positionID), "streamId": string(streamID)})
+	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, workerID, streamID); err == nil {
+		return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
 
-	sub, err := streaming.NewSubscription(string(positionID), streamID, t.deps.Now(), orgID)
+	sub, err := streaming.NewSubscription(string(workerID), streamID, t.deps.Now(), orgID)
 	if err != nil {
 		return nil, err
 	}
 	if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"workerId": string(workerID), "positionId": string(positionID), "streamId": string(streamID)})
+	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
 }

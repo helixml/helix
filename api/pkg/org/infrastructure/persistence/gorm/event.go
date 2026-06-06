@@ -84,32 +84,23 @@ func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]st
 }
 
 func (r *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
-	// Subscriptions are now position-anchored, so "what does this
-	// worker see" goes through their position(s): look up the worker
-	// → get their position → join events against subscriptions for
-	// that position. A worker with no position has an empty visible
-	// stream set, same wire shape as the old worker-anchored
-	// implementation when no subscriptions existed.
+	// Subscriptions are worker-anchored. Join events against
+	// subscriptions for this worker directly.
 	if r.workers == nil {
 		return nil, fmt.Errorf("eventsRepo: workers repo not wired")
 	}
-	worker, err := r.workers.Get(ctx, orgID, workerID)
-	if err != nil {
+	if _, err := r.workers.Get(ctx, orgID, workerID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("resolve worker for event listing: %w", err)
-	}
-	positionID := string(worker.Position())
-	if positionID == "" {
-		return nil, nil
 	}
 	return r.Repository.Find(ctx,
 		store.WithTable("org_events AS e"),
 		store.WithJoin("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id AND s.org_id = e.org_id"),
 		store.WithSelect("e.*"),
 		store.WithCondition("e.org_id", orgID),
-		store.WithCondition("s.position_id", positionID),
+		store.WithCondition("s.worker_id", string(workerID)),
 		store.WithOrderDesc("e.created_at"),
 		store.WithOrderDesc("e.id"),
 		store.WithLimit(limit),

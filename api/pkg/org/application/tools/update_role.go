@@ -13,10 +13,10 @@ import (
 
 // UpdateRole rewrites the canonical content of a Role. It is a single
 // DB write — the new content takes effect on the next activation of
-// every Worker filling a Position with this Role, because the Spawner
-// projects current Role state into the Environment at the start of
-// every activation. There is no fan-out, no cross-Environment write,
-// and no on-disk source of truth.
+// every Worker holding this Role, because the Spawner projects current
+// Role state into the Environment at the start of every activation.
+// There is no fan-out, no cross-Environment write, and no on-disk
+// source of truth.
 //
 // Workers can never modify their own Role — only the owner does, via
 // this tool.
@@ -73,21 +73,12 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if err := t.deps.Store.Roles.Update(ctx, updated); err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
-	positions, _ := t.deps.Store.Positions.List(ctx, orgID)
 	workers, _ := t.deps.Store.Workers.List(ctx, orgID)
-	positionWorkers := map[orgchart.PositionID][]orgchart.WorkerID{}
 	for _, w := range workers {
-		if p := w.Position(); p != "" {
-			positionWorkers[p] = append(positionWorkers[p], w.ID())
-		}
-	}
-	for _, p := range positions {
-		if p.RoleID != roleID {
+		if w.RoleID() != roleID {
 			continue
 		}
-		for _, wid := range positionWorkers[p.ID] {
-			_ = t.deps.Workspace.MirrorFile(ctx, orgID, wid, "role.md", args.Content, fmt.Sprintf("update_role: %s", roleID))
-		}
+		_ = t.deps.Workspace.MirrorFile(ctx, orgID, w.ID(), "role.md", args.Content, fmt.Sprintf("update_role: %s", roleID))
 	}
 	return json.Marshal(map[string]string{"id": string(roleID)})
 }

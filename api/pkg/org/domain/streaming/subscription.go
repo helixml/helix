@@ -5,31 +5,30 @@ import (
 	"time"
 )
 
-// Subscription is a Position's link to a Stream. The (PositionID,
-// StreamID) pair is the identity — there is no synthetic ID.
+// Subscription is a Worker's link to a Stream. The (WorkerID, StreamID)
+// pair is the identity — there is no synthetic ID.
 //
-// Subscriptions are POSITION-anchored, not Worker-anchored: the
-// subscription represents "whoever fills this slot in the org chart
-// will see events on this stream". Hiring or firing a Worker into the
-// position doesn't change which Streams the position consumes;
-// dispatch walks (stream → subscribing positions → current workers in
-// those positions) when an event arrives.
+// Subscriptions are WORKER-anchored: firing a Worker drops its
+// subscriptions. The hiring playbook re-subscribes new hires
+// explicitly, which lets two Workers in the same Role consume
+// different streams (specialisation) or only the on-call subset of a
+// role wake up on a given event (load patterns).
 //
-// PositionID is an orgchart.PositionID carried as a plain string; the
+// WorkerID is an orgchart.WorkerID carried as a plain string; the
 // streaming aggregate intentionally does not import orgchart to keep
 // the dependency DAG one-way.
 type Subscription struct {
 	OrganizationID string
-	PositionID     string // orgchart.PositionID
+	WorkerID       string // orgchart.WorkerID
 	StreamID       StreamID
 	CreatedAt      time.Time
 }
 
 // NewSubscription validates and constructs a Subscription. orgID is
 // required — subscriptions are tenant-scoped.
-func NewSubscription(positionID string, streamID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
-	if positionID == "" {
-		return Subscription{}, errors.New("subscription positionId is empty")
+func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
+	if workerID == "" {
+		return Subscription{}, errors.New("subscription workerId is empty")
 	}
 	if streamID == "" {
 		return Subscription{}, errors.New("subscription streamId is empty")
@@ -42,7 +41,7 @@ func NewSubscription(positionID string, streamID StreamID, createdAt time.Time, 
 	}
 	return Subscription{
 		OrganizationID: orgID,
-		PositionID:     positionID,
+		WorkerID:       workerID,
 		StreamID:       streamID,
 		CreatedAt:      createdAt.UTC(),
 	}, nil

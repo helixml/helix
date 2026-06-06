@@ -60,9 +60,9 @@ func (s *Server) mcpHandler() http.Handler {
 
 // buildMCPServer assembles a fresh *mcp.Server tailored to the worker in
 // the request URL. The advertised tools are derived live from the
-// Worker's Position's Role.Tools: changing the Role updates every
-// Worker filling a Position that points at it. There is no per-Worker
-// grants table — capability is the Role's responsibility.
+// Worker's Role.Tools: changing the Role updates every Worker holding
+// it. There is no per-Worker grants table — capability is the Role's
+// responsibility.
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
@@ -83,14 +83,9 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		return nil
 	}
 
-	position, err := s.store.Positions.Get(ctx, orgID, worker.Position())
+	role, err := s.store.Roles.Get(ctx, orgID, worker.RoleID())
 	if err != nil {
-		s.logger.Info("mcp.position_lookup_failed", "worker", workerID, "position", worker.Position(), "err", err.Error())
-		return nil
-	}
-	role, err := s.store.Roles.Get(ctx, orgID, position.RoleID)
-	if err != nil {
-		s.logger.Info("mcp.role_lookup_failed", "worker", workerID, "role", position.RoleID, "err", err.Error())
+		s.logger.Info("mcp.role_lookup_failed", "worker", workerID, "role", worker.RoleID(), "err", err.Error())
 		return nil
 	}
 

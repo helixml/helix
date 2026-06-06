@@ -109,7 +109,6 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&CreateRole{deps: deps},
 		&UpdateRole{deps: deps},
 		&UpdateIdentity{deps: deps},
-		&CreatePosition{deps: deps},
 		&HireWorker{deps: deps},
 		&CreateStream{deps: deps},
 		&StreamMembers{deps: deps},
@@ -123,9 +122,6 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		// they replace the jsonapi GET handlers the server used to expose.
 		&ListRoles{deps: deps},
 		&GetRole{deps: deps},
-		&ListPositions{deps: deps},
-		&GetPosition{deps: deps},
-		&ListPositionChildren{deps: deps},
 		&ListWorkers{deps: deps},
 		&GetWorker{deps: deps},
 		&GetWorkerEnvironment{deps: deps},

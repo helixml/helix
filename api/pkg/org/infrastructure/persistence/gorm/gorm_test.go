@@ -81,35 +81,38 @@ func TestRolesNotFound(t *testing.T) {
 	}
 }
 
-func TestPositionsRoundTripAndChildren(t *testing.T) {
+// TestWorkerReportingHierarchy round-trips Worker.ParentID through the
+// store. Workers replace Positions for tree structure.
+func TestWorkerReportingHierarchy(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
-	root, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	if err := s.Positions.Create(ctx, root); err != nil {
-		t.Fatalf("Create root: %v", err)
+	now := time.Now().UTC()
+	role, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	if err != nil {
+		t.Fatalf("NewRole: %v", err)
 	}
-	rootID := root.ID
-	child, _ := orgchart.NewPosition("p-ceo", "r-ceo", &rootID, "org-test")
-	if err := s.Positions.Create(ctx, child); err != nil {
+	if err := s.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("Create role: %v", err)
+	}
+	owner, _ := orgchart.NewHumanWorker("w-owner", role.ID, nil, "", "org-test")
+	if err := s.Workers.Create(ctx, owner); err != nil {
+		t.Fatalf("Create owner: %v", err)
+	}
+	ownerID := orgchart.WorkerID("w-owner")
+	child, _ := orgchart.NewAIWorker("w-ceo", role.ID, &ownerID, "", "org-test")
+	if err := s.Workers.Create(ctx, child); err != nil {
 		t.Fatalf("Create child: %v", err)
 	}
 
-	got, err := s.Positions.Get(ctx, "org-test", "p-ceo")
+	got, err := s.Workers.Get(ctx, "org-test", "w-ceo")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.ParentID == nil || *got.ParentID != "p-root" {
-		t.Fatalf("parent = %v, want p-root", got.ParentID)
-	}
-
-	kids, err := s.Positions.ListChildren(ctx, "org-test", "p-root")
-	if err != nil {
-		t.Fatalf("ListChildren: %v", err)
-	}
-	if len(kids) != 1 || kids[0].ID != "p-ceo" {
-		t.Fatalf("children = %+v, want [p-ceo]", kids)
+	parent := got.ParentID()
+	if parent == nil || *parent != "w-owner" {
+		t.Fatalf("ParentID = %v, want w-owner", parent)
 	}
 }
 
@@ -118,7 +121,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	human, err := orgchart.NewHumanWorker("w-owner", "p-root", "i am the owner", "org-test")
+	human, err := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "i am the owner", "org-test")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}
@@ -126,7 +129,11 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("Create human: %v", err)
 	}
 
-	ai, err := orgchart.NewAIWorker("w-ceo", "p-ceo", "you are the ceo", "org-test")
+	ownerRole, _ := orgchart.NewRole("r-ceo", "# CEO", nil, nil, time.Now().UTC(), "org-test")
+	if err := s.Roles.Create(ctx, ownerRole); err != nil {
+		t.Fatalf("Create ceo role: %v", err)
+	}
+	ai, err := orgchart.NewAIWorker("w-ceo", "r-ceo", nil, "you are the ceo", "org-test")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
@@ -163,7 +170,7 @@ func TestWorkerOrganizationIDRoundTrip(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	scoped, err := orgchart.NewAIWorker("w-acme-bot", "p-eng", "# bot", "org-acme")
+	scoped, err := orgchart.NewAIWorker("w-acme-bot", "r-eng", nil, "# bot", "org-acme")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

@@ -540,11 +540,9 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org alpha — the org chart is the only surface exposed to
-  // users today. Other resources (workers, roles, positions, streams,
-  // settings) are operated via MCP tools / API; the chart is the
-  // visual entry point. The URL carries :org_id so the helixOrgService
-  // can scope each request to a single tenant.
+  // helix-org alpha — Other resources (workers, roles, streams,
+  // settings) are operated via MCP tools / API; the overview is the
+  // visual entry point.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
   meta: { drawer: true, title: 'Helix Org' },
@@ -557,8 +555,8 @@ const routes: IApplicationRoute[] = [
   },
 }, {
   name: 'helix_org_chart',
-  path: '/orgs/:org_id/helix-org/chart',
-  meta: { drawer: true, title: 'Helix Org · Chart' },
+  path: '/orgs/:org_id/helix-org/overview',
+  meta: { drawer: true, title: 'Helix Org · Overview' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_roles',

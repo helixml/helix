@@ -47,11 +47,7 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
-	root, _ := orgchart.NewPosition("p-root", "r-ceo", nil, "org-test")
-	if err := s.Positions.Create(ctx, root); err != nil {
-		t.Fatalf("seed root: %v", err)
-	}
-	ai, _ := orgchart.NewAIWorker("w-ceo", "p-root", "", "org-test")
+	ai, _ := orgchart.NewAIWorker("w-ceo", "r-ceo", nil, "", "org-test")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}
@@ -104,11 +100,7 @@ func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
-	root, _ := orgchart.NewPosition("p-root", "r-ceo", nil, "org-test")
-	if err := s.Positions.Create(ctx, root); err != nil {
-		t.Fatalf("seed root: %v", err)
-	}
-	ai, _ := orgchart.NewAIWorker("w-ceo", "p-root", "", "org-test")
+	ai, _ := orgchart.NewAIWorker("w-ceo", "r-ceo", nil, "", "org-test")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}
@@ -252,9 +244,7 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 	}
 	role, _ := orgchart.NewRole("r-ceo", "# CEO", roleTools, nil, time.Now().UTC(), "org-test")
 	_ = s.Roles.Create(ctx, role)
-	root, _ := orgchart.NewPosition("p-root", "r-ceo", nil, "org-test")
-	_ = s.Positions.Create(ctx, root)
-	ai, _ := orgchart.NewAIWorker("w-ceo", "p-root", "", "org-test")
+	ai, _ := orgchart.NewAIWorker("w-ceo", "r-ceo", nil, "", "org-test")
 	_ = s.Workers.Create(ctx, ai)
 	return srv, "w-ceo"
 }

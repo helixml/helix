@@ -12,10 +12,10 @@ import (
 )
 
 type subscriptionRow struct {
-	OrgID      string `gorm:"primaryKey;type:text;index"`
-	PositionID string `gorm:"primaryKey;type:text"`
-	StreamID   string `gorm:"primaryKey;type:text"`
-	CreatedAt  time.Time
+	OrgID     string `gorm:"primaryKey;type:text;index"`
+	WorkerID  string `gorm:"primaryKey;type:text"`
+	StreamID  string `gorm:"primaryKey;type:text"`
+	CreatedAt time.Time
 }
 
 func (subscriptionRow) TableName() string { return "org_subscriptions" }
@@ -24,16 +24,16 @@ type subscriptionMapper struct{}
 
 func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, error) {
 	return subscriptionRow{
-		OrgID:      sub.OrganizationID,
-		PositionID: string(sub.PositionID),
-		StreamID:   string(sub.StreamID),
-		CreatedAt:  sub.CreatedAt,
+		OrgID:     sub.OrganizationID,
+		WorkerID:  string(sub.WorkerID),
+		StreamID:  string(sub.StreamID),
+		CreatedAt: sub.CreatedAt,
 	}, nil
 }
 
 func (subscriptionMapper) ToDomain(row subscriptionRow) (streaming.Subscription, error) {
 	return streaming.NewSubscription(
-		row.PositionID,
+		row.WorkerID,
 		streaming.StreamID(row.StreamID),
 		row.CreatedAt,
 		row.OrgID,
@@ -48,26 +48,26 @@ func newSubscriptionsRepo(db *gorm.DB) *subscriptionsRepo {
 	return &subscriptionsRepo{Repository: NewRepository[streaming.Subscription, subscriptionRow](db, subscriptionMapper{}, "subscription")}
 }
 
-func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) error {
+func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error {
 	return r.Repository.Delete(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("position_id", string(positionID)),
+		store.WithCondition("worker_id", string(workerID)),
 		store.WithCondition("stream_id", string(streamID)),
 	)
 }
 
-func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) (streaming.Subscription, error) {
+func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
 	return r.FindOne(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("position_id", string(positionID)),
+		store.WithCondition("worker_id", string(workerID)),
 		store.WithCondition("stream_id", string(streamID)),
 	)
 }
 
-func (r *subscriptionsRepo) ListForPosition(ctx context.Context, orgID string, positionID orgchart.PositionID) ([]streaming.Subscription, error) {
+func (r *subscriptionsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("position_id", string(positionID)),
+		store.WithCondition("worker_id", string(workerID)),
 		store.WithOrderAsc("stream_id"),
 	)
 }
@@ -76,6 +76,6 @@ func (r *subscriptionsRepo) ListForStream(ctx context.Context, orgID string, str
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("stream_id", string(streamID)),
-		store.WithOrderAsc("position_id"),
+		store.WithOrderAsc("worker_id"),
 	)
 }

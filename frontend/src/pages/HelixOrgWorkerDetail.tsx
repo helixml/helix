@@ -46,9 +46,9 @@ import {
   useFireHelixOrgWorker,
   useHelixOrgWorker,
   useListHelixOrgStreams,
-  useListPositionSubscriptions,
-  useSubscribePosition,
-  useUnsubscribePosition,
+  useListWorkerSubscriptions,
+  useSubscribeWorker,
+  useUnsubscribeWorker,
 } from '../services/helixOrgService'
 
 const OWNER_WORKER = 'w-owner'
@@ -331,7 +331,7 @@ const HelixOrgWorkerDetail: FC = () => {
                   </Box>
                 )}
 
-                <SubscriptionsPanel positionID={data?.position?.id} />
+                <SubscriptionsPanel workerID={worker?.id} />
               </Stack>
             </Grid>
 
@@ -347,11 +347,11 @@ const HelixOrgWorkerDetail: FC = () => {
                     <Typography variant="caption" color="text.secondary">Kind</Typography>
                     <Typography variant="body2">{worker.kind}</Typography>
                   </Box>
-                  {data?.position && (
+                  {worker?.parent_id && (
                     <Box>
-                      <Typography variant="caption" color="text.secondary">Position</Typography>
+                      <Typography variant="caption" color="text.secondary">Reports to</Typography>
                       <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                        {data.position.id}
+                        {worker.parent_id}
                       </Typography>
                     </Box>
                   )}
@@ -417,21 +417,20 @@ const HelixOrgWorkerDetail: FC = () => {
   )
 }
 
-// SubscriptionsPanel surfaces the streams the Worker's filling
-// Position consumes — and the multi-select to change that set.
-// Subscriptions are position-anchored: editing here mutates the
-// position's subscriptions, which automatically applies to whoever
-// fills the position next.
+// SubscriptionsPanel surfaces the streams this Worker consumes — and
+// the multi-select to change that set. Subscriptions are
+// worker-anchored: firing the worker drops them; a new hire into the
+// same Role does NOT inherit.
 //
 // Patterned after the role editor's tools multi-select:
 // disableCloseOnSelect so toggling several streams in one pass
 // doesn't bounce the popper closed.
-const SubscriptionsPanel: FC<{ positionID?: string }> = ({ positionID }) => {
+const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
   const snackbar = useSnackbar()
   const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgStreams()
-  const { data: subsData, isLoading: subsLoading } = useListPositionSubscriptions(positionID)
-  const subscribe = useSubscribePosition(positionID)
-  const unsubscribe = useUnsubscribePosition(positionID)
+  const { data: subsData, isLoading: subsLoading } = useListWorkerSubscriptions(workerID)
+  const subscribe = useSubscribeWorker(workerID)
+  const unsubscribe = useUnsubscribeWorker(workerID)
 
   const allStreams = streamsData?.streams ?? []
   const subscribedIDs = useMemo(
@@ -443,15 +442,8 @@ const SubscriptionsPanel: FC<{ positionID?: string }> = ({ positionID }) => {
     [allStreams, subscribedIDs],
   )
 
-  if (!positionID) {
-    return (
-      <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Subscriptions</Typography>
-        <Typography variant="body2" color="text.secondary">
-          This Worker is unassigned (no position) — there's nothing to subscribe.
-        </Typography>
-      </Box>
-    )
+  if (!workerID) {
+    return null
   }
 
   const handleChange = async (_e: unknown, next: typeof allStreams) => {
@@ -499,7 +491,7 @@ const SubscriptionsPanel: FC<{ positionID?: string }> = ({ positionID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={subscribedStreams.length === 0 ? 'Subscribe this position to a stream…' : ''}
+            placeholder={subscribedStreams.length === 0 ? 'Subscribe this worker to a stream…' : ''}
             variant="outlined"
             size="small"
           />
@@ -517,9 +509,8 @@ const SubscriptionsPanel: FC<{ positionID?: string }> = ({ positionID }) => {
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        Subscriptions are position-anchored — they outlive the worker. Whoever fills
-        <code style={{ marginLeft: 4, marginRight: 4 }}>{positionID}</code>
-        next inherits this set.
+        Subscriptions are per-Worker — they die when this Worker is fired. A
+        new hire into the same Role won't inherit them.
       </Typography>
     </Box>
   )

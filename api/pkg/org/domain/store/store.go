@@ -34,25 +34,9 @@ type Roles interface {
 	List(ctx context.Context, orgID string) ([]orgchart.Role, error)
 	Update(ctx context.Context, role orgchart.Role) error
 	// Delete removes the role row. Caller is expected to have torn
-	// down dependent positions; the lifecycle service in
-	// application/lifecycle owns the cascade (positions + workers).
+	// down dependent workers; the lifecycle service in
+	// application/lifecycle owns the cascade.
 	Delete(ctx context.Context, orgID string, id orgchart.RoleID) error
-}
-
-// Positions persists slots in the org chart.
-type Positions interface {
-	Create(ctx context.Context, pos orgchart.Position) error
-	Get(ctx context.Context, orgID string, id orgchart.PositionID) (orgchart.Position, error)
-	List(ctx context.Context, orgID string) ([]orgchart.Position, error)
-	ListChildren(ctx context.Context, orgID string, parent orgchart.PositionID) ([]orgchart.Position, error)
-	// Update mutates ParentID and RoleID; the (orgID, id) key cannot
-	// change. Returns ErrNotFound when the (orgID, id) pair doesn't
-	// exist.
-	Update(ctx context.Context, pos orgchart.Position) error
-	// Delete removes the position row. Caller is expected to have
-	// already cleared any worker pointing at the position; the
-	// lifecycle service owns the cascade.
-	Delete(ctx context.Context, orgID string, id orgchart.PositionID) error
 }
 
 // Workers persists humans and AIs. Update mutates fields the system
@@ -111,18 +95,18 @@ type Streams interface {
 	Delete(ctx context.Context, orgID string, id streaming.StreamID) error
 }
 
-// Subscriptions persists (Position, Stream) links. The triple
-// (orgID, positionID, streamID) is the key — there is no synthetic
-// ID. Subscriptions are POSITION-anchored: "whoever fills this slot
-// receives this stream", so hiring or firing a Worker into the
-// position does NOT change which streams it consumes. Dispatch
-// resolves stream → positions → current workers in those positions
-// at delivery time.
+// Subscriptions persists (Worker, Stream) links. The triple
+// (orgID, workerID, streamID) is the key — there is no synthetic ID.
+// Subscriptions are WORKER-anchored: firing a Worker drops its
+// subscriptions. The hiring playbook re-subscribes new hires
+// explicitly, which lets two Workers in the same Role consume
+// different streams (specialisation) or only the on-call subset of a
+// role wake up on a given event (load patterns).
 type Subscriptions interface {
 	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) error
-	Find(ctx context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) (streaming.Subscription, error)
-	ListForPosition(ctx context.Context, orgID string, positionID orgchart.PositionID) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error
+	Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error)
+	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error)
 	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error)
 }
 
@@ -168,7 +152,6 @@ type Configs interface {
 // declaration here. Lifted in B5.5.
 type Store struct {
 	Roles              Roles
-	Positions          Positions
 	Workers            Workers
 	WorkerRuntimeState WorkerRuntimeState
 	Streams            Streams

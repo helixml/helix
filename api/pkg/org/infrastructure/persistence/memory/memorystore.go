@@ -36,7 +36,6 @@ func New() *store.Store {
 	workers := &workersRepo{rows: map[orgKey]orgchart.Worker{}}
 	return &store.Store{
 		Roles:              &rolesRepo{rows: map[orgKey]orgchart.Role{}},
-		Positions:          &positionsRepo{rows: map[orgKey]orgchart.Position{}},
 		Workers:            workers,
 		WorkerRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
 		Streams:            &streamsRepo{rows: map[orgKey]streaming.Stream{}},
@@ -115,82 +114,6 @@ func (r *rolesRepo) Delete(_ context.Context, orgID string, id orgchart.RoleID) 
 		return fmt.Errorf("role %q in org %q: %w", id, orgID, store.ErrNotFound)
 	}
 	delete(r.rows, k)
-	return nil
-}
-
-// ---- Positions ----------------------------------------------------------
-
-type positionsRepo struct {
-	mu   sync.RWMutex
-	rows map[orgKey]orgchart.Position
-}
-
-func (p *positionsRepo) Create(_ context.Context, pos orgchart.Position) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	k := orgKey{OrgID: pos.OrganizationID, ID: string(pos.ID)}
-	if _, ok := p.rows[k]; ok {
-		return fmt.Errorf("position %q in org %q: already exists", pos.ID, pos.OrganizationID)
-	}
-	p.rows[k] = pos
-	return nil
-}
-
-func (p *positionsRepo) Get(_ context.Context, orgID string, id orgchart.PositionID) (orgchart.Position, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if pos, ok := p.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
-		return pos, nil
-	}
-	return orgchart.Position{}, fmt.Errorf("position %q in org %q: %w", id, orgID, store.ErrNotFound)
-}
-
-func (p *positionsRepo) List(_ context.Context, orgID string) ([]orgchart.Position, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	out := make([]orgchart.Position, 0)
-	for k, pos := range p.rows {
-		if k.OrgID == orgID {
-			out = append(out, pos)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
-}
-
-func (p *positionsRepo) ListChildren(_ context.Context, orgID string, parent orgchart.PositionID) ([]orgchart.Position, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	out := make([]orgchart.Position, 0)
-	for k, pos := range p.rows {
-		if k.OrgID != orgID || pos.ParentID == nil || *pos.ParentID != parent {
-			continue
-		}
-		out = append(out, pos)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
-}
-
-func (p *positionsRepo) Update(_ context.Context, pos orgchart.Position) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	k := orgKey{OrgID: pos.OrganizationID, ID: string(pos.ID)}
-	if _, ok := p.rows[k]; !ok {
-		return fmt.Errorf("position %q in org %q: %w", pos.ID, pos.OrganizationID, store.ErrNotFound)
-	}
-	p.rows[k] = pos
-	return nil
-}
-
-func (p *positionsRepo) Delete(_ context.Context, orgID string, id orgchart.PositionID) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	k := orgKey{OrgID: orgID, ID: string(id)}
-	if _, ok := p.rows[k]; !ok {
-		return fmt.Errorf("position %q in org %q: %w", id, orgID, store.ErrNotFound)
-	}
-	delete(p.rows, k)
 	return nil
 }
 
@@ -398,9 +321,9 @@ func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.Strea
 // ---- Subscriptions ------------------------------------------------------
 
 type subKey struct {
-	OrgID      string
-	PositionID string
-	StreamID   string
+	OrgID    string
+	WorkerID string
+	StreamID string
 }
 
 type subscriptionsRepo struct {
@@ -411,41 +334,41 @@ type subscriptionsRepo struct {
 func (s *subscriptionsRepo) Create(_ context.Context, sub streaming.Subscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: sub.OrganizationID, PositionID: string(sub.PositionID), StreamID: string(sub.StreamID)}
+	k := subKey{OrgID: sub.OrganizationID, WorkerID: string(sub.WorkerID), StreamID: string(sub.StreamID)}
 	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.PositionID, sub.StreamID, sub.OrganizationID)
+		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.WorkerID, sub.StreamID, sub.OrganizationID)
 	}
 	s.rows[k] = sub
 	return nil
 }
 
-func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) error {
+func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: orgID, PositionID: string(positionID), StreamID: string(streamID)}
+	k := subKey{OrgID: orgID, WorkerID: string(workerID), StreamID: string(streamID)}
 	if _, ok := s.rows[k]; !ok {
-		return fmt.Errorf("subscription %q→%q in org %q: %w", positionID, streamID, orgID, store.ErrNotFound)
+		return fmt.Errorf("subscription %q→%q in org %q: %w", workerID, streamID, orgID, store.ErrNotFound)
 	}
 	delete(s.rows, k)
 	return nil
 }
 
-func (s *subscriptionsRepo) Find(_ context.Context, orgID string, positionID orgchart.PositionID, streamID streaming.StreamID) (streaming.Subscription, error) {
+func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	k := subKey{OrgID: orgID, PositionID: string(positionID), StreamID: string(streamID)}
+	k := subKey{OrgID: orgID, WorkerID: string(workerID), StreamID: string(streamID)}
 	if sub, ok := s.rows[k]; ok {
 		return sub, nil
 	}
-	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", positionID, streamID, orgID, store.ErrNotFound)
+	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", workerID, streamID, orgID, store.ErrNotFound)
 }
 
-func (s *subscriptionsRepo) ListForPosition(_ context.Context, orgID string, positionID orgchart.PositionID) ([]streaming.Subscription, error) {
+func (s *subscriptionsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]streaming.Subscription, 0)
 	for k, sub := range s.rows {
-		if k.OrgID == orgID && k.PositionID == string(positionID) {
+		if k.OrgID == orgID && k.WorkerID == string(workerID) {
 			out = append(out, sub)
 		}
 	}
@@ -462,7 +385,7 @@ func (s *subscriptionsRepo) ListForStream(_ context.Context, orgID string, strea
 			out = append(out, sub)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].PositionID < out[j].PositionID })
+	sort.Slice(out, func(i, j int) bool { return out[i].WorkerID < out[j].WorkerID })
 	return out, nil
 }
 
@@ -506,26 +429,18 @@ func (e *eventsRepo) ListForStream(_ context.Context, orgID string, streamID str
 }
 
 func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
-	// Match gorm's join semantics: events on streams the worker's
-	// POSITION is subscribed to. Subscriptions are position-anchored
-	// now (not worker-anchored), so we resolve worker → position
-	// before filtering. Sourced-by-worker events are intentionally
-	// NOT included unless the position is subscribed to the stream.
+	// Match gorm's join semantics: events on streams the worker is
+	// subscribed to. Subscriptions are worker-anchored.
 	if e.workers == nil {
 		return nil, errors.New("eventsRepo: workers repo not wired")
 	}
-	worker, err := e.workers.Get(ctx, orgID, workerID)
-	if err != nil {
+	if _, err := e.workers.Get(ctx, orgID, workerID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("resolve worker for event listing: %w", err)
 	}
-	positionID := worker.Position()
-	if positionID == "" {
-		return nil, nil
-	}
-	subs, err := e.subs.ListForPosition(ctx, orgID, positionID)
+	subs, err := e.subs.ListForWorker(ctx, orgID, workerID)
 	if err != nil {
 		return nil, err
 	}

@@ -9,25 +9,6 @@
  * ---------------------------------------------------------------
  */
 
-export interface ApiChart {
-  roles?: ApiRoleBadge[];
-  roots?: ApiChartNode[];
-}
-
-export interface ApiChartNode {
-  children?: ApiChartNode[];
-  parent_id?: string;
-  position_id?: string;
-  role_id?: string;
-  workers?: ApiWorkerBadge[];
-}
-
-export interface ApiCreatePositionRequest {
-  id?: string;
-  parent_id?: string;
-  role_id?: string;
-}
-
 export interface ApiCreateRoleRequest {
   content?: string;
   id?: string;
@@ -73,16 +54,12 @@ export interface ApiGitHubReposResponse {
   source?: string;
 }
 
-export interface ApiHireGrantInput {
-  tool_name?: string;
-}
-
 export interface ApiHireWorkerRequest {
-  grants?: ApiHireGrantInput[];
   id?: string;
   identity_content?: string;
   kind?: string;
-  position_id?: string;
+  parent_id?: string;
+  role_id?: string;
 }
 
 export interface ApiHireWorkerResponse {
@@ -104,20 +81,9 @@ export interface ApiInstallGitHubWebhookResponse {
   webhook_id?: number;
 }
 
-export interface ApiPositionDTO {
-  id?: string;
-  parent_id?: string;
-  role_id?: string;
-}
-
-export interface ApiPositionSubscriptionDTO {
-  created_at?: string;
-  stream_id?: string;
-}
-
-export interface ApiPositionSubscriptionsResponse {
-  position_id?: string;
-  subscriptions?: ApiPositionSubscriptionDTO[];
+export interface ApiOrgOverview {
+  groups?: ApiRoleGroup[];
+  roles?: ApiRoleBadge[];
 }
 
 export interface ApiPublishRequest {
@@ -143,6 +109,11 @@ export interface ApiRoleDTO {
   updated_at?: string;
 }
 
+export interface ApiRoleGroup {
+  role_id?: string;
+  workers?: ApiWorkerBadge[];
+}
+
 export interface ApiSetSettingRequest {
   value?: string;
 }
@@ -161,40 +132,16 @@ export interface ApiSettingsSpecDTO {
   key?: string;
   required?: boolean;
   type?: string;
-  /**
-   * Value is the current REDACTED value — secrets in object configs
-   * are masked per the registry's redaction rules. Frontend MUST
-   * treat this as display-only.
-   */
   value?: string;
 }
 
 export interface ApiStreamDTO {
   can_publish?: boolean;
-  /**
-   * Config is the parsed transport-specific configuration so the
-   * detail page can render and edit it without round-tripping
-   * through the raw JSON column. Shape depends on Kind:
-   *   - github   → {"repo": "owner/name", "events": ["…"]}
-   *   - webhook  → {"inbound_path": "…", "outbound_url": "…"}
-   *   - postmark → {"inbound_address": "…"}
-   *   - local    → omitted (no config)
-   */
   config?: Record<string, any>;
   created_at?: string;
   created_by?: string;
   description?: string;
   disable_reason?: string;
-  /**
-   * EffectivePublicURL is the resolved base URL the github
-   * transport uses for webhook payload URLs — i.e.
-   * `streams.public_url` (org config) when set, falling back to
-   * SERVER_URL (env). Returned for github streams only; lets
-   * the detail page evaluate whether the operator's "is my
-   * webhook reachable?" check passes WITHOUT needing to know
-   * about the org-config override itself. Empty when neither
-   * source has a value.
-   */
   effective_public_url?: string;
   id?: string;
   kind?: string;
@@ -204,15 +151,11 @@ export interface ApiStreamDTO {
 }
 
 export interface ApiStreamsResponse {
-  /**
-   * Recent is the unified firehose across every Stream rendered as
-   * the "All streams" landing view. Capped at 50 newest-first.
-   */
   recent?: ApiEventCard[];
   streams?: ApiStreamDTO[];
 }
 
-export interface ApiSubscribePositionRequest {
+export interface ApiSubscribeWorkerRequest {
   stream_id?: string;
 }
 
@@ -224,11 +167,6 @@ export interface ApiToolDTO {
 export interface ApiTransportRequestField {
   config?: Record<string, any>;
   kind?: string;
-}
-
-export interface ApiUpdatePositionRequest {
-  parent_id?: string;
-  role_id?: string;
 }
 
 export interface ApiUpdateRoleRequest {
@@ -273,34 +211,28 @@ export interface ApiWorkerDTO {
   identity_content?: string;
   kind?: string;
   organization_id?: string;
-  position_id?: string;
+  parent_id?: string;
+  role_id?: string;
   tools?: string[];
 }
 
 export interface ApiWorkerDetailDTO {
-  /**
-   * AgentAppID is the Helix agent app this Worker chats through.
-   * Empty until the Worker has been activated at least once. The
-   * chart UI deep-links a "chat with this worker" button to
-   * /orgs/<org>/agent/<agent_app_id> when set.
-   */
+  /** AgentAppID + ProjectID — see WorkerChatDTO comments. */
   agent_app_id?: string;
-  /** Position the Worker fills (nil if unassigned). */
-  position?: ApiPositionDTO;
-  /**
-   * ProjectID is the Helix project the per-Worker agent app lives
-   * in. The chart UI uses this to open the Human Desktop session
-   * (/orgs/<org>/projects/<project_id>/desktop/<session_id>) rather
-   * than the bare agent app, so the chat happens in the same
-   * Zed/desktop context as a regular project.
-   */
   project_id?: string;
-  /**
-   * Role of the Position this Worker fills (nil if the Worker is
-   * unassigned or the position/role is gone).
-   */
+  /** Role this Worker holds (nil if the role row is gone). */
   role?: ApiRoleDTO;
   worker?: ApiWorkerDTO;
+}
+
+export interface ApiWorkerSubscriptionDTO {
+  created_at?: string;
+  stream_id?: string;
+}
+
+export interface ApiWorkerSubscriptionsResponse {
+  subscriptions?: ApiWorkerSubscriptionDTO[];
+  worker_id?: string;
 }
 
 export interface FilestoreConfig {
@@ -11599,24 +11531,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the positions+workers tree rendered by the helix-org React UI
-     *
-     * @tags HelixOrg
-     * @name V1OrgsChartDetail
-     * @summary Helix-org: get org chart
-     * @request GET:/api/v1/orgs/{org}/chart
-     * @secure
-     */
-    v1OrgsChartDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiChart, any>({
-        path: `/api/v1/orgs/${org}/chart`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * No description
      *
      * @tags HelixOrg
@@ -11652,154 +11566,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description Returns roles + workers grouped by role for the helix-org React Overview page.
      *
      * @tags HelixOrg
-     * @name V1OrgsPositionsDetail
-     * @summary Helix-org: list positions
-     * @request GET:/api/v1/orgs/{org}/positions
+     * @name V1OrgsOverviewDetail
+     * @summary Helix-org: get org overview
+     * @request GET:/api/v1/orgs/{org}/overview
      * @secure
      */
-    v1OrgsPositionsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiPositionDTO[], any>({
-        path: `/api/v1/orgs/${org}/positions`,
+    v1OrgsOverviewDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiOrgOverview, any>({
+        path: `/api/v1/orgs/${org}/overview`,
         method: "GET",
         secure: true,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsCreate
-     * @summary Helix-org: create a position
-     * @request POST:/api/v1/orgs/{org}/positions
-     * @secure
-     */
-    v1OrgsPositionsCreate: (org: string, payload: ApiCreatePositionRequest, params: RequestParams = {}) =>
-      this.request<ApiPositionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsDelete
-     * @summary Helix-org: delete a position (cascade-fires its workers)
-     * @request DELETE:/api/v1/orgs/{org}/positions/{id}
-     * @secure
-     */
-    v1OrgsPositionsDelete: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsDetail2
-     * @summary Helix-org: get a position
-     * @request GET:/api/v1/orgs/{org}/positions/{id}
-     * @originalName v1OrgsPositionsDetail
-     * @duplicate
-     * @secure
-     */
-    v1OrgsPositionsDetail2: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiPositionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsUpdate
-     * @summary Helix-org: update a position
-     * @request PUT:/api/v1/orgs/{org}/positions/{id}
-     * @secure
-     */
-    v1OrgsPositionsUpdate: (org: string, id: string, payload: ApiUpdatePositionRequest, params: RequestParams = {}) =>
-      this.request<ApiPositionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions/${id}`,
-        method: "PUT",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsSubscriptionsDetail
-     * @summary Helix-org: list a position's subscriptions
-     * @request GET:/api/v1/orgs/{org}/positions/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsPositionsSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiPositionSubscriptionsResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions/${id}/subscriptions`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsSubscriptionsCreate
-     * @summary Helix-org: subscribe a position to a stream
-     * @request POST:/api/v1/orgs/{org}/positions/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsPositionsSubscriptionsCreate: (
-      id: string,
-      org: string,
-      payload: ApiSubscribePositionRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiPositionSubscriptionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions/${id}/subscriptions`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsPositionsSubscriptionsDelete
-     * @summary Helix-org: unsubscribe a position from a stream
-     * @request DELETE:/api/v1/orgs/{org}/positions/{id}/subscriptions/{stream_id}
-     * @secure
-     */
-    v1OrgsPositionsSubscriptionsDelete: (id: string, streamId: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/positions/${id}/subscriptions/${streamId}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -11846,7 +11626,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsRolesDelete
-     * @summary Helix-org: delete a role (cascade-deletes positions + fires workers)
+     * @summary Helix-org: delete a role (cascade-fires its workers)
      * @request DELETE:/api/v1/orgs/{org}/roles/{id}
      * @secure
      */
@@ -12273,6 +12053,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: payload,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersSubscriptionsDetail
+     * @summary Helix-org: list a worker's subscriptions
+     * @request GET:/api/v1/orgs/{org}/workers/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsWorkersSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerSubscriptionsResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersSubscriptionsCreate
+     * @summary Helix-org: subscribe a worker to a stream
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsWorkersSubscriptionsCreate: (
+      id: string,
+      org: string,
+      payload: ApiSubscribeWorkerRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiWorkerSubscriptionDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersSubscriptionsDelete
+     * @summary Helix-org: unsubscribe a worker from a stream
+     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}
+     * @secure
+     */
+    v1OrgsWorkersSubscriptionsDelete: (id: string, streamId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions/${streamId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 

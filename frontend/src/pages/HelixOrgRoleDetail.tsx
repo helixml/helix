@@ -308,7 +308,7 @@ const HelixOrgRoleDetail: FC = () => {
                     {isOwner ? 'Owner — protected' : 'Delete role'}
                   </Button>
                   <Typography variant="caption" color="text.secondary">
-                    Deletes every position under this role and fires every worker in those positions.
+                    Fires every Worker holding this Role and drops their subscriptions.
                   </Typography>
                 </Stack>
               </Paper>

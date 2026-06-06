@@ -2,8 +2,6 @@ package gorm
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -17,11 +15,15 @@ import (
 // additionally carries a FK to organizations(id) ON DELETE CASCADE —
 // added out-of-band in OpenWithDB because GORM tag-driven FK creation
 // to a table owned by another package is fragile.
+//
+// RoleID is the live capability binding. ParentID is the reporting
+// line (nullable; the owner has no parent).
 type workerRow struct {
-	ID              string `gorm:"primaryKey;type:text"`
-	OrgID           string `gorm:"primaryKey;type:text;index"`
-	Kind            string `gorm:"not null"` // "human" or "ai"
-	Positions       string // JSON array of position ids
+	ID              string  `gorm:"primaryKey;type:text"`
+	OrgID           string  `gorm:"primaryKey;type:text;index"`
+	Kind            string  `gorm:"not null"` // "human" or "ai"
+	RoleID          string  `gorm:"not null;index"`
+	ParentID        *string `gorm:"index"`
 	IdentityContent string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -32,38 +34,34 @@ func (workerRow) TableName() string { return "org_workers" }
 type workerMapper struct{}
 
 func (workerMapper) ToRow(w orgchart.Worker) (workerRow, error) {
-	pos := w.Position()
-	encoded, err := json.Marshal([]orgchart.PositionID{pos})
-	if err != nil {
-		return workerRow{}, fmt.Errorf("marshal position: %w", err)
+	var parent *string
+	if p := w.ParentID(); p != nil {
+		s := string(*p)
+		parent = &s
 	}
 	return workerRow{
 		ID:              string(w.ID()),
 		OrgID:           w.OrganizationID(),
 		Kind:            string(w.Kind()),
-		Positions:       string(encoded),
+		RoleID:          string(w.RoleID()),
+		ParentID:        parent,
 		IdentityContent: w.IdentityContent(),
 	}, nil
 }
 
 func (workerMapper) ToDomain(row workerRow) (orgchart.Worker, error) {
-	var positions []orgchart.PositionID
-	if row.Positions != "" {
-		if err := json.Unmarshal([]byte(row.Positions), &positions); err != nil {
-			return nil, fmt.Errorf("unmarshal positions: %w", err)
-		}
-	}
-	var pos orgchart.PositionID
-	if len(positions) > 0 {
-		pos = positions[0]
+	var parent *orgchart.WorkerID
+	if row.ParentID != nil {
+		p := orgchart.WorkerID(*row.ParentID)
+		parent = &p
 	}
 	switch orgchart.WorkerKind(row.Kind) {
 	case orgchart.WorkerKindHuman:
-		return orgchart.NewHumanWorker(orgchart.WorkerID(row.ID), pos, row.IdentityContent, row.OrgID)
+		return orgchart.NewHumanWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), parent, row.IdentityContent, row.OrgID)
 	case orgchart.WorkerKindAI:
-		return orgchart.NewAIWorker(orgchart.WorkerID(row.ID), pos, row.IdentityContent, row.OrgID)
+		return orgchart.NewAIWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), parent, row.IdentityContent, row.OrgID)
 	default:
-		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
+		return nil, errUnknownWorkerKind(row.Kind)
 	}
 }
 
@@ -97,8 +95,14 @@ func (r *workersRepo) Update(ctx context.Context, w orgchart.Worker) error {
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
 			"identity_content": row.IdentityContent,
-			"positions":        row.Positions,
+			"role_id":          row.RoleID,
+			"parent_id":        row.ParentID,
 			"kind":             row.Kind,
 		}),
 	)
 }
+
+type unknownWorkerKindErr struct{ kind string }
+
+func (e unknownWorkerKindErr) Error() string { return "unknown worker kind " + e.kind }
+func errUnknownWorkerKind(k string) error    { return unknownWorkerKindErr{kind: k} }

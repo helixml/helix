@@ -174,49 +174,38 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 			sourceKind = sourceWorker.Kind()
 		}
 	}
-	// Subscriptions are position-anchored: resolve each subscription's
-	// position → its current AI worker(s) → enqueue an activation for
-	// each. A position with no current worker (e.g. an unfilled slot
-	// or one filled by a human) silently dispatches to nobody — the
-	// subscription survives for whoever fills the slot next.
-	allWorkers, err := d.store.Workers.List(ctx, orgID)
-	if err != nil {
-		d.logger.Error("dispatch: list workers", "err", err)
-		return
-	}
-	workersByPosition := map[string][]orgchart.Worker{}
-	for _, w := range allWorkers {
-		pid := string(w.Position())
-		if pid == "" {
+	// Subscriptions are worker-anchored: each subscription names the
+	// AI worker to activate directly. A subscription pointing at a
+	// fired worker silently dispatches to nobody (the row is dropped
+	// on fire — see lifecycle.Fire).
+	for _, sub := range subs {
+		workerID := orgchart.WorkerID(sub.WorkerID)
+		if string(workerID) == string(e.Source) {
+			continue // do not deliver the event back to its publisher
+		}
+		w, err := d.store.Workers.Get(ctx, orgID, workerID)
+		if err != nil {
+			d.logger.Warn("dispatch: get worker", "worker", workerID, "err", err)
 			continue
 		}
-		workersByPosition[pid] = append(workersByPosition[pid], w)
-	}
-	for _, sub := range subs {
-		recipients := workersByPosition[string(sub.PositionID)]
-		for _, w := range recipients {
-			if string(w.ID()) == string(e.Source) {
-				continue // do not deliver the event back to its publisher
-			}
-			if w.Kind() != orgchart.WorkerKindAI {
-				continue // human Workers are not activated by the runtime
-			}
-			env, err := d.store.Environments.Get(ctx, orgID, w.ID())
-			if err != nil {
-				d.logger.Warn("dispatch: get environment", "worker", w.ID(), "err", err)
-				continue
-			}
-			trigger := activation.Trigger{
-				Kind:       activation.TriggerEvent,
-				EventID:    e.ID,
-				StreamID:   e.StreamID,
-				Source:     e.Source,
-				SourceKind: sourceKind,
-				Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
-				CreatedAt:  e.CreatedAt,
-			}
-			d.queue.Enqueue(orgID, w.ID(), env.Path, trigger)
+		if w.Kind() != orgchart.WorkerKindAI {
+			continue // human Workers are not activated by the runtime
 		}
+		env, err := d.store.Environments.Get(ctx, orgID, w.ID())
+		if err != nil {
+			d.logger.Warn("dispatch: get environment", "worker", w.ID(), "err", err)
+			continue
+		}
+		trigger := activation.Trigger{
+			Kind:       activation.TriggerEvent,
+			EventID:    e.ID,
+			StreamID:   e.StreamID,
+			Source:     e.Source,
+			SourceKind: sourceKind,
+			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
+			CreatedAt:  e.CreatedAt,
+		}
+		d.queue.Enqueue(orgID, w.ID(), env.Path, trigger)
 	}
 }
 

@@ -1,6 +1,6 @@
 // HelixOrgWorkers lists every worker defined in the current org.
 // Clicking a row navigates to /helix-org/workers/:worker_id, which
-// shows the worker's identity, the role / position it fills, and a
+// shows the worker's identity, the role it holds, and a
 // "Chat with this worker (new session)" button. The chart's worker
 // chips also navigate to the same detail page.
 
@@ -111,9 +111,14 @@ const HelixOrgWorkers: FC = () => {
         <Typography variant="body2" color="text.secondary">{w.kind}</Typography>
       </Stack>
     ),
-    position: (
+    role: (
       <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-        {w.position_id || '—'}
+        {w.role_id || '—'}
+      </Typography>
+    ),
+    reportsTo: (
+      <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+        {w.parent_id || '—'}
       </Typography>
     ),
     identityPreview: (
@@ -157,9 +162,10 @@ const HelixOrgWorkers: FC = () => {
           <Box>
             <Typography variant="h5" sx={{ mb: 1 }}>Workers</Typography>
             <Typography variant="body2" color="text.secondary">
-              Workers are the people and AI agents that fill positions on the org chart.
-              Click a worker to open its detail page — chat to it in a fresh session, inspect
-              its identity, see who it reports to.
+              Workers are the people and AI agents in the org. Each holds a Role
+              (the source of their MCP capabilities) and reports to another
+              Worker. Click a worker to open its detail page — chat to it in a
+              fresh session, inspect its identity, manage its subscriptions.
             </Typography>
           </Box>
 
@@ -177,7 +183,8 @@ const HelixOrgWorkers: FC = () => {
               fields={[
                 { name: 'name', title: 'ID' },
                 { name: 'kind', title: 'Kind' },
-                { name: 'position', title: 'Position' },
+                { name: 'role', title: 'Role' },
+                { name: 'reportsTo', title: 'Reports to' },
                 { name: 'identityPreview', title: 'Identity' },
                 { name: 'tools', title: 'Tools' },
               ]}

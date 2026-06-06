@@ -20,7 +20,6 @@ import (
 // with AutoMigrate.
 var orgRowTypes = []any{
 	&roleRow{},
-	&positionRow{},
 	&workerRow{},
 	&workerRuntimeStateRow{},
 	&streamRow{},
@@ -32,13 +31,13 @@ var orgRowTypes = []any{
 }
 
 // orgTableNames returns the SQL table names for orgRowTypes. Used by
-// the schema-reset path and the FK installer. The `org_grants` table
-// is intentionally absent — capability is derived from Role.Tools, so
-// the table is dropped on first boot of this revision (see
-// migration_scripts).
+// the schema-reset path and the FK installer. The `org_grants` and
+// `org_positions` tables are intentionally absent — capability is
+// derived from Role.Tools and Workers hold their own role/parent
+// directly, so both tables are dropped on first boot of this
+// revision (see migration_scripts).
 var orgTableNames = []string{
 	"org_roles",
-	"org_positions",
 	"org_workers",
 	"org_worker_runtime_state",
 	"org_streams",
@@ -100,7 +99,6 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	workers := newWorkersRepo(db)
 	return &store.Store{
 		Roles:              newRolesRepo(db),
-		Positions:          newPositionsRepo(db),
 		Workers:            workers,
 		WorkerRuntimeState: newWorkerRuntimeStateRepo(db),
 		Streams:            newStreamsRepo(db),

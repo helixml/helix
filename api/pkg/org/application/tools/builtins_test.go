@@ -58,8 +58,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		[]tool.Name{
 			tools.CreateRoleName,
 			tools.UpdateRoleName,
-			tools.CreatePositionName,
-			tools.HireWorkerName,
+						tools.HireWorkerName,
 			tools.CreateStreamName,
 			tools.SubscribeName,
 			tools.PublishName,
@@ -72,9 +71,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		t.Fatalf("seed role: %v", err)
 	}
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	ownerEnvPath := filepath.Join(envsDir, "w-owner")
 	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
@@ -97,15 +94,11 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		"tools":   []string{"publish", "subscribe"},
 	})
 
-	invokeExpectID(t, ownerSession, tools.CreatePositionName, map[string]any{
-		"id":       "p-ceo",
-		"roleId":   "r-ceo",
-		"parentId": "p-root",
-	})
 
 	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
 		"id":              "w-ceo",
-		"positionId":      "p-ceo",
+		"roleId":         "r-ceo",
+		"parentId":       "w-owner",
 		"kind":            "ai",
 		"identityContent": "# Meina Gladstone\nCEO. Decisive, warm, direct.",
 	})
@@ -135,12 +128,12 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	if _, err := s.Streams.Get(ctx, "org-test", "s-activations-w-ceo"); err != nil {
 		t.Fatalf("activation stream missing for w-ceo: %v", err)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "p-root", "s-activations-w-ceo"); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", "s-activations-w-ceo"); err != nil {
 		t.Fatalf("owner position not subscribed to w-ceo activations: %v", err)
 	}
 	// The new Worker's own position is intentionally NOT subscribed
 	// — otherwise self-published events would loop the dispatcher.
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "p-ceo", "s-activations-w-ceo"); err == nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-activations-w-ceo"); err == nil {
 		t.Fatalf("p-ceo should NOT be subscribed to its own worker's activation stream")
 	}
 
@@ -152,7 +145,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	ceoSession := connectMCP(t, srv.URL, "w-ceo")
 	invokeOK(t, ceoSession, tools.SubscribeName, map[string]any{"streamId": "s-general"})
 
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "p-ceo", "s-general"); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-general"); err != nil {
 		t.Fatalf("CEO position subscription on s-general missing: %v", err)
 	}
 
@@ -208,17 +201,14 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 			tools.CreateRoleName,
 			tools.UpdateRoleName,
 			tools.UpdateIdentityName,
-			tools.CreatePositionName,
-			tools.HireWorkerName,
+						tools.HireWorkerName,
 		},
 		nil,
 		now,
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -227,18 +217,12 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		"id":      "r-eng",
 		"content": "# Engineer v1\nBuild stuff.",
 	})
-	invokeExpectID(t, ownerSession, tools.CreatePositionName, map[string]any{
-		"id": "p-eng-a", "roleId": "r-eng", "parentId": "p-root",
-	})
-	invokeExpectID(t, ownerSession, tools.CreatePositionName, map[string]any{
-		"id": "p-eng-b", "roleId": "r-eng", "parentId": "p-root",
-	})
 	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
-		"id": "w-a", "positionId": "p-eng-a", "kind": "ai",
+		"id": "w-a", "roleId": "r-eng", "parentId": "w-owner", "kind": "ai",
 		"identityContent": "# Alice",
 	})
 	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
-		"id": "w-b", "positionId": "p-eng-b", "kind": "ai",
+		"id": "w-b", "roleId": "r-eng", "parentId": "w-owner", "kind": "ai",
 		"identityContent": "# Bob",
 	})
 
@@ -328,8 +312,6 @@ func TestStreamMembers(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
 	// Subscriptions are position-anchored — give w-listener its own
 	// position so a subscribe-by-listener doesn't accidentally
 	// subscribe w-owner too. The listener Position also points at its
@@ -344,11 +326,9 @@ func TestStreamMembers(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, listenerRole))
-	listenerPos, _ := orgchart.NewPosition("p-listener", "r-listener", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, listenerPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	worker, _ := orgchart.NewAIWorker("w-listener", "p-listener", "", "org-test")
+	worker, _ := orgchart.NewAIWorker("w-listener", "r-listener", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, worker))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -401,8 +381,6 @@ func TestInviteWorkers(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
 	// Subscriptions are position-anchored: each worker needs its own
 	// position so the invite resolves to per-worker sub rows. With
 	// everyone sharing p-root, inviting alice+bob would subscribe
@@ -412,15 +390,11 @@ func TestInviteWorkers(t *testing.T) {
 	// is fine.
 	memberRole, _ := orgchart.NewRole("r-member", "# Member", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, memberRole))
-	alicePos, _ := orgchart.NewPosition("p-alice", "r-member", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, alicePos))
-	bobPos, _ := orgchart.NewPosition("p-bob", "r-member", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, bobPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	alice, _ := orgchart.NewAIWorker("w-alice", "p-alice", "", "org-test")
+	alice, _ := orgchart.NewAIWorker("w-alice", "r-member", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := orgchart.NewAIWorker("w-bob", "p-bob", "", "org-test")
+	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -495,26 +469,20 @@ func TestDM(t *testing.T) {
 	// old grants model they had slightly different sets (Bob had only
 	// dm); under Role.Tools both get both, which is fine — Bob simply
 	// never calls read_events in this test.
-	ownerRole, _ := orgchart.NewRole(
-		"r-owner",
-		"# Owner",
+	// Alice and Bob share a Role with both dm + read_events. Subscriptions
+	// are worker-anchored, so the DM subscribes each worker independently.
+	memberRole, _ := orgchart.NewRole(
+		"r-member",
+		"# Member",
 		[]tool.Name{tools.DMName, tools.ReadEventsName},
 		nil,
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	// Subscriptions are position-anchored; give alice + bob distinct
-	// positions so the DM subscribes both positions independently.
-	alicePos, _ := orgchart.NewPosition("p-alice", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, alicePos))
-	bobPos, _ := orgchart.NewPosition("p-bob", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, bobPos))
-	alice, _ := orgchart.NewHumanWorker("w-alice", "p-alice", "", "org-test")
+	mustCreate(t, s.Roles.Create(ctx, memberRole))
+	alice, _ := orgchart.NewHumanWorker("w-alice", "r-member", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := orgchart.NewAIWorker("w-bob", "p-bob", "", "org-test")
+	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 
 	aliceSession := connectMCP(t, srv.URL, "w-alice")
@@ -545,7 +513,7 @@ func TestDM(t *testing.T) {
 
 	// Both positions are subscribed (the DM tool resolves participants
 	// → their positions); the event landed in the store.
-	for _, pid := range []orgchart.PositionID{"p-alice", "p-bob"} {
+	for _, pid := range []orgchart.WorkerID{"w-alice", "w-bob"} {
 		if _, err := s.Subscriptions.Find(ctx, "org-test", pid, streaming.StreamID(out.StreamID)); err != nil {
 			t.Fatalf("%s not subscribed to %s: %v", pid, out.StreamID, err)
 		}
@@ -634,9 +602,7 @@ func TestReadsOverMCP(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -748,11 +714,9 @@ func TestWorkerLog(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := orgchart.NewAIWorker("w-bot", "p-root", "", "org-test")
+	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	// Pre-create the activation stream + seed a couple of events. In
@@ -798,7 +762,7 @@ func TestWorkerLog(t *testing.T) {
 	if out.Events[0].Body != "=== exit: ok ===" {
 		t.Fatalf("newest = %q, want exit marker", out.Events[0].Body)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "p-root", streamID); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
 		t.Fatalf("owner position not subscribed after worker_log: %v", err)
 	}
 
@@ -863,11 +827,9 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	rootPos, _ := orgchart.NewPosition("p-root", "r-owner", nil, "org-test")
-	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "p-root", "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := orgchart.NewAIWorker("w-bot", "p-root", "", "org-test")
+	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	streamID := activation.StreamID("w-bot")
@@ -979,7 +941,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	// activationId belonging to a *different* Worker is rejected too —
 	// no cross-Worker leakage even if the caller knows another
 	// Worker's activation IDs.
-	other, _ := orgchart.NewAIWorker("w-other", "p-root", "", "org-test")
+	other, _ := orgchart.NewAIWorker("w-other", "r-owner", nil, "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, other))
 	otherStream, _ := streaming.NewStream(activation.StreamID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, otherStream))

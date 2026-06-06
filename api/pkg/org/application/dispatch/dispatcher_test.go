@@ -139,10 +139,8 @@ func drainActivations(t *testing.T, rec <-chan recordedActivation, window time.D
 	}
 }
 
-// seedAIWorker creates an AIWorker assigned to a position and persists
-// it. Position is fabricated with a per-test role so the worker can be
-// constructed; tests that don't care about role/position structure use
-// a single shared role row to avoid per-call boilerplate.
+// seedAIWorker creates an AIWorker holding a shared per-test role and
+// persists it.
 func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	t.Helper()
 	ctx := context.Background()
@@ -157,15 +155,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 			t.Fatalf("create role: %v", err)
 		}
 	}
-	posID := orgchart.PositionID("p-" + string(workerID))
-	pos, err := orgchart.NewPosition(posID, roleID, nil, "org-test")
-	if err != nil {
-		t.Fatalf("new position: %v", err)
-	}
-	if err := s.Positions.Create(ctx, pos); err != nil {
-		t.Fatalf("create position: %v", err)
-	}
-	w, err := orgchart.NewAIWorker(workerID, posID, "# "+string(workerID)+"\nTest persona.", "org-test")
+	w, err := orgchart.NewAIWorker(workerID, roleID, nil, "# "+string(workerID)+"\nTest persona.", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
@@ -181,21 +171,13 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	}
 }
 
-// seedSubscription persists a Position→Stream subscription.
-// Subscriptions are position-anchored; tests pass the WorkerID for
-// readability and we look up the worker's position internally so
-// existing call sites need only the worker handle they already have.
+// seedSubscription persists a Worker→Stream subscription.
 func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, streamID streaming.StreamID) {
 	t.Helper()
-	w, err := s.Workers.Get(context.Background(), "org-test", workerID)
-	if err != nil {
+	if _, err := s.Workers.Get(context.Background(), "org-test", workerID); err != nil {
 		t.Fatalf("get worker %q for subscription: %v", workerID, err)
 	}
-	pid := w.Position()
-	if pid == "" {
-		t.Fatalf("worker %q has no position", workerID)
-	}
-	sub, err := streaming.NewSubscription(string(pid), streamID, time.Now().UTC(), "org-test")
+	sub, err := streaming.NewSubscription(string(workerID), streamID, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}
