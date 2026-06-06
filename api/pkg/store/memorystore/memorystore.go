@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/datatypes"
+
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -233,6 +235,59 @@ func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.In
 		cb(&cp)
 	}
 	return &cp, nil
+}
+
+// UpdateInteractionStreamingFields mirrors the Postgres column-scoped write
+// from the streaming flush path. It only touches response content / Zed
+// offset+id, so a concurrent state transition (cancel / complete) is never
+// clobbered. Matches the lost-update fix in websocket_external_agent_sync.go.
+func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return nil
+	}
+	existing.ResponseMessage = responseMessage
+	existing.ResponseEntries = responseEntries
+	existing.LastZedMessageOffset = lastZedMessageOffset
+	existing.LastZedMessageID = lastZedMessageID
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+
+	if cb != nil {
+		cb(&cp)
+	}
+	return nil
+}
+
+// MarkInteractionCompleteIfWaiting transitions Waiting → Complete atomically.
+// Returns true only if the row was actually transitioned, so a streaming flush
+// cannot resurrect a cancelled or errored turn as "complete".
+func (m *MemoryStore) MarkInteractionCompleteIfWaiting(_ context.Context, interactionID string, generationID int) (bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		m.mu.Unlock()
+		return false, nil
+	}
+	if existing.State != types.InteractionStateWaiting {
+		m.mu.Unlock()
+		return false, nil
+	}
+	existing.State = types.InteractionStateComplete
+	existing.Completed = time.Now()
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+
+	if cb != nil {
+		cb(&cp)
+	}
+	return true, nil
 }
 
 func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
