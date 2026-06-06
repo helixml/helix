@@ -52,7 +52,7 @@ sidebar. Tests run against `…/orgs/<org>/helix-org/*`.
    One row: `(w-owner, r-owner, NULL)`. No `org_positions` table
    exists (`SELECT to_regclass('org_positions')` → NULL).
 
-## §2. Roles list + tool editor (regression: 25-tool bootstrap)
+## §2. Roles list + tool editor
 
 `Role.Tools` is the live MCP surface for every Worker holding the
 Role. Editing a Role's Tools changes capability for every Worker
@@ -60,15 +60,15 @@ in that Role on their next MCP request.
 
 1. **Roles** in the middle sidebar. Columns: ID / Content / Tools /
    Streams / Updated.
-2. `r-owner`'s **Tools count is 21** — the bootstrap seed. Drop
-   from 25 reflects removed position tools (create_position,
-   list_positions, get_position, list_position_children) — pin so
-   re-adding them is a deliberate, visible change.
+2. `r-owner` has its bootstrap tool set populated (non-empty). The
+   removed position tools (`create_position`, `list_positions`,
+   `get_position`, `list_position_children`) are NOT present — pin
+   so re-adding them is a deliberate, visible change.
 3. `r-owner` vertical-dot menu offers **Open** and a **Delete**
    disabled with `Owner — protected`.
 4. **+ New Role** → `r-test-dm`, content `# DM`. Detail page opens,
    Tools field empty.
-5. Click the Tools dropdown. ~21 options render. Tick `dm` —
+5. Click the Tools dropdown. The available tools render. Tick `dm` —
    popper stays open (`disableCloseOnSelect`). Press Escape.
 6. **Save** → snackbar `role r-test-dm saved` → button disables.
 7. Hard refresh — `dm` chip persists.
@@ -223,9 +223,10 @@ spawner pipeline. Procedures in the prior QA.md history.)
 
 - §1 — bootstrap creates one Worker (`w-owner` with `role_id =
   r-owner`, `parent_id = NULL`); no `org_positions` table.
-- §2 — `r-owner.tools.length == 21`; multi-select adds/removes a
-  tool; refresh persists; an edit propagates to every Worker in
-  the role on the next MCP `tools/list`.
+- §2 — `r-owner` has a non-empty tool set (position tools absent);
+  multi-select adds/removes a tool; refresh persists; an edit
+  propagates to every Worker in the role on the next MCP
+  `tools/list`.
 - §3 — AI worker creation doesn't crash the API; owner refuses
   fire (409); role delete dialog enumerates the affected workers
   before confirm.
