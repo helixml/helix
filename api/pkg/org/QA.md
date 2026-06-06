@@ -4,10 +4,9 @@ End-to-end UI test for helix-org. Run before merging any change to
 `frontend/src/pages/HelixOrg*.tsx`, `frontend/src/components/orgs/`,
 `api/pkg/org/`, or `api/pkg/server/helix_org*.go`.
 
-Each section is a regression pin — the bug it guards is in the
-heading. Skip nothing without reading the why. Every feature is
-tested in exactly one place; sections reference each other instead
-of repeating steps.
+Every feature is tested in exactly one place; sections reference
+each other instead of repeating steps. Skip nothing without reading
+the why.
 
 ## Mental model
 
@@ -47,9 +46,7 @@ sidebar. Tests run against `…/orgs/<org>/helix-org/*`.
 2. Chart shows one Role frame: `r-owner` containing one Worker node
    `w-owner`. No other roles, no other workers.
 3. Network tab: `/workers /roles /streams` requests all
-   2xx in parallel (bootstrap-race regression — see §1 in prior
-   plan: first request used to win, the rest 500-ed with
-   `create owner role: already exists`).
+   2xx in parallel.
 4. Confirm DB:
    ```sql
    SELECT id, role_id, parent_id FROM org_workers;
@@ -99,9 +96,7 @@ dialogs.
    column shows `r-test-dm`, Reports to shows `w-owner`.
 3. Click the `w-ai-1` row → URL becomes
    `…/helix-org/workers/w-ai-1`. The detail page must NOT crash
-   the API on first load (regression: nil-deref in
-   `WorkerProject.Ensure` when the worker had no role/position
-   resolution).
+   the API on first load.
 4. Try **Fire worker** on `w-owner`. Friendly snackbar surfaces
    the 409 `cannot fire the owner worker`.
 5. Hire `w-carol` into `r-test-dm`, fire from her detail page →
@@ -117,9 +112,8 @@ dialogs.
    shows the fresh `r-owner / w-owner` baseline — no leakage from
    the first org. Hire something in the second org and switch
    back: first org unchanged.
-2. Restart the API container. Everything persists (regression:
-   `ResetSchema=true` on production wiring used to drop every
-   `org_*` table on boot).
+2. Restart the API container. Everything persists — no `org_*`
+   data is dropped on boot.
 3. Toggle the top-right sun/moon. Both modes render the
    Chart canvas (role frames, worker nodes, stream nodes) cleanly.
 
@@ -128,8 +122,8 @@ dialogs.
 `…/helix-org/workers` table — columns ID / Kind / Role / Reports
 to / Identity / Tools. Vertical-dot menu offers **Open** and
 **Fire**; `w-owner`'s Fire shows `Owner — protected`. Filter by
-Role using the column header search (regression: roles can repeat
-across workers, so the list must be filterable, not grouped).
+Role using the column header search (roles can repeat across
+workers, so the list must be filterable, not grouped).
 
 ## §6. Streams list, detail, live tail
 
@@ -156,16 +150,14 @@ somewhere). The Streams surface lives at `…/helix-org/streams`.
 
 ## §7. GitHub streams — one-click setup
 
-(Unchanged from prior revision; full procedure in the previous
-QA.md history. Position-removal did not touch the github
-transport.) Pre-conditions: GitHub OAuth connected with `repo,
+Pre-conditions: GitHub OAuth connected with `repo,
 admin:repo_hook, read:org`. `SERVER_URL` is a public host
 (loopback refused).
 
 Create → pick repo → submit → webhook installed end-to-end.
 Detail page exposes **Edit on GitHub →** and **Re-install**.
 
-## §8. Worker-anchored subscriptions (regression: position survival)
+## §8. Worker-anchored subscriptions
 
 Subscriptions are keyed on `(org, worker, stream)`. Firing a
 Worker drops their subscription rows; a new hire into the same
@@ -186,20 +178,17 @@ Role does NOT inherit.
    recipient).
 3. **No automatic inheritance on rehire**: hire `w-cycle-2`
    into the same Role. Publish to the test stream. `w-cycle-2`
-   does NOT activate (regression in the other direction: prior
-   position-anchored model used to inherit; that flexibility was
-   the bug we removed). The hiring playbook re-subscribes
+   does NOT activate. The hiring playbook re-subscribes
    explicitly to opt in.
 4. **Specialisation check**: hire two AI Workers `w-secrev`
    and `w-perfrev` into one shared role `r-code-reviewer`.
    Subscribe `w-secrev` → `s-security-prs` and `w-perfrev` →
    `s-perf-prs`. Publish to `s-security-prs`: only `w-secrev`
-   activates. Position-anchored subs could not express this.
+   activates.
 
-## §9. Stream delete (regression: orphan activation streams)
+## §9. Stream delete
 
-Firing a worker used to leave its `s-activations-<workerID>`
-stream behind.
+Firing a worker removes its `s-activations-<workerID>` stream.
 
 1. Hire a fresh AI `w-cleanup`. Its activation stream row + an
    entry in `s-activations-w-cleanup`'s subscriber list appear.
@@ -208,23 +197,22 @@ stream behind.
    Events on that stream survive in `org_events` as an audit
    trail.
 
-## §10. Chat → Human Desktop (regression: bare /agent route)
+## §10. Chat → Human Desktop
 
 Chat MUST happen inside the per-Worker project's Human Desktop
-session — same surface a normal project uses — not the legacy
-bare composer at `/agent/<id>`.
+session — same surface a normal project uses — not the bare
+composer at `/agent/<id>`.
 
-(Procedure unchanged from prior revision; position-removal did
-not touch the desktop pipeline.) Click **Open Human Desktop** on
-the worker detail page → lands on
+Click **Open Human Desktop** on the worker detail page → lands on
 `…/projects/<project_id>/desktop/<session_id>` in a new tab.
 
 ## §11. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
-(Unchanged. Position-removal did not touch the sandbox /
-spawner pipeline. Procedures in the prior QA.md history.)
+Open a fresh AI Worker's sandbox: Zed launches, the per-Worker `gh`
+startupScript installs cleanly, and `gh auth status` is green. The
+Worker's Role tools are present in the sandbox MCP surface.
 
-## §12. Chart canvas: reporting + subscription drag (regression: position-less reparent)
+## §12. Chart canvas: reporting + subscription drag
 
 The Chart is a ReactFlow canvas keyed entirely off `worker.parent_id`
 and worker-anchored subscriptions — there are no Position rows. This
