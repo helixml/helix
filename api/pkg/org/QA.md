@@ -197,14 +197,66 @@ Firing a worker removes its `s-activations-<workerID>` stream.
    Events on that stream survive in `org_events` as an audit
    trail.
 
-## §10. Chat → Human Desktop
+## §10. Chat: inline transcript + Human Desktop
 
-Chat MUST happen inside the per-Worker project's Human Desktop
-session — same surface a normal project uses — not the bare
-composer at `/agent/<id>`.
+The worker detail page renders the worker's conversation inline using
+the same transcript view the spec-task page uses (`EmbeddedSessionView`
++ `RobustPromptInput`), reading the per-Worker project's long-lived
+"Human Desktop" exploratory session. The operator should NOT have to
+click out to the external desktop tab just to see what the worker is
+doing. The desktop launch stays available for the full Zed GUI / video.
 
-Click **Open Human Desktop** on the worker detail page → lands on
-`…/projects/<project_id>/desktop/<session_id>` in a new tab.
+1. **Inline transcript auto-loads.** Open a worker that has already
+   been chatted with (`…/helix-org/workers/<id>` with a `project_id`).
+   The Chat panel shows the conversation inline — user turns, the
+   agent's responses, and its MCP tool calls (collapsible) — without
+   any click. The resolve is GET-only: opening the page must NOT spin
+   up a desktop container (Network tab: one
+   `GET …/projects/<pid>/exploratory-session`, no create/resume POST).
+2. **No-session empty state.** A freshly-hired worker that has never
+   been chatted with (no `project_id`, or project with no exploratory
+   session — the GET returns 204) shows "No conversation yet — launch
+   the Human Desktop to start one", not a crash or a spinner.
+3. **Send a message and verify the worker responds.** This is the
+   load-bearing test — the worker chat is useless if messages don't
+   actually reach the agent. With the transcript shown, type a prompt
+   the agent must visibly act on (e.g. "Reply with the single word
+   PONG and nothing else") and send.
+   - **The message must dispatch, not park.** The composer must NOT get
+     stuck showing a queue header reading **"Message queue (saved
+     locally)"** with the message sitting under it forever. That header
+     means the prompt was written to local storage but never sent — the
+     symptom of the 53b336e01 regression where the client-side queue
+     pump was deleted. For a worker/Human-Desktop session (no
+     `spec_task_id`) the composer pumps its own queue via
+     `onSend → streaming.NewInference`; the queued item should clear
+     within ~1s, not persist.
+   - **Network:** sending fires `POST …/sessions/chat` for the worker's
+     session id (NOT `POST …/prompt-history/sync`, which is the
+     spec-task-only path and 400s without a `spec_task_id`). It must
+     return 2xx, NOT **401** — the worker's "Human Desktop" session is
+     owned by whoever bootstrapped the org, not necessarily the operator
+     driving the worker, so the chat endpoint authorizes via org/project
+     RBAC (`authorizeUserToSession`, `ActionUpdate`), not strict
+     owner-equality. An operator who can see the transcript (read) but
+     lacks write access on the project is correctly refused; a read-only
+     org member should not be able to drive the agent.
+   - **The user turn appears** inline immediately.
+   - **The agent replies** — a new assistant interaction streams into
+     the transcript live (the WebSocket is subscribed to the session),
+     ending with the expected output (e.g. `PONG`). If the desktop was
+     paused, the first send wakes it (spinner, then the reply). No
+     navigation required.
+   - **DB cross-check** (optional): the new interactions land against
+     the worker's session —
+     `SELECT state, prompt_message FROM interactions WHERE session_id =
+     '<sid>' ORDER BY created DESC LIMIT 2;` shows the user prompt and a
+     `complete` assistant turn.
+4. **Open Human Desktop** still lands on
+   `…/projects/<project_id>/desktop/<session_id>` in a new tab — the
+   full GUI surface, NOT the bare composer at `/agent/<id>`. After
+   launch, the inline transcript on the worker page reflects the same
+   session.
 
 ## §11. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
@@ -267,8 +319,13 @@ pins the drag interactions and the `POST /workers/{id}/parent` endpoint.
   hires do NOT inherit; two workers in the same role can hold
   disjoint subscription sets.
 - §9 — fire removes the worker's activation stream (no orphans).
-- §10 — chat button lands on `…/projects/<pid>/desktop/<sid>`,
-  never on `…/agent/<id>`.
+- §10 — the worker page shows the conversation inline (transcript +
+  tool calls + composer) when a session exists, GET-only on load (no
+  container spin-up); the empty state shows otherwise. Sending a
+  message dispatches via `POST …/sessions/chat` (the composer does NOT
+  get stuck on "Message queue (saved locally)") and the worker's agent
+  replies live in the transcript. "Open Human Desktop" lands on
+  `…/projects/<pid>/desktop/<sid>`, never on `…/agent/<id>`.
 - §11 — fresh sandbox: Zed launches; per-Worker `gh`
   startupScript installs cleanly; `gh auth status` green.
 - No console errors beyond the three Vite WS errors at startup.
