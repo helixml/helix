@@ -179,9 +179,16 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return nil, fmt.Errorf("create environment: %w", err)
 	}
 
-	if args.Kind == orgchart.WorkerKindAI {
-		if err := EnsureActivationStream(ctx, t.deps.Store, orgID, id, inv.Caller.ID(), t.deps.Now()); err != nil {
-			return nil, err
+	// Reconcile the activation/team Streams implied by the new Worker
+	// and its reporting line. Topology is the single owner of those
+	// Streams: this mints the hire's activation Stream (subscribers =
+	// its managers) and adds the hire to the manager's team Stream
+	// (creating it on the manager's first report). Replaces the inline
+	// EnsureActivationStream call — same outcome for the AI case, plus
+	// the team-stream wiring, derived declaratively from the graph.
+	if t.deps.Topology != nil {
+		if err := t.deps.Topology.Reconcile(ctx, orgID, id); err != nil {
+			return nil, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
 		}
 	}
 

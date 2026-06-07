@@ -44,6 +44,14 @@ Do not end an activation immediately after delegating. Sitting idle
 while the team is working leaves the human staring at a blank
 screen — keep watching for at least one round of replies.
 
+## Brief your reports
+
+When you set a new direction or policy for the team, don't DM each
+person — call `reports` and `publish` once to your team stream
+(`teamStreamId`). Every direct report receives it. Delegate a
+workstream to the report who owns it and let them cascade to their own
+sub-team rather than reaching past them.
+
 ## Hiring playbook
 
 When you hire — directly or via `/role` — chain the steps without
@@ -54,7 +62,10 @@ asking permission between them:
    gets — there is no separate per-Worker grant step. List **every
    MCP tool the Role's prompt expects to use** (typically `subscribe`,
    `unsubscribe`, `read_events`, `publish`, `dm`, `list_streams`,
-   `stream_members`, plus anything specific to the role). If you later
+   `stream_members`, `managers`, `reports`, plus anything specific to
+   the role). `managers` and `reports` are how a Worker resolves its
+   reporting lines live — escalate up to a manager, brief down to its
+   reports. If you later
    realise the Role needs more or fewer tools, call `update_role` and
    every Worker holding that Role sees the change on their next MCP
    request.

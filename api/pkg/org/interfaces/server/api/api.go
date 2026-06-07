@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -112,6 +113,13 @@ type Deps struct {
 	// app teardown, store cleanup, env-dir removal). nil disables
 	// DELETE /workers/{id} (returns 501).
 	Lifecycle *lifecycle.Service
+
+	// Topology reconciles activation/team Streams after a reporting
+	// line is added or removed via the chart UI. Without it,
+	// addWorkerParent / removeWorkerParent write the line but leave the
+	// activation-stream observers and team-stream membership stale
+	// (the reparent-desync bug). nil is a no-op.
+	Topology *topology.Reconciler
 
 	// GitHubTokenResolver is the production hook for "reinstate the
 	// GitHub stream + reuse the existing GitHub integration for
@@ -920,6 +928,17 @@ func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("add reporting line: %w", err))
 		return
 	}
+
+	// Settle the streams the new edge implies: subscribe the manager to
+	// the report's activation stream and add the report to the manager's
+	// team stream (creating it on the manager's first report). Pass both
+	// endpoints so the manager's team stream is in the reconcile scope.
+	if a.deps.Topology != nil {
+		if err := a.deps.Topology.Reconcile(ctx, orgID, id, managerID); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("reconcile topology: %w", err))
+			return
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -956,6 +975,19 @@ func (a *apiHandler) removeWorkerParent(w http.ResponseWriter, r *http.Request) 
 	if err := a.deps.Store.ReportingLines.Remove(ctx, orgID, id, managerID); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("remove reporting line %s→%s: %w", id, managerID, err))
 		return
+	}
+
+	// Settle the streams the dropped edge implies: unsubscribe the
+	// ex-manager from the report's activation stream and remove the
+	// report from the ex-manager's team stream (tearing it down if that
+	// was the manager's last report). Pass both endpoints — the
+	// ex-manager is no longer in ListManagers(id), so it must be named
+	// explicitly to fall in the reconcile scope.
+	if a.deps.Topology != nil {
+		if err := a.deps.Topology.Reconcile(ctx, orgID, id, managerID); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("reconcile topology: %w", err))
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

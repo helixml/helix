@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -65,7 +66,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 		t.Fatalf("precondition: activation stream not seeded: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Owner: "w-owner"}
+	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Topology: &topology.Reconciler{Store: st}}
 	if err := svc.Fire(ctx, orgID, worker.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -141,7 +142,7 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("create subscription: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Owner: "w-owner"}
+	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Topology: &topology.Reconciler{Store: st}}
 	if err := svc.Fire(ctx, orgID, mgr.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

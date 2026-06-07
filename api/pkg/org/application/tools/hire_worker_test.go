@@ -98,9 +98,14 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	deps, dispatcher, envsDir, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps}
 
+	// Hire under a manager — the canonical case (only the owner is
+	// parentless). A managed human still gets NO activation stream:
+	// topology mints those for AI Workers and the manager-less root
+	// only.
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-renee",
 		RoleID:          "r-owner",
+		ParentID:        "w-owner",
 		Kind:            orgchart.WorkerKindHuman,
 		IdentityContent: "# Renee",
 	})
@@ -212,9 +217,13 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	deps, dispatcher, _, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps}
 
+	// Hire under w-owner (the canonical case): the manager observes the
+	// hire's transcript because it is the manager, derived from the
+	// reporting line topology writes.
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
 		RoleID:          "r-owner",
+		ParentID:        "w-owner",
 		Kind:            orgchart.WorkerKindAI,
 		IdentityContent: "# Alice",
 	})
@@ -227,9 +236,9 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	if _, err := deps.Store.Streams.Get(ctx, "org-test", streamID); err != nil {
 		t.Fatalf("activation stream missing: %v", err)
 	}
-	// Hiring worker is subscribed (subs are worker-anchored).
+	// The manager (w-owner) is subscribed (subs are worker-anchored).
 	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
-		t.Fatalf("hiring worker not subscribed to activation stream: %v", err)
+		t.Fatalf("manager not subscribed to activation stream: %v", err)
 	}
 	// New worker is NOT subscribed to its own activation stream
 	// (would loop the dispatcher when the new worker publishes).

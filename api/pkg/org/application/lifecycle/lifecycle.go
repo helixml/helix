@@ -17,7 +17,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -45,6 +45,12 @@ type Service struct {
 	// Fire refuses to delete the owner so the alpha can't be bricked by
 	// a UI misclick.
 	Owner orgchart.WorkerID
+
+	// Topology reconciles the activation/team Streams after the Worker
+	// row is gone — it tears down the fired Worker's own Streams and
+	// collapses an ex-manager's team Stream when its last report just
+	// left. nil is a no-op (tests without topology wiring).
+	Topology *topology.Reconciler
 }
 
 // ErrOwnerProtected is returned by Fire when the caller targets the
@@ -63,14 +69,16 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 //  4. Clear the WorkerRuntimeState sidecar.
 //  5. Delete every Subscription for this worker.
 //  6. Remove the env directory from disk and delete its row.
-//  7. Delete the per-Worker activation Stream
-//     (`s-activations-<workerID>`) so it stops surfacing as an
-//     active channel on the Streams page.
-//  8. Delete the Worker row.
+//  7. Delete the Worker row.
+//  8. Reconcile topology: tear down the fired Worker's own activation +
+//     team Streams and collapse any ex-manager's team Stream that just
+//     lost its last report. topology is the single owner of
+//     activation/team Stream lifecycle — there is no inline
+//     Streams.Delete here any more.
 //
-// Steps 2/3/5/6/7 are best-effort and logged on failure — a half-
+// Steps 2/3/5/6/8 are best-effort and logged on failure — a half-
 // torn worker is better than refusing to clean up partial state.
-// Step 8 is the only step whose error propagates (the row is the
+// Step 7 is the only step whose error propagates (the row is the
 // user-visible source of truth).
 //
 // Subscriptions are worker-anchored, so they die with the worker. A
@@ -94,6 +102,16 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	}
 	if _, err := s.Store.Workers.Get(ctx, orgID, id); err != nil {
 		return fmt.Errorf("get worker %q: %w", id, err)
+	}
+
+	// Capture the fired Worker's managers BEFORE deletion: the reporting
+	// lines cascade-drop with the Worker row, so ListManagers returns
+	// nothing afterward. We feed these ex-managers to the topology
+	// reconcile below so a manager's team Stream collapses when its last
+	// report leaves.
+	var exManagers []orgchart.WorkerID
+	if s.Store.ReportingLines != nil {
+		exManagers, _ = s.Store.ReportingLines.ListManagers(ctx, orgID, id)
 	}
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
@@ -131,20 +149,23 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		s.logger().Warn("fire: delete environment row", "worker", id, "err", err)
 	}
 
-	// Drop the per-Worker activation Stream so it no longer shows up
-	// on the Streams page. Best-effort: log on failure so a half-torn
-	// worker still has its row deleted below. Events on the stream
-	// survive (audit trail) because the Events table isn't keyed on
-	// Streams.
-	if s.Store.Streams != nil {
-		streamID := activation.StreamID(id)
-		if err := s.Store.Streams.Delete(ctx, orgID, streamID); err != nil {
-			s.logger().Warn("fire: delete activation stream", "worker", id, "stream", streamID, "err", err)
-		}
-	}
-
 	if err := s.Store.Workers.Delete(ctx, orgID, id); err != nil {
 		return fmt.Errorf("delete worker row %q: %w", id, err)
+	}
+
+	// Settle the activation/team Streams now that the row (and its
+	// reporting lines) are gone. topology is the single owner of their
+	// lifecycle: reconciling `id` tears down the fired Worker's own
+	// activation + team Streams (it has fallen out of the graph), and
+	// reconciling the ex-managers collapses a manager's team Stream when
+	// its last report just left. Best-effort: a failure here leaves a
+	// dangling Stream row, not a half-deleted worker, so we log and
+	// continue rather than failing the Fire.
+	if s.Topology != nil {
+		affected := append([]orgchart.WorkerID{id}, exManagers...)
+		if err := s.Topology.Reconcile(ctx, orgID, affected...); err != nil {
+			s.logger().Warn("fire: reconcile topology", "worker", id, "err", err)
+		}
 	}
 	return nil
 }

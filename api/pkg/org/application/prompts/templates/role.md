@@ -59,8 +59,12 @@ Every Role must include the `**On anything else.** Stay quiet`
 block verbatim — it's the default-quiet rule.
 
 Default tools: pick from what the org has — typically `subscribe`,
-`publish`, `read_events`, `dm`. Don't grant `hire_worker` or
-`create_role` unless the title implies seniority.
+`publish`, `read_events`, `dm`, `managers`, `reports`. `managers` and
+`reports` let the Worker resolve its reporting lines live — escalate up
+to a manager (`managers` + `dm`), brief down to its reports (`reports` +
+`publish` to the team stream). Grant both to any Role that sits in a
+hierarchy. Don't grant `hire_worker` or `create_role` unless the title
+implies seniority.
 
 ## Step 2 — Save it. **Don't ask permission.**
 

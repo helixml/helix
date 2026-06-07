@@ -3,14 +3,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -71,37 +70,19 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		return nil, fmt.Errorf("recipient %q: %w", recipient, err)
 	}
 
-	streamID := dmStreamID(sender, recipient)
+	streamID := DMStreamID(sender, recipient)
 
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("lookup stream %q: %w", streamID, err)
-		}
-		name := fmt.Sprintf("dm: %s ↔ %s", sender, recipient)
-		s, err := streaming.NewStream(streamID, name, "", sender, t.deps.Now(), transport.Transport{}, orgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.deps.Store.Streams.Create(ctx, s); err != nil {
-			return nil, fmt.Errorf("create stream %q: %w", streamID, err)
-		}
+	// Get-or-create the per-pair Stream and subscribe both parties via
+	// the shared topology primitive — one implementation of
+	// "ensure stream exists with member set", used here and by the
+	// reconciler. Subscriptions are worker-anchored.
+	name := fmt.Sprintf("dm: %s ↔ %s", sender, recipient)
+	stream, err := streaming.NewStream(streamID, name, "", sender, t.deps.Now(), transport.Transport{}, orgID)
+	if err != nil {
+		return nil, err
 	}
-
-	// Subscribe both DM participants directly. Subscriptions are
-	// worker-anchored.
-	for _, wid := range []orgchart.WorkerID{sender, recipient} {
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
-			continue
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		sub, err := streaming.NewSubscription(string(wid), streamID, t.deps.Now(), orgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-			return nil, err
-		}
+	if err := topology.EnsureStreamWithMembers(ctx, t.deps.Store, stream, t.deps.Now(), sender, recipient); err != nil {
+		return nil, err
 	}
 
 	msg := streaming.Message{
@@ -137,9 +118,11 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	})
 }
 
-// dmStreamID returns the deterministic Stream ID for a DM between two
+// DMStreamID returns the deterministic Stream ID for a DM between two
 // Workers, ordered by string compare so A→B and B→A share one Stream.
-func dmStreamID(a, b orgchart.WorkerID) streaming.StreamID {
+// Exported so the managers / reports read tools can hand back the DM
+// stream id before the stream exists — the first dm lazily creates it.
+func DMStreamID(a, b orgchart.WorkerID) streaming.StreamID {
 	pair := []string{string(a), string(b)}
 	sort.Strings(pair)
 	return streaming.StreamID("s-dm-" + pair[0] + "-" + pair[1])

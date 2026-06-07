@@ -289,6 +289,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger:  logger,
 		EnvsDir: envsDir,
 		Owner:   "w-owner",
+		// Single topology reconciler shared with the tools registry and
+		// the REST handlers — one owner of activation/team Stream
+		// lifecycle across hire, reparent, and fire.
+		Topology: deps.Topology,
 	}
 
 	apiDeps := helixorgapi.Deps{
@@ -301,6 +305,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		EnvsDir:        envsDir,
 		HireWorker:     hireTool,
 		Lifecycle:      lifecycleSvc,
+		Topology:       deps.Topology,
 		Tools:          reg,
 		ProjectEnsurer: projectApplier,
 		// Production: the github stream transport's Token() falls
