@@ -3,6 +3,7 @@ package topology
 import (
 	"context"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	memorystore "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
@@ -404,6 +406,65 @@ func TestReconcile_Idempotent(t *testing.T) {
 	if !eq(before, after) {
 		t.Fatalf("idempotency broken: before=%v after=%v", before, after)
 	}
+}
+
+// TestEnsureStreamWithMembers_ConcurrentCreateRace proves the helper is
+// safe against two callers racing on the same deterministic stream id —
+// the TOCTOU the topology design must tolerate (two simultaneous DMs
+// between the same pair, two reconciles touching one team stream). Many
+// goroutines released from a barrier all get-or-create the SAME stream
+// and subscribe the SAME member; the memory store runs Get and Create
+// under separate locks, so the loser of each race takes the
+// re-check-after-Create path. Every call must succeed, and the end state
+// must be exactly one stream with exactly one subscription.
+func TestEnsureStreamWithMembers_ConcurrentCreateRace(t *testing.T) {
+	st := memorystore.New()
+	ctx := context.Background()
+	const sid = streaming.StreamID("s-team-w-race")
+	stream, err := streaming.NewStream(sid, "Team: race", "", "w-race", fixedNow(), transport.Transport{}, orgID)
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+
+	const n = 32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start // release all at once to maximise interleaving
+			errs[idx] = EnsureStreamWithMembers(ctx, st, stream, fixedNow(), "w-member")
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("goroutine %d errored on concurrent ensure: %v", i, e)
+		}
+	}
+	// Exactly one stream, exactly one subscription — no duplicates, no
+	// spurious unique-constraint failures.
+	if got := membersOfStore(t, st, sid); !eq(got, []orgchart.WorkerID{"w-member"}) {
+		t.Fatalf("subscribers = %v, want exactly [w-member]", got)
+	}
+}
+
+func membersOfStore(t *testing.T, st *store.Store, sid streaming.StreamID) []orgchart.WorkerID {
+	t.Helper()
+	subs, err := st.Subscriptions.ListForStream(context.Background(), orgID, sid)
+	if err != nil {
+		t.Fatalf("list subscribers: %v", err)
+	}
+	out := make([]orgchart.WorkerID, 0, len(subs))
+	for _, s := range subs {
+		out = append(out, orgchart.WorkerID(s.WorkerID))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TestReconcile_OwnerWithReport mirrors the owner TDD row: the owner with
