@@ -7,9 +7,10 @@ import "errors"
 // implementations; the unexported marker method keeps the set closed.
 //
 // Each Worker carries a Role (the capability binding — the live source
-// of truth for the Worker's MCP surface) and an optional ParentID (the
-// Worker this one reports to). The owner Worker (`w-owner`) has nil
-// ParentID. A person who serves two roles is two Workers.
+// of truth for the Worker's MCP surface). Reporting lines are a
+// separate many-to-many relation (see ReportingLine) rather than a
+// field on the Worker, so a Worker can report to several managers. A
+// person who serves two roles is two Workers.
 //
 // IdentityContent is the per-Worker Identity description. It lives
 // in the domain — never on disk — so it survives any change in env
@@ -19,15 +20,9 @@ type Worker interface {
 	ID() WorkerID
 	Kind() WorkerKind
 	RoleID() RoleID
-	ParentID() *WorkerID
 	IdentityContent() string
 	OrganizationID() string
 	WithIdentityContent(content string) Worker
-	// WithParentID returns a copy of the Worker reporting to parent.
-	// A nil parent makes the Worker top-level (no manager); the chart
-	// UI uses this when an edge is deleted. Returns an error if the
-	// parent is the Worker itself or an empty (non-nil) id.
-	WithParentID(parent *WorkerID) (Worker, error)
 	isWorker()
 }
 
@@ -35,15 +30,13 @@ type Worker interface {
 type HumanWorker struct {
 	id              WorkerID
 	roleID          RoleID
-	parentID        *WorkerID
 	identityContent string
 	orgID           string
 }
 
-// NewHumanWorker validates and constructs a HumanWorker. orgID and
-// roleID are required. parentID may be nil for the owner; passing a
-// non-nil empty string is rejected. A worker may not be its own parent.
-func NewHumanWorker(id WorkerID, roleID RoleID, parentID *WorkerID, identityContent, orgID string) (*HumanWorker, error) {
+// NewHumanWorker validates and constructs a HumanWorker. id, roleID
+// and orgID are required.
+func NewHumanWorker(id WorkerID, roleID RoleID, identityContent, orgID string) (*HumanWorker, error) {
 	if id == "" {
 		return nil, errors.New("worker id is empty")
 	}
@@ -53,28 +46,16 @@ func NewHumanWorker(id WorkerID, roleID RoleID, parentID *WorkerID, identityCont
 	if orgID == "" {
 		return nil, errors.New("worker orgID is empty")
 	}
-	parent, err := validateParent(id, parentID)
-	if err != nil {
-		return nil, err
-	}
-	return &HumanWorker{id: id, roleID: roleID, parentID: parent, identityContent: identityContent, orgID: orgID}, nil
+	return &HumanWorker{id: id, roleID: roleID, identityContent: identityContent, orgID: orgID}, nil
 }
 
 func (h *HumanWorker) ID() WorkerID            { return h.id }
 func (h *HumanWorker) Kind() WorkerKind        { return WorkerKindHuman }
 func (h *HumanWorker) RoleID() RoleID          { return h.roleID }
-func (h *HumanWorker) ParentID() *WorkerID     { return cloneParent(h.parentID) }
 func (h *HumanWorker) IdentityContent() string { return h.identityContent }
 func (h *HumanWorker) OrganizationID() string  { return h.orgID }
 func (h *HumanWorker) WithIdentityContent(content string) Worker {
-	return &HumanWorker{id: h.id, roleID: h.roleID, parentID: cloneParent(h.parentID), identityContent: content, orgID: h.orgID}
-}
-func (h *HumanWorker) WithParentID(parent *WorkerID) (Worker, error) {
-	p, err := validateParent(h.id, parent)
-	if err != nil {
-		return nil, err
-	}
-	return &HumanWorker{id: h.id, roleID: h.roleID, parentID: p, identityContent: h.identityContent, orgID: h.orgID}, nil
+	return &HumanWorker{id: h.id, roleID: h.roleID, identityContent: content, orgID: h.orgID}
 }
 func (h *HumanWorker) isWorker() {}
 
@@ -82,13 +63,12 @@ func (h *HumanWorker) isWorker() {}
 type AIWorker struct {
 	id              WorkerID
 	roleID          RoleID
-	parentID        *WorkerID
 	identityContent string
 	orgID           string
 }
 
 // NewAIWorker validates and constructs an AIWorker.
-func NewAIWorker(id WorkerID, roleID RoleID, parentID *WorkerID, identityContent, orgID string) (*AIWorker, error) {
+func NewAIWorker(id WorkerID, roleID RoleID, identityContent, orgID string) (*AIWorker, error) {
 	if id == "" {
 		return nil, errors.New("worker id is empty")
 	}
@@ -98,49 +78,15 @@ func NewAIWorker(id WorkerID, roleID RoleID, parentID *WorkerID, identityContent
 	if orgID == "" {
 		return nil, errors.New("worker orgID is empty")
 	}
-	parent, err := validateParent(id, parentID)
-	if err != nil {
-		return nil, err
-	}
-	return &AIWorker{id: id, roleID: roleID, parentID: parent, identityContent: identityContent, orgID: orgID}, nil
+	return &AIWorker{id: id, roleID: roleID, identityContent: identityContent, orgID: orgID}, nil
 }
 
 func (a *AIWorker) ID() WorkerID            { return a.id }
 func (a *AIWorker) Kind() WorkerKind        { return WorkerKindAI }
 func (a *AIWorker) RoleID() RoleID          { return a.roleID }
-func (a *AIWorker) ParentID() *WorkerID     { return cloneParent(a.parentID) }
 func (a *AIWorker) IdentityContent() string { return a.identityContent }
 func (a *AIWorker) OrganizationID() string  { return a.orgID }
 func (a *AIWorker) WithIdentityContent(content string) Worker {
-	return &AIWorker{id: a.id, roleID: a.roleID, parentID: cloneParent(a.parentID), identityContent: content, orgID: a.orgID}
-}
-func (a *AIWorker) WithParentID(parent *WorkerID) (Worker, error) {
-	p, err := validateParent(a.id, parent)
-	if err != nil {
-		return nil, err
-	}
-	return &AIWorker{id: a.id, roleID: a.roleID, parentID: p, identityContent: a.identityContent, orgID: a.orgID}, nil
+	return &AIWorker{id: a.id, roleID: a.roleID, identityContent: content, orgID: a.orgID}
 }
 func (a *AIWorker) isWorker() {}
-
-func validateParent(self WorkerID, parent *WorkerID) (*WorkerID, error) {
-	if parent == nil {
-		return nil, nil
-	}
-	if *parent == "" {
-		return nil, errors.New("parent worker id is empty")
-	}
-	if *parent == self {
-		return nil, errors.New("worker cannot be its own parent")
-	}
-	p := *parent
-	return &p, nil
-}
-
-func cloneParent(parent *WorkerID) *WorkerID {
-	if parent == nil {
-		return nil
-	}
-	p := *parent
-	return &p
-}

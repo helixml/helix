@@ -155,7 +155,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 			t.Fatalf("create role: %v", err)
 		}
 	}
-	w, err := orgchart.NewAIWorker(workerID, roleID, nil, "# "+string(workerID)+"\nTest persona.", "org-test")
+	w, err := orgchart.NewAIWorker(workerID, roleID, "# "+string(workerID)+"\nTest persona.", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}

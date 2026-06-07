@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -99,6 +100,24 @@ func (r *streamsRepo) Update(ctx context.Context, s streaming.Stream) error {
 	)
 }
 
+// Delete removes the stream row and structurally cascades the
+// subscriptions that reference it: every worker-anchored row for this
+// stream is dropped in the same transaction, so firing a worker (which
+// deletes its s-activations-<id> stream) can't leave other workers'
+// subscriptions pointing at a stream that no longer exists.
 func (r *streamsRepo) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
-	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("org_id = ? AND stream_id = ?", orgID, string(id)).
+			Delete(&subscriptionRow{}).Error; err != nil {
+			return fmt.Errorf("delete stream: drop subscriptions: %w", err)
+		}
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&streamRow{})
+		if res.Error != nil {
+			return fmt.Errorf("delete stream: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return fmt.Errorf("stream: %w", store.ErrNotFound)
+		}
+		return nil
+	})
 }

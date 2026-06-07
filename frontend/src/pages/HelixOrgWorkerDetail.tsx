@@ -1,17 +1,19 @@
 // HelixOrgWorkerDetail shows a single worker and lets the operator
-// chat to it in a fresh session. "Fresh" matters — the user explicitly
-// asked for no session history on this page; clicking the chat button
-// always opens a new conversation against the worker's per-Worker
-// agent app.
+// watch and drive its conversation inline — the same transcript view
+// the spec-task page uses (EmbeddedSessionView), reading the worker's
+// per-Worker project "Human Desktop" session. The point is to avoid
+// forcing the operator to click out to the external desktop tab just
+// to see what the worker is doing.
 //
-// Implementation: each "Start new chat" click navigates to the agent
-// app's chat page (/orgs/<org>/agent/<app_id>) WITHOUT a session_id
-// query param. The agent page's default behaviour for a missing
-// session id is to show an empty composer ready for a new session.
-// By avoiding any session_id pinning we guarantee no transcript bleed
-// across worker visits.
+// Surfaces, in order of weight:
+//   - Inline transcript (EmbeddedSessionView + RobustPromptInput):
+//     auto-shown when the worker's project already has an exploratory
+//     session. GET-only on load — never spins up infra by itself.
+//   - "Open Human Desktop": the full Zed GUI / video stream in a new
+//     tab, for when the operator needs the desktop, not just the chat.
+//   - "Restart Desktop": a fresh manual activation (re-attaches MCP).
 
-import { FC, useMemo, useState } from 'react'
+import { FC, Key, useEffect, useMemo, useRef, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -35,11 +37,17 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import EmbeddedSessionView, {
+  EmbeddedSessionViewHandle,
+} from '../components/session/EmbeddedSessionView'
+import RobustPromptInput from '../components/common/RobustPromptInput'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { useStreaming } from '../contexts/streaming'
+import { SESSION_TYPE_TEXT } from '../types'
 import {
   useActivateWorker,
   useEnsureWorkerChat,
@@ -50,6 +58,11 @@ import {
   useSubscribeWorker,
   useUnsubscribeWorker,
 } from '../services/helixOrgService'
+import {
+  WorkerChatApi,
+  ensureRunningWorkerSession,
+  fetchExistingWorkerSession,
+} from '../services/workerChatSession'
 
 const OWNER_WORKER = 'w-owner'
 
@@ -61,15 +74,72 @@ const HelixOrgWorkerDetail: FC = () => {
   const orgSlug = router.params.org_id as string | undefined
   const workerId = router.params.worker_id as string | undefined
 
-  const { data, isLoading } = useHelixOrgWorker(workerId)
   const fire = useFireHelixOrgWorker()
+  // Stop polling/refetching this worker once a fire is in flight or
+  // done — the row is being torn down, so a refetch would only hit a
+  // 404 (QA F3). The page navigates to the workers list on success.
+  const { data, isLoading } = useHelixOrgWorker(workerId, {
+    enabled: !fire.isPending && !fire.isSuccess,
+  })
   const ensureChat = useEnsureWorkerChat()
   const activate = useActivateWorker()
+  const streaming = useStreaming()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
   const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
   const projectID = data?.project_id
+
+  // chatSessionId is the worker's long-lived "Human Desktop" exploratory
+  // session — the transcript we render inline. Null until we've resolved
+  // one (or there isn't one yet).
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null)
+  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
+
+  // chatApi adapts the generated client to the injected shape the
+  // workerChatSession helpers expect. The exploratory-session GET returns
+  // 204 No Content when the project has no session yet — map that to null
+  // rather than letting it surface as an error.
+  const chatApi: WorkerChatApi = useMemo(() => ({
+    getExploratorySession: async (pid: string) => {
+      try {
+        const resp = await api.getApiClient().v1ProjectsExploratorySessionDetail(pid)
+        return resp.data ?? null
+      } catch (err: any) {
+        if (err?.response?.status === 204) return null
+        throw err
+      }
+    },
+    createExploratorySession: async (pid: string) =>
+      (await api.getApiClient().v1ProjectsExploratorySessionCreate(pid)).data,
+    resumeSession: async (sid: string) =>
+      api.getApiClient().v1SessionsResumeCreate(sid),
+  }), [api])
+
+  // Auto-load the inline transcript when the worker already has a project.
+  // GET-only — we never create a session just because the operator opened
+  // this page; the "Open Human Desktop" / provision buttons own that.
+  useEffect(() => {
+    let cancelled = false
+    if (!projectID) {
+      setChatSessionId(null)
+      return
+    }
+    fetchExistingWorkerSession(projectID, chatApi)
+      .then((sid) => { if (!cancelled) setChatSessionId(sid) })
+      .catch(() => { if (!cancelled) setChatSessionId(null) })
+    return () => { cancelled = true }
+    // chatApi is stable (memoised on the singleton api client); keying on
+    // projectID alone follows the "only primitives in deps" rule.
+  }, [projectID])
+
+  // Subscribe the WebSocket to the inline session so in-flight turns stream
+  // live (mirrors SpecTaskDetailContent, which likewise omits the streaming
+  // context object from deps). Clear on unmount / session change.
+  useEffect(() => {
+    streaming.setCurrentSessionId(chatSessionId)
+    return () => { streaming.setCurrentSessionId(null) }
+  }, [chatSessionId])
 
   // launching covers the whole openChat flow, not just the
   // ensureChat mutation. The user-facing "5 seconds of nothing"
@@ -117,30 +187,13 @@ const HelixOrgWorkerDetail: FC = () => {
         return
       }
 
-      const apiClient = api.getApiClient()
-      let session: { id?: string; config?: { external_agent_status?: string } } | null = null
-      try {
-        const resp = await apiClient.v1ProjectsExploratorySessionDetail(pid)
-        session = resp.data ?? null
-      } catch (err: any) {
-        if (err?.response?.status !== 204) {
-          snackbar.error(err?.response?.data?.error ?? err?.message ?? 'failed to open Human Desktop')
-          return
-        }
-      }
-      if (!session?.id) {
-        const created = await apiClient.v1ProjectsExploratorySessionCreate(pid)
-        session = created.data
-      } else if (session.config?.external_agent_status === 'stopped') {
-        // Paused desktop — kick it back to running before navigating so
-        // the user doesn't land on a dead viewer.
-        await apiClient.v1SessionsResumeCreate(session.id)
-      }
-      if (!session?.id) {
-        snackbar.error('failed to open Human Desktop session')
-        return
-      }
-      const url = `/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(pid)}/desktop/${encodeURIComponent(session.id)}`
+      // ensureRunningWorkerSession does the GET → create-if-missing →
+      // resume-if-paused dance so the operator never lands on a dead
+      // viewer. Surface the resolved session inline too so the transcript
+      // shows on this page once the desktop is up.
+      const sessionID = await ensureRunningWorkerSession(pid, chatApi)
+      setChatSessionId(sessionID)
+      const url = `/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(pid)}/desktop/${encodeURIComponent(sessionID)}`
       window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'failed to open Human Desktop')
@@ -241,18 +294,20 @@ const HelixOrgWorkerDetail: FC = () => {
                   </Stack>
                 </Box>
 
-                {/* Chat panel — no transcript, just the call to action. The
-                    user asked for "no previous sessions"; the agent chat page
-                    is where the actual transcript lives. */}
+                {/* Chat panel — inline transcript (same view the spec-task
+                    page uses) plus the desktop launch buttons. The
+                    transcript auto-loads when the worker already has a
+                    session; otherwise the call to action provisions one. */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Opens the worker's Human Desktop in a new tab. The first click on
-                      a never-chatted-with worker provisions the agent app + project on
-                      the fly (takes a few seconds — the button shows a spinner and the
-                      label flips to "Launching Human Desktop…"); subsequent clicks open
-                      the same session immediately.
+                      The conversation below is the worker's Human Desktop session —
+                      the same transcript you'd see in the desktop tab, including its
+                      MCP tool calls. Send a message to drive it from here, or open the
+                      full desktop (Zed GUI + video) in a new tab. The first launch on a
+                      never-chatted-with worker provisions the agent app + project on the
+                      fly (takes a few seconds).
                     </Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap">
                       <Button
@@ -288,6 +343,52 @@ const HelixOrgWorkerDetail: FC = () => {
                     {!projectID && (
                       <Typography variant="caption" color="text.secondary">
                         Restart Desktop is available after the first "Open Human Desktop".
+                      </Typography>
+                    )}
+
+                    {/* Inline transcript. EmbeddedSessionView self-fetches
+                        the session + interactions and live-streams in-flight
+                        turns; it needs a bounded, flex-column container to
+                        scroll within. RobustPromptInput drives the same
+                        session via streaming.NewInference. */}
+                    {chatSessionId ? (
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: 520,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          border: (theme) =>
+                            `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+                          borderRadius: 1,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <EmbeddedSessionView
+                          ref={sessionViewRef}
+                          sessionId={chatSessionId}
+                        />
+                        <Box sx={{ p: 1.5, flexShrink: 0 }}>
+                          <RobustPromptInput
+                            sessionId={chatSessionId}
+                            projectId={projectID}
+                            apiClient={api.getApiClient()}
+                            onSend={async (message: string, interrupt?: boolean) => {
+                              await streaming.NewInference({
+                                type: SESSION_TYPE_TEXT,
+                                message,
+                                sessionId: chatSessionId,
+                                interrupt: interrupt ?? true,
+                              })
+                            }}
+                            onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                            placeholder="Send message to agent..."
+                          />
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No conversation yet — launch the Human Desktop to start one.
                       </Typography>
                     )}
                   </Stack>
@@ -347,11 +448,11 @@ const HelixOrgWorkerDetail: FC = () => {
                     <Typography variant="caption" color="text.secondary">Kind</Typography>
                     <Typography variant="body2">{worker.kind}</Typography>
                   </Box>
-                  {worker?.parent_id && (
+                  {(worker?.parent_ids ?? []).length > 0 && (
                     <Box>
                       <Typography variant="caption" color="text.secondary">Reports to</Typography>
                       <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                        {worker.parent_id}
+                        {(worker?.parent_ids ?? []).join(', ')}
                       </Typography>
                     </Box>
                   )}
@@ -475,19 +576,24 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
         onChange={handleChange}
         getOptionLabel={(s) => s.id}
         isOptionEqualToValue={(a, b) => a.id === b.id}
-        renderOption={(props, option, { selected }) => (
-          <li {...props}>
-            <Checkbox checked={selected} sx={{ mr: 1 }} />
-            <Box>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
-              {option.description && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {option.description}
-                </Typography>
-              )}
-            </Box>
-          </li>
-        )}
+        renderOption={(props, option, { selected }) => {
+          // Pass key explicitly rather than via the props spread —
+          // React 18.3 warns when a spread object carries a key.
+          const { key, ...liProps } = props as typeof props & { key?: Key }
+          return (
+            <li key={key ?? option.id} {...liProps}>
+              <Checkbox checked={selected} sx={{ mr: 1 }} />
+              <Box>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
+                {option.description && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {option.description}
+                  </Typography>
+                )}
+              </Box>
+            </li>
+          )
+        }}
         renderInput={(params) => (
           <TextField
             {...params}
@@ -497,15 +603,18 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
           />
         )}
         renderTags={(value, getTagProps) =>
-          value.map((option, index) => (
-            <Chip
-              {...getTagProps({ index })}
-              key={option.id}
-              label={option.id}
-              size="small"
-              sx={{ fontFamily: 'monospace' }}
-            />
-          ))
+          value.map((option, index) => {
+            const { key, ...tagProps } = getTagProps({ index })
+            return (
+              <Chip
+                key={key ?? option.id}
+                {...tagProps}
+                label={option.id}
+                size="small"
+                sx={{ fontFamily: 'monospace' }}
+              />
+            )
+          })
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>

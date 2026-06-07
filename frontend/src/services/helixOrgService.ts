@@ -222,18 +222,36 @@ export function useHireHelixOrgWorker() {
   })
 }
 
-// useReparentWorker rewires who a Worker reports to. parentID === ''
-// clears the manager (Worker becomes top-level). Drives the chart's
-// drag-to-reparent: dragging manager → subordinate sets parent_id,
-// deleting the edge clears it. Invalidates overview + the worker list
-// so the new accountability edge renders on the next refetch.
-export function useReparentWorker() {
+// useAddWorkerParent adds a reporting line — the Worker now also
+// reports to parentID. Reporting is many-to-many, so this is additive.
+// Drives the chart's drag-to-report: dragging manager → subordinate
+// adds the line. Invalidates overview + the worker list so the new
+// accountability edge renders on the next refetch.
+export function useAddWorkerParent() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsWorkersParentCreate(workerID, orgID, { parent_id: parentID })
+      await api.getApiClient().v1OrgsWorkersParentsCreate(workerID, orgID, { parent_id: parentID })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+    },
+  })
+}
+
+// useRemoveWorkerParent drops one reporting line — the Worker no longer
+// reports to parentID. Drives the chart's delete-edge flow; only the
+// dragged edge's line is removed, leaving any other managers intact.
+export function useRemoveWorkerParent() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
+      await api.getApiClient().v1OrgsWorkersParentsDelete(workerID, parentID, orgID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
@@ -289,9 +307,20 @@ export function useFireHelixOrgWorker() {
     mutationFn: async (workerId: string) => {
       await api.getApiClient().v1OrgsWorkersDelete(workerId, orgID)
     },
-    onSuccess: () => {
+    onSuccess: (_data, workerId) => {
+      // Evict the fired worker's own queries (the worker key prefix-
+      // matches its subscriptions key, so this drops both) and cancel
+      // any in-flight fetch. Without this the worker detail page would
+      // refetch a now-deleted worker and log a 404 (the QA F3 finding).
+      qc.removeQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      // Exact: refresh the list itself without prefix-matching (and so
+      // refetching) the worker/subscriptions queries we just removed.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
+      // Firing cascades away the worker's s-activations-<id> stream and
+      // its direct reports' parent edge — refresh the Streams list (QA
+      // F6) and any open stream detail.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }
@@ -339,6 +368,11 @@ export function useDeleteHelixOrgRole() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
+      // Deleting a role fires every Worker holding it, which tears down
+      // their activation streams — refresh both lists so neither shows
+      // ghost rows (QA F6).
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }

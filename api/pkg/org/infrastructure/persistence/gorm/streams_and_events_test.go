@@ -84,7 +84,7 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("Create role: %v", err)
 	}
-	worker, err := orgchart.NewAIWorker("w-1", "r-test", nil, "# w-1", "org-test")
+	worker, err := orgchart.NewAIWorker("w-1", "r-test", "# w-1", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}

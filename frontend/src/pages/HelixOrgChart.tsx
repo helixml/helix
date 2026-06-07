@@ -55,7 +55,8 @@ import {
   useListHelixOrgRoles,
   useListHelixOrgStreams,
   useListHelixOrgWorkers,
-  useReparentWorker,
+  useAddWorkerParent,
+  useRemoveWorkerParent,
   useSubscribeWorkerAtChart,
   useUnsubscribeWorkerAtChart,
 } from '../services/helixOrgService'
@@ -66,20 +67,20 @@ import {
 //   ┌─[Role: r-owner]──────────────────┐
 //   │  [w-owner]                       │
 //   └────────│───────────────────────────┘
-//            ↓ (worker-to-worker reporting edge, from worker.parent_id)
+//            ↓ (worker-to-worker reporting edge, from a reporting line)
 //   ┌─[Role: r-engineer]───────────────────────────┐
 //   │  [w-alice]  [w-bob]  [w-carol]               │
 //   └───────────────────────────────────────────────┘
 //
 // Roles are parent group nodes that VISUALLY CONTAIN their Worker child
-// nodes. A Role can hold many Workers. Edges link Worker → Worker based
-// on the worker.parent_id chain (which crosses role boundaries), so the
-// edge reads as a manager → subordinate reporting line. Streams hang off
-// the right of the tree; an edge from a Worker to a Stream is a
+// nodes. A Role can hold many Workers. Reporting is a many-to-many
+// relation: each (manager → report) reporting line becomes a Worker →
+// Worker edge (a Worker may have several incoming edges). Streams hang
+// off the right of the tree; an edge from a Worker to a Stream is a
 // subscription.
 //
 // Layout: dagre runs over the role tree (edges derived from cross-role
-// parent_id links) to get global (x, y) for each Role. Workers sit in a
+// reporting lines) to get global (x, y) for each Role. Workers sit in a
 // horizontal row inside their Role's frame.
 
 const OWNER_ROLE = 'r-owner'
@@ -99,7 +100,8 @@ type FlatWorker = {
   id: string
   kind: string
   roleId: string
-  parentId: string
+  // Reporting is many-to-many: a Worker may report to several managers.
+  parentIds: string[]
 }
 
 type RoleGroup = { roleId: string; workers: FlatWorker[] }
@@ -341,13 +343,20 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
           bottom-center reporting handle means a subscription edge and a
           manager → subordinate edge can never share the same geometry.
           id="stream" is what buildGraph passes as sourceHandle when
-          emitting subscription edges. */}
+          emitting subscription edges.
+
+          Unlike the top/bottom reporting handles (which sit clear above
+          and below the card), this one lands at the card's vertical
+          centre — right where the name/caption Typography rows are. It
+          must be large enough to grab and explicitly stacked above that
+          content (zIndex), or the label intercepts the pointer and the
+          subscription drag can't start. */}
       <Handle
         id="stream"
         type="source"
         position={RFPosition.Right}
         isConnectable
-        style={{ background: 'rgba(180,100,0,0.5)', border: 'none', width: 8, height: 8 }}
+        style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
       />
     </Box>
   )
@@ -420,10 +429,10 @@ type StreamSummary = {
 }
 
 // buildGraph computes nodes + edges for the chart. Roles are laid out by
-// dagre over a role-level graph whose edges come from worker.parent_id
-// links that cross role boundaries. Workers sit in a horizontal row
-// inside their role's frame. Worker → Worker reporting edges and Worker
-// → Stream subscription edges are drawn on top.
+// dagre over a role-level graph whose edges come from reporting lines
+// that cross role boundaries. Workers sit in a horizontal row inside
+// their role's frame. Worker → Worker reporting edges and Worker →
+// Stream subscription edges are drawn on top.
 const buildGraph = (
   groups: RoleGroup[],
   flat: FlatWorker[],
@@ -459,7 +468,7 @@ const buildGraph = (
     })
   }
 
-  // 2. Role-level dagre graph. Edges: any worker.parent_id that crosses
+  // 2. Role-level dagre graph. Edges: any reporting line that crosses
   //    a role boundary contributes a role → role edge.
   const g = new dagre.graphlib.Graph()
   g.setGraph({
@@ -476,14 +485,16 @@ const buildGraph = (
   }
   const seenEdge = new Set<string>()
   for (const wk of flat) {
-    if (!wk.parentId || !flatByID.has(wk.parentId)) continue
+    for (const parentId of wk.parentIds) {
+    if (!parentId || !flatByID.has(parentId)) continue
     const childRole = workerToRole.get(wk.id)
-    const parentRole = workerToRole.get(wk.parentId)
+    const parentRole = workerToRole.get(parentId)
     if (!childRole || !parentRole || childRole === parentRole) continue
     const key = `${parentRole}->${childRole}`
     if (seenEdge.has(key)) continue
     seenEdge.add(key)
     g.setEdge(`role:${parentRole}`, `role:${childRole}`)
+    }
   }
   dagre.layout(g)
 
@@ -556,24 +567,26 @@ const buildGraph = (
     })
   }
 
-  // 4. Reporting edges: manager → subordinate, derived from
-  //    worker.parent_id. Bezier (the default) gives every pair its own
+  // 4. Reporting edges: manager → subordinate, one per reporting line
+  //    (a Worker may report to several). Bezier (the default) gives every pair its own
   //    arc so multiple reports from one manager never overlap.
   const edges: Edge[] = []
   for (const wk of flat) {
-    if (!wk.parentId || !flatByID.has(wk.parentId)) continue
+    for (const parentId of wk.parentIds) {
+    if (!parentId || !flatByID.has(parentId)) continue
     edges.push({
-      id: `report:${wk.parentId}->${wk.id}`,
-      source: `worker:${wk.parentId}`,
+      id: `report:${parentId}->${wk.id}`,
+      source: `worker:${parentId}`,
       target: `worker:${wk.id}`,
       type: 'default',
       animated: false,
-      data: { kind: 'report', childWorkerId: wk.id },
+      data: { kind: 'report', childWorkerId: wk.id, parentWorkerId: parentId },
       style: {
         stroke: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.35)',
         strokeWidth: 1.5,
       },
     })
+    }
   }
 
   // 5. Stream pseudo-nodes + subscription edges. Subscriptions are
@@ -856,16 +869,17 @@ const ChartCanvas: FC<{
     onSelectStream: (streamId: string) => void
     onDeleteStream: (streamId: string) => void
   }
-  // onSetParent fires when the user wires manager → subordinate (an
-  // onConnect); onClearParent fires when they delete a reporting edge.
-  onSetParent: (childWorkerId: string, newParentWorkerId: string) => void
-  onClearParent: (childWorkerId: string) => void
+  // onAddParent fires when the user wires manager → subordinate (an
+  // onConnect); onRemoveParent fires when they delete a reporting edge,
+  // and carries the specific manager since a Worker may have several.
+  onAddParent: (childWorkerId: string, newParentWorkerId: string) => void
+  onRemoveParent: (childWorkerId: string, parentWorkerId: string) => void
   // onSubscribeWorker fires when the user wires a Worker node → a stream
   // pseudo-node; onUnsubscribeWorker fires when they delete that edge.
   onSubscribeWorker: (workerId: string, streamId: string) => void
   onUnsubscribeWorker: (workerId: string, streamId: string) => void
   streams: StreamSummary[]
-}> = ({ groups, flat, handlers, onSetParent, onClearParent, onSubscribeWorker, onUnsubscribeWorker, streams }) => {
+}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
@@ -884,7 +898,7 @@ const ChartCanvas: FC<{
 
   // onConnect handles both wire shapes:
   //   - worker→worker: manager wires their report. Source = manager,
-  //     target = subordinate. Persists by PATCHing parent_id.
+  //     target = subordinate. Persists by adding a reporting line.
   //   - worker→stream:  the worker consumes a stream. Persists by
   //     POSTing a (worker, stream) subscription.
   const onConnect = useCallback(
@@ -902,28 +916,32 @@ const ChartCanvas: FC<{
       if (target.startsWith('worker:')) {
         const targetId = target.replace(/^worker:/, '')
         if (!targetId || sourceId === targetId) return
-        onSetParent(targetId, sourceId)
+        onAddParent(targetId, sourceId)
       }
     },
-    [onSetParent, onSubscribeWorker],
+    [onAddParent, onSubscribeWorker],
   )
 
   // onEdgesDelete severs whatever the edge represented: a reporting edge
-  // clears the subordinate's parent_id; a subscription edge drops the
-  // (worker, stream) row.
+  // drops that one (manager → report) line; a subscription edge drops
+  // the (worker, stream) row.
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       for (const e of deleted) {
-        const d = e.data as { kind?: string; childWorkerId?: string; workerId?: string; streamId?: string } | undefined
+        const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; streamId?: string } | undefined
         if (d?.kind === 'sub' && d.workerId && d.streamId) {
           onUnsubscribeWorker(d.workerId, d.streamId)
           continue
         }
+        // Reporting edge: remove the specific manager line. Fall back to
+        // parsing "report:<parent>-><child>" from the edge id when data
+        // is missing (e.g. an edge synthesised by ReactFlow).
         const childId = d?.childWorkerId ?? (e.target ?? '').replace(/^worker:/, '')
-        if (childId && (e.target ?? '').startsWith('worker:')) onClearParent(childId)
+        const parentId = d?.parentWorkerId ?? (e.source ?? '').replace(/^worker:/, '')
+        if (childId && parentId && (e.target ?? '').startsWith('worker:')) onRemoveParent(childId, parentId)
       }
     },
-    [onClearParent, onUnsubscribeWorker],
+    [onRemoveParent, onUnsubscribeWorker],
   )
 
   return (
@@ -971,7 +989,8 @@ const HelixOrgChart: FC = () => {
   const deleteRole = useDeleteHelixOrgRole()
   const deleteStream = useDeleteHelixOrgStream()
   const fireWorker = useFireHelixOrgWorker()
-  const reparent = useReparentWorker()
+  const addParent = useAddWorkerParent()
+  const removeParent = useRemoveWorkerParent()
   const subscribe = useSubscribeWorkerAtChart()
   const unsubscribe = useUnsubscribeWorkerAtChart()
 
@@ -980,7 +999,7 @@ const HelixOrgChart: FC = () => {
       id: w.id ?? '',
       kind: w.kind ?? 'human',
       roleId: w.role_id ?? '',
-      parentId: w.parent_id ?? '',
+      parentIds: w.parent_ids ?? [],
     })),
     [workersData],
   )
@@ -1042,28 +1061,28 @@ const HelixOrgChart: FC = () => {
     [onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectStream, onDeleteStream],
   )
 
-  const onSetParent = useCallback(
+  const onAddParent = useCallback(
     async (childWorkerId: string, newParentWorkerId: string) => {
       try {
-        await reparent.mutateAsync({ workerID: childWorkerId, parentID: newParentWorkerId })
+        await addParent.mutateAsync({ workerID: childWorkerId, parentID: newParentWorkerId })
         snackbar.success(`${childWorkerId} now reports to ${newParentWorkerId}`)
       } catch (err: any) {
-        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'reparent failed')
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'add reporting line failed')
       }
     },
-    [reparent, snackbar],
+    [addParent, snackbar],
   )
 
-  const onClearParent = useCallback(
-    async (childWorkerId: string) => {
+  const onRemoveParent = useCallback(
+    async (childWorkerId: string, parentWorkerId: string) => {
       try {
-        await reparent.mutateAsync({ workerID: childWorkerId, parentID: '' })
-        snackbar.success(`${childWorkerId} no longer reports to anyone`)
+        await removeParent.mutateAsync({ workerID: childWorkerId, parentID: parentWorkerId })
+        snackbar.success(`${childWorkerId} no longer reports to ${parentWorkerId}`)
       } catch (err: any) {
-        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'clear parent failed')
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'remove reporting line failed')
       }
     },
-    [reparent, snackbar],
+    [removeParent, snackbar],
   )
 
   const onSubscribeWorker = useCallback(
@@ -1139,7 +1158,7 @@ const HelixOrgChart: FC = () => {
         'This is irreversible.',
       ].join('\n')
     }
-    const reports = flat.filter((w) => w.parentId === confirmDelete.id).map((w) => w.id)
+    const reports = flat.filter((w) => w.parentIds.includes(confirmDelete.id)).map((w) => w.id)
     return [
       `Firing worker ${confirmDelete.id} will cascade:`,
       `  • stops sessions, deletes its project + agent app, drops its subscriptions`,
@@ -1206,8 +1225,8 @@ const HelixOrgChart: FC = () => {
                 groups={groups}
                 flat={flat}
                 handlers={handlers}
-                onSetParent={onSetParent}
-                onClearParent={onClearParent}
+                onAddParent={onAddParent}
+                onRemoveParent={onRemoveParent}
                 onSubscribeWorker={onSubscribeWorker}
                 onUnsubscribeWorker={onUnsubscribeWorker}
                 streams={streams}

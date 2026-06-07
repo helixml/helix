@@ -1,9 +1,10 @@
-// Package orgchart owns the org-chart aggregate: Role and Worker
-// (interface plus HumanWorker / AIWorker). Role lists Tool names and
-// Stream IDs; Worker carries a RoleID (its capability binding) and an
-// optional ParentID (the Worker it reports to). Collapsing both
-// entities into one Go package resolves the cycle that per-entity
-// packages produced.
+// Package orgchart owns the org-chart aggregate: Role, Worker
+// (interface plus HumanWorker / AIWorker), and ReportingLine. Role
+// lists Tool names and Stream IDs; Worker carries a RoleID (its
+// capability binding); who reports to whom is a separate many-to-many
+// relation (ReportingLine), not a field on the Worker. Collapsing
+// these entities into one Go package resolves the cycle that
+// per-entity packages produced.
 //
 // The ID types are Go type aliases (`type WorkerID = string`) rather
 // than distinct named types. This is deliberate: orgchart's Role

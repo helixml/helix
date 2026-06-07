@@ -71,7 +71,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		t.Fatalf("seed role: %v", err)
 	}
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	ownerEnvPath := filepath.Join(envsDir, "w-owner")
 	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
@@ -208,7 +208,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -326,9 +326,9 @@ func TestStreamMembers(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, listenerRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	worker, _ := orgchart.NewAIWorker("w-listener", "r-listener", nil, "", "org-test")
+	worker, _ := orgchart.NewAIWorker("w-listener", "r-listener", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, worker))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -390,11 +390,11 @@ func TestInviteWorkers(t *testing.T) {
 	// is fine.
 	memberRole, _ := orgchart.NewRole("r-member", "# Member", nil, nil, now, "org-test")
 	mustCreate(t, s.Roles.Create(ctx, memberRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	alice, _ := orgchart.NewAIWorker("w-alice", "r-member", nil, "", "org-test")
+	alice, _ := orgchart.NewAIWorker("w-alice", "r-member", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", nil, "", "org-test")
+	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -480,9 +480,9 @@ func TestDM(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, memberRole))
-	alice, _ := orgchart.NewHumanWorker("w-alice", "r-member", nil, "", "org-test")
+	alice, _ := orgchart.NewHumanWorker("w-alice", "r-member", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", nil, "", "org-test")
+	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 
 	aliceSession := connectMCP(t, srv.URL, "w-alice")
@@ -602,7 +602,7 @@ func TestReadsOverMCP(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
@@ -714,9 +714,9 @@ func TestWorkerLog(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", nil, "", "org-test")
+	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	// Pre-create the activation stream + seed a couple of events. In
@@ -827,9 +827,9 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		"org-test",
 	)
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
-	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", nil, "", "org-test")
+	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	streamID := activation.StreamID("w-bot")
@@ -941,7 +941,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	// activationId belonging to a *different* Worker is rejected too —
 	// no cross-Worker leakage even if the caller knows another
 	// Worker's activation IDs.
-	other, _ := orgchart.NewAIWorker("w-other", "r-owner", nil, "", "org-test")
+	other, _ := orgchart.NewAIWorker("w-other", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, other))
 	otherStream, _ := streaming.NewStream(activation.StreamID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, otherStream))

@@ -246,11 +246,12 @@ func TestPostWorkerRole_UpdatesRoleAssignment(t *testing.T) {
 	}
 }
 
-// TestPostWorkerParent_SetClearCycle pins the chart's drag-to-reparent
-// endpoint: setting a parent persists, an empty body clears it, an
-// unknown parent 404s, and an edge that would close a reporting loop is
-// rejected with 409 (the cycle guard).
-func TestPostWorkerParent_SetClearCycle(t *testing.T) {
+// TestWorkerParents_AddRemoveCycleMulti pins the chart's reporting-line
+// endpoints: adding a manager persists, a Worker can hold multiple
+// managers, removing one drops just that line, an unknown manager 404s,
+// and an edge that would close a reporting loop is rejected with 409
+// (the DAG cycle guard).
+func TestWorkerParents_AddRemoveCycleMulti(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 	ctx := context.Background()
@@ -260,53 +261,71 @@ func TestPostWorkerParent_SetClearCycle(t *testing.T) {
 	mustCreateAIWorker(t, st, ctx, "w-alice", "r-owner", "alice identity")
 	mustCreateAIWorker(t, st, ctx, "w-bob", "r-owner", "bob identity")
 
-	parentOf := func(id string) string {
+	parentsOf := func(id string) []string {
 		rec := do(t, h, "GET", "/workers/"+id, nil)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s status: got %d, want 200; body=%s", id, rec.Code, rec.Body)
 		}
 		var detail orgapi.WorkerDetailDTO
 		decode(t, rec, &detail)
-		return detail.Worker.ParentID
+		return detail.Worker.ParentIDs
+	}
+	hasParent := func(id, parent string) bool {
+		for _, p := range parentsOf(id) {
+			if p == parent {
+				return true
+			}
+		}
+		return false
 	}
 
-	// Set: w-alice reports to w-owner.
-	rec := do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-owner"})
+	// Add: w-alice reports to w-owner.
+	rec := do(t, h, "POST", "/workers/w-alice/parents", orgapi.AddWorkerParentRequest{ParentID: "w-owner"})
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("set parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+		t.Fatalf("add parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
 	}
-	if got := parentOf("w-alice"); got != "w-owner" {
-		t.Fatalf("w-alice parent: got %q, want w-owner", got)
+	if !hasParent("w-alice", "w-owner") {
+		t.Fatalf("w-alice parents: got %v, want to include w-owner", parentsOf("w-alice"))
 	}
 
-	// Chain: w-bob reports to w-alice.
-	rec = do(t, h, "POST", "/workers/w-bob/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-alice"})
+	// Multi-manager: w-alice also reports to w-bob.
+	rec = do(t, h, "POST", "/workers/w-alice/parents", orgapi.AddWorkerParentRequest{ParentID: "w-bob"})
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("chain parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+		t.Fatalf("add second parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+	}
+	if got := parentsOf("w-alice"); len(got) != 2 {
+		t.Fatalf("w-alice parents after second add: got %v, want 2", got)
 	}
 
-	// Cycle guard: w-alice → w-bob would close w-alice→w-bob→w-alice.
-	rec = do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-bob"})
+	// Cycle guard: w-bob → w-alice would close w-alice→...→w-bob→w-alice
+	// (w-bob is already a manager of w-alice).
+	rec = do(t, h, "POST", "/workers/w-bob/parents", orgapi.AddWorkerParentRequest{ParentID: "w-alice"})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("cycle status: got %d, want 409; body=%s", rec.Code, rec.Body)
 	}
-	if got := parentOf("w-alice"); got != "w-owner" {
-		t.Fatalf("w-alice parent after rejected cycle: got %q, want unchanged w-owner", got)
-	}
 
-	// Unknown parent → 404.
-	rec = do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: "w-ghost"})
+	// Unknown manager → 404.
+	rec = do(t, h, "POST", "/workers/w-alice/parents", orgapi.AddWorkerParentRequest{ParentID: "w-ghost"})
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("unknown parent status: got %d, want 404; body=%s", rec.Code, rec.Body)
+		t.Fatalf("unknown manager status: got %d, want 404; body=%s", rec.Code, rec.Body)
 	}
 
-	// Clear: empty body makes w-alice top-level again.
-	rec = do(t, h, "POST", "/workers/w-alice/parent", orgapi.UpdateWorkerParentRequest{ParentID: ""})
+	// Remove: drop just the w-owner line; w-bob remains.
+	rec = do(t, h, "DELETE", "/workers/w-alice/parents/w-owner", nil)
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("clear parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
+		t.Fatalf("remove parent status: got %d, want 204; body=%s", rec.Code, rec.Body)
 	}
-	if got := parentOf("w-alice"); got != "" {
-		t.Fatalf("w-alice parent after clear: got %q, want empty", got)
+	if hasParent("w-alice", "w-owner") {
+		t.Fatalf("w-alice still reports to w-owner after remove: %v", parentsOf("w-alice"))
+	}
+	if !hasParent("w-alice", "w-bob") {
+		t.Fatalf("w-alice should still report to w-bob: %v", parentsOf("w-alice"))
+	}
+
+	// Removing a line that doesn't exist → 404.
+	rec = do(t, h, "DELETE", "/workers/w-alice/parents/w-owner", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("remove missing line status: got %d, want 404; body=%s", rec.Code, rec.Body)
 	}
 }
 
@@ -327,7 +346,7 @@ func seedOwnerPosition(t *testing.T, st *store.Store, ctx context.Context) {
 
 func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, role, identity string) {
 	t.Helper()
-	w, err := orgchart.NewAIWorker(orgchart.WorkerID(id), orgchart.RoleID(role), nil, identity, "org-test")
+	w, err := orgchart.NewAIWorker(orgchart.WorkerID(id), orgchart.RoleID(role), identity, "org-test")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

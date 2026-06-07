@@ -9,6 +9,10 @@
  * ---------------------------------------------------------------
  */
 
+export interface ApiAddWorkerParentRequest {
+  parent_id?: string;
+}
+
 export interface ApiCreateRoleRequest {
   content?: string;
   id?: string;
@@ -185,10 +189,6 @@ export interface ApiUpdateWorkerIdentityRequest {
   identity?: string;
 }
 
-export interface ApiUpdateWorkerParentRequest {
-  parent_id?: string;
-}
-
 export interface ApiUpdateWorkerRoleRequest {
   content?: string;
 }
@@ -215,7 +215,7 @@ export interface ApiWorkerDTO {
   identity_content?: string;
   kind?: string;
   organization_id?: string;
-  parent_id?: string;
+  parent_ids?: string[];
   role_id?: string;
   tools?: string[];
 }
@@ -12040,23 +12040,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsWorkersParentCreate
-     * @summary Helix-org: set worker parent (reporting line)
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/parent
+     * @name V1OrgsWorkersParentsCreate
+     * @summary Helix-org: add a worker reporting line (manager)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/parents
      * @secure
      */
-    v1OrgsWorkersParentCreate: (
+    v1OrgsWorkersParentsCreate: (
       id: string,
       org: string,
-      payload: ApiUpdateWorkerParentRequest,
+      payload: ApiAddWorkerParentRequest,
       params: RequestParams = {},
     ) =>
       this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/parent`,
+        path: `/api/v1/orgs/${org}/workers/${id}/parents`,
         method: "POST",
         body: payload,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersParentsDelete
+     * @summary Helix-org: remove a worker reporting line (manager)
+     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}
+     * @secure
+     */
+    v1OrgsWorkersParentsDelete: (id: string, parentId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/parents/${parentId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 

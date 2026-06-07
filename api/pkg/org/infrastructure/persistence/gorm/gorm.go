@@ -20,6 +20,7 @@ import (
 var orgRowTypes = []any{
 	&roleRow{},
 	&workerRow{},
+	&reportingLineRow{},
 	&workerRuntimeStateRow{},
 	&streamRow{},
 	&subscriptionRow{},
@@ -32,12 +33,13 @@ var orgRowTypes = []any{
 // orgTableNames returns the SQL table names for orgRowTypes. Used by
 // the FK installer. The legacy `org_grants` and `org_positions`
 // tables are intentionally absent — capability is derived from
-// Role.Tools and Workers hold their own role/parent directly. Those
-// tables are no longer migrated; any pre-existing rows are simply
-// orphaned (left in place, never read).
+// Role.Tools, and reporting is its own org_reporting_lines relation.
+// Those tables are no longer migrated; any pre-existing rows are
+// simply orphaned (left in place, never read).
 var orgTableNames = []string{
 	"org_roles",
 	"org_workers",
+	"org_reporting_lines",
 	"org_worker_runtime_state",
 	"org_streams",
 	"org_subscriptions",
@@ -76,10 +78,19 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		}
 	}
 
+	// The reporting-line cascade FKs reference org_workers (always
+	// migrated above), not organizations, so they install regardless of
+	// InstallOrganizationFK — they're what make worker deletion drop
+	// reporting lines structurally instead of via app code.
+	if err := installReportingLineFKs(db); err != nil {
+		return nil, fmt.Errorf("install reporting-line FKs: %w", err)
+	}
+
 	workers := newWorkersRepo(db)
 	return &store.Store{
 		Roles:              newRolesRepo(db),
 		Workers:            workers,
+		ReportingLines:     newReportingLinesRepo(db),
 		WorkerRuntimeState: newWorkerRuntimeStateRepo(db),
 		Streams:            newStreamsRepo(db),
 		Subscriptions:      newSubscriptionsRepo(db),
@@ -88,6 +99,42 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Configs:            newConfigsRepo(db),
 		Activations:        newActivationsRepo(db),
 	}, nil
+}
+
+// installReportingLineFKs adds the two ON DELETE CASCADE foreign keys
+// that make org_reporting_lines self-clean when a Worker is deleted:
+// (org_id, manager_id) and (org_id, report_id) both reference
+// org_workers(org_id, id). Idempotent — re-adding an existing
+// constraint is a no-op. Postgres-specific (our production target);
+// unit tests run against the in-memory store and never reach here.
+func installReportingLineFKs(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_reporting_lines") || !db.Migrator().HasTable("org_workers") {
+		return nil
+	}
+	type fk struct{ name, cols string }
+	for _, f := range []fk{
+		{"fk_org_reporting_lines_manager", "org_id, manager_id"},
+		{"fk_org_reporting_lines_report", "org_id, report_id"},
+	} {
+		stmt := fmt.Sprintf(
+			`DO $$ BEGIN
+				IF NOT EXISTS (
+					SELECT 1 FROM pg_constraint WHERE conname = '%s'
+				) THEN
+					ALTER TABLE org_reporting_lines
+						ADD CONSTRAINT %s
+						FOREIGN KEY (%s)
+						REFERENCES org_workers(org_id, id)
+						ON DELETE CASCADE;
+				END IF;
+			END $$;`,
+			f.name, f.name, f.cols,
+		)
+		if err := db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("add FK %s: %w", f.name, err)
+		}
+	}
+	return nil
 }
 
 // installOrganizationFKs adds the FK constraint

@@ -118,7 +118,7 @@ const HelixOrgWorkers: FC = () => {
     ),
     reportsTo: (
       <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-        {w.parent_id || '—'}
+        {(w.parent_ids ?? []).join(', ') || '—'}
       </Typography>
     ),
     identityPreview: (

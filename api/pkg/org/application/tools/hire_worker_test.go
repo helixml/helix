@@ -69,7 +69,7 @@ func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, orgchart.Worke
 	if err := st.Roles.Create(ctx, ownerRole); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	if err := st.Workers.Create(ctx, caller); err != nil {
 		t.Fatalf("create owner worker: %v", err)
 	}

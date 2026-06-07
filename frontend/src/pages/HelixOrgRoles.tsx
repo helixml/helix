@@ -9,7 +9,6 @@
 
 import { FC, MouseEvent, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
@@ -17,7 +16,6 @@ import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import useTheme from '@mui/material/styles/useTheme'
-import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -32,15 +30,9 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   RoleDTO,
-  useCreateHelixOrgRole,
   useDeleteHelixOrgRole,
   useListHelixOrgRoles,
 } from '../services/helixOrgService'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
-import TextField from '@mui/material/TextField'
 
 const OWNER_ROLE = 'r-owner'
 
@@ -53,10 +45,8 @@ const HelixOrgRoles: FC = () => {
 
   const { data, isLoading } = useListHelixOrgRoles()
   const deleteRole = useDeleteHelixOrgRole()
-  const createRole = useCreateHelixOrgRole()
 
   const roles = data ?? []
-  const [createOpen, setCreateOpen] = useState(false)
   const [deleting, setDeleting] = useState<RoleDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentRole, setCurrentRole] = useState<RoleDTO | null>(null)
@@ -157,16 +147,6 @@ const HelixOrgRoles: FC = () => {
       breadcrumbTitle="Roles"
       orgBreadcrumbs={true}
       organizationId={account.organizationTools.organization?.id}
-      topbarContent={(
-        <Button
-          variant="contained"
-          color="secondary"
-          startIcon={<AddIcon />}
-          onClick={() => setCreateOpen(true)}
-        >
-          New Role
-        </Button>
-      )}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
@@ -186,15 +166,9 @@ const HelixOrgRoles: FC = () => {
               <Typography variant="body1" color="text.secondary" gutterBottom>
                 No roles defined yet.
               </Typography>
-              <Button
-                variant="contained"
-                color="secondary"
-                startIcon={<AddIcon />}
-                onClick={() => setCreateOpen(true)}
-                sx={{ mt: 1 }}
-              >
-                Create your first role
-              </Button>
+              <Typography variant="body2" color="text.secondary">
+                Create roles from the Chart — use “New role” on the org chart canvas.
+              </Typography>
             </Box>
           ) : (
             <SimpleTable
@@ -251,91 +225,7 @@ const HelixOrgRoles: FC = () => {
           </Typography>
         </DeleteConfirmWindow>
       )}
-
-      <NewRoleDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={(id) => {
-          setCreateOpen(false)
-          snackbar.success(`role ${id} created`)
-          openRole(id)
-        }}
-        creating={createRole.isPending}
-        create={async (payload) => {
-          await createRole.mutateAsync(payload)
-        }}
-      />
     </Page>
-  )
-}
-
-// NewRoleDialog is a small two-field form: id + markdown content.
-// Inline rather than imported from HelixOrgChart so the two surfaces
-// can evolve independently — e.g. the Roles page could grow tool /
-// stream selectors that the chart's quick-create doesn't need.
-const NewRoleDialog: FC<{
-  open: boolean
-  creating: boolean
-  onClose: () => void
-  onCreated: (id: string) => void
-  create: (payload: { id: string; content: string }) => Promise<void>
-}> = ({ open, creating, onClose, onCreated, create }) => {
-  const snackbar = useSnackbar()
-  const [id, setId] = useState('')
-  const [content, setContent] = useState('')
-
-  const submit = async () => {
-    const trimmed = id.trim()
-    if (!trimmed) {
-      snackbar.error('Role ID is required')
-      return
-    }
-    try {
-      await create({ id: trimmed, content })
-      setId(''); setContent('')
-      onCreated(trimmed)
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
-    }
-  }
-
-  const handleClose = () => {
-    setId(''); setContent('')
-    onClose()
-  }
-
-  return (
-    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
-      <DialogTitle>New role</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <TextField
-            label="Role ID"
-            placeholder="r-engineer"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            helperText="Convention: r-<kebab-case>. Stays as-is — the LLM and operator both refer to roles by this handle."
-            autoFocus
-            fullWidth
-          />
-          <TextField
-            label="Content (markdown)"
-            placeholder="# Engineer&#10;Builds and ships software."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={6}
-            fullWidth
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={creating}>
-          {creating ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
   )
 }
 

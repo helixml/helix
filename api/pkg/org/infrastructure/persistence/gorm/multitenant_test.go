@@ -41,7 +41,7 @@ func TestWorkers_SameIDAcrossOrgs(t *testing.T) {
 		if err := s.Roles.Create(ctx, r); err != nil {
 			t.Fatalf("Roles.Create(%s): %v", org, err)
 		}
-		w, err := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "# Owner identity", org)
+		w, err := orgchart.NewHumanWorker("w-owner", "r-owner", "# Owner identity", org)
 		if err != nil {
 			t.Fatalf("NewHumanWorker(%s): %v", org, err)
 		}
@@ -156,7 +156,7 @@ func mustSeedOwner(t *testing.T, s *store.Store, orgID string) {
 	if err := s.Roles.Create(ctx, r); err != nil {
 		t.Fatalf("Roles.Create(%s): %v", orgID, err)
 	}
-	w, err := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "# Owner", orgID)
+	w, err := orgchart.NewHumanWorker("w-owner", "r-owner", "# Owner", orgID)
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}

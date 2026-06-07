@@ -45,16 +45,37 @@ type Roles interface {
 // is the per-Worker description; the system holds it in the domain
 // rather than on disk so it survives any change in env layout.
 //
-// Delete removes the worker row. Callers are expected to have already
-// torn down dependent rows (subscriptions, grants, environment,
-// runtime state) — the store does not cascade. See the lifecycle
-// service in api/pkg/org/lifecycle for the canonical cascade.
+// Delete removes the worker row and structurally cascades the rows
+// that reference it: its subscriptions (worker-anchored) and every
+// reporting line where it is the manager or the report. See the gorm
+// and memory implementations.
 type Workers interface {
 	Create(ctx context.Context, worker orgchart.Worker) error
 	Get(ctx context.Context, orgID string, id orgchart.WorkerID) (orgchart.Worker, error)
 	List(ctx context.Context, orgID string) ([]orgchart.Worker, error)
 	Update(ctx context.Context, worker orgchart.Worker) error
 	Delete(ctx context.Context, orgID string, id orgchart.WorkerID) error
+}
+
+// ReportingLines persists the org's many-to-many reporting graph:
+// each row says ReportID reports to ManagerID. Worker-anchored on both
+// ends — deleting either endpoint Worker drops the line (the gorm
+// store enforces this with ON DELETE CASCADE foreign keys; the memory
+// store mirrors it). The graph is a DAG; cycle prevention lives in the
+// add-parent handler, not here.
+type ReportingLines interface {
+	// Add inserts a (manager, report) line. Idempotent: re-adding an
+	// existing line is a no-op (no error).
+	Add(ctx context.Context, line orgchart.ReportingLine) error
+	// Remove drops the (report → manager) line. Returns ErrNotFound
+	// when no such line exists.
+	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error
+	// List returns every reporting line in the org.
+	List(ctx context.Context, orgID string) ([]orgchart.ReportingLine, error)
+	// ListManagers returns the managers the given report reports to.
+	ListManagers(ctx context.Context, orgID string, reportID orgchart.WorkerID) ([]orgchart.WorkerID, error)
+	// ListReports returns the direct reports of the given manager.
+	ListReports(ctx context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error)
 }
 
 // WorkerRuntimeState is a sidecar key/value store keyed by
@@ -153,6 +174,7 @@ type Configs interface {
 type Store struct {
 	Roles              Roles
 	Workers            Workers
+	ReportingLines     ReportingLines
 	WorkerRuntimeState WorkerRuntimeState
 	Streams            Streams
 	Subscriptions      Subscriptions

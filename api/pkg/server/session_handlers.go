@@ -524,8 +524,16 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
-		if session.Owner != user.ID {
-			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		// Authorize via the unified session RBAC (org owner / project owner /
+		// project grant), NOT a strict owner-equality check. The read path
+		// (getSessionHandler) already uses authorizeUserToSession for ActionGet,
+		// so an org member who can VIEW a session could not chat into it — the
+		// inconsistency that left org-shared sessions (helix-org Worker "Human
+		// Desktop", team desktops) un-chattable by anyone but the literal owner,
+		// surfacing as a repeated 401 on POST /sessions/chat. ActionUpdate keeps
+		// read-only members from driving the agent.
+		if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+			http.Error(rw, err.Error(), http.StatusForbidden)
 			return
 		}
 
