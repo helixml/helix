@@ -133,13 +133,13 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	var wkr orgchart.Worker
 	switch args.Kind {
 	case orgchart.WorkerKindHuman:
-		w, err := orgchart.NewHumanWorker(id, roleID, parent, args.IdentityContent, orgID)
+		w, err := orgchart.NewHumanWorker(id, roleID, args.IdentityContent, orgID)
 		if err != nil {
 			return nil, err
 		}
 		wkr = w
 	case orgchart.WorkerKindAI:
-		w, err := orgchart.NewAIWorker(id, roleID, parent, args.IdentityContent, orgID)
+		w, err := orgchart.NewAIWorker(id, roleID, args.IdentityContent, orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -155,6 +155,20 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 
 	if err := t.deps.Store.Workers.Create(ctx, wkr); err != nil {
 		return nil, err
+	}
+
+	// Wire the initial reporting line (the new hire reports to parent)
+	// now that both Worker rows exist. Reporting is a many-to-many
+	// relation — more managers can be added later via the add-parent
+	// endpoint.
+	if parent != nil && t.deps.Store.ReportingLines != nil {
+		line, err := orgchart.NewReportingLine(orgID, *parent, id)
+		if err != nil {
+			return nil, err
+		}
+		if err := t.deps.Store.ReportingLines.Add(ctx, line); err != nil {
+			return nil, fmt.Errorf("add reporting line: %w", err)
+		}
 	}
 
 	env, err := environment.New(id, envPath, t.deps.Now(), orgID)

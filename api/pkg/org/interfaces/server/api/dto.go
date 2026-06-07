@@ -55,15 +55,16 @@ type RoleDTO struct {
 }
 
 // WorkerDTO is one row in GET /workers and the body of GET
-// /workers/{id}. RoleID is the live capability binding; ParentID is
-// the Worker this one reports to (empty for the owner).
+// /workers/{id}. RoleID is the live capability binding; ParentIDs are
+// the Workers this one reports to (empty for the owner). Reporting is
+// many-to-many — a Worker may report to several managers.
 // IdentityContent is the per-Worker persona markdown (the Spawner
 // projects it into identity.md at activation time).
 type WorkerDTO struct {
 	ID              string   `json:"id"`
 	Kind            string   `json:"kind"`
 	RoleID          string   `json:"role_id,omitempty"`
-	ParentID        string   `json:"parent_id,omitempty"`
+	ParentIDs       []string `json:"parent_ids,omitempty"`
 	IdentityContent string   `json:"identity_content"`
 	OrganizationID  string   `json:"organization_id,omitempty"`
 	Tools           []string `json:"tools,omitempty"`
@@ -127,11 +128,12 @@ type UpdateWorkerRoleRequest struct {
 	Content string `json:"content"`
 }
 
-// UpdateWorkerParentRequest is the body of POST /workers/{id}/parent.
-// ParentID is the Worker this one now reports to; an empty string
-// clears the manager (the Worker becomes top-level). The chart UI
-// posts this when an accountability edge is drawn or deleted.
-type UpdateWorkerParentRequest struct {
+// AddWorkerParentRequest is the body of POST /workers/{id}/parents.
+// ParentID is a manager the Worker should now report to. Reporting is
+// many-to-many, so this ADDS a line rather than replacing — the chart
+// UI posts it when an accountability edge is drawn; deleting an edge
+// hits DELETE /workers/{id}/parents/{parent_id}.
+type AddWorkerParentRequest struct {
 	ParentID string `json:"parent_id"`
 }
 

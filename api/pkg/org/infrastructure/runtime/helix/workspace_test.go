@@ -44,7 +44,7 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.WorkerI
 	ctx := context.Background()
 	r, _ := orgchart.NewRole("r-eng", "# Role", nil, nil, time.Now().UTC(), "org-test")
 	_ = s.Roles.Create(ctx, r)
-	w, _ := orgchart.NewAIWorker("w-eng", "r-eng", nil, "# Persona", "org-test")
+	w, _ := orgchart.NewAIWorker("w-eng", "r-eng", "# Persona", "org-test")
 	_ = s.Workers.Create(ctx, w)
 	if repoID != "" {
 		_ = SaveProject(ctx, s, "org-test", w.ID(), "prj_x", "app_x", repoID)

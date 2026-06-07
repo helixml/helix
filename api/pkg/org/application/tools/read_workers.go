@@ -13,14 +13,14 @@ import (
 )
 
 type workerView struct {
-	ID       orgchart.WorkerID   `json:"id"`
-	Kind     orgchart.WorkerKind `json:"kind"`
-	RoleID   orgchart.RoleID     `json:"roleId,omitempty"`
-	ParentID *orgchart.WorkerID  `json:"parentId,omitempty"`
+	ID        orgchart.WorkerID   `json:"id"`
+	Kind      orgchart.WorkerKind `json:"kind"`
+	RoleID    orgchart.RoleID     `json:"roleId,omitempty"`
+	ParentIDs []orgchart.WorkerID `json:"parentIds,omitempty"`
 }
 
-func workerViewOf(w orgchart.Worker) workerView {
-	return workerView{ID: w.ID(), Kind: w.Kind(), RoleID: w.RoleID(), ParentID: w.ParentID()}
+func workerViewOf(w orgchart.Worker, managers []orgchart.WorkerID) workerView {
+	return workerView{ID: w.ID(), Kind: w.Kind(), RoleID: w.RoleID(), ParentIDs: managers}
 }
 
 // ListWorkers returns every Worker — humans and AIs.
@@ -49,9 +49,21 @@ func (t *ListWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if err != nil {
 		return nil, fmt.Errorf("list workers: %w", err)
 	}
+	// One List call builds the report → managers index, so we don't
+	// issue a ListManagers per worker.
+	managersByReport := map[orgchart.WorkerID][]orgchart.WorkerID{}
+	if t.deps.Store.ReportingLines != nil {
+		lines, err := t.deps.Store.ReportingLines.List(ctx, orgID)
+		if err != nil {
+			return nil, fmt.Errorf("list reporting lines: %w", err)
+		}
+		for _, l := range lines {
+			managersByReport[l.ReportID] = append(managersByReport[l.ReportID], l.ManagerID)
+		}
+	}
 	out := make([]workerView, 0, len(workers))
 	for _, w := range workers {
-		out = append(out, workerViewOf(w))
+		out = append(out, workerViewOf(w, managersByReport[w.ID()]))
 	}
 	return json.Marshal(map[string]any{"workers": out})
 }
@@ -91,7 +103,14 @@ func (t *GetWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", args.ID, err)
 	}
-	return json.Marshal(workerViewOf(w))
+	var managers []orgchart.WorkerID
+	if t.deps.Store.ReportingLines != nil {
+		managers, err = t.deps.Store.ReportingLines.ListManagers(ctx, orgID, w.ID())
+		if err != nil {
+			return nil, fmt.Errorf("list managers for %q: %w", args.ID, err)
+		}
+	}
+	return json.Marshal(workerViewOf(w, managers))
 }
 
 // GetWorkerEnvironment returns the on-disk Environment record for a Worker.

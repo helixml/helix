@@ -38,7 +38,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 
 	deps := DefaultDeps(st)
 	tl := &Publish{deps: deps}
@@ -82,7 +82,7 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", nil, "", "org-test")
+	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 
 	deps := DefaultDeps(st)
 	tl := &Publish{deps: deps}

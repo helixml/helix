@@ -222,18 +222,36 @@ export function useHireHelixOrgWorker() {
   })
 }
 
-// useReparentWorker rewires who a Worker reports to. parentID === ''
-// clears the manager (Worker becomes top-level). Drives the chart's
-// drag-to-reparent: dragging manager → subordinate sets parent_id,
-// deleting the edge clears it. Invalidates overview + the worker list
-// so the new accountability edge renders on the next refetch.
-export function useReparentWorker() {
+// useAddWorkerParent adds a reporting line — the Worker now also
+// reports to parentID. Reporting is many-to-many, so this is additive.
+// Drives the chart's drag-to-report: dragging manager → subordinate
+// adds the line. Invalidates overview + the worker list so the new
+// accountability edge renders on the next refetch.
+export function useAddWorkerParent() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsWorkersParentCreate(workerID, orgID, { parent_id: parentID })
+      await api.getApiClient().v1OrgsWorkersParentsCreate(workerID, orgID, { parent_id: parentID })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+    },
+  })
+}
+
+// useRemoveWorkerParent drops one reporting line — the Worker no longer
+// reports to parentID. Drives the chart's delete-edge flow; only the
+// dragged edge's line is removed, leaving any other managers intact.
+export function useRemoveWorkerParent() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
+      await api.getApiClient().v1OrgsWorkersParentsDelete(workerID, parentID, orgID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })

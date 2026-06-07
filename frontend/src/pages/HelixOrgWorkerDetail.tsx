@@ -448,11 +448,11 @@ const HelixOrgWorkerDetail: FC = () => {
                     <Typography variant="caption" color="text.secondary">Kind</Typography>
                     <Typography variant="body2">{worker.kind}</Typography>
                   </Box>
-                  {worker?.parent_id && (
+                  {(worker?.parent_ids ?? []).length > 0 && (
                     <Box>
                       <Typography variant="caption" color="text.secondary">Reports to</Typography>
                       <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                        {worker.parent_id}
+                        {(worker?.parent_ids ?? []).join(', ')}
                       </Typography>
                     </Box>
                   )}

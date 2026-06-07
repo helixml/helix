@@ -197,7 +197,7 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgcha
 	if err := st.Roles.Create(ctx, r); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	w, err := orgchart.NewAIWorker("w-eng", "r-eng", nil, "# Identity content", "org-test")
+	w, err := orgchart.NewAIWorker("w-eng", "r-eng", "# Identity content", "org-test")
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 func TestEnsureSkipsRolePushIfRoleMissing(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
-	w, _ := orgchart.NewAIWorker("w-orphan", "r-missing", nil, "# I am alone", "org-test")
+	w, _ := orgchart.NewAIWorker("w-orphan", "r-missing", "# I am alone", "org-test")
 	if err := st.Workers.Create(context.Background(), w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}

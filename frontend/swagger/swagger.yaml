@@ -1,4 +1,9 @@
 definitions:
+  api.AddWorkerParentRequest:
+    properties:
+      parent_id:
+        type: string
+    type: object
   api.CreateRoleRequest:
     properties:
       content:
@@ -294,11 +299,6 @@ definitions:
       identity:
         type: string
     type: object
-  api.UpdateWorkerParentRequest:
-    properties:
-      parent_id:
-        type: string
-    type: object
   api.UpdateWorkerRoleRequest:
     properties:
       content:
@@ -339,8 +339,10 @@ definitions:
         type: string
       organization_id:
         type: string
-      parent_id:
-        type: string
+      parent_ids:
+        items:
+          type: string
+        type: array
       role_id:
         type: string
       tools:
@@ -17899,22 +17901,22 @@ paths:
       summary: 'Helix-org: update worker identity'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/parent:
+  /api/v1/orgs/{org}/workers/{id}/parents:
     post:
       consumes:
       - application/json
       parameters:
-      - description: Worker ID
+      - description: Worker ID (the report)
         in: path
         name: id
         required: true
         type: string
-      - description: New parent worker id ('' to clear)
+      - description: Manager worker id
         in: body
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateWorkerParentRequest'
+          $ref: '#/definitions/api.AddWorkerParentRequest'
       responses:
         "204":
           description: No Content
@@ -17932,7 +17934,36 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: set worker parent (reporting line)'
+      summary: 'Helix-org: add a worker reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/parents/{parent_id}:
+    delete:
+      parameters:
+      - description: Worker ID (the report)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Manager worker id
+        in: path
+        name: parent_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: remove a worker reporting line (manager)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/workers/{id}/role:

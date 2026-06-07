@@ -70,7 +70,7 @@ func newHelixTestStore(t *testing.T) (*store.Store, orgchart.WorkerID) {
 	if err := s.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("role: %v", err)
 	}
-	worker, _ := orgchart.NewAIWorker("w-eng", "r-eng", nil, "# Persona", "org-test")
+	worker, _ := orgchart.NewAIWorker("w-eng", "r-eng", "# Persona", "org-test")
 	if err := s.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("worker: %v", err)
 	}

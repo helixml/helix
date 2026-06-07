@@ -40,7 +40,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 	if err := st.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	worker, err := orgchart.NewAIWorker("w-ghost", role.ID, nil, "# Ghost", orgID)
+	worker, err := orgchart.NewAIWorker("w-ghost", role.ID, "# Ghost", orgID)
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
 	}
@@ -76,19 +76,17 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 	}
 }
 
-// TestFire_CascadesParentAndSubscriptions pins the two cascade bugs
-// found in the 2026-06-06 QA run:
+// TestFire_CascadesReportingLinesAndSubscriptions pins the two cascade
+// bugs found in the 2026-06-06 QA run, now handled structurally by the
+// store:
 //
-//   - F8: firing a manager left their direct reports' parent_id
-//     pointing at the now-deleted worker (dangling reference; the fire
-//     dialog promised "loses their manager" but the data kept it).
+//   - F8: firing a manager left their direct reports pointing at the
+//     now-deleted worker. With reporting lines, firing the manager must
+//     drop every line that references it (the gorm store does this with
+//     ON DELETE CASCADE; the memory store mirrors it).
 //   - F5: firing a worker deleted its s-activations-<id> stream but
-//     left OTHER workers' subscriptions to that stream behind, pointing
-//     at a stream that no longer exists.
-//
-// Both are now cascaded structurally by Workers.Delete /
-// Streams.Delete, so Fire just has to delete the worker.
-func TestFire_CascadesParentAndSubscriptions(t *testing.T) {
+//     left OTHER workers' subscriptions to that stream behind.
+func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
@@ -102,20 +100,27 @@ func TestFire_CascadesParentAndSubscriptions(t *testing.T) {
 		t.Fatalf("create role: %v", err)
 	}
 
-	mgr, err := orgchart.NewAIWorker("w-mgr", role.ID, nil, "# Mgr", orgID)
+	mgr, err := orgchart.NewAIWorker("w-mgr", role.ID, "# Mgr", orgID)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
 	if err := st.Workers.Create(ctx, mgr); err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
-	mgrID := mgr.ID()
-	report, err := orgchart.NewAIWorker("w-report", role.ID, &mgrID, "# Report", orgID)
+	report, err := orgchart.NewAIWorker("w-report", role.ID, "# Report", orgID)
 	if err != nil {
 		t.Fatalf("new report: %v", err)
 	}
 	if err := st.Workers.Create(ctx, report); err != nil {
 		t.Fatalf("create report: %v", err)
+	}
+	// w-report reports to w-mgr.
+	line, err := orgchart.NewReportingLine(orgID, "w-mgr", "w-report")
+	if err != nil {
+		t.Fatalf("new reporting line: %v", err)
+	}
+	if err := st.ReportingLines.Add(ctx, line); err != nil {
+		t.Fatalf("add reporting line: %v", err)
 	}
 
 	// The manager's activation stream + an outside subscriber (mirrors
@@ -141,13 +146,13 @@ func TestFire_CascadesParentAndSubscriptions(t *testing.T) {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	// F8: the report must no longer claim w-mgr as its manager.
-	got, err := st.Workers.Get(ctx, orgID, "w-report")
+	// F8: no reporting line may reference the deleted manager.
+	managers, err := st.ReportingLines.ListManagers(ctx, orgID, "w-report")
 	if err != nil {
-		t.Fatalf("get report after fire: %v", err)
+		t.Fatalf("list managers after fire: %v", err)
 	}
-	if p := got.ParentID(); p != nil {
-		t.Fatalf("report parent_id = %q after firing manager, want nil (F8 dangling-parent regression)", *p)
+	if len(managers) != 0 {
+		t.Fatalf("w-report still reports to %v after firing its manager, want none (F8 dangling-line regression)", managers)
 	}
 
 	// F5: no subscription may reference the deleted activation stream.

@@ -107,7 +107,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /helix-org to " +
 		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
-	owner, err := orgchart.NewHumanWorker(orgchart.WorkerID("w-owner"), ownerRole.ID, nil, ownerIdentity, params.OrganizationID)
+	owner, err := orgchart.NewHumanWorker(orgchart.WorkerID("w-owner"), ownerRole.ID, ownerIdentity, params.OrganizationID)
 	if err != nil {
 		return Result{}, err
 	}

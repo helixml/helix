@@ -12365,7 +12365,7 @@
                 }
             }
         },
-        "/api/v1/orgs/{org}/workers/{id}/parent": {
+        "/api/v1/orgs/{org}/workers/{id}/parents": {
             "post": {
                 "security": [
                     {
@@ -12375,10 +12375,10 @@
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: set worker parent (reporting line)",
+                "summary": "Helix-org: add a worker reporting line (manager)",
                 "parameters": [
                     {
-                        "description": "Worker ID",
+                        "description": "Worker ID (the report)",
                         "name": "id",
                         "in": "path",
                         "required": true,
@@ -12391,11 +12391,11 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/api.UpdateWorkerParentRequest"
+                                "$ref": "#/components/schemas/api.AddWorkerParentRequest"
                             }
                         }
                     },
-                    "description": "New parent worker id ('' to clear)",
+                    "description": "Manager worker id",
                     "required": true
                 },
                 "responses": {
@@ -12424,6 +12424,64 @@
                     },
                     "409": {
                         "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove a worker reporting line (manager)",
+                "parameters": [
+                    {
+                        "description": "Worker ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Manager worker id",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "content": {
                             "*/*": {
                                 "schema": {
@@ -24270,6 +24328,14 @@
             }
         },
         "schemas": {
+            "api.AddWorkerParentRequest": {
+                "type": "object",
+                "properties": {
+                    "parent_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "api.CreateRoleRequest": {
                 "type": "object",
                 "properties": {
@@ -24713,14 +24779,6 @@
                     }
                 }
             },
-            "api.UpdateWorkerParentRequest": {
-                "type": "object",
-                "properties": {
-                    "parent_id": {
-                        "type": "string"
-                    }
-                }
-            },
             "api.UpdateWorkerRoleRequest": {
                 "type": "object",
                 "properties": {
@@ -24783,8 +24841,11 @@
                     "organization_id": {
                         "type": "string"
                     },
-                    "parent_id": {
-                        "type": "string"
+                    "parent_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "role_id": {
                         "type": "string"

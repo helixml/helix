@@ -10311,7 +10311,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/workers/{id}/parent": {
+        "/api/v1/orgs/{org}/workers/{id}/parents": {
             "post": {
                 "security": [
                     {
@@ -10324,22 +10324,22 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: set worker parent (reporting line)",
+                "summary": "Helix-org: add a worker reporting line (manager)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Worker ID",
+                        "description": "Worker ID (the report)",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "New parent worker id ('' to clear)",
+                        "description": "Manager worker id",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateWorkerParentRequest"
+                            "$ref": "#/definitions/api.AddWorkerParentRequest"
                         }
                     }
                 ],
@@ -10361,6 +10361,52 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove a worker reporting line (manager)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Manager worker id",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -20084,6 +20130,14 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "api.AddWorkerParentRequest": {
+            "type": "object",
+            "properties": {
+                "parent_id": {
+                    "type": "string"
+                }
+            }
+        },
         "api.CreateRoleRequest": {
             "type": "object",
             "properties": {
@@ -20527,14 +20581,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.UpdateWorkerParentRequest": {
-            "type": "object",
-            "properties": {
-                "parent_id": {
-                    "type": "string"
-                }
-            }
-        },
         "api.UpdateWorkerRoleRequest": {
             "type": "object",
             "properties": {
@@ -20597,8 +20643,11 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
-                "parent_id": {
-                    "type": "string"
+                "parent_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "role_id": {
                     "type": "string"

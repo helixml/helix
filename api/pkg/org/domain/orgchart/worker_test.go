@@ -6,11 +6,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
 
-func ptr(s string) *orgchart.WorkerID {
-	v := orgchart.WorkerID(s)
-	return &v
-}
-
 func TestNewHumanWorker(t *testing.T) {
 	t.Parallel()
 
@@ -18,22 +13,19 @@ func TestNewHumanWorker(t *testing.T) {
 		name     string
 		id       orgchart.WorkerID
 		role     orgchart.RoleID
-		parent   *orgchart.WorkerID
 		identity string
 		wantErr  bool
 	}{
-		{"valid", "w-1", "r-ceo", nil, "i am the ceo", false},
-		{"valid with parent", "w-1", "r-eng", ptr("w-owner"), "i am the eng", false},
-		{"valid empty identity", "w-1", "r-ceo", nil, "", false},
-		{"empty id", "", "r-ceo", nil, "", true},
-		{"empty role", "w-1", "", nil, "", true},
-		{"self parent", "w-1", "r-ceo", ptr("w-1"), "", true},
+		{"valid", "w-1", "r-ceo", "i am the ceo", false},
+		{"valid empty identity", "w-1", "r-ceo", "", false},
+		{"empty id", "", "r-ceo", "", true},
+		{"empty role", "w-1", "", "", true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			w, err := orgchart.NewHumanWorker(tc.id, tc.role, tc.parent, tc.identity, "org-test")
+			w, err := orgchart.NewHumanWorker(tc.id, tc.role, tc.identity, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("orgchart.NewHumanWorker error = %v, wantErr = %v", err, tc.wantErr)
@@ -59,8 +51,7 @@ func TestNewHumanWorker(t *testing.T) {
 func TestNewAIWorker(t *testing.T) {
 	t.Parallel()
 
-	parent := orgchart.WorkerID("w-owner")
-	w, err := orgchart.NewAIWorker("w-ai", "r-docs", &parent, "you are the docs editor", "org-test")
+	w, err := orgchart.NewAIWorker("w-ai", "r-docs", "you are the docs editor", "org-test")
 	if err != nil {
 		t.Fatalf("orgchart.NewAIWorker: %v", err)
 	}
@@ -70,9 +61,6 @@ func TestNewAIWorker(t *testing.T) {
 	if got := w.RoleID(); got != "r-docs" {
 		t.Fatalf("RoleID = %q, want r-docs", got)
 	}
-	if got := w.ParentID(); got == nil || *got != "w-owner" {
-		t.Fatalf("ParentID = %v, want w-owner", got)
-	}
 	if w.IdentityContent() != "you are the docs editor" {
 		t.Fatalf("IdentityContent = %q", w.IdentityContent())
 	}
@@ -81,7 +69,7 @@ func TestNewAIWorker(t *testing.T) {
 func TestWorkerWithIdentityContent(t *testing.T) {
 	t.Parallel()
 
-	w, err := orgchart.NewAIWorker("w-1", "r-eng", nil, "old", "org-test")
+	w, err := orgchart.NewAIWorker("w-1", "r-eng", "old", "org-test")
 	if err != nil {
 		t.Fatalf("orgchart.NewAIWorker: %v", err)
 	}
@@ -112,7 +100,7 @@ var (
 // TestWorkerOrganizationIDFromConstructor: the OrganizationID accessor
 // returns the orgID supplied at construction time.
 func TestWorkerOrganizationIDFromConstructor(t *testing.T) {
-	ai, err := orgchart.NewAIWorker("w-bot", "r-eng", nil, "# bot", "org-acme")
+	ai, err := orgchart.NewAIWorker("w-bot", "r-eng", "# bot", "org-acme")
 	if err != nil {
 		t.Fatalf("orgchart.NewAIWorker: %v", err)
 	}
@@ -120,7 +108,7 @@ func TestWorkerOrganizationIDFromConstructor(t *testing.T) {
 		t.Errorf("AIWorker.OrganizationID() = %q, want org-acme", got)
 	}
 
-	hu, err := orgchart.NewHumanWorker("w-alice", "r-eng", nil, "# alice", "org-acme")
+	hu, err := orgchart.NewHumanWorker("w-alice", "r-eng", "# alice", "org-acme")
 	if err != nil {
 		t.Fatalf("orgchart.NewHumanWorker: %v", err)
 	}

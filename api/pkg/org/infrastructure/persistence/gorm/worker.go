@@ -17,14 +17,14 @@ import (
 // added out-of-band in OpenWithDB because GORM tag-driven FK creation
 // to a table owned by another package is fragile.
 //
-// RoleID is the live capability binding. ParentID is the reporting
-// line (nullable; the owner has no parent).
+// RoleID is the live capability binding. Reporting lines (who reports
+// to whom) are a separate many-to-many relation — see
+// reportingLineRow — so a Worker carries no parent column.
 type workerRow struct {
-	ID              string  `gorm:"primaryKey;type:text"`
-	OrgID           string  `gorm:"primaryKey;type:text;index"`
-	Kind            string  `gorm:"not null"` // "human" or "ai"
-	RoleID          string  `gorm:"not null;index"`
-	ParentID        *string `gorm:"index"`
+	ID              string `gorm:"primaryKey;type:text"`
+	OrgID           string `gorm:"primaryKey;type:text;index"`
+	Kind            string `gorm:"not null"` // "human" or "ai"
+	RoleID          string `gorm:"not null;index"`
 	IdentityContent string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -35,32 +35,21 @@ func (workerRow) TableName() string { return "org_workers" }
 type workerMapper struct{}
 
 func (workerMapper) ToRow(w orgchart.Worker) (workerRow, error) {
-	var parent *string
-	if p := w.ParentID(); p != nil {
-		s := string(*p)
-		parent = &s
-	}
 	return workerRow{
 		ID:              string(w.ID()),
 		OrgID:           w.OrganizationID(),
 		Kind:            string(w.Kind()),
 		RoleID:          string(w.RoleID()),
-		ParentID:        parent,
 		IdentityContent: w.IdentityContent(),
 	}, nil
 }
 
 func (workerMapper) ToDomain(row workerRow) (orgchart.Worker, error) {
-	var parent *orgchart.WorkerID
-	if row.ParentID != nil {
-		p := orgchart.WorkerID(*row.ParentID)
-		parent = &p
-	}
 	switch orgchart.WorkerKind(row.Kind) {
 	case orgchart.WorkerKindHuman:
-		return orgchart.NewHumanWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), parent, row.IdentityContent, row.OrgID)
+		return orgchart.NewHumanWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), row.IdentityContent, row.OrgID)
 	case orgchart.WorkerKindAI:
-		return orgchart.NewAIWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), parent, row.IdentityContent, row.OrgID)
+		return orgchart.NewAIWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), row.IdentityContent, row.OrgID)
 	default:
 		return nil, errUnknownWorkerKind(row.Kind)
 	}
@@ -82,29 +71,14 @@ func (r *workersRepo) List(ctx context.Context, orgID string) ([]orgchart.Worker
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
-// Delete removes the worker row and structurally cascades the two
-// relationships that reference it, so deletion can never leave a
-// dangling pointer:
-//
-//   - direct reports: any worker whose parent_id is this worker has
-//     it cleared to NULL (they become top-level). A composite
-//     self-referential FK with ON DELETE SET NULL can't express this
-//     — Postgres would also null the org_id half of (org_id,
-//     parent_id), which is a NOT NULL PK column — so the cascade
-//     lives here in the store, the one place every delete funnels
-//     through.
-//   - subscriptions: worker-anchored rows for this worker are
-//     dropped so none outlive the worker row.
-//
-// All three writes run in one transaction so a partial cascade can't
-// leave the graph half-torn.
+// Delete removes the worker row and drops its worker-anchored
+// subscriptions in the same transaction. The reporting lines that
+// reference this worker (as manager or report) are removed by the
+// ON DELETE CASCADE foreign keys on org_reporting_lines (installed in
+// OpenWithDB), so no app code clears them — that's the whole point of
+// the association table.
 func (r *workersRepo) Delete(ctx context.Context, orgID string, id orgchart.WorkerID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&workerRow{}).
-			Where("org_id = ? AND parent_id = ?", orgID, string(id)).
-			Update("parent_id", gorm.Expr("NULL")).Error; err != nil {
-			return fmt.Errorf("delete worker: clear child parent_id: %w", err)
-		}
 		if err := tx.Where("org_id = ? AND worker_id = ?", orgID, string(id)).
 			Delete(&subscriptionRow{}).Error; err != nil {
 			return fmt.Errorf("delete worker: drop subscriptions: %w", err)
@@ -131,7 +105,6 @@ func (r *workersRepo) Update(ctx context.Context, w orgchart.Worker) error {
 		store.WithUpdates(map[string]any{
 			"identity_content": row.IdentityContent,
 			"role_id":          row.RoleID,
-			"parent_id":        row.ParentID,
 			"kind":             row.Kind,
 		}),
 	)

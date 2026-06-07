@@ -114,9 +114,11 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		}
 	}
 
-	// Subscriptions (worker-anchored) and the direct reports' parent_id
-	// are cascaded structurally by Workers.Delete below — see
-	// gorm/worker.go. Nothing to drop explicitly here.
+	// The worker's subscriptions and every reporting line that
+	// references it are cascaded structurally when the worker row is
+	// deleted below (Workers.Delete drops the subs; the
+	// org_reporting_lines ON DELETE CASCADE foreign keys drop the
+	// lines). Nothing to drop explicitly here.
 
 	if env, err := s.Store.Environments.Get(ctx, orgID, id); err == nil {
 		if env.Path != "" {

@@ -145,7 +145,7 @@ func TestActivateWorker_AllowsHumanWorker(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 	seedOwnerPosition(t, st, ctx)
-	human, err := orgchart.NewHumanWorker("w-human", "r-owner", nil, "human identity", "org-test")
+	human, err := orgchart.NewHumanWorker("w-human", "r-owner", "human identity", "org-test")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}

@@ -176,7 +176,10 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
-		{Pattern: "POST /workers/{id}/parent", Handler: http.HandlerFunc(a.reparentWorker)},
+		// Reporting lines are many-to-many — add/remove individual
+		// manager edges rather than replacing a single parent.
+		{Pattern: "POST /workers/{id}/parents", Handler: http.HandlerFunc(a.addWorkerParent)},
+		{Pattern: "DELETE /workers/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeWorkerParent)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
@@ -361,6 +364,19 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
 	}
+	// One List call builds the report → managers index so each worker's
+	// parent_ids don't cost a query.
+	managersByReport := map[orgchart.WorkerID][]string{}
+	if a.deps.Store.ReportingLines != nil {
+		lines, err := a.deps.Store.ReportingLines.List(ctx, orgID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("list reporting lines: %w", err))
+			return
+		}
+		for _, l := range lines {
+			managersByReport[l.ReportID] = append(managersByReport[l.ReportID], string(l.ManagerID))
+		}
+	}
 	// Resolve each worker's tools via Role.Tools. Cache by role so a
 	// org with many workers in the same role only pays for the
 	// lookup once.
@@ -379,7 +395,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 			}
 			roleCache[rid] = tools
 		}
-		out = append(out, workerDTO(wk, tools))
+		out = append(out, workerDTO(wk, tools, managersByReport[wk.ID()]))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -511,19 +527,37 @@ func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 
 // workerDTO converts a orgchart.Worker to its wire form. tools may be
 // nil — callers populating per-worker grants pass the sorted list.
-func workerDTO(wk orgchart.Worker, tools []string) WorkerDTO {
-	dto := WorkerDTO{
+// parentIDs are the managers this Worker reports to (from the reporting
+// lines); nil for a top-level Worker.
+func workerDTO(wk orgchart.Worker, tools []string, parentIDs []string) WorkerDTO {
+	return WorkerDTO{
 		ID:              string(wk.ID()),
 		Kind:            string(wk.Kind()),
 		RoleID:          string(wk.RoleID()),
+		ParentIDs:       parentIDs,
 		IdentityContent: wk.IdentityContent(),
 		OrganizationID:  wk.OrganizationID(),
 		Tools:           tools,
 	}
-	if p := wk.ParentID(); p != nil {
-		dto.ParentID = string(*p)
+}
+
+// managerIDs returns the ids of the managers the given worker reports
+// to, as strings, for embedding in a WorkerDTO. Returns nil on any
+// store error — the reporting graph is best-effort context, never a
+// reason to fail the whole worker read.
+func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.WorkerID) []string {
+	if a.deps.Store.ReportingLines == nil {
+		return nil
 	}
-	return dto
+	managers, err := a.deps.Store.ReportingLines.ListManagers(ctx, orgID, id)
+	if err != nil || len(managers) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(managers))
+	for _, m := range managers {
+		out = append(out, string(m))
+	}
+	return out
 }
 
 // getWorker returns a Worker + the role/position it fills.
@@ -572,7 +606,7 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	detail := WorkerDetailDTO{Worker: workerDTO(wk, toolNames)}
+	detail := WorkerDetailDTO{Worker: workerDTO(wk, toolNames, a.managerIDs(ctx, orgID, id))}
 	detail.Role = roDTO
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with worker" to the
@@ -787,27 +821,31 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// reparentWorker sets (or clears) the Worker this one reports to. The
+// addWorkerParent adds a reporting line: the Worker at {id} now also
+// reports to the manager in the body. Reporting is many-to-many, so
+// this is additive — a Worker can report to several managers. The
 // chart UI calls it when an accountability edge is drawn between two
-// Worker nodes (set parent) or deleted (clear parent, empty body).
+// Worker nodes.
 //
-// Validation beyond the domain's self-parent check:
-//   - a non-empty parent must reference a Worker that exists in the org
-//   - the new parent must not be a descendant of this Worker, which
-//     would create a reporting cycle
+// Validation:
+//   - the manager must reference a Worker that exists in the org
+//   - the manager must not already be a descendant of {id}, which
+//     would close a reporting cycle (the graph is a DAG)
 //
-// @Summary Helix-org: set worker parent (reporting line)
+// Idempotent: re-adding an existing line returns 204.
+//
+// @Summary Helix-org: add a worker reporting line (manager)
 // @Tags HelixOrg
 // @Accept json
-// @Param id path string true "Worker ID"
-// @Param payload body api.UpdateWorkerParentRequest true "New parent worker id ('' to clear)"
+// @Param id path string true "Worker ID (the report)"
+// @Param payload body api.AddWorkerParentRequest true "Manager worker id"
 // @Success 204
 // @Failure 400 {object} api.ErrorResponse
 // @Failure 404 {object} api.ErrorResponse
 // @Failure 409 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/workers/{id}/parent [post]
-func (a *apiHandler) reparentWorker(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/workers/{id}/parents [post]
+func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
 	if err != nil {
@@ -819,60 +857,104 @@ func (a *apiHandler) reparentWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	var req UpdateWorkerParentRequest
+	var req AddWorkerParentRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	existing, err := a.deps.Store.Workers.Get(ctx, orgID, id)
-	if err != nil {
+	managerID := orgchart.WorkerID(strings.TrimSpace(req.ParentID))
+	if managerID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("parent_id is required"))
+		return
+	}
+	if a.deps.Store.ReportingLines == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("reporting lines not wired"))
+		return
+	}
+	// Both endpoints must exist before we wire them.
+	if _, err := a.deps.Store.Workers.Get(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
-
-	var parent *orgchart.WorkerID
-	parentID := strings.TrimSpace(req.ParentID)
-	if parentID != "" {
-		pid := orgchart.WorkerID(parentID)
-		// The parent must exist before we wire to it.
-		if _, err := a.deps.Store.Workers.Get(ctx, orgID, pid); err != nil {
-			writeError(w, errStatus(err), fmt.Errorf("get parent worker %s: %w", pid, err))
-			return
-		}
-		// Cycle guard: walk up from the proposed parent via parent_id.
-		// If we reach this Worker, the edge would close a loop. We load
-		// the full set once and chase pointers in memory rather than
-		// issuing a Get per hop.
-		all, err := a.deps.Store.Workers.List(ctx, orgID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
-			return
-		}
-		byID := make(map[orgchart.WorkerID]orgchart.Worker, len(all))
-		for _, wk := range all {
-			byID[wk.ID()] = wk
-		}
-		for cursor := &pid; cursor != nil; {
-			if *cursor == id {
-				writeError(w, http.StatusConflict, fmt.Errorf("reparenting %s under %s would create a reporting cycle", id, pid))
-				return
-			}
-			wk, ok := byID[*cursor]
-			if !ok {
-				break
-			}
-			cursor = wk.ParentID()
-		}
-		parent = &pid
+	if _, err := a.deps.Store.Workers.Get(ctx, orgID, managerID); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get manager %s: %w", managerID, err))
+		return
 	}
 
-	updated, err := existing.WithParentID(parent)
+	line, err := orgchart.NewReportingLine(orgID, managerID, id)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := a.deps.Store.Workers.Update(ctx, updated); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("update worker: %w", err))
+
+	// Cycle guard over the DAG: if {id} is already an ancestor of the
+	// proposed manager, adding manager → {id} closes a loop. Walk up
+	// from the manager via all reporting lines (BFS) and reject if we
+	// reach {id}.
+	lines, err := a.deps.Store.ReportingLines.List(ctx, orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("list reporting lines: %w", err))
+		return
+	}
+	managersOf := map[orgchart.WorkerID][]orgchart.WorkerID{}
+	for _, l := range lines {
+		managersOf[l.ReportID] = append(managersOf[l.ReportID], l.ManagerID)
+	}
+	seen := map[orgchart.WorkerID]bool{}
+	queue := []orgchart.WorkerID{managerID}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur == id {
+			writeError(w, http.StatusConflict, fmt.Errorf("making %s report to %s would create a reporting cycle", id, managerID))
+			return
+		}
+		if seen[cur] {
+			continue
+		}
+		seen[cur] = true
+		queue = append(queue, managersOf[cur]...)
+	}
+
+	if err := a.deps.Store.ReportingLines.Add(ctx, line); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("add reporting line: %w", err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeWorkerParent drops one reporting line: the Worker at {id} no
+// longer reports to {parent_id}. The chart UI calls it when an
+// accountability edge is deleted. Returns 404 when no such line exists.
+//
+// @Summary Helix-org: remove a worker reporting line (manager)
+// @Tags HelixOrg
+// @Param id path string true "Worker ID (the report)"
+// @Param parent_id path string true "Manager worker id"
+// @Success 204
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/workers/{id}/parents/{parent_id} [delete]
+func (a *apiHandler) removeWorkerParent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.WorkerID(r.PathValue("id"))
+	managerID := orgchart.WorkerID(r.PathValue("parent_id"))
+	if id == "" || managerID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id and parent_id are required"))
+		return
+	}
+	if a.deps.Store.ReportingLines == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("reporting lines not wired"))
+		return
+	}
+	if err := a.deps.Store.ReportingLines.Remove(ctx, orgID, id, managerID); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("remove reporting line %s→%s: %w", id, managerID, err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
