@@ -75,3 +75,87 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 		t.Fatalf("activation stream %q still exists after Fire — orphan regression", streamID)
 	}
 }
+
+// TestFire_CascadesParentAndSubscriptions pins the two cascade bugs
+// found in the 2026-06-06 QA run:
+//
+//   - F8: firing a manager left their direct reports' parent_id
+//     pointing at the now-deleted worker (dangling reference; the fire
+//     dialog promised "loses their manager" but the data kept it).
+//   - F5: firing a worker deleted its s-activations-<id> stream but
+//     left OTHER workers' subscriptions to that stream behind, pointing
+//     at a stream that no longer exists.
+//
+// Both are now cascaded structurally by Workers.Delete /
+// Streams.Delete, so Fire just has to delete the worker.
+func TestFire_CascadesParentAndSubscriptions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-cascade"
+
+	role, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, time.Now().UTC(), orgID)
+	if err != nil {
+		t.Fatalf("new role: %v", err)
+	}
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+
+	mgr, err := orgchart.NewAIWorker("w-mgr", role.ID, nil, "# Mgr", orgID)
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	if err := st.Workers.Create(ctx, mgr); err != nil {
+		t.Fatalf("create manager: %v", err)
+	}
+	mgrID := mgr.ID()
+	report, err := orgchart.NewAIWorker("w-report", role.ID, &mgrID, "# Report", orgID)
+	if err != nil {
+		t.Fatalf("new report: %v", err)
+	}
+	if err := st.Workers.Create(ctx, report); err != nil {
+		t.Fatalf("create report: %v", err)
+	}
+
+	// The manager's activation stream + an outside subscriber (mirrors
+	// the hiring caller auto-subscribed to a new hire's activations).
+	mgrStream := activation.StreamID(mgr.ID())
+	stream, err := streaming.NewStream(mgrStream, "Activations: w-mgr", "test", mgr.ID(), time.Now().UTC(), transport.Transport{}, orgID)
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+	if err := st.Streams.Create(ctx, stream); err != nil {
+		t.Fatalf("create stream: %v", err)
+	}
+	sub, err := streaming.NewSubscription("w-report", mgrStream, time.Now().UTC(), orgID)
+	if err != nil {
+		t.Fatalf("new subscription: %v", err)
+	}
+	if err := st.Subscriptions.Create(ctx, sub); err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
+
+	svc := &lifecycle.Service{Store: st, Owner: "w-owner"}
+	if err := svc.Fire(ctx, orgID, mgr.ID()); err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+
+	// F8: the report must no longer claim w-mgr as its manager.
+	got, err := st.Workers.Get(ctx, orgID, "w-report")
+	if err != nil {
+		t.Fatalf("get report after fire: %v", err)
+	}
+	if p := got.ParentID(); p != nil {
+		t.Fatalf("report parent_id = %q after firing manager, want nil (F8 dangling-parent regression)", *p)
+	}
+
+	// F5: no subscription may reference the deleted activation stream.
+	subs, err := st.Subscriptions.ListForStream(ctx, orgID, mgrStream)
+	if err != nil {
+		t.Fatalf("list subscriptions for stream: %v", err)
+	}
+	if len(subs) != 0 {
+		t.Fatalf("found %d subscription(s) to deleted stream %q, want 0 (F5 orphan-subscription regression)", len(subs), mgrStream)
+	}
+}

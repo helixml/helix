@@ -13,7 +13,7 @@
 //     tab, for when the operator needs the desktop, not just the chat.
 //   - "Restart Desktop": a fresh manual activation (re-attaches MCP).
 
-import { FC, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, Key, useEffect, useMemo, useRef, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -74,8 +74,13 @@ const HelixOrgWorkerDetail: FC = () => {
   const orgSlug = router.params.org_id as string | undefined
   const workerId = router.params.worker_id as string | undefined
 
-  const { data, isLoading } = useHelixOrgWorker(workerId)
   const fire = useFireHelixOrgWorker()
+  // Stop polling/refetching this worker once a fire is in flight or
+  // done — the row is being torn down, so a refetch would only hit a
+  // 404 (QA F3). The page navigates to the workers list on success.
+  const { data, isLoading } = useHelixOrgWorker(workerId, {
+    enabled: !fire.isPending && !fire.isSuccess,
+  })
   const ensureChat = useEnsureWorkerChat()
   const activate = useActivateWorker()
   const streaming = useStreaming()
@@ -571,19 +576,24 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
         onChange={handleChange}
         getOptionLabel={(s) => s.id}
         isOptionEqualToValue={(a, b) => a.id === b.id}
-        renderOption={(props, option, { selected }) => (
-          <li {...props}>
-            <Checkbox checked={selected} sx={{ mr: 1 }} />
-            <Box>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
-              {option.description && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {option.description}
-                </Typography>
-              )}
-            </Box>
-          </li>
-        )}
+        renderOption={(props, option, { selected }) => {
+          // Pass key explicitly rather than via the props spread —
+          // React 18.3 warns when a spread object carries a key.
+          const { key, ...liProps } = props as typeof props & { key?: Key }
+          return (
+            <li key={key ?? option.id} {...liProps}>
+              <Checkbox checked={selected} sx={{ mr: 1 }} />
+              <Box>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{option.id}</Typography>
+                {option.description && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {option.description}
+                  </Typography>
+                )}
+              </Box>
+            </li>
+          )
+        }}
         renderInput={(params) => (
           <TextField
             {...params}
@@ -593,15 +603,18 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
           />
         )}
         renderTags={(value, getTagProps) =>
-          value.map((option, index) => (
-            <Chip
-              {...getTagProps({ index })}
-              key={option.id}
-              label={option.id}
-              size="small"
-              sx={{ fontFamily: 'monospace' }}
-            />
-          ))
+          value.map((option, index) => {
+            const { key, ...tagProps } = getTagProps({ index })
+            return (
+              <Chip
+                key={key ?? option.id}
+                {...tagProps}
+                label={option.id}
+                size="small"
+                sx={{ fontFamily: 'monospace' }}
+              />
+            )
+          })
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>

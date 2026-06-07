@@ -341,13 +341,20 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
           bottom-center reporting handle means a subscription edge and a
           manager → subordinate edge can never share the same geometry.
           id="stream" is what buildGraph passes as sourceHandle when
-          emitting subscription edges. */}
+          emitting subscription edges.
+
+          Unlike the top/bottom reporting handles (which sit clear above
+          and below the card), this one lands at the card's vertical
+          centre — right where the name/caption Typography rows are. It
+          must be large enough to grab and explicitly stacked above that
+          content (zIndex), or the label intercepts the pointer and the
+          subscription drag can't start. */}
       <Handle
         id="stream"
         type="source"
         position={RFPosition.Right}
         isConnectable
-        style={{ background: 'rgba(180,100,0,0.5)', border: 'none', width: 8, height: 8 }}
+        style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
       />
     </Box>
   )

@@ -2,6 +2,7 @@ package gorm
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -81,8 +82,42 @@ func (r *workersRepo) List(ctx context.Context, orgID string) ([]orgchart.Worker
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
+// Delete removes the worker row and structurally cascades the two
+// relationships that reference it, so deletion can never leave a
+// dangling pointer:
+//
+//   - direct reports: any worker whose parent_id is this worker has
+//     it cleared to NULL (they become top-level). A composite
+//     self-referential FK with ON DELETE SET NULL can't express this
+//     — Postgres would also null the org_id half of (org_id,
+//     parent_id), which is a NOT NULL PK column — so the cascade
+//     lives here in the store, the one place every delete funnels
+//     through.
+//   - subscriptions: worker-anchored rows for this worker are
+//     dropped so none outlive the worker row.
+//
+// All three writes run in one transaction so a partial cascade can't
+// leave the graph half-torn.
 func (r *workersRepo) Delete(ctx context.Context, orgID string, id orgchart.WorkerID) error {
-	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&workerRow{}).
+			Where("org_id = ? AND parent_id = ?", orgID, string(id)).
+			Update("parent_id", gorm.Expr("NULL")).Error; err != nil {
+			return fmt.Errorf("delete worker: clear child parent_id: %w", err)
+		}
+		if err := tx.Where("org_id = ? AND worker_id = ?", orgID, string(id)).
+			Delete(&subscriptionRow{}).Error; err != nil {
+			return fmt.Errorf("delete worker: drop subscriptions: %w", err)
+		}
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&workerRow{})
+		if res.Error != nil {
+			return fmt.Errorf("delete worker: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return fmt.Errorf("worker: %w", store.ErrNotFound)
+		}
+		return nil
+	})
 }
 
 func (r *workersRepo) Update(ctx context.Context, w orgchart.Worker) error {

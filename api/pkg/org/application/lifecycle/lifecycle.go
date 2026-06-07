@@ -114,21 +114,9 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		}
 	}
 
-	// Subscriptions are worker-anchored — drop them. Best-effort +
-	// logged: a half-torn worker with leftover sub rows would
-	// dispatch events into a void, but the worker row delete below
-	// is the user-visible truth.
-	if s.Store.Subscriptions != nil {
-		if subs, err := s.Store.Subscriptions.ListForWorker(ctx, orgID, id); err == nil {
-			for _, sub := range subs {
-				if err := s.Store.Subscriptions.Delete(ctx, orgID, id, sub.StreamID); err != nil {
-					s.logger().Warn("fire: drop subscription", "worker", id, "stream", sub.StreamID, "err", err)
-				}
-			}
-		} else {
-			s.logger().Warn("fire: list subscriptions", "worker", id, "err", err)
-		}
-	}
+	// Subscriptions (worker-anchored) and the direct reports' parent_id
+	// are cascaded structurally by Workers.Delete below — see
+	// gorm/worker.go. Nothing to drop explicitly here.
 
 	if env, err := s.Store.Environments.Get(ctx, orgID, id); err == nil {
 		if env.Path != "" {

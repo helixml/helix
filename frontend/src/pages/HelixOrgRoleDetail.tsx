@@ -10,7 +10,7 @@
 // beats a multi-select for the alpha; we can swap to a real
 // autocomplete once the catalogue stabilises.
 
-import { FC, useEffect, useMemo, useState } from 'react'
+import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -213,36 +213,45 @@ const HelixOrgRoleDetail: FC = () => {
                     onChange={(_e, value) => setTools(value.map((v) => v.name))}
                     getOptionLabel={(o) => o.name}
                     isOptionEqualToValue={(a, b) => a.name === b.name}
-                    renderOption={(props, option, { selected }) => (
-                      <li {...props} key={option.name}>
-                        <Checkbox
-                          icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
-                          checkedIcon={<CheckBoxIcon fontSize="small" />}
-                          style={{ marginRight: 8 }}
-                          checked={selected}
-                        />
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                            {option.name}
-                          </Typography>
-                          {option.description && (
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                              {option.description}
+                    renderOption={(props, option, { selected }) => {
+                      // Pass key explicitly rather than via the props
+                      // spread — React 18.3 warns when a spread object
+                      // carries a key.
+                      const { key, ...liProps } = props as typeof props & { key?: Key }
+                      return (
+                        <li key={key ?? option.name} {...liProps}>
+                          <Checkbox
+                            icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                            checkedIcon={<CheckBoxIcon fontSize="small" />}
+                            style={{ marginRight: 8 }}
+                            checked={selected}
+                          />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {option.name}
                             </Typography>
-                          )}
-                        </Box>
-                      </li>
-                    )}
+                            {option.description && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                {option.description}
+                              </Typography>
+                            )}
+                          </Box>
+                        </li>
+                      )
+                    }}
                     renderTags={(value, getTagProps) =>
-                      value.map((option, index) => (
-                        <Chip
-                          {...getTagProps({ index })}
-                          key={option.name}
-                          label={option.name}
-                          size="small"
-                          sx={{ fontFamily: 'monospace' }}
-                        />
-                      ))
+                      value.map((option, index) => {
+                        const { key, ...tagProps } = getTagProps({ index })
+                        return (
+                          <Chip
+                            key={key ?? option.name}
+                            {...tagProps}
+                            label={option.name}
+                            size="small"
+                            sx={{ fontFamily: 'monospace' }}
+                          />
+                        )
+                      })
                     }
                     renderInput={(params) => (
                       <TextField

@@ -33,12 +33,13 @@ import (
 // for tests and dev paths that don't need Postgres.
 func New() *store.Store {
 	subs := &subscriptionsRepo{rows: map[subKey]streaming.Subscription{}}
-	workers := &workersRepo{rows: map[orgKey]orgchart.Worker{}}
+	workers := &workersRepo{rows: map[orgKey]orgchart.Worker{}, subs: subs}
+	streams := &streamsRepo{rows: map[orgKey]streaming.Stream{}, subs: subs}
 	return &store.Store{
 		Roles:              &rolesRepo{rows: map[orgKey]orgchart.Role{}},
 		Workers:            workers,
 		WorkerRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Streams:            &streamsRepo{rows: map[orgKey]streaming.Stream{}},
+		Streams:            streams,
 		Subscriptions:      subs,
 		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs, workers: workers},
 		Environments:       &environmentsRepo{rows: map[orgKey]environment.Environment{}},
@@ -122,6 +123,9 @@ func (r *rolesRepo) Delete(_ context.Context, orgID string, id orgchart.RoleID) 
 type workersRepo struct {
 	mu   sync.RWMutex
 	rows map[orgKey]orgchart.Worker
+	// subs is held by reference so Delete can cascade: a deleted
+	// worker's own subscriptions are dropped, mirroring the gorm store.
+	subs *subscriptionsRepo
 }
 
 func (w *workersRepo) Create(_ context.Context, wk orgchart.Worker) error {
@@ -168,15 +172,55 @@ func (w *workersRepo) Update(_ context.Context, wk orgchart.Worker) error {
 	return nil
 }
 
+// Delete removes the worker and cascades the relationships that point
+// at it, matching the gorm store: direct reports have their parent_id
+// cleared (they become top-level) and the worker's own subscriptions
+// are dropped. Without this a fired manager would leave reports with a
+// parent_id referencing a row that no longer exists.
 func (w *workersRepo) Delete(_ context.Context, orgID string, id orgchart.WorkerID) error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	k := orgKey{OrgID: orgID, ID: string(id)}
 	if _, ok := w.rows[k]; !ok {
+		w.mu.Unlock()
 		return fmt.Errorf("worker %q in org %q: %w", id, orgID, store.ErrNotFound)
 	}
+	// Cascade: null any direct report's parent_id.
+	for ck, child := range w.rows {
+		if ck.OrgID != orgID {
+			continue
+		}
+		if p := child.ParentID(); p != nil && *p == id {
+			reparented, err := withClearedParent(child)
+			if err != nil {
+				w.mu.Unlock()
+				return fmt.Errorf("clear child %q parent: %w", child.ID(), err)
+			}
+			w.rows[ck] = reparented
+		}
+	}
 	delete(w.rows, k)
+	w.mu.Unlock()
+	// Cascade: drop the worker's own subscriptions (held under a
+	// separate mutex, so release ours first to avoid lock ordering
+	// hazards).
+	if w.subs != nil {
+		w.subs.deleteAllForWorker(orgID, id)
+	}
 	return nil
+}
+
+// withClearedParent returns a copy of w with no reporting parent,
+// preserving every other field. Workers are immutable domain values,
+// so clearing parent_id means reconstructing the worker.
+func withClearedParent(w orgchart.Worker) (orgchart.Worker, error) {
+	switch w.Kind() {
+	case orgchart.WorkerKindHuman:
+		return orgchart.NewHumanWorker(w.ID(), w.RoleID(), nil, w.IdentityContent(), w.OrganizationID())
+	case orgchart.WorkerKindAI:
+		return orgchart.NewAIWorker(w.ID(), w.RoleID(), nil, w.IdentityContent(), w.OrganizationID())
+	default:
+		return nil, fmt.Errorf("unknown worker kind %q", w.Kind())
+	}
 }
 
 // ---- WorkerRuntimeState ------------------------------------------------
@@ -237,6 +281,10 @@ func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, workerID orgch
 type streamsRepo struct {
 	mu   sync.RWMutex
 	rows map[orgKey]streaming.Stream
+	// subs is held by reference so Delete can cascade: every
+	// subscription to a deleted stream is dropped, mirroring the gorm
+	// store.
+	subs *subscriptionsRepo
 }
 
 func (s *streamsRepo) Create(_ context.Context, st streaming.Stream) error {
@@ -307,14 +355,21 @@ func (s *streamsRepo) Update(_ context.Context, st streaming.Stream) error {
 	return nil
 }
 
+// Delete removes the stream and cascades its subscriptions, matching
+// the gorm store: every worker-anchored row for this stream is dropped
+// so none dangle past the stream row.
 func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.StreamID) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	key := orgKey{OrgID: orgID, ID: string(id)}
 	if _, ok := s.rows[key]; !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("stream %q in org %q: %w", id, orgID, store.ErrNotFound)
 	}
 	delete(s.rows, key)
+	s.mu.Unlock()
+	if s.subs != nil {
+		s.subs.deleteAllForStream(orgID, id)
+	}
 	return nil
 }
 
@@ -351,6 +406,32 @@ func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID org
 	}
 	delete(s.rows, k)
 	return nil
+}
+
+// deleteAllForWorker drops every subscription held by the given
+// worker. Used by workersRepo.Delete to cascade — idempotent, no error
+// when the worker has none.
+func (s *subscriptionsRepo) deleteAllForWorker(orgID string, workerID orgchart.WorkerID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.rows {
+		if k.OrgID == orgID && k.WorkerID == string(workerID) {
+			delete(s.rows, k)
+		}
+	}
+}
+
+// deleteAllForStream drops every subscription to the given stream.
+// Used by streamsRepo.Delete to cascade — idempotent, no error when
+// the stream has no subscribers.
+func (s *subscriptionsRepo) deleteAllForStream(orgID string, streamID streaming.StreamID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.rows {
+		if k.OrgID == orgID && k.StreamID == string(streamID) {
+			delete(s.rows, k)
+		}
+	}
 }
 
 func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {

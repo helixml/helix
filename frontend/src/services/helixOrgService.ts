@@ -289,9 +289,20 @@ export function useFireHelixOrgWorker() {
     mutationFn: async (workerId: string) => {
       await api.getApiClient().v1OrgsWorkersDelete(workerId, orgID)
     },
-    onSuccess: () => {
+    onSuccess: (_data, workerId) => {
+      // Evict the fired worker's own queries (the worker key prefix-
+      // matches its subscriptions key, so this drops both) and cancel
+      // any in-flight fetch. Without this the worker detail page would
+      // refetch a now-deleted worker and log a 404 (the QA F3 finding).
+      qc.removeQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      // Exact: refresh the list itself without prefix-matching (and so
+      // refetching) the worker/subscriptions queries we just removed.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
+      // Firing cascades away the worker's s-activations-<id> stream and
+      // its direct reports' parent edge — refresh the Streams list (QA
+      // F6) and any open stream detail.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }
@@ -339,6 +350,11 @@ export function useDeleteHelixOrgRole() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
+      // Deleting a role fires every Worker holding it, which tears down
+      // their activation streams — refresh both lists so neither shows
+      // ghost rows (QA F6).
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }
