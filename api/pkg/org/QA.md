@@ -15,8 +15,13 @@ the why.
   live MCP surface. There is no separate per-Worker grants table —
   capability is the Role's responsibility.
 - **Worker** — a human or AI agent. Holds a single `role_id` (the
-  capability binding) and an optional `parent_id` (the Worker it
-  reports to). The owner Worker `w-owner` has no parent.
+  capability binding). Who reports to whom is a separate many-to-many
+  relation (see Reporting line), not a field on the Worker.
+- **Reporting line** — an `org_reporting_lines` `(org, manager,
+  report)` row meaning *report* reports to *manager*. A Worker may
+  report to several managers; the owner Worker `w-owner` has none.
+  Worker deletion drops every line that references it via
+  `ON DELETE CASCADE` foreign keys. The graph is a cycle-guarded DAG.
 - **Subscription** — a `(org, worker, stream)` row. Worker-anchored:
   firing a Worker drops the row, and a new hire into the same Role
   does NOT automatically inherit. The hiring playbook re-subscribes
@@ -27,11 +32,11 @@ the why.
 
 The Chart tab is a ReactFlow canvas. Roles are group frames that
 contain their Workers (a Role can hold many Workers). Worker → Worker
-edges are reporting lines derived from `worker.parent_id`; drag from a
-manager's bottom handle to a subordinate to set it, delete the edge to
-clear it. Streams hang off the right; drag from a Worker's right handle
-to a Stream to subscribe. Click a Role header to edit it, a Worker to
-open its detail page.
+edges are reporting lines (`org_reporting_lines` rows); drag from a
+manager's bottom handle to a subordinate to add one, delete an edge to
+remove that line (a Worker can have several). Streams hang off the
+right; drag from a Worker's right handle to a Stream to subscribe.
+Click a Role header to edit it, a Worker to open its detail page.
 
 ## Setup
 
@@ -49,10 +54,13 @@ sidebar. Tests run against `…/orgs/<org>/helix-org/*`.
    2xx in parallel.
 4. Confirm DB:
    ```sql
-   SELECT id, role_id, parent_id FROM org_workers;
+   SELECT id, role_id FROM org_workers WHERE id = 'w-owner';
    ```
-   One row: `(w-owner, r-owner, NULL)`. No `org_positions` table
-   exists (`SELECT to_regclass('org_positions')` → NULL).
+   One row: `(w-owner, r-owner)`. There is no `parent_id` column —
+   reporting lives in `org_reporting_lines`; confirm it's empty:
+   `SELECT * FROM org_reporting_lines WHERE org_id = '<org>'` returns
+   zero rows. No `org_positions` table exists
+   (`SELECT to_regclass('org_positions')` → NULL).
 
 ## §2. Roles list + tool editor
 
@@ -89,8 +97,8 @@ dialogs.
 
 1. **+ New Worker** (the Workers tab primary action button; the Chart
    also hires via the per-Role hire icon). Form: `id`, `kind`,
-   `role_id` (dropdown), `parent_id` (optional, defaults to
-   `w-owner`), `identity_content`.
+   `role_id` (dropdown), `parent_id` (optional — the new hire's initial
+   manager; creates one reporting line), `identity_content`.
 2. Submit kind `ai`, id `w-ai-1`, role `r-test-dm`,
    parent `w-owner`. Row appears in the Workers table — Role
    column shows `r-test-dm`, Reports to shows `w-owner`.
@@ -266,28 +274,42 @@ Worker's Role tools are present in the sandbox MCP surface.
 
 ## §12. Chart canvas: reporting + subscription drag
 
-The Chart is a ReactFlow canvas keyed entirely off `worker.parent_id`
+The Chart is a ReactFlow canvas keyed off the `org_reporting_lines`
+join table (many-to-many: a Worker may report to several managers)
 and worker-anchored subscriptions — there are no Position rows. This
-pins the drag interactions and the `POST /workers/{id}/parent` endpoint.
+pins the drag interactions and the `POST /workers/{id}/parents` /
+`DELETE /workers/{id}/parents/{parent_id}` endpoints.
 
-1. On `…/helix-org/chart`, hire two AI workers into a new role
-   `r-eng` via the role frame's hire icon: `w-alice`, `w-bob`. Both
-   appear as Worker nodes inside the `r-eng` frame with no reporting
-   edges (top-level orphans).
+1. On `…/helix-org/chart`, hire three AI workers into a new role
+   `r-eng` via the role frame's hire icon: `w-alice`, `w-bob`,
+   `w-carol`. All appear as Worker nodes inside the `r-eng` frame with
+   no reporting edges (top-level orphans).
 2. Drag from `w-owner`'s **bottom** handle to `w-alice`'s **top**
    handle. A solid reporting edge appears; snackbar `w-alice now
-   reports to w-owner`. DB: `SELECT parent_id FROM org_workers WHERE
-   id='w-alice'` → `w-owner`. The `r-owner` frame now sits above
-   `r-eng` (dagre lays the role tree out from the cross-role edge).
+   reports to w-owner`. DB: `SELECT manager_id FROM org_reporting_lines
+   WHERE report_id='w-alice' AND org_id='<org>'` → `{w-owner}`. The
+   `r-owner` frame now sits above `r-eng` (dagre lays the role tree out
+   from the cross-role edge).
 3. Drag from `w-alice`'s bottom handle to `w-bob`'s top handle →
    `w-bob` reports to `w-alice` (intra-role edge; both stay in
    `r-eng`).
+3a. **Multi-manager.** Drag from `w-carol`'s bottom handle to
+   `w-alice`'s top handle. A second reporting edge appears; snackbar
+   `w-alice now reports to w-carol`. `GET /workers/w-alice →
+   .parent_ids` returns `[w-owner, w-carol]` (order may vary). DB:
+   `SELECT manager_id FROM org_reporting_lines WHERE
+   report_id='w-alice'` → two rows. Then select **only** the
+   `w-carol → w-alice` edge and press **Delete**: snackbar `w-alice no
+   longer reports to w-carol`; the `w-owner → w-alice` edge survives;
+   `parent_ids` is back to `[w-owner]`.
 4. **Cycle guard**: drag from `w-bob`'s bottom handle to `w-alice`'s
    top handle (would make alice→bob→alice). API returns 409; snackbar
    surfaces the cycle error; no edge added. DB unchanged.
 5. Select the `w-owner → w-alice` edge, press **Delete** (and retest
-   with **Backspace**). Edge gone; snackbar `w-alice no longer
-   reports to anyone`; `parent_id` cleared in DB.
+   with **Backspace**, re-adding the edge between the two). Edge gone;
+   snackbar `w-alice no longer reports to w-owner`; the
+   `org_reporting_lines` row for `(w-owner, w-alice)` is gone (no row
+   where `report_id='w-alice'`).
 6. Create a stream `s-test` (Streams tab). It appears as a dashed
    node to the right of the tree. Drag from `w-alice`'s **right**
    (amber) handle to `s-test` → dashed subscription edge; snackbar
@@ -302,7 +324,7 @@ pins the drag interactions and the `POST /workers/{id}/parent` endpoint.
 ## Pass criteria
 
 - §1 — bootstrap creates one Worker (`w-owner` with `role_id =
-  r-owner`, `parent_id = NULL`); no `org_positions` table.
+  r-owner`); `org_reporting_lines` is empty; no `org_positions` table.
 - §2 — `r-owner` has a non-empty tool set (position tools absent);
   multi-select adds/removes a tool; refresh persists; an edit
   propagates to every Worker in the role on the next MCP
@@ -333,9 +355,10 @@ pins the drag interactions and the `POST /workers/{id}/parent` endpoint.
 ## Known limitations
 
 - A Worker holds at most one Role.
-- A Worker's `parent_id` points at at most one other Worker.
-  Hierarchy is a tree (no co-managers in the current model).
+- A Worker's reporting lines are many-to-many (one `org_reporting_lines`
+  row per manager–report pair). A Worker may report to several managers
+  simultaneously; the graph is a cycle-guarded DAG, not a tree.
 - `w-owner` / `r-owner` are protected at the API; UI hides the
   trash/fire affordance and surfaces a friendly 409.
-- Reparenting is cycle-guarded server-side: dragging a manager edge
-  that would close a reporting loop is rejected with a 409.
+- Adding a reporting line is cycle-guarded server-side: dragging a
+  manager edge that would close a reporting loop is rejected with a 409.
