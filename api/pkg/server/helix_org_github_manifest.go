@@ -279,9 +279,18 @@ func newGitHubManifestCallbackHandler(
 			}
 		}
 
-		// Chain straight into installation so the user picks repos.
-		installURL := "https://github.com/apps/" + url.PathEscape(cfg.GetSlug()) + "/installations/new"
-		http.Redirect(w, r, installURL, http.StatusFound)
+		// Don't auto-redirect into installation: a just-created app's install
+		// page (…/installations/new → select_target) 404s for a few seconds
+		// until GitHub finishes provisioning it. Instead land back as
+		// "app created" and let the user click Install (step 2) once it's
+		// ready — which also makes the create → install → choose-repos flow
+		// explicit. The opener re-checks status on focus + via polling; the
+		// postMessage is best-effort (GitHub's COOP may have severed opener).
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:2rem;line-height:1.5">
+<h3>✓ Helix GitHub App created</h3>
+<p>You can close this window. Back in Helix, click <strong>Install Helix</strong> to choose which repositories it can access.</p>
+<script>try{window.opener&&window.opener.postMessage({type:"github-app-created"},"*")}catch(e){};setTimeout(function(){window.close()},1800)</script>`)
 	}
 }
 

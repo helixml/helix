@@ -33,6 +33,14 @@ export function useGitHubAppActions(onComplete?: () => void) {
         window.removeEventListener('focus', onFocus)
         snackbar.success('Helix installed — refreshing…')
         onComplete?.()
+      } else if (event.data?.type === 'github-app-created') {
+        // The app was created but not installed yet — refetch so the gate
+        // advances to the Install step. (Focus fallback also covers this if
+        // GitHub's COOP severed window.opener and this never arrives.)
+        window.removeEventListener('message', onMessage)
+        window.removeEventListener('focus', onFocus)
+        snackbar.success('App created — now click "Install Helix".')
+        onComplete?.()
       } else if (event.data?.type === 'github-app-install-error') {
         window.removeEventListener('message', onMessage)
         snackbar.error('GitHub reported a problem completing the install.')
