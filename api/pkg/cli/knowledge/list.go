@@ -2,7 +2,6 @@ package knowledge
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 )
 
 func init() {
-	listCmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (env: HELIX_ORG). Lists org-owned knowledge instead of personal knowledge.")
+	listCmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -24,32 +23,26 @@ var orgFlag string
 var listCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List helix knowledge in an organization (or for the current user)",
-	Long: `List helix knowledge.
+	Short:   "List helix knowledge in an organization",
+	Long: `List helix knowledge in an organization.
 
-By default lists the current user's personal knowledge. Pass --org to list
-knowledge owned by an organization instead. The HELIX_ORG environment
-variable is honoured if --org is not given but you want org-scoped results.`,
+Knowledge is organization-scoped. If --org is omitted and you belong to a
+single org, that org is used; if you belong to multiple, you will be
+prompted. The HELIX_ORG environment variable is also honoured.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
 		}
 
-		filter := &client.KnowledgeFilter{}
-		orgRef := orgFlag
-		if orgRef == "" {
-			orgRef = os.Getenv("HELIX_ORG")
-		}
-		if orgRef != "" {
-			org, err := cli.LookupOrganization(cmd.Context(), apiClient, orgRef)
-			if err != nil {
-				return err
-			}
-			filter.OrganizationID = org.ID
+		orgID, err := cli.ResolveOrganizationInteractive(cmd.Context(), apiClient, orgFlag)
+		if err != nil {
+			return err
 		}
 
-		knowledge, err := apiClient.ListKnowledge(cmd.Context(), filter)
+		knowledge, err := apiClient.ListKnowledge(cmd.Context(), &client.KnowledgeFilter{
+			OrganizationID: orgID,
+		})
 		if err != nil {
 			return fmt.Errorf("failed to list knowledge: %w", err)
 		}

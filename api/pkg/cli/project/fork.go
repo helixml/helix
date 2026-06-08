@@ -20,36 +20,36 @@ func newForkCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "fork <sample-project-id>",
-		Short: "Create a new project from a sample project",
-		Long: `Create a new project from a sample project.
+		Short: "Create a new project from a sample project in an organization",
+		Long: `Create a new project in an organization by forking a sample project.
 
-By default the forked project is personal (owned by the calling user). Pass
---org to fork into an organization you belong to.`,
-		Args:  cobra.ExactArgs(1),
+Projects are organization-scoped. If --org is omitted and you belong to a
+single org, that org is used; if you belong to multiple, you will be
+prompted. The HELIX_ORG environment variable is also honoured.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sampleID := args[0]
 			apiURL := getAPIURL()
 			token := getToken()
 
+			apiClient, err := client.NewClientFromEnv()
+			if err != nil {
+				return fmt.Errorf("failed to create API client: %w", err)
+			}
+			orgID, err := cli.ResolveOrganizationInteractive(cmd.Context(), apiClient, orgFlag)
+			if err != nil {
+				return err
+			}
+
 			payload := map[string]string{
 				"sample_project_id": sampleID,
+				"organization_id":   orgID,
 			}
 			if projectName != "" {
 				payload["project_name"] = projectName
 			}
 			if description != "" {
 				payload["description"] = description
-			}
-			if orgFlag != "" {
-				apiClient, err := client.NewClientFromEnv()
-				if err != nil {
-					return fmt.Errorf("failed to create API client: %w", err)
-				}
-				org, err := cli.LookupOrganization(cmd.Context(), apiClient, orgFlag)
-				if err != nil {
-					return err
-				}
-				payload["organization_id"] = org.ID
 			}
 
 			jsonData, err := json.Marshal(payload)
@@ -104,7 +104,7 @@ By default the forked project is personal (owned by the calling user). Pass
 
 	cmd.Flags().StringVarP(&projectName, "name", "n", "", "Project name (defaults to sample name)")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "Project description")
-	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID to fork into (default: personal project)")
+	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
 
 	return cmd
 }
