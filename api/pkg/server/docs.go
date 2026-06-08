@@ -9251,6 +9251,30 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/github/app-installation": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: GitHub App install status for the org",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubInstallationStatus"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/github/repos": {
             "get": {
                 "security": [
@@ -20218,6 +20242,19 @@ const docTemplate = `{
                 },
                 "to": {
                     "type": "string"
+                }
+            }
+        },
+        "api.GitHubInstallationStatus": {
+            "type": "object",
+            "properties": {
+                "install_url": {
+                    "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Empty when the\noperator hasn't configured the app slug — the gate then tells the user\nto ask their admin to configure the Helix GitHub App.",
+                    "type": "string"
+                },
+                "installed": {
+                    "description": "Installed is true when the Helix GitHub App has an installation for\nthis org (a github_app ServiceConnection with an installation id).",
+                    "type": "boolean"
                 }
             }
         },

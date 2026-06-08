@@ -44,6 +44,21 @@ export interface ApiEventCard {
   to?: string;
 }
 
+export interface ApiGitHubInstallationStatus {
+  /**
+   * InstallURL is where the New Stream gate sends the user to install the
+   * app (https://github.com/apps/<slug>/installations/new). Empty when the
+   * operator hasn't configured the app slug — the gate then tells the user
+   * to ask their admin to configure the Helix GitHub App.
+   */
+  install_url?: string;
+  /**
+   * Installed is true when the Helix GitHub App has an installation for
+   * this org (a github_app ServiceConnection with an installation id).
+   */
+  installed?: boolean;
+}
+
 export interface ApiGitHubRepoDTO {
   full_name?: string;
   private?: boolean;
@@ -11528,6 +11543,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1OrganizationsSandboxesTerminalSessionsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
       this.request<ServerSandboxTerminalSessionsResponse, any>({
         path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubAppInstallationDetail
+     * @summary Helix-org: GitHub App install status for the org
+     * @request GET:/api/v1/orgs/{org}/github/app-installation
+     * @secure
+     */
+    v1OrgsGithubAppInstallationDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubInstallationStatus, any>({
+        path: `/api/v1/orgs/${org}/github/app-installation`,
         method: "GET",
         secure: true,
         format: "json",

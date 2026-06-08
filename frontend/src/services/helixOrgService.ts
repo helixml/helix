@@ -6,6 +6,7 @@ import {
   ApiCreateStreamRequest,
   ApiEventCard,
   ApiGitHubReposResponse,
+  ApiGitHubInstallationStatus,
   ApiHireWorkerRequest,
   ApiHireWorkerResponse,
   ApiInstallGitHubWebhookResponse,
@@ -42,6 +43,7 @@ export type SettingsResponse = ApiSettingsResponse
 export type StreamsResponse = ApiStreamsResponse
 export type GitHubRepoDTO = NonNullable<ApiGitHubReposResponse['repos']>[number]
 export type GitHubReposResponse = ApiGitHubReposResponse
+export type GitHubInstallationStatus = ApiGitHubInstallationStatus
 export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
 export type WorkerSubscription = ApiWorkerSubscriptionDTO
 export type WorkerSubscriptionsResponse = ApiWorkerSubscriptionsResponse
@@ -513,6 +515,28 @@ export function useListGitHubRepos(options?: { enabled?: boolean }) {
       try {
         const res = await api.getApiClient().v1OrgsGithubReposDetail(orgID)
         return res.data as GitHubReposResponse
+      } catch {
+        return null
+      }
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+}
+
+// Probes "is the Helix GitHub App installed for this org?" — drives the
+// New Stream "Install Helix" gate. Quiet on failure (returns null) so the
+// dialog renders the install CTA rather than a toast.
+export function useGitHubAppInstallation(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', 'github-app-installation', orgID],
+    queryFn: async () => {
+      try {
+        const res = await api.getApiClient().v1OrgsGithubAppInstallationDetail(orgID)
+        return res.data as GitHubInstallationStatus
       } catch {
         return null
       }

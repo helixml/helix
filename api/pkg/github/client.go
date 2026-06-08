@@ -83,6 +83,38 @@ func (c *Client) LoadRepos() ([]string, error) {
 	return results, nil
 }
 
+// LoadInstallationRepos returns full_name for every repo a GitHub App
+// installation can access, via GET /installation/repositories. Use this when
+// the client is built with an installation access token (the app bot
+// identity) rather than a user OAuth token — an installation token cannot
+// call the /user/repos endpoint LoadRepos uses, and listing the
+// installation's repos is exactly the right scope for the picker: you can
+// only wire a stream to a repo the bot can actually act on.
+func (c *Client) LoadInstallationRepos() ([]string, error) {
+	var repos []*github.Repository
+	opts := github.ListOptions{PerPage: 100, Page: 1}
+	for i := 0; i < loadReposMaxPages; i++ {
+		result, meta, err := c.client.Apps.ListRepos(c.ctx, &opts)
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			repos = append(repos, result.Repositories...)
+		}
+		if meta == nil || meta.NextPage == 0 {
+			break
+		}
+		opts.Page = meta.NextPage
+	}
+	results := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		if repo != nil && repo.FullName != nil {
+			results = append(results, *repo.FullName)
+		}
+	}
+	return results, nil
+}
+
 func (c *Client) GetRepo(owner string, repo string) (*github.Repository, error) {
 	result, _, err := c.client.Repositories.Get(c.ctx, owner, repo)
 	return result, err

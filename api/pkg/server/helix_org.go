@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -35,6 +36,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
@@ -237,7 +239,25 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// transport's outbound `Token()` lookup AND the worker sandbox's
 	// `GH_TOKEN` env injection — one OAuth pipeline, exposed to the
 	// spawner via the transport's SpawnSecretInjector.
-	gitHubTokenResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
+	oauthResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
+	// identityResolver prefers the installed Helix App bot over a borrowed
+	// member OAuth token: if the org has a github_app ServiceConnection it
+	// mints a short-lived installation token (decrypting the stored PEM with
+	// the server encryption key), else it falls back to oauthResolver.
+	// github.MintInstallationToken is the production minter.
+	identityResolver := newOrgGitHubIdentityResolver(cfg.APIServer.getEncryptionKey, helixStore, oauthResolver, githubskill.MintInstallationToken)
+	// gitHubTokenResolver is the bot-preferring token projection used by
+	// every "act as GitHub" touchpoint (worker GH_TOKEN injection, outbound
+	// transport, webhook install). Returns the App installation token when
+	// one exists, else the legacy member OAuth token — so once an org installs
+	// the Helix App, its agents act as the bot rather than a human.
+	gitHubTokenResolver := func(ctx context.Context, orgID string) (string, error) {
+		id, err := identityResolver(ctx, orgID)
+		if err != nil {
+			return "", err
+		}
+		return id.Token, nil
+	}
 
 	// secretInjectors gathers every transport's per-activation
 	// secret hook. The spawner iterates them on every activation
@@ -314,6 +334,45 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// PAT into transport.github. The resolver lives in
 		// helix_org_github.go.
 		GitHubTokenResolver: gitHubTokenResolver,
+		// GitHubIdentity lets the repo picker tell app mode from oauth mode
+		// so it lists the installation's repos (not /user/repos) when the
+		// bot is installed. Adapts the server-side resolver into the org
+		// package's mirror struct.
+		GitHubIdentity: func(ctx context.Context, orgID string) (helixorgapi.GitHubIdentity, error) {
+			id, err := identityResolver(ctx, orgID)
+			if err != nil {
+				return helixorgapi.GitHubIdentity{}, err
+			}
+			return helixorgapi.GitHubIdentity{
+				Mode:           id.Mode,
+				Token:          id.Token,
+				AppID:          id.AppID,
+				InstallationID: id.InstallationID,
+				BaseURL:        id.BaseURL,
+			}, nil
+		},
+		// GitHubInstallation backs the New Stream "Install Helix" gate. It
+		// checks for a github_app ServiceConnection with an installation id
+		// (no token minting — cheaper than GitHubIdentity for a UI probe)
+		// and builds the install URL from the operator's public app slug.
+		GitHubInstallation: func(ctx context.Context, orgID string) (helixorgapi.GitHubInstallationStatus, error) {
+			conns, err := helixStore.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
+			if err != nil {
+				return helixorgapi.GitHubInstallationStatus{}, fmt.Errorf("list github_app service connections: %w", err)
+			}
+			installed := false
+			for _, c := range conns {
+				if c != nil && c.GitHubInstallationID != 0 {
+					installed = true
+					break
+				}
+			}
+			var installURL string
+			if slug := cfg.APIServer.Cfg.GitHub.AppSlug; slug != "" {
+				installURL = "https://github.com/apps/" + slug + "/installations/new"
+			}
+			return helixorgapi.GitHubInstallationStatus{Installed: installed, InstallURL: installURL}, nil
+		},
 		// PublicServerURL is the externally-reachable base URL the
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
@@ -339,7 +398,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// session/api-key layer. Per-request: resolve {org} from mux
 	// vars → orgID → build the github.Transport → dispatch.
 	ghLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	tokenResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
+	// Reuse the bot-preferring projection so the public webhook's outbound
+	// actions act as the installed App when there is one.
+	tokenResolver := gitHubTokenResolver
 	publicGitHubWebhook := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSlugOrID := mux.Vars(r)["org"]
 		if orgSlugOrID == "" {

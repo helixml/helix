@@ -610,6 +610,12 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+	// AppSlug is the public URL slug of this deployment's Helix GitHub App
+	// (e.g. "helix-agent" → https://github.com/apps/helix-agent). NOT a
+	// secret — just the public app handle used to build the install URL the
+	// New Stream "Install Helix" gate opens. The app's private key lives
+	// encrypted in a ServiceConnection, never here.
+	AppSlug string `envconfig:"GITHUB_APP_SLUG" description:"Public slug of the Helix GitHub App used to build the install URL."`
 }
 
 type FineTuning struct {

@@ -58,6 +58,21 @@ definitions:
       to:
         type: string
     type: object
+  api.GitHubInstallationStatus:
+    properties:
+      install_url:
+        description: |-
+          InstallURL is where the New Stream gate sends the user to install the
+          app (https://github.com/apps/<slug>/installations/new). Empty when the
+          operator hasn't configured the app slug — the gate then tells the user
+          to ask their admin to configure the Helix GitHub App.
+        type: string
+      installed:
+        description: |-
+          Installed is true when the Helix GitHub App has an installation for
+          this org (a github_app ServiceConnection with an installation id).
+        type: boolean
+    type: object
   api.GitHubRepoDTO:
     properties:
       full_name:
@@ -17238,6 +17253,20 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/orgs/{org}/github/app-installation:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubInstallationStatus'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: GitHub App install status for the org'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/github/repos:
     get:
       produces:

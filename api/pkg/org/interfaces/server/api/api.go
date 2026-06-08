@@ -134,6 +134,24 @@ type Deps struct {
 	// helix OAuth manager into this shape.
 	GitHubTokenResolver func(ctx context.Context, orgID string) (string, error)
 
+	// GitHubIdentity is the richer resolver behind GitHubTokenResolver:
+	// it reports whether the org's GitHub access is the installed Helix
+	// App bot ("app") or a borrowed member OAuth token ("oauth"), plus the
+	// installation coordinates. The repo picker uses Mode to choose the
+	// right GitHub endpoint (installation repos vs the user's repos) — an
+	// installation token cannot list /user/repos. nil → behave exactly as
+	// before (OAuth-only). The struct is mirrored here (rather than
+	// imported from api/pkg/server) to keep the org package free of a
+	// dependency back onto the server package.
+	GitHubIdentity func(ctx context.Context, orgID string) (GitHubIdentity, error)
+
+	// GitHubInstallation reports whether the Helix App is installed for the
+	// org and, if not, where to send the user to install it. Drives the New
+	// Stream "Install Helix" gate. Wired in api/pkg/server (which has the
+	// ServiceConnection store + the operator's app slug); nil → the gate
+	// falls back to treating the org as not-installable.
+	GitHubInstallation func(ctx context.Context, orgID string) (GitHubInstallationStatus, error)
+
 	// PublicServerURL is the operator-configured external base URL
 	// (e.g. https://helix.example.com) that auto-installed GitHub
 	// webhooks should POST back to. Falls back to localhost when
@@ -145,6 +163,16 @@ type Deps struct {
 	// system.GenerateID / time.Now.
 	NewID func() string
 	Now   func() time.Time
+}
+
+// GitHubIdentity is the resolved GitHub identity for an org. Mirrors
+// server.OrgGitHubIdentity (kept local to avoid a dependency cycle).
+type GitHubIdentity struct {
+	Mode           string // "app" (installed Helix App bot) | "oauth" (legacy member token)
+	Token          string
+	AppID          int64
+	InstallationID int64
+	BaseURL        string
 }
 
 // Route pairs a net/http ServeMux pattern with the handler that
@@ -212,6 +240,7 @@ func Routes(deps Deps) []Route {
 		// repo. Both rely on a working GitHubTokenResolver (i.e. the
 		// operator has a connected GitHub OAuth).
 		{Pattern: "GET /github/repos", Handler: http.HandlerFunc(a.listGitHubRepos)},
+		{Pattern: "GET /github/app-installation", Handler: http.HandlerFunc(a.getGitHubAppInstallation)},
 		{Pattern: "POST /streams/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
 	}
 }
@@ -1931,6 +1960,52 @@ type GitHubRepoDTO struct {
 	Private  bool   `json:"private,omitempty"`
 }
 
+// GitHubInstallationStatus is the resolved install state for an org plus
+// the URL to start an install when it isn't installed yet.
+type GitHubInstallationStatus struct {
+	// Installed is true when the Helix GitHub App has an installation for
+	// this org (a github_app ServiceConnection with an installation id).
+	Installed bool `json:"installed"`
+	// InstallURL is where the New Stream gate sends the user to install the
+	// app (https://github.com/apps/<slug>/installations/new). Empty when the
+	// operator hasn't configured the app slug — the gate then tells the user
+	// to ask their admin to configure the Helix GitHub App.
+	InstallURL string `json:"install_url,omitempty"`
+}
+
+// getGitHubAppInstallation backs the New Stream "Install Helix" gate: it
+// reports whether the org has the Helix App installed and, if not, the URL
+// to install it. The user's own GitHub identity is used only for that
+// install step; everything afterwards (repo listing, worker git/gh) runs as
+// the bot.
+//
+// @Summary Helix-org: GitHub App install status for the org
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {object} api.GitHubInstallationStatus
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/github/app-installation [get]
+func (a *apiHandler) getGitHubAppInstallation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if a.deps.GitHubInstallation == nil {
+		// No installation resolver wired — report not-installed with no URL
+		// so the gate degrades to "ask your admin" rather than 500ing.
+		writeJSON(w, http.StatusOK, GitHubInstallationStatus{})
+		return
+	}
+	status, err := a.deps.GitHubInstallation(ctx, orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github app installation: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
 // GitHubReposResponse is the body of GET /github/repos.
 type GitHubReposResponse struct {
 	Repos []GitHubRepoDTO `json:"repos"`
@@ -1958,34 +2033,59 @@ func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if a.deps.GitHubTokenResolver == nil {
-		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHubTokenResolver wired; connect a GitHub account on the helix Connected Services page"))
-		return
-	}
-	token, err := a.deps.GitHubTokenResolver(ctx, orgID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github token: %w", err))
+	// Resolve the org's GitHub identity. Prefer the richer resolver
+	// (which tells us app vs oauth); fall back to the plain token
+	// resolver for wiring that hasn't set GitHubIdentity.
+	var (
+		token   string
+		mode    = "oauth"
+		baseURL string
+	)
+	switch {
+	case a.deps.GitHubIdentity != nil:
+		id, err := a.deps.GitHubIdentity(ctx, orgID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github identity: %w", err))
+			return
+		}
+		token, mode, baseURL = id.Token, id.Mode, id.BaseURL
+	case a.deps.GitHubTokenResolver != nil:
+		t, err := a.deps.GitHubTokenResolver(ctx, orgID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github token: %w", err))
+			return
+		}
+		token = t
+	default:
+		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHub identity wired; install the Helix GitHub App or connect a GitHub account"))
 		return
 	}
 	if token == "" {
-		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHub OAuth connection found for this org; connect GitHub on the Connected Services page"))
+		writeError(w, http.StatusPreconditionFailed, errors.New("Helix GitHub App not installed for this org and no GitHub OAuth connection found"))
 		return
 	}
-	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
+	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token, BaseURL: baseURL})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("build github client: %w", err))
 		return
 	}
-	names, err := client.LoadRepos()
+	// In app mode the token is an installation token, which cannot call
+	// /user/repos — list the installation's repos instead (which is also
+	// the correct scope: you can only stream a repo the bot can act on).
+	var names []string
+	if mode == "app" {
+		names, err = client.LoadInstallationRepos()
+	} else {
+		names, err = client.LoadRepos()
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Errorf("list github repos: %w", err))
 		return
 	}
-	// Preserve GitHub's pushed-desc order so the dropdown lists the
-	// operator's most-actively-worked repos first. (The frontend's
-	// Autocomplete is freeSolo, so anything missed by pagination
-	// can still be typed in manually.)
-	out := GitHubReposResponse{Repos: make([]GitHubRepoDTO, 0, len(names)), Source: "oauth"}
+	// Preserve GitHub's order so the dropdown lists the most-actively-worked
+	// repos first. (The frontend's Autocomplete is freeSolo, so anything
+	// missed by pagination can still be typed in manually.)
+	out := GitHubReposResponse{Repos: make([]GitHubRepoDTO, 0, len(names)), Source: mode}
 	for _, n := range names {
 		out.Repos = append(out.Repos, GitHubRepoDTO{FullName: n})
 	}

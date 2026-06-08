@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/oauth"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -99,5 +102,93 @@ func newGitHubOAuthResolver(manager *oauth.Manager, st helixstore.Store) func(co
 			}
 		}
 		return "", nil
+	}
+}
+
+// OrgGitHubIdentity is the resolved GitHub identity for an org: either the
+// installed Helix App bot (Mode="app") or a borrowed member OAuth token
+// (Mode="oauth", the legacy fallback). Token is the value to inject as
+// GH_TOKEN / use as the git credential. AppID, InstallationID and BaseURL
+// are populated in "app" mode so callers (e.g. the repo picker) can drive
+// installation-scoped GitHub API calls.
+type OrgGitHubIdentity struct {
+	Mode           string // "app" | "oauth"
+	Token          string
+	AppID          int64
+	InstallationID int64
+	BaseURL        string
+}
+
+// newOrgGitHubIdentityResolver returns the org's GitHub identity, preferring
+// the installed Helix App over a borrowed human OAuth token. If a github_app
+// ServiceConnection exists for the org, it decrypts the stored PEM and mints
+// a short-lived installation access token (Mode="app"); otherwise it falls
+// back to the legacy member-OAuth walk (Mode="oauth").
+//
+// Any app-side failure (no encryption key, decrypt error, mint error) logs
+// and falls through to OAuth — a broken app config must never break an org
+// that OAuth could still serve. Returns Mode="oauth" with an empty Token when
+// neither path yields anything (identical to the pre-app behaviour).
+//
+// mintFn is a seam: production wiring passes github.MintInstallationToken;
+// unit tests stub it so they never make the live GitHub call ghinstallation's
+// Token() performs.
+func newOrgGitHubIdentityResolver(
+	getKey func() ([]byte, error),
+	st helixstore.Store,
+	oauthFallback func(context.Context, string) (string, error),
+	mintFn func(ctx context.Context, appID, installationID int64, pem, baseURL string) (string, error),
+) func(context.Context, string) (OrgGitHubIdentity, error) {
+	oauth := func(ctx context.Context, orgID string) (OrgGitHubIdentity, error) {
+		if oauthFallback == nil {
+			return OrgGitHubIdentity{Mode: "oauth"}, nil
+		}
+		tok, err := oauthFallback(ctx, orgID)
+		if err != nil {
+			return OrgGitHubIdentity{}, err
+		}
+		return OrgGitHubIdentity{Mode: "oauth", Token: tok}, nil
+	}
+
+	return func(ctx context.Context, orgID string) (OrgGitHubIdentity, error) {
+		if st == nil || mintFn == nil {
+			return oauth(ctx, orgID)
+		}
+		conns, err := st.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Msg("list github_app service connections failed; falling back to OAuth")
+			return oauth(ctx, orgID)
+		}
+		// The store returns rows created_at DESC, so the first usable
+		// connection is the newest — mirrors the OAuth resolver's
+		// newest-first preference when an operator rotates apps.
+		for _, c := range conns {
+			if c == nil || c.GitHubAppID == 0 || c.GitHubInstallationID == 0 || c.GitHubPrivateKey == "" {
+				continue
+			}
+			key, err := getKey()
+			if err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("get encryption key failed; falling back to OAuth")
+				break
+			}
+			pem, err := crypto.DecryptAES256GCM(c.GitHubPrivateKey, key)
+			if err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Str("conn_id", c.ID).Msg("decrypt github app key failed; trying next connection")
+				continue
+			}
+			tok, err := mintFn(ctx, c.GitHubAppID, c.GitHubInstallationID, string(pem), c.BaseURL)
+			if err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("mint installation token failed; falling back to OAuth")
+				break
+			}
+			return OrgGitHubIdentity{
+				Mode:           "app",
+				Token:          tok,
+				AppID:          c.GitHubAppID,
+				InstallationID: c.GitHubInstallationID,
+				BaseURL:        c.BaseURL,
+			}, nil
+		}
+		return oauth(ctx, orgID)
 	}
 }

@@ -43,29 +43,11 @@ import {
   StreamDTO,
   useCreateHelixOrgStream,
   useDeleteHelixOrgStream,
+  useGitHubAppInstallation,
   useInstallGitHubWebhook,
   useListGitHubRepos,
   useListHelixOrgStreams,
 } from '../services/helixOrgService'
-import { useListOAuthProviders } from '../services/oauthProvidersService'
-
-// GITHUB_STREAM_SCOPES is the scope set helix-org's streams feature
-// needs from GitHub:
-//   - `repo`: list AND read private repos (otherwise the dropdown
-//     only sees public repos)
-//   - `admin:repo_hook`: register / edit / delete webhooks on a
-//     repo (what the auto-install endpoint calls)
-//   - `read:org`: read org membership + repos. Without it, `gh
-//     auth status` inside the worker sandbox warns about the
-//     missing scope on every invocation, and a few `gh` subcommands
-//     that touch org-owned resources (issue listing across orgs,
-//     team assignment) fail. The webhook-install path doesn't need
-//     it, but the worker-side `gh` does, so we request it on the
-//     same flow.
-// We pass these explicitly when starting the OAuth flow from the
-// New Stream dialog, rather than relying on the org-wide Connected
-// Services button (which requests no scopes by default).
-const GITHUB_STREAM_SCOPES = 'repo,admin:repo_hook,read:org'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
@@ -318,83 +300,59 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // confusing 412 mid-flow). The hook suppresses its own snackbar
   // so this stays a quiet probe.
   const ghReposQuery = useListGitHubRepos({ enabled: open })
-  const ghConnected = !ghReposQuery.isLoading && !!ghReposQuery.data
   const ghRepoOptions = useMemo(() => (ghReposQuery.data?.repos ?? []).map((r) => r.full_name), [ghReposQuery.data])
 
-  // OAuth providers list — used only to derive the github
-  // provider id we hand to the OAuth start endpoint when the user
-  // clicks "Connect GitHub for streams". Cheap query, cached
-  // session-wide.
-  const oauthProvidersQuery = useListOAuthProviders()
-  const githubProviderID = useMemo(() => {
-    const providers = (oauthProvidersQuery.data ?? []) as Array<{ id?: string; type?: string; enabled?: boolean; created_at?: string }>
-    return providers
-      .filter((p) => p.type === 'github' && p.enabled !== false)
-      // Newest-first so an operator who just swapped to an
-      // org-owned OAuth app gets THAT provider's flow.
-      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]?.id
-  }, [oauthProvidersQuery.data])
+  // Probe whether the Helix GitHub App is installed for this org. This is
+  // the single gate for the github transport: the user's own credentials
+  // are used only to install the app; everything after (repo listing,
+  // worker git/gh) acts as the bot. Replaces the old "Connect GitHub
+  // OAuth" gate.
+  const ghInstallQuery = useGitHubAppInstallation({ enabled: open })
+  const ghInstalled = !ghInstallQuery.isLoading && ghInstallQuery.data?.installed === true
+  const ghInstallURL = ghInstallQuery.data?.install_url ?? ''
 
-  const connectGitHubForStreams = async () => {
-    if (!githubProviderID) {
-      snackbar.error('No GitHub OAuth provider configured in helix. Add one in Admin → OAuth Providers first.')
+  // installGitHubApp sends the user to GitHub to install (or reconfigure)
+  // the Helix App. This is the ONLY step that uses the user's own GitHub
+  // identity. After they install, GitHub bounces them back; we re-check
+  // install status both via a postMessage from the app's Setup-URL callback
+  // (when wired) and on window focus (the always-works fallback).
+  const installGitHubApp = () => {
+    if (!ghInstallURL) {
+      snackbar.error('The Helix GitHub App is not configured on this deployment. Ask an admin to set GITHUB_APP_SLUG.')
       return
     }
-    try {
-      // Start the flow WITHOUT a redirect_url override — helix's
-      // OAuth2Provider conflates `redirect_url` with the
-      // GitHub-side `redirect_uri`, which has to match the
-      // callback URL registered on the OAuth app. Letting the
-      // provider use its configured CallbackURL is what
-      // Connected Services does too. The "where do we go after?"
-      // problem is solved by the popup-window pattern below: the
-      // callback page postMessages 'oauth-success' back to the
-      // opener and self-closes.
-      const r = await fetch(
-        `/api/v1/oauth/flow/start/${encodeURIComponent(githubProviderID)}?scopes=${encodeURIComponent(GITHUB_STREAM_SCOPES)}`,
-        { credentials: 'include' },
-      )
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({} as any))
-        snackbar.error(body?.error ?? `OAuth flow start failed (${r.status})`)
-        return
-      }
-      const data = await r.json()
-      const url = data?.auth_url ?? data?.data?.auth_url
-      if (!url) {
-        snackbar.error('OAuth flow returned no auth_url')
-        return
-      }
-      // Open in a popup so the dialog stays open in the main
-      // window. The callback page (api/pkg/server/oauth.go) sends
-      // window.opener.postMessage({type:'oauth-success'}) before
-      // self-closing — listen for that to refresh the repo list.
-      const width = 800
-      const height = 700
-      const left = (window.innerWidth - width) / 2
-      const top = (window.innerHeight - height) / 2
-      const popup = window.open(
-        url,
-        'oauth-popup',
-        `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,directories=0,scrollbars=1`,
-      )
-      if (!popup) {
-        snackbar.error('Popup blocked — allow popups for this site and try again.')
-        return
-      }
-      const onMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'oauth-success') {
-          window.removeEventListener('message', onMessage)
-          snackbar.success('GitHub reconnected — refreshing repo list…')
-          // Force the cached repo list to refetch with the new
-          // token; helixml/helix should now appear.
-          ghReposQuery.refetch()
-        }
-      }
-      window.addEventListener('message', onMessage)
-    } catch (e: any) {
-      snackbar.error(e?.message ?? 'OAuth flow start failed')
+    const recheck = () => {
+      ghInstallQuery.refetch()
+      ghReposQuery.refetch()
     }
+    const width = 1000
+    const height = 800
+    const left = (window.innerWidth - width) / 2
+    const top = (window.innerHeight - height) / 2
+    const popup = window.open(
+      ghInstallURL,
+      'github-app-install',
+      `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,directories=0,scrollbars=1`,
+    )
+    if (!popup) {
+      snackbar.error('Popup blocked — allow popups for this site and try again.')
+      return
+    }
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'github-app-installed') {
+        window.removeEventListener('message', onMessage)
+        window.removeEventListener('focus', onFocus)
+        snackbar.success('Helix installed — refreshing…')
+        recheck()
+      }
+    }
+    // Re-check when the user returns to this window after the GitHub flow.
+    const onFocus = () => {
+      window.removeEventListener('message', onMessage)
+      recheck()
+    }
+    window.addEventListener('message', onMessage)
+    window.addEventListener('focus', onFocus, { once: true })
   }
 
   // If the operator had `github` selected when the probe came back
@@ -402,10 +360,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // drop back to `local` so the disabled MenuItem becomes the
   // current value's mismatch case.
   useEffect(() => {
-    if (kind === 'github' && !ghReposQuery.isLoading && !ghConnected) {
+    if (kind === 'github' && !ghInstallQuery.isLoading && !ghInstalled) {
       setKind('local')
     }
-  }, [kind, ghReposQuery.isLoading, ghConnected])
+  }, [kind, ghInstallQuery.isLoading, ghInstalled])
 
   const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
 
@@ -520,7 +478,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               onChange={(e) => setKind(e.target.value)}
             >
               {TRANSPORT_KINDS.map((k) => {
-                const disabled = k.value === 'github' && !ghReposQuery.isLoading && !ghConnected
+                const disabled = k.value === 'github' && !ghInstallQuery.isLoading && !ghInstalled
                 return (
                   <MenuItem
                     key={k.value}
@@ -536,7 +494,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
                         color="text.secondary"
                         sx={{ ml: 1, fontFamily: 'inherit', fontStyle: 'italic' }}
                       >
-                        — needs GitHub connection (see below)
+                        — needs the Helix GitHub App (see below)
                       </Typography>
                     )}
                   </MenuItem>
@@ -545,26 +503,27 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary">{helpFor}</Typography>
-          {!ghReposQuery.isLoading && !ghConnected && (
-            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
+          {!ghInstallQuery.isLoading && !ghInstalled && (
+            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }} data-testid="github-app-install-gate">
               <Typography variant="body2" sx={{ mb: 1 }}>
-                <strong>GitHub not connected with the right scopes.</strong> Streams need <code>repo</code> + <code>admin:repo_hook</code> so helix can list private repos and register webhooks for you. The default Connected Services connect button doesn't request these.
+                <strong>The Helix GitHub App isn't installed for this org yet.</strong> Install it once on the repos you want Helix to work with — afterwards Helix lists repos and acts on them as the <code>helix</code> bot, not your personal account.
               </Typography>
               <Button
                 size="small"
                 variant="contained"
-                onClick={connectGitHubForStreams}
-                disabled={!githubProviderID}
+                onClick={installGitHubApp}
+                disabled={!ghInstallURL}
+                data-testid="github-app-install-button"
               >
-                Connect GitHub for streams
+                Install Helix
               </Button>
-              {!githubProviderID && (
+              {!ghInstallURL && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                  No GitHub OAuth provider configured. Admins: add one under Admin → OAuth Providers first.
+                  The Helix GitHub App isn't configured on this deployment. Admins: set <code>GITHUB_APP_SLUG</code> to the app's slug first.
                 </Typography>
               )}
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                You'll be redirected to GitHub to approve, then bounced back here.
+                You'll be sent to GitHub to choose the account and repositories, then bounced back here. Only an org owner can install it.
               </Typography>
             </Box>
           )}
@@ -631,15 +590,15 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
                 Default: receive every event from this repo ("*"). You can narrow the events whitelist from the stream's detail page after it's created.
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Missing private repos (e.g. an org's repo doesn't appear)? Your GitHub token may not have <code>repo</code> scope.{' '}
+                Missing a repo? The bot only sees repos the Helix App is installed on.{' '}
                 <Button
                   size="small"
                   variant="text"
-                  onClick={connectGitHubForStreams}
-                  disabled={!githubProviderID}
+                  onClick={installGitHubApp}
+                  disabled={!ghInstallURL}
                   sx={{ p: 0, minWidth: 0, textTransform: 'none', verticalAlign: 'baseline' }}
                 >
-                  Reconnect with stream permissions →
+                  Configure repositories on GitHub →
                 </Button>
               </Typography>
             </>
