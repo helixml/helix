@@ -27,7 +27,6 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
@@ -251,15 +250,15 @@ const HelixOrgWorkerDetail: FC = () => {
     <Page
       breadcrumbTitle={workerId ?? 'Worker'}
       orgBreadcrumbs={true}
+      breadcrumbs={[{
+        title: 'Workers',
+        routeName: 'helix_org_workers',
+        params: { org_id: orgSlug ?? '' },
+        useOrgRouter: false,
+      }]}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <Stack direction="row" spacing={1}>
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => orgSlug && router.navigate('helix_org_workers', { org_id: orgSlug })}
-          >
-            Workers
-          </Button>
           <Button
             variant="contained"
             color="secondary"
