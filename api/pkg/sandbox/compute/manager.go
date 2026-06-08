@@ -67,7 +67,14 @@ type ManagerConfig struct {
 	// it back. Without this, a stuck upstream task (image pull
 	// failure, capacity exhausted, scheduler hung) would hold a Floor
 	// slot indefinitely and the Manager would believe it had capacity
-	// it does not. Default 15m if unset.
+	// it does not.
+	//
+	// Default 30m if unset. Picked from observed YD behaviour: the
+	// happy path on g5.xlarge in eu-west-2 is ~10m, and one
+	// cross-region fallback or a slow NVIDIA image pull can push it
+	// to 20m+. Anything under 30m would time out legitimate
+	// provisions in production. Operators with faster providers can
+	// lower this explicitly.
 	MaxProvisioningAge time.Duration
 
 	// SpecTemplate is the Spec passed to Provider.Provision when the
@@ -135,7 +142,7 @@ func NewManager(provider Provider, store SandboxStore, cfg ManagerConfig) (*Mana
 		cfg.MaxConcurrentProvisions = 1
 	}
 	if cfg.MaxProvisioningAge <= 0 {
-		cfg.MaxProvisioningAge = 15 * time.Minute
+		cfg.MaxProvisioningAge = 30 * time.Minute
 	}
 	return &Manager{
 		provider: provider,
