@@ -91,6 +91,23 @@ export interface ApiGitHubReposResponse {
   source?: string;
 }
 
+export interface ApiGitHubWebhookStatusResponse {
+  active?: boolean;
+  /** Detail explains a "unknown" state (and is empty otherwise). */
+  detail?: string;
+  payload_url?: string;
+  /**
+   * State is one of:
+   *   "installed" — a webhook for this stream's payload URL exists on the repo
+   *   "missing"   — GitHub was reachable and has no such webhook (needs install)
+   *   "unknown"   — couldn't determine (no repo / no public URL / no creds /
+   *                 GitHub error); see Detail. The UI falls back to stored state.
+   */
+  state?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
 export interface ApiHireWorkerRequest {
   id?: string;
   identity_content?: string;
@@ -5010,6 +5027,14 @@ export interface TypesSandboxInstance {
   active_profile_id?: string;
   /** Sandbox capacity */
   active_sandboxes?: number;
+  /**
+   * ComputeState tracks the provider's view of the host's provisioning
+   * lifecycle. Distinct from Status (which is the heartbeat-derived
+   * online/offline/degraded view). Values: "provisioning" | "ready" |
+   * "terminating" | "terminated" | "failed". See compute.State for
+   * the canonical enum. Empty for self-registered hosts.
+   */
+  compute_state?: string;
   created?: string;
   /**
    * Desktop image versions available on this sandbox
@@ -5052,6 +5077,29 @@ export interface TypesSandboxInstance {
    * "" | "assigning" | "pulling" | "starting" | "running" | "failed".
    */
   profile_status?: string;
+  /**
+   * Provider is the Name() of the compute.Provider that owns this host.
+   * E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+   */
+  provider?: string;
+  /**
+   * ProviderID is the upstream system's opaque identifier for this
+   * host (e.g. a YellowDog work-requirement YDID). Forms a composite
+   * index with Provider so the reconciler can look hosts up cheaply.
+   */
+  provider_id?: string;
+  /**
+   * ProviderMetadata is provider-specific opaque data for
+   * reconciliation, debugging, and admin display. Examples for YD:
+   * worker-pool ID, compute requirement ID, region, public IP.
+   */
+  provider_metadata?: Record<string, string>;
+  /**
+   * ProvisionedAt is when Helix asked the provider to bring this host
+   * up. Earlier than Created (which is the first heartbeat). Nil for
+   * self-registered hosts.
+   */
+  provisioned_at?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   /**
@@ -11930,6 +11978,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/streams/${id}/github/install-webhook`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsGithubWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a github stream
+     * @request GET:/api/v1/orgs/{org}/streams/{id}/github/webhook-status
+     * @secure
+     */
+    v1OrgsStreamsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/github/webhook-status`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,

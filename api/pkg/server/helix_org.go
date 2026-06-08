@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -586,21 +585,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// installation id onto the org's app.
 	publicGitHubManifestCallback := newGitHubManifestCallbackHandler(
 		cfg.APIServer.getEncryptionKey, helixStore, deps.NewID,
-		func(ctx context.Context, orgID, secret string) error {
-			// Set transport.github.webhook_secret = the App's webhook secret so
-			// the existing inbound handler validates the App's deliveries.
-			var c struct {
-				Token         string `json:"token,omitempty"`
-				WebhookSecret string `json:"webhook_secret,omitempty"`
-			}
-			_ = configReg.GetObject(ctx, orgID, "transport.github", &c)
-			c.WebhookSecret = secret
-			out, err := json.Marshal(c)
-			if err != nil {
-				return err
-			}
-			return configReg.Set(ctx, orgID, "transport.github", string(out), orgchart.WorkerID("w-owner"))
-		},
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
 	)
 

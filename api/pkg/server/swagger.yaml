@@ -113,6 +113,28 @@ definitions:
           when debugging "I can't see repo X" reports.
         type: string
     type: object
+  api.GitHubWebhookStatusResponse:
+    properties:
+      active:
+        type: boolean
+      detail:
+        description: Detail explains a "unknown" state (and is empty otherwise).
+        type: string
+      payload_url:
+        type: string
+      state:
+        description: |-
+          State is one of:
+            "installed" — a webhook for this stream's payload URL exists on the repo
+            "missing"   — GitHub was reachable and has no such webhook (needs install)
+            "unknown"   — couldn't determine (no repo / no public URL / no creds /
+                          GitHub error); see Detail. The UI falls back to stored state.
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
   api.HireWorkerRequest:
     properties:
       id:
@@ -8142,6 +8164,14 @@ definitions:
       active_sandboxes:
         description: Sandbox capacity
         type: integer
+      compute_state:
+        description: |-
+          ComputeState tracks the provider's view of the host's provisioning
+          lifecycle. Distinct from Status (which is the heartbeat-derived
+          online/offline/degraded view). Values: "provisioning" | "ready" |
+          "terminating" | "terminated" | "failed". See compute.State for
+          the canonical enum. Empty for self-registered hosts.
+        type: string
       created:
         type: string
       desktop_versions:
@@ -8200,6 +8230,31 @@ definitions:
         description: |-
           ProfileStatus tracks the compose stack lifecycle:
           "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+        type: string
+      provider:
+        description: |-
+          Provider is the Name() of the compute.Provider that owns this host.
+          E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+        type: string
+      provider_id:
+        description: |-
+          ProviderID is the upstream system's opaque identifier for this
+          host (e.g. a YellowDog work-requirement YDID). Forms a composite
+          index with Provider so the reconciler can look hosts up cheaply.
+        type: string
+      provider_metadata:
+        additionalProperties:
+          type: string
+        description: |-
+          ProviderMetadata is provider-specific opaque data for
+          reconciliation, debugging, and admin display. Examples for YD:
+          worker-pool ID, compute requirement ID, region, public IP.
+        type: object
+      provisioned_at:
+        description: |-
+          ProvisionedAt is when Helix asked the provider to bring this host
+          up. Earlier than Created (which is the first heartbeat). Nil for
+          self-registered hosts.
         type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
@@ -17734,6 +17789,30 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: auto-install the webhook for a github stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/github/webhook-status:
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubWebhookStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: live webhook status for a github stream'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/streams/{id}/publish:

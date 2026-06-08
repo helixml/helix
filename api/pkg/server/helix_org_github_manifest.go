@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -52,34 +51,21 @@ type githubManifestState struct {
 type githubManifest struct {
 	Name               string            `json:"name"`
 	URL                string            `json:"url"`
-	HookAttributes     map[string]string `json:"hook_attributes,omitempty"`
 	RedirectURL        string            `json:"redirect_url"`
 	Public             bool              `json:"public"`
 	DefaultPermissions map[string]string `json:"default_permissions"`
-	DefaultEvents      []string          `json:"default_events,omitempty"`
 }
 
 // helixAppPermissions is the minimum the Worker bot needs: clone/push,
-// open PRs, manage issues. Metadata is mandatory + auto-granted.
+// open PRs, manage issues, plus repository_hooks so the bot can install the
+// per-repo webhook for a github Stream (delivery is per-repo, not via an
+// app-level firehose). Metadata is mandatory + auto-granted.
 var helixAppPermissions = map[string]string{
-	"contents":      "write",
-	"pull_requests": "write",
-	"issues":        "write",
-	"metadata":      "read",
-}
-
-// helixAppEvents is the broad set the app subscribes to so a stream can
-// filter down to any of them (the app subscribes wide; the stream's `events`
-// whitelist narrows). They only deliver once hook_attributes.url is publicly
-// reachable, so they are harmless on a localhost dev deployment. Each event
-// requires the matching permission (granted in helixAppPermissions):
-// push/create/delete need contents; pull_request* need pull_requests;
-// issues/issue_comment need issues.
-var helixAppEvents = []string{
-	"push", "create", "delete",
-	"pull_request", "pull_request_review", "pull_request_review_comment",
-	"issues", "issue_comment",
-	"release",
+	"contents":         "write",
+	"pull_requests":    "write",
+	"issues":           "write",
+	"repository_hooks": "write",
+	"metadata":         "read",
 }
 
 func encodeGitHubManifestState(s githubManifestState, key []byte) (string, error) {
@@ -117,27 +103,6 @@ func normalizeOrigin(origin string) (string, error) {
 		return "", fmt.Errorf("origin must be an http(s) URL with a host")
 	}
 	return u.Scheme + "://" + u.Host, nil
-}
-
-// isLoopbackOrigin reports whether base points at a loopback / non-public
-// host. GitHub validates the manifest's hook_attributes.url is reachable over
-// the public Internet at creation time, so we omit the webhook URL for
-// loopback origins (the redirect/setup URLs are browser redirects and work
-// fine on localhost). A public origin — e.g. a cloudflared tunnel — gets the
-// webhook wired automatically.
-func isLoopbackOrigin(base string) bool {
-	u, err := url.Parse(base)
-	if err != nil {
-		return true // be conservative: if we can't tell, don't send a hook
-	}
-	host := u.Hostname()
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback() || ip.IsUnspecified()
-	}
-	return false
 }
 
 // newGitHubManifestStart builds the start resolver wired into the org API
@@ -180,14 +145,10 @@ func newGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(c
 			Public:             true,
 			DefaultPermissions: helixAppPermissions,
 		}
-		// GitHub rejects a manifest whose hook url isn't publicly reachable, so
-		// only wire the webhook (and the events that depend on it) when the
-		// origin is public. On localhost the app is still fully usable as a
-		// bot; the webhook can be added later from a public URL.
-		if !isLoopbackOrigin(base) {
-			manifest.HookAttributes = map[string]string{"url": base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/webhook"}
-			manifest.DefaultEvents = helixAppEvents
-		}
+		// No app-level webhook: event delivery is per-repo. The bot installs a
+		// repo webhook (via repository_hooks permission) for each github Stream,
+		// pointed at /streams/{id}/github/webhook. So the manifest deliberately
+		// omits hook_attributes/default_events.
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			return helixorgapi.GitHubManifestStartResponse{}, fmt.Errorf("marshal manifest: %w", err)
@@ -214,7 +175,6 @@ func newGitHubManifestCallbackHandler(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
 	newID func() string,
-	setWebhookSecret func(ctx context.Context, orgID, secret string) error,
 	webURL string,
 	apiBaseURL string,
 ) http.HandlerFunc {
@@ -277,17 +237,10 @@ func newGitHubManifestCallbackHandler(
 		}
 		log.Info().Str("org_id", parsed.OrgID).Int64("app_id", cfg.GetID()).Str("slug", cfg.GetSlug()).Msg("created Helix GitHub App via manifest")
 
-		// Mirror the app's webhook secret into transport.github so the
-		// existing inbound webhook handler validates the App's deliveries
-		// (it HMACs the body against transport.github.webhook_secret). The
-		// App delivers all events for all installed repos to that one
-		// endpoint; streams filter by repo/event. GitHub shows this secret
-		// only once, so persist it now.
-		if ws := cfg.GetWebhookSecret(); ws != "" && setWebhookSecret != nil {
-			if err := setWebhookSecret(ctx, parsed.OrgID, ws); err != nil {
-				log.Error().Err(err).Str("org_id", parsed.OrgID).Msg("persist app webhook secret failed")
-			}
-		}
+		// No app-level webhook secret to persist: the app has no webhook.
+		// Per-repo webhooks (installed by the bot for each github Stream) use
+		// the per-org transport.github.webhook_secret minted by
+		// ensureGitHubWebhookSecret at install time.
 
 		// Chain straight into installation so the user picks repos. A
 		// just-created app's install page (…/installations/new →

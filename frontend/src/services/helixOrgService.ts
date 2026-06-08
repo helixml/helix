@@ -11,6 +11,7 @@ import {
   ApiHireWorkerRequest,
   ApiHireWorkerResponse,
   ApiInstallGitHubWebhookResponse,
+  ApiGitHubWebhookStatusResponse,
   ApiOrgOverview,
   ApiRoleDTO,
   ApiRoleGroup,
@@ -47,6 +48,7 @@ export type GitHubReposResponse = ApiGitHubReposResponse
 export type GitHubInstallationStatus = ApiGitHubInstallationStatus
 export type GitHubManifestStartResponse = ApiGitHubManifestStartResponse
 export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
+export type GitHubWebhookStatusResponse = ApiGitHubWebhookStatusResponse
 export type WorkerSubscription = ApiWorkerSubscriptionDTO
 export type WorkerSubscriptionsResponse = ApiWorkerSubscriptionsResponse
 export type OrgOverview = ApiOrgOverview
@@ -82,6 +84,7 @@ export const QUERY_KEYS = {
   modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
   streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
+  webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id, 'webhook-status'] as const,
   workerSubs: (orgID: string, workerID: string) => ['helix-org', orgID, 'workers', workerID, 'subscriptions'] as const,
 }
 
@@ -489,6 +492,24 @@ export function useHelixOrgStream(streamId: string | undefined, options?: { enab
   })
 }
 
+// useGitHubWebhookStatus reports the LIVE state of a github stream's repo
+// webhook as seen on GitHub (state: "installed" | "missing" | "unknown"), so
+// the detail page can link to the real hook or offer a re-install. Read-only;
+// safe to refetch. Invalidate QUERY_KEYS.webhookStatus after an install.
+export function useGitHubWebhookStatus(streamId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.webhookStatus(orgID, streamId ?? ''),
+    queryFn: async () => {
+      if (!streamId) return null
+      const res = await api.getApiClient().v1OrgsStreamsGithubWebhookStatusDetail(streamId, orgID)
+      return res.data as GitHubWebhookStatusResponse
+    },
+    enabled: !!orgID && !!streamId && (options?.enabled ?? true),
+  })
+}
+
 export function useCreateHelixOrgStream() {
   const api = useApi()
   const qc = useQueryClient()
@@ -589,6 +610,7 @@ export function useInstallGitHubWebhook() {
     onSuccess: (_data, streamId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, streamId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.webhookStatus(orgID, streamId) })
     },
   })
 }

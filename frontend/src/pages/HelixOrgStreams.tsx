@@ -372,15 +372,11 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
         description: description.trim() || undefined,
         transport: { kind, config },
       })
-      if (kind === 'github' && created?.id && ghInstalled) {
-        // App mode: the Helix GitHub App already delivers all events for
-        // every installed repo to one webhook; this stream is just a
-        // (repo, events) filter on that firehose. No per-repo webhook to
-        // install — doing so would need admin rights and double-deliver.
-        snackbar.success('Stream created · events arrive via the Helix GitHub App')
-      } else if (kind === 'github' && created?.id) {
-        // Legacy OAuth mode: auto-install a per-repo webhook on GitHub.
-        // Idempotent — re-run adopts an existing hook.
+      if (kind === 'github' && created?.id) {
+        // Auto-install a per-repo webhook on GitHub. The backend uses the
+        // installed Helix App's installation token (repository_hooks
+        // permission) when the app is present, falling back to a member's
+        // OAuth token otherwise. Idempotent — re-run adopts an existing hook.
         try {
           const inst = await installWebhook.mutateAsync(created.id)
           if (inst.warning) {

@@ -73,13 +73,12 @@ func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
 	require.Equal(t, "write", m.DefaultPermissions["contents"])
 	require.Equal(t, "write", m.DefaultPermissions["pull_requests"])
 	require.Equal(t, "write", m.DefaultPermissions["issues"])
+	// repository_hooks lets the bot install the per-repo webhook for a Stream.
+	require.Equal(t, "write", m.DefaultPermissions["repository_hooks"])
 	require.Equal(t, "read", m.DefaultPermissions["metadata"])
 	// Callback URL carries the helix org and the caller's origin. No setup_url
 	// (it's optional; we reconcile the installation via GET /app/installations).
 	require.Equal(t, "http://localhost:8080/api/v1/orgs/org-1/github/app-manifest/callback", m.RedirectURL)
-	// Loopback origin: no webhook url (GitHub rejects unreachable hooks).
-	require.Empty(t, m.HookAttributes, "localhost manifest must omit the hook url")
-	require.Empty(t, m.DefaultEvents)
 
 	// The state must decode back to the same org.
 	decoded, err := decodeGitHubManifestState(resp.State, testEncKey)
@@ -98,25 +97,9 @@ func TestGitHubManifestStart_GHESWebURL(t *testing.T) {
 		"post_url = %s", resp.PostURL)
 }
 
-func TestGitHubManifestStart_PublicOriginWiresWebhook(t *testing.T) {
-	start := newGitHubManifestStart(testKeyGetter, "https://github.com")
-	resp, err := start(context.Background(), "org-1", "acme", "https://helix.example.com")
-	require.NoError(t, err)
-	var m githubManifest
-	require.NoError(t, json.Unmarshal([]byte(resp.Manifest), &m))
-	require.Equal(t, "https://helix.example.com/api/v1/orgs/org-1/github/webhook", m.HookAttributes["url"],
-		"public origin must wire the webhook")
-	require.NotEmpty(t, m.DefaultEvents)
-}
-
-func TestIsLoopbackOrigin(t *testing.T) {
-	for _, o := range []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://0.0.0.0:8080", "https://foo.localhost"} {
-		require.True(t, isLoopbackOrigin(o), "%s should be loopback", o)
-	}
-	for _, o := range []string{"https://helix.example.com", "https://abc.trycloudflare.com", "http://10.0.0.5"} {
-		require.False(t, isLoopbackOrigin(o), "%s should be public", o)
-	}
-}
+// The manifest never wires an app-level webhook (delivery is per-repo via the
+// bot's repository_hooks permission), so hook_attributes/default_events are
+// always absent regardless of origin — covered by the BuildsManifest test.
 
 func TestGitHubManifestStart_RejectsBadInput(t *testing.T) {
 	start := newGitHubManifestStart(testKeyGetter, "https://github.com")

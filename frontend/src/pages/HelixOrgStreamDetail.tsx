@@ -15,6 +15,7 @@ import { FC, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
+import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
 import Paper from '@mui/material/Paper'
@@ -29,7 +30,6 @@ import CloseIcon from '@mui/icons-material/Close'
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import GitHubStreamConfigFields from '../components/helix-org/GitHubStreamConfigFields'
-import { useGitHubAppActions } from '../components/helix-org/useGitHubAppActions'
 import {
   isValidGitHubEvent,
   GITHUB_REPO_PATTERN,
@@ -43,7 +43,7 @@ import {
   InstallWebhookFailedError,
   StreamDTO,
   useHelixOrgStream,
-  useGitHubAppInstallation,
+  useGitHubWebhookStatus,
   useInstallGitHubWebhook,
   useUpdateHelixOrgStream,
 } from '../services/helixOrgService'
@@ -452,13 +452,11 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
 const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) => {
   const snackbar = useSnackbar()
   const install = useInstallGitHubWebhook()
-  // App mode: when the Helix GitHub App is installed for this org, events
-  // arrive via the App's single webhook (filtered to this stream by repo +
-  // events), so there's no per-repo webhook to install.
-  const appInstall = useGitHubAppInstallation()
-  const appMode = appInstall.data?.installed === true
-  const appActions = useGitHubAppActions()
-  const manageUrl = appInstall.data?.manage_url ?? ''
+  // Live truth from GitHub: does a webhook for this stream's payload URL
+  // actually exist on the repo? This is the source of truth for the link vs
+  // re-install decision — the stored config can be stale (hook deleted on
+  // GitHub, or installed before we tracked the id).
+  const status = useGitHubWebhookStatus(stream.id)
 
   // Check the EFFECTIVE public URL — what the install endpoint
   // would actually use (streams.public_url override applied on
@@ -473,7 +471,36 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
   const isLocalhost = /(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(effectivePublicURL)
 
   const cfg = (stream.config ?? {}) as { repo?: string; webhook_id?: number; webhook_html_url?: string }
-  const installed = !!cfg.webhook_id
+
+  // Resolve the live status into a concrete view. "unknown" (couldn't reach
+  // GitHub / no creds / no public URL) falls back to the stored config so the
+  // panel still works degraded instead of always claiming "missing".
+  const live = status.data
+  let view: 'loading' | 'installed' | 'missing' = 'missing'
+  let webhookHtmlUrl = ''
+  let webhookId: number | undefined
+  let active = true
+  let unknownNote = ''
+  if (status.isLoading) {
+    view = 'loading'
+  } else if (live?.state === 'installed') {
+    view = 'installed'
+    webhookHtmlUrl = live.webhook_html_url || cfg.webhook_html_url || ''
+    webhookId = live.webhook_id
+    active = live.active ?? true
+  } else if (live?.state === 'missing') {
+    view = 'missing'
+  } else {
+    // "unknown" or a query error — degrade to stored config.
+    unknownNote = live?.detail || (status.error as any)?.message || ''
+    if (cfg.webhook_id) {
+      view = 'installed'
+      webhookHtmlUrl = cfg.webhook_html_url || ''
+      webhookId = cfg.webhook_id
+    } else {
+      view = 'missing'
+    }
+  }
 
   const reinstall = async () => {
     try {
@@ -502,24 +529,6 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Typography variant="h6" sx={{ mb: 1 }}>Connect to GitHub</Typography>
-      {appMode ? (
-        <Stack spacing={1}>
-          <Typography variant="body2">
-            Events arrive via the <strong>Helix GitHub App</strong> — one app-level webhook receives every event from the repos it's installed on. This stream receives the deliveries that match its filter (repo <strong>{cfg.repo || '(not set)'}</strong>, plus its events whitelist). There's no per-repo webhook to install.
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Scope is controlled by two things: which repos the app is installed on, and this stream's repo + events filter. Use <code>owner/*</code> as the repo to match a whole org. GitHub must be able to reach Helix at a public URL for deliveries to arrive.
-          </Typography>
-          {manageUrl && (
-            <Box>
-              <Button size="small" variant="outlined" onClick={() => appActions.openManage(manageUrl)}>
-                Manage app on GitHub →
-              </Button>
-            </Box>
-          )}
-        </Stack>
-      ) : (
-      <>
       {isLocalhost && (
         <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, backgroundColor: 'warning.main', color: 'warning.contrastText' }}>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -533,23 +542,30 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
           <SettingsLink orgSlug={orgSlug} />
         </Box>
       )}
-      {installed ? (
+      {view === 'loading' ? (
+        <Stack direction="row" spacing={1} alignItems="center">
+          <CircularProgress size={16} />
+          <Typography variant="body2" color="text.secondary">
+            Checking GitHub for this stream's webhook…
+          </Typography>
+        </Stack>
+      ) : view === 'installed' ? (
         <Stack spacing={1}>
           <Typography variant="body2">
-            Helix has registered a webhook on <strong>{cfg.repo}</strong> (id <code>{cfg.webhook_id}</code>).
-            Deliveries flow into this stream automatically — no manual setup.
+            Webhook registered on <strong>{cfg.repo}</strong>{webhookId ? <> (id <code>{webhookId}</code>)</> : null}.
+            {active ? ' Deliveries flow into this stream automatically.' : ' ⚠ It is currently disabled on GitHub, so no deliveries arrive — re-install to re-enable.'}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
-            {cfg.webhook_html_url && (
+            {webhookHtmlUrl && (
               <Button
                 size="small"
                 variant="outlined"
                 component="a"
-                href={cfg.webhook_html_url}
+                href={webhookHtmlUrl}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Edit on GitHub →
+                View on GitHub →
               </Button>
             )}
             <Button
@@ -561,6 +577,11 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
               {install.isPending ? 'Re-installing…' : 'Re-install'}
             </Button>
           </Stack>
+          {unknownNote && (
+            <Typography variant="caption" color="text.secondary">
+              Couldn't confirm against GitHub ({unknownNote}); showing last-known state.
+            </Typography>
+          )}
           <Typography variant="caption" color="text.secondary">
             Tweak the events whitelist (or any other webhook settings) directly on GitHub's UI. Helix routes deliveries by repo + stream id, so as long as the payload URL stays intact your changes take effect immediately.
           </Typography>
@@ -568,7 +589,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
       ) : (
         <Stack spacing={1.5}>
           <Typography variant="body2">
-            No webhook registered yet for <strong>{cfg.repo || '(repo not set)'}</strong>. Helix can install it for you — one click, no copying URLs.
+            No webhook found on GitHub for <strong>{cfg.repo || '(repo not set)'}</strong>. Helix can install it for you — one click, no copying URLs.
           </Typography>
           <Box>
             <Button
@@ -579,12 +600,15 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
               {install.isPending ? 'Installing…' : 'Install webhook on GitHub'}
             </Button>
           </Box>
+          {unknownNote && (
+            <Typography variant="caption" color="text.secondary">
+              Note: couldn't verify against GitHub ({unknownNote}).
+            </Typography>
+          )}
           <Typography variant="caption" color="text.secondary">
-            Requires a connected GitHub OAuth (on the helix Connected Services page) with admin rights on the repo.
+            Installed as the Helix GitHub App bot when it's installed on this repo (no human admin needed); otherwise falls back to a connected GitHub OAuth (on the helix Connected Services page) with admin rights on the repo.
           </Typography>
         </Stack>
-      )}
-      </>
       )}
     </Paper>
   )
