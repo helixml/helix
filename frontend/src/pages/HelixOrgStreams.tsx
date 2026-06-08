@@ -49,6 +49,7 @@ import {
   useListGitHubRepos,
   useListHelixOrgStreams,
 } from '../services/helixOrgService'
+import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
@@ -294,6 +295,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // everything"; advanced users can narrow this down later via the
   // detail page's Edit flow.
   const [ghRepo, setGhRepo] = useState<string>('')
+  // Events default to ["*"] (all). Branches optionally narrow push/create/
+  // delete to specific branches. Both editable here; also on the detail page.
+  const [ghEvents, setGhEvents] = useState<string[]>(['*'])
+  const [ghBranches, setGhBranches] = useState<string[]>([])
 
   // Probe GitHub on dialog open — the result tells us whether to
   // disable the `github` transport option (no OAuth connection →
@@ -450,7 +455,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
       // transport accepts every event. The detail page's edit form
       // lets advanced operators narrow this to a specific
       // whitelist after the stream is created.
-      config = { repo: ghRepo.trim(), events: ['*'] }
+      const events = ghEvents.length > 0 ? ghEvents : ['*']
+      config = { repo: ghRepo.trim(), events }
+      const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
+      if (branches.length > 0) (config as Record<string, unknown>).branches = branches
     } else if (configText.trim()) {
       try {
         config = JSON.parse(configText)
@@ -501,7 +509,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
         snackbar.success('stream created')
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-      setGhRepo('')
+      setGhRepo(''); setGhEvents(['*']); setGhBranches([])
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -510,7 +518,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-    setGhRepo('')
+    setGhRepo(''); setGhEvents(['*']); setGhBranches([])
     onClose()
   }
 
@@ -685,9 +693,8 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
                   <RefreshIcon fontSize="small" />
                 </IconButton>
               </Stack>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Default: receive every event from this repo ("*"). You can narrow the events whitelist from the stream's detail page after it's created.
-              </Typography>
+              <GitHubEventsField events={ghEvents} onChange={setGhEvents} />
+              <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                 Missing a repo? The bot only sees repos the Helix App is installed on.{' '}
                 <Button
