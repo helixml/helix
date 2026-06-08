@@ -244,7 +244,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
       const cfg = (stream.config ?? {}) as { repo?: string; events?: string[]; branches?: string[] }
       setGhRepo(cfg.repo ?? '')
       setGhEvents(Array.isArray(cfg.events) ? cfg.events : [])
-      setGhBranches(Array.isArray(cfg.branches) ? cfg.branches : [])
+      setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? cfg.branches : ['*'])
     } else if (stream.config) {
       setConfigText(JSON.stringify(stream.config, null, 2))
     } else {

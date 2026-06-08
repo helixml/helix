@@ -118,7 +118,7 @@ export const GitHubBranchesField: FC<{ branches: string[]; onChange: (next: stri
     freeSolo
     openOnFocus
     disablePortal
-    options={[]}
+    options={['*']}
     value={branches}
     onChange={(_, next) => {
       const cleaned = next.map((s) => s.trim()).filter((s) => s.length > 0)
@@ -133,10 +133,10 @@ export const GitHubBranchesField: FC<{ branches: string[]; onChange: (next: stri
     renderInput={(params) => (
       <TextField
         {...params}
-        label="Branches (optional)"
-        placeholder={branches.length === 0 ? 'e.g. main, release/* — leave empty for all branches' : ''}
+        label="Branches"
+        placeholder={branches.length === 0 ? 'e.g. *, main, release/*' : ''}
         size="small"
-        helperText="Narrows push / create / delete events to these branches — exact name (main) or prefix glob (release/*). Empty = all branches. Other event types (issues, pull_request, …) are unaffected."
+        helperText="Applies to push / create / delete events. `*` = all branches; narrow with an exact name (main) or a prefix glob (release/*). Other event types (issues, pull_request, …) are unaffected."
       />
     )}
   />

@@ -547,13 +547,17 @@ func payloadBranch(eventType string, payload map[string]any) string {
 }
 
 // branchAllowed reports whether a delivery's branch passes a stream's branch
-// filter. Empty filter (or a non-branch event, branch=="") matches everything.
-// Patterns are exact ("main") or prefix globs ("release/*").
+// filter. Patterns are "*" (all branches), an exact name ("main"), or a prefix
+// glob ("release/*"). A non-branch event (branch=="") is unaffected, as is an
+// absent/empty filter (for streams created before this field existed).
 func branchAllowed(patterns []string, branch string) bool {
 	if len(patterns) == 0 || branch == "" {
 		return true
 	}
 	for _, p := range patterns {
+		if p == "*" {
+			return true
+		}
 		if prefix, ok := strings.CutSuffix(p, "/*"); ok {
 			if branch == prefix || strings.HasPrefix(branch, prefix+"/") {
 				return true

@@ -298,7 +298,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // Events default to ["*"] (all). Branches optionally narrow push/create/
   // delete to specific branches. Both editable here; also on the detail page.
   const [ghEvents, setGhEvents] = useState<string[]>(['*'])
-  const [ghBranches, setGhBranches] = useState<string[]>([])
+  const [ghBranches, setGhBranches] = useState<string[]>(['*'])
 
   // Probe GitHub on dialog open — the result tells us whether to
   // disable the `github` transport option (no OAuth connection →
@@ -509,7 +509,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
         snackbar.success('stream created')
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-      setGhRepo(''); setGhEvents(['*']); setGhBranches([])
+      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*'])
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -518,7 +518,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-    setGhRepo(''); setGhEvents(['*']); setGhBranches([])
+    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*'])
     onClose()
   }
 

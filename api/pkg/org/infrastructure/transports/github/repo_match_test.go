@@ -9,6 +9,8 @@ func TestBranchAllowed(t *testing.T) {
 		want     bool
 	}{
 		{nil, "main", true},               // no filter → all branches
+		{[]string{"*"}, "main", true},      // wildcard → all branches
+		{[]string{"*"}, "feature/x", true}, // wildcard → all branches
 		{[]string{"main"}, "", true},       // non-branch event → unfiltered
 		{[]string{"main"}, "main", true},   // exact
 		{[]string{"main"}, "MAIN", true},   // case-insensitive

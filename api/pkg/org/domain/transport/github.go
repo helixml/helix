@@ -50,10 +50,11 @@ type GitHubConfig struct {
 	// Required and non-empty.
 	Events []string `json:"events,omitempty"`
 
-	// Branches optionally narrows branch-carrying events (push, create,
-	// delete) to specific branches. Each entry is an exact branch name
-	// ("main") or a prefix glob ("release/*"). Empty = all branches.
-	// Events without a branch ref (issues, pull_request, …) are unaffected.
+	// Branches narrows branch-carrying events (push, create, delete) to
+	// specific branches. Each entry is "*" (all branches), an exact branch
+	// name ("main"), or a prefix glob ("release/*"). Events without a branch
+	// ref (issues, pull_request, …) are unaffected. An absent/empty list is
+	// also treated as all branches, for streams created before this field.
 	Branches []string `json:"branches,omitempty"`
 
 	// WebhookID is the GitHub-side hook id (returned by `POST
