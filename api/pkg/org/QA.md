@@ -316,13 +316,20 @@ now reconcile the activation/team streams the edge implies (see 3a).
    `r-owner` frame now sits above `r-eng` (dagre lays the role tree out
    from the cross-role edge).
    - **Topology side-effects** (the new manager edge wires the comms
-     channels). `s-activations-w-alice` now has `w-owner` as a
-     subscriber (the manager observes the report's transcript):
+     channels — and they exist ONLY because the edge was wired; the
+     orphan workers from step 1 had no team/DM streams, only their own
+     `s-activations-<id>`). `s-activations-w-alice` now has `w-owner` as
+     a subscriber (the manager observes the report's transcript):
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner}`. And the manager's
-     team stream now exists with both of them:
+     stream_id='s-activations-w-alice'` → `{w-owner}`. The manager's team
+     stream now exists with both of them:
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-team-w-owner'` → `{w-owner, w-alice}`.
+     stream_id='s-team-w-owner'` → `{w-owner, w-alice}`. And the 1:1 DM
+     channel for the edge now exists too — DM channels are scoped to the
+     reporting graph, provisioned here, NOT created on demand by the `dm`
+     tool: `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-dm-w-alice-w-owner'` → `{w-alice, w-owner}` (id is the
+     sorted pair).
 3. Drag from `w-alice`'s bottom handle to `w-bob`'s top handle →
    `w-bob` reports to `w-alice` (intra-role edge; both stay in
    `r-eng`).
@@ -349,9 +356,11 @@ now reconcile the activation/team streams the edge implies (see 3a).
      stream_id='s-activations-w-alice'` → `{w-owner}` only (NOT
      `{w-owner, w-carol}` — the old bug left `w-carol` subscribed after
      the edge was removed). `s-team-w-carol` is gone (w-carol has no
-     other reports):
-     `SELECT id FROM org_streams WHERE id='s-team-w-carol'` → zero rows.
-     `w-owner`'s observership and `s-team-w-owner` are untouched.
+     other reports), and so is the DM channel for the dropped edge:
+     `SELECT id FROM org_streams WHERE id IN
+     ('s-team-w-carol','s-dm-w-alice-w-carol')` → zero rows.
+     `w-owner`'s observership, `s-team-w-owner`, and the
+     `s-dm-w-alice-w-owner` channel are untouched.
 4. **Cycle guard**: drag from `w-bob`'s bottom handle to `w-alice`'s
    top handle (would make alice→bob→alice). API returns 409; snackbar
    surfaces the cycle error; no edge added. DB unchanged.
@@ -403,6 +412,14 @@ manager (of `w-sub`).
 3. **`reports` from a leaf.** `tools/call reports` on `w-sub` →
    `teamStreamId": null` and `reports": []` (empty array — no one
    reports to `w-sub`).
+4. **`dm` is reporting-scoped.** `tools/call dm` from `w-rep` to its
+   manager `w-mgr` (a reporting pair) succeeds — the channel was
+   provisioned when the edge was wired. `tools/call dm` from `w-mgr` to
+   `w-sub` (a **skip-level** worker, no direct reporting edge) is
+   **refused** with an error naming `managers`/`reports` — there is no
+   implicit DM channel to an arbitrary or skip-level worker, and the
+   `dm` tool does NOT mint one. (Confirm the refusal wrote nothing:
+   `SELECT id FROM org_streams WHERE id='s-dm-w-mgr-w-sub'` → zero rows.)
 
 ## Pass criteria
 
@@ -437,7 +454,9 @@ manager (of `w-sub`).
   `s-team-<id>` teamStreamId + each report's `dmStreamId`, flags a
   report that manages its own sub-team (`manages: true` +
   `teamStreamId`), and returns `null` teamStreamId + empty `reports`
-  for a leaf.
+  for a leaf. `dm` works only between reporting pairs (channel
+  provisioned by topology on edge-wiring); a `dm` to a skip-level /
+  non-reporting worker is refused and mints nothing.
 - §10 — the worker page shows the conversation inline (transcript +
   tool calls + composer) when a session exists, GET-only on load (no
   container spin-up); the empty state shows otherwise. Sending a
