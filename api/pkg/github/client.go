@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -11,6 +12,11 @@ import (
 	"github.com/google/go-github/v61/github"
 	"golang.org/x/oauth2"
 )
+
+// ErrAppNotFound means the GitHub App no longer exists (or its key is invalid)
+// — GitHub rejected the app JWT with 401/404. Callers use this to clear a stale
+// stored connection after the app is deleted on GitHub.
+var ErrAppNotFound = errors.New("github app not found (deleted or invalid credentials)")
 
 // ListAppInstallations lists every installation of a GitHub App, authenticating
 // as the app (JWT signed with its private key). Used to reconcile an org's
@@ -30,8 +36,13 @@ func ListAppInstallations(ctx context.Context, appID int64, privateKey, baseURL 
 			client = ec
 		}
 	}
-	insts, _, err := client.Apps.ListInstallations(ctx, &github.ListOptions{PerPage: 100})
+	insts, resp, err := client.Apps.ListInstallations(ctx, &github.ListOptions{PerPage: 100})
 	if err != nil {
+		// A valid app authenticates and returns 200 even with zero
+		// installations, so 401/404 here means the app itself is gone.
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound) {
+			return nil, ErrAppNotFound
+		}
 		return nil, fmt.Errorf("list app installations: %w", err)
 	}
 	return insts, nil

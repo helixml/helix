@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -378,26 +379,46 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 				if c == nil || c.GitHubAppID == 0 {
 					continue
 				}
-				appExists = true
-				if c.GitHubAppSlug != "" {
-					slug = c.GitHubAppSlug // prefer the created app's own slug
-				}
-				// Reconcile the installation id by asking GitHub directly (no
-				// Setup-URL redirect needed). Only runs while we don't yet have
-				// one, so it stops once the app is installed.
-				if c.GitHubInstallationID == 0 && c.GitHubPrivateKey != "" {
+				// Verify against GitHub on every check so the gate reflects
+				// reality: syncs the installation id (incl. down to 0 when the
+				// user uninstalls), and removes the stored connection when the
+				// app has been deleted on GitHub (so the gate reverts to
+				// "Create the Helix app"). Transient errors fall back to the
+				// stored state rather than mutating it.
+				if c.GitHubPrivateKey != "" {
 					if key, kerr := cfg.APIServer.getEncryptionKey(); kerr == nil {
 						if pem, derr := crypto.DecryptAES256GCM(c.GitHubPrivateKey, key); derr == nil {
-							if insts, ierr := githubclient.ListAppInstallations(ctx, c.GitHubAppID, string(pem), c.BaseURL); ierr == nil && len(insts) > 0 {
-								c.GitHubInstallationID = insts[0].GetID()
-								if uerr := helixStore.UpdateServiceConnection(ctx, c); uerr != nil {
-									log.Warn().Err(uerr).Str("org_id", orgID).Msg("persist reconciled installation id failed")
+							insts, ierr := githubclient.ListAppInstallations(ctx, c.GitHubAppID, string(pem), c.BaseURL)
+							switch {
+							case errors.Is(ierr, githubclient.ErrAppNotFound):
+								log.Warn().Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("Helix GitHub App no longer exists on GitHub; removing stale connection")
+								if derr := helixStore.DeleteServiceConnection(ctx, c.ID); derr == nil {
+									continue // gone — don't count it
 								} else {
-									log.Info().Str("org_id", orgID).Int64("installation_id", c.GitHubInstallationID).Msg("reconciled Helix GitHub App installation from GitHub")
+									log.Error().Err(derr).Str("org_id", orgID).Msg("delete stale github app connection failed")
+								}
+							case ierr != nil:
+								log.Warn().Err(ierr).Str("org_id", orgID).Msg("verify github app installation failed; using stored state")
+							default:
+								var newInstallID int64
+								if len(insts) > 0 {
+									newInstallID = insts[0].GetID()
+								}
+								if newInstallID != c.GitHubInstallationID {
+									c.GitHubInstallationID = newInstallID
+									if uerr := helixStore.UpdateServiceConnection(ctx, c); uerr != nil {
+										log.Warn().Err(uerr).Str("org_id", orgID).Msg("persist synced installation id failed")
+									} else {
+										log.Info().Str("org_id", orgID).Int64("installation_id", newInstallID).Msg("synced Helix GitHub App installation from GitHub")
+									}
 								}
 							}
 						}
 					}
+				}
+				appExists = true
+				if c.GitHubAppSlug != "" {
+					slug = c.GitHubAppSlug // prefer the created app's own slug
 				}
 				if c.GitHubInstallationID != 0 {
 					installed = true
