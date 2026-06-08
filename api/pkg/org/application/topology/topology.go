@@ -1,8 +1,9 @@
 // Package topology owns the one place where the org's reporting graph
 // is turned into communication channels: the per-Worker activation
-// Stream (who observes a Worker's transcript) and the per-manager team
+// Stream (who observes a Worker's transcript), the per-manager team
 // Stream (the downward broadcast channel a manager briefs their reports
-// on).
+// on), and the per-edge DM channel (the 1:1 a manager and report
+// message on).
 //
 // The split mirrors the codebase's existing layering:
 //
@@ -13,18 +14,11 @@
 //     DesiredTopology, diffs the desired set against what's persisted,
 //     and applies create/subscribe/unsubscribe/delete idempotently.
 //
-// This is the single owner of activation/team Stream lifecycle. Every
+// This is the single owner of activation/team/DM Stream lifecycle. Every
 // structural mutation (hire, add/remove reporting line, fire) announces
 // *what changed* by calling Reconcile; the reconciler decides the
 // stream consequences. Event-specific deltas drift; a declarative diff
 // can't.
-//
-// DM Streams are deliberately NOT here: they are pairwise and on-demand,
-// not a function of the graph, so there is nothing to reconcile. But the
-// *mechanism* — "ensure Stream X exists with member set Y" — is the
-// shared EnsureStreamWithMembers helper that both the dm tool and this
-// reconciler call. One implementation of the mechanism; triggers where
-// they belong.
 package topology
 
 import (
@@ -227,11 +221,10 @@ func dmStreamDescription(a, b string) string {
 		"DM channel between arbitrary Workers."
 }
 
-// EnsureStreamWithMembers is the shared create-stream-and-subscribe
-// primitive. It get-or-creates the Stream (immutable once it exists, so
-// a present row is left untouched) and idempotently subscribes each
-// member. Both the dm tool and the Reconciler call it — one
-// implementation of the mechanism, even though the triggers differ.
+// EnsureStreamWithMembers is the reconciler's create-stream-and-
+// subscribe primitive. It get-or-creates the Stream (immutable once it
+// exists, so a present row is left untouched) and idempotently
+// subscribes each member.
 //
 // Subscriptions are worker-anchored; members must be existing Workers.
 //
