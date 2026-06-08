@@ -35,6 +35,7 @@ export function useGitHubAppActions(onComplete?: () => void) {
         onComplete?.()
       } else if (event.data?.type === 'github-app-install-error') {
         window.removeEventListener('message', onMessage)
+        window.removeEventListener('focus', onFocus)
         snackbar.error('GitHub reported a problem completing the install.')
       }
     }

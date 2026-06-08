@@ -133,6 +133,24 @@ type OrgGitHubIdentity struct {
 // mintFn is a seam: production wiring passes github.MintInstallationToken;
 // unit tests stub it so they never make the live GitHub call ghinstallation's
 // Token() performs.
+// decryptAppKey decrypts a github_app ServiceConnection's stored PEM with the
+// server encryption key. Shared by the install-status, repo-aggregation and
+// identity resolvers so the decrypt + error wrapping lives in one place.
+func decryptAppKey(getKey func() ([]byte, error), conn *types.ServiceConnection) (string, error) {
+	if conn == nil || conn.GitHubPrivateKey == "" {
+		return "", fmt.Errorf("github app connection has no stored private key")
+	}
+	key, err := getKey()
+	if err != nil {
+		return "", fmt.Errorf("get encryption key: %w", err)
+	}
+	pem, err := crypto.DecryptAES256GCM(conn.GitHubPrivateKey, key)
+	if err != nil {
+		return "", fmt.Errorf("decrypt github app key: %w", err)
+	}
+	return string(pem), nil
+}
+
 func newOrgGitHubIdentityResolver(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
@@ -166,17 +184,12 @@ func newOrgGitHubIdentityResolver(
 			if c == nil || c.GitHubAppID == 0 || c.GitHubInstallationID == 0 || c.GitHubPrivateKey == "" {
 				continue
 			}
-			key, err := getKey()
-			if err != nil {
-				log.Warn().Err(err).Str("org_id", orgID).Msg("get encryption key failed; falling back to OAuth")
-				break
-			}
-			pem, err := crypto.DecryptAES256GCM(c.GitHubPrivateKey, key)
+			pem, err := decryptAppKey(getKey, c)
 			if err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Str("conn_id", c.ID).Msg("decrypt github app key failed; trying next connection")
 				continue
 			}
-			tok, err := mintFn(ctx, c.GitHubAppID, c.GitHubInstallationID, string(pem), c.BaseURL)
+			tok, err := mintFn(ctx, c.GitHubAppID, c.GitHubInstallationID, pem, c.BaseURL)
 			if err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("mint installation token failed; falling back to OAuth")
 				break

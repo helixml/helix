@@ -55,7 +55,7 @@ func TestNormalizeOrigin(t *testing.T) {
 }
 
 func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
-	start := newGitHubManifestStart(testKeyGetter)
+	start := newGitHubManifestStart(testKeyGetter, "https://github.com")
 	resp, err := start(context.Background(), "org-1", "acme", "http://localhost:8080")
 	require.NoError(t, err)
 
@@ -88,8 +88,18 @@ func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
 	require.Equal(t, "acme", decoded.GitHubOrg)
 }
 
+func TestGitHubManifestStart_GHESWebURL(t *testing.T) {
+	// A GitHub Enterprise Server origin must drive the app-creation URL, not
+	// the hardcoded github.com.
+	start := newGitHubManifestStart(testKeyGetter, "https://github.acme.com")
+	resp, err := start(context.Background(), "org-1", "acme", "http://localhost:8080")
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(resp.PostURL, "https://github.acme.com/organizations/acme/settings/apps/new?state="),
+		"post_url = %s", resp.PostURL)
+}
+
 func TestGitHubManifestStart_PublicOriginWiresWebhook(t *testing.T) {
-	start := newGitHubManifestStart(testKeyGetter)
+	start := newGitHubManifestStart(testKeyGetter, "https://github.com")
 	resp, err := start(context.Background(), "org-1", "acme", "https://helix.example.com")
 	require.NoError(t, err)
 	var m githubManifest
@@ -109,7 +119,7 @@ func TestIsLoopbackOrigin(t *testing.T) {
 }
 
 func TestGitHubManifestStart_RejectsBadInput(t *testing.T) {
-	start := newGitHubManifestStart(testKeyGetter)
+	start := newGitHubManifestStart(testKeyGetter, "https://github.com")
 	_, err := start(context.Background(), "org-1", "", "http://localhost:8080")
 	require.Error(t, err, "empty github org rejected")
 	_, err = start(context.Background(), "org-1", "acme", "not-a-url")

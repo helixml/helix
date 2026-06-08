@@ -143,7 +143,9 @@ func isLoopbackOrigin(base string) bool {
 // newGitHubManifestStart builds the start resolver wired into the org API
 // Deps. It returns the GitHub POST URL, the manifest JSON to submit, and an
 // encrypted state. getKey provides the server encryption key (for the state).
-func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
+// webURL is the GitHub web origin (https://github.com or a GHES origin) the
+// app create/install links are built against.
+func newGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
 	return func(_ context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
 		githubOrg = strings.TrimSpace(githubOrg)
 		if githubOrg == "" {
@@ -167,8 +169,8 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 		}
 
 		manifest := githubManifest{
-			Name:               fmt.Sprintf("Helix %s", githubOrg),
-			URL:                "https://helix.ml",
+			Name:        fmt.Sprintf("Helix %s", githubOrg),
+			URL:         "https://helix.ml",
 			RedirectURL: base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-manifest/callback",
 			// Public ("Any account") so the one app can be installed on more
 			// than one GitHub org (e.g. winderai AND helixml). A private app
@@ -191,7 +193,7 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 			return helixorgapi.GitHubManifestStartResponse{}, fmt.Errorf("marshal manifest: %w", err)
 		}
 
-		postURL := "https://github.com/organizations/" + url.PathEscape(githubOrg) + "/settings/apps/new?state=" + url.QueryEscape(state)
+		postURL := webURL + "/organizations/" + url.PathEscape(githubOrg) + "/settings/apps/new?state=" + url.QueryEscape(state)
 		return helixorgapi.GitHubManifestStartResponse{
 			PostURL:  postURL,
 			Manifest: string(manifestJSON),
@@ -205,11 +207,16 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 // github_app ServiceConnection for the org, and redirects to the install
 // page. Mounted on the insecure router (validated by the encrypted state,
 // not the helix session) because it is a top-level navigation from github.com.
+// webURL is the GitHub web origin for the install redirect; apiBaseURL is the
+// API origin passed to the github client (empty for github.com) and stored on
+// the created ServiceConnection so later calls target the right host (GHES).
 func newGitHubManifestCallbackHandler(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
 	newID func() string,
 	setWebhookSecret func(ctx context.Context, orgID, secret string) error,
+	webURL string,
+	apiBaseURL string,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -230,7 +237,7 @@ func newGitHubManifestCallbackHandler(
 			return
 		}
 
-		cfg, err := githubclient.CompleteAppManifest(ctx, code, "")
+		cfg, err := githubclient.CompleteAppManifest(ctx, code, apiBaseURL)
 		if err != nil {
 			log.Error().Err(err).Str("org_id", parsed.OrgID).Msg("github app manifest conversion failed")
 			http.Error(w, "failed to complete app creation with GitHub: "+err.Error(), http.StatusBadGateway)
@@ -259,6 +266,9 @@ func newGitHubManifestCallbackHandler(
 			GitHubAppSlug:    cfg.GetSlug(),
 			GitHubAppOwner:   parsed.GitHubOrg,
 			GitHubPrivateKey: encPEM,
+			// Empty for github.com; the GHES origin otherwise, so the install
+			// reconcile + token minting target the right API host.
+			BaseURL: apiBaseURL,
 		}
 		if err := st.CreateServiceConnection(ctx, conn); err != nil {
 			log.Error().Err(err).Str("org_id", parsed.OrgID).Msg("store github app service connection failed")
@@ -284,7 +294,7 @@ func newGitHubManifestCallbackHandler(
 		// select_target) 404s for a few seconds until GitHub finishes
 		// provisioning it, so wait until it's live before redirecting (a real
 		// readiness check, not a blind sleep) — bounded so we never hang.
-		installURL := "https://github.com/apps/" + url.PathEscape(cfg.GetSlug()) + "/installations/new"
+		installURL := webURL + "/apps/" + url.PathEscape(cfg.GetSlug()) + "/installations/new"
 		waitForGitHubAppInstallReady(ctx, installURL, 20*time.Second)
 		http.Redirect(w, r, installURL, http.StatusFound)
 	}
@@ -320,4 +330,3 @@ func waitForGitHubAppInstallReady(ctx context.Context, installURL string, timeou
 		}
 	}
 }
-

@@ -67,23 +67,31 @@ func NewClientWithOAuthAndBaseURL(accessToken, baseURL string) *Client {
 	return NewClientWithPATAndBaseURL(accessToken, baseURL)
 }
 
+// newInstallationTransport builds the ghinstallation installation transport
+// (handles JWT generation and exchanges it for a short-lived installation
+// access token), pointed at GHES when baseURL is non-empty. Shared by
+// NewClientWithGitHubApp and MintInstallationToken.
+func newInstallationTransport(appID, installationID int64, privateKey, baseURL string) (*ghinstallation.Transport, error) {
+	itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub App transport: %w", err)
+	}
+	if baseURL != "" {
+		// For GHE, set the API endpoint.
+		itr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+	return itr, nil
+}
+
 // NewClientWithGitHubApp creates a new GitHub client using GitHub App authentication.
 // This uses JWT to get an installation access token, providing service-to-service auth.
 // appID is the GitHub App ID, installationID is the installation ID for the app on the org/repo,
 // and privateKey is the PEM-encoded private key for JWT signing.
 // baseURL is optional for GitHub Enterprise instances (empty for github.com).
 func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL string) (*Client, error) {
-	// Create the GitHub App installation transport
-	// This handles JWT generation and token refresh automatically
-	itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKey))
+	itr, err := newInstallationTransport(appID, installationID, privateKey, baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GitHub App transport: %w", err)
-	}
-
-	// Configure base URL for GitHub Enterprise if needed
-	if baseURL != "" {
-		// For GHE, set the API endpoint
-		itr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+		return nil, err
 	}
 
 	ctx := context.Background()
@@ -117,12 +125,9 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 // so callers should treat this as a network operation (and tests should stub
 // it rather than call it).
 func MintInstallationToken(ctx context.Context, appID, installationID int64, privateKey, baseURL string) (string, error) {
-	itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKey))
+	itr, err := newInstallationTransport(appID, installationID, privateKey, baseURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to create GitHub App transport: %w", err)
-	}
-	if baseURL != "" {
-		itr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+		return "", err
 	}
 	tok, err := itr.Token(ctx)
 	if err != nil {
@@ -141,6 +146,7 @@ func MintInstallationToken(ctx context.Context, appID, installationID int64, pri
 //     the user is only an outside collaborator on individual repos.
 //   - The owners of repos returned by /user/repos surface those collaborator orgs,
 //     but only if the user has access to at least one repo in them.
+//
 // Unioning both gives us every org we can plausibly enumerate public repos for.
 func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, error) {
 	// Step 1: Get user repos (personal, collaborator, org-member)

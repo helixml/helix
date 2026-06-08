@@ -18,17 +18,29 @@ import (
 // stored connection after the app is deleted on GitHub.
 var ErrAppNotFound = errors.New("github app not found (deleted or invalid credentials)")
 
-// ListAppInstallations lists every installation of a GitHub App, authenticating
-// as the app (JWT signed with its private key). Used to reconcile an org's
-// installation id after the user installs the app, without relying on a
-// browser Setup-URL redirect. baseURL is empty for github.com or the GHES origin.
-func ListAppInstallations(ctx context.Context, appID int64, privateKey, baseURL string) ([]*github.Installation, error) {
+// buildAppTransport builds the app-level JWT transport (authenticating as the
+// GitHub App itself, not an installation), pointed at GHES when baseURL is
+// non-empty. Centralises the ghinstallation + GHES base-URL setup for the
+// app-scoped calls in this package.
+func buildAppTransport(appID int64, privateKey, baseURL string) (*ghinstallation.AppsTransport, error) {
 	atr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, []byte(privateKey))
 	if err != nil {
 		return nil, fmt.Errorf("create app transport: %w", err)
 	}
 	if baseURL != "" {
 		atr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+	return atr, nil
+}
+
+// ListAppInstallations lists every installation of a GitHub App, authenticating
+// as the app (JWT signed with its private key). Used to reconcile an org's
+// installation id after the user installs the app, without relying on a
+// browser Setup-URL redirect. baseURL is empty for github.com or the GHES origin.
+func ListAppInstallations(ctx context.Context, appID int64, privateKey, baseURL string) ([]*github.Installation, error) {
+	atr, err := buildAppTransport(appID, privateKey, baseURL)
+	if err != nil {
+		return nil, err
 	}
 	client := github.NewClient(&http.Client{Transport: atr})
 	if baseURL != "" {
