@@ -68,10 +68,19 @@ var helixAppPermissions = map[string]string{
 	"metadata":      "read",
 }
 
-// helixAppEvents keeps the app webhook-ready for the streams feature. They
-// only deliver once hook_attributes.url is publicly reachable, so they are
-// harmless on a localhost dev deployment.
-var helixAppEvents = []string{"push", "pull_request", "issues", "issue_comment"}
+// helixAppEvents is the broad set the app subscribes to so a stream can
+// filter down to any of them (the app subscribes wide; the stream's `events`
+// whitelist narrows). They only deliver once hook_attributes.url is publicly
+// reachable, so they are harmless on a localhost dev deployment. Each event
+// requires the matching permission (granted in helixAppPermissions):
+// push/create/delete need contents; pull_request* need pull_requests;
+// issues/issue_comment need issues.
+var helixAppEvents = []string{
+	"push", "create", "delete",
+	"pull_request", "pull_request_review", "pull_request_review_comment",
+	"issues", "issue_comment",
+	"release",
+}
 
 func encodeGitHubManifestState(s githubManifestState, key []byte) (string, error) {
 	raw, err := json.Marshal(s)
@@ -191,7 +200,12 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 // github_app ServiceConnection for the org, and redirects to the install
 // page. Mounted on the insecure router (validated by the encrypted state,
 // not the helix session) because it is a top-level navigation from github.com.
-func newGitHubManifestCallbackHandler(getKey func() ([]byte, error), st helixstore.Store, newID func() string) http.HandlerFunc {
+func newGitHubManifestCallbackHandler(
+	getKey func() ([]byte, error),
+	st helixstore.Store,
+	newID func() string,
+	setWebhookSecret func(ctx context.Context, orgID, secret string) error,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		code := r.URL.Query().Get("code")
@@ -246,6 +260,18 @@ func newGitHubManifestCallbackHandler(getKey func() ([]byte, error), st helixsto
 			return
 		}
 		log.Info().Str("org_id", parsed.OrgID).Int64("app_id", cfg.GetID()).Str("slug", cfg.GetSlug()).Msg("created Helix GitHub App via manifest")
+
+		// Mirror the app's webhook secret into transport.github so the
+		// existing inbound webhook handler validates the App's deliveries
+		// (it HMACs the body against transport.github.webhook_secret). The
+		// App delivers all events for all installed repos to that one
+		// endpoint; streams filter by repo/event. GitHub shows this secret
+		// only once, so persist it now.
+		if ws := cfg.GetWebhookSecret(); ws != "" && setWebhookSecret != nil {
+			if err := setWebhookSecret(ctx, parsed.OrgID, ws); err != nil {
+				log.Error().Err(err).Str("org_id", parsed.OrgID).Msg("persist app webhook secret failed")
+			}
+		}
 
 		// Chain straight into installation so the user picks repos.
 		installURL := "https://github.com/apps/" + url.PathEscape(cfg.GetSlug()) + "/installations/new"

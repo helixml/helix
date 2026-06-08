@@ -42,6 +42,7 @@ import {
   InstallWebhookFailedError,
   StreamDTO,
   useHelixOrgStream,
+  useGitHubAppInstallation,
   useInstallGitHubWebhook,
   useUpdateHelixOrgStream,
 } from '../services/helixOrgService'
@@ -443,6 +444,11 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
 const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) => {
   const snackbar = useSnackbar()
   const install = useInstallGitHubWebhook()
+  // App mode: when the Helix GitHub App is installed for this org, events
+  // arrive via the App's single webhook (filtered to this stream by repo +
+  // events), so there's no per-repo webhook to install.
+  const appInstall = useGitHubAppInstallation()
+  const appMode = appInstall.data?.installed === true
 
   // Check the EFFECTIVE public URL — what the install endpoint
   // would actually use (streams.public_url override applied on
@@ -486,6 +492,17 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Typography variant="h6" sx={{ mb: 1 }}>Connect to GitHub</Typography>
+      {appMode ? (
+        <Stack spacing={1}>
+          <Typography variant="body2">
+            Events arrive via the <strong>Helix GitHub App</strong> — one app-level webhook receives every event from the repos it's installed on. This stream receives the deliveries that match its filter (repo <strong>{cfg.repo || '(not set)'}</strong>, plus its events whitelist). There's no per-repo webhook to install.
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Scope is controlled by two things: which repos the app is installed on (GitHub → the app → Configure), and this stream's repo + events filter. Use <code>owner/*</code> as the repo to match a whole org. GitHub must be able to reach Helix at a public URL for deliveries to arrive.
+          </Typography>
+        </Stack>
+      ) : (
+      <>
       {isLocalhost && (
         <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, backgroundColor: 'warning.main', color: 'warning.contrastText' }}>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -549,6 +566,8 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
             Requires a connected GitHub OAuth (on the helix Connected Services page) with admin rights on the repo.
           </Typography>
         </Stack>
+      )}
+      </>
       )}
     </Paper>
   )

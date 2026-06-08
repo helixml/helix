@@ -424,7 +424,7 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		// Stream-level filters: drop on repo or event-whitelist
 		// mismatch with 204 so GitHub stops retrying. This is the
 		// same drop semantics as the org-level handler.
-		if !strings.EqualFold(streamCfg.Repo, repo) {
+		if !repoMatches(streamCfg.Repo, repo) {
 			t.logger.Info("github.inbound.stream: repo mismatch",
 				"stream", streamID, "stream_repo", streamCfg.Repo, "payload_repo", repo,
 				"event", eventType, "delivery", deliveryID)
@@ -506,7 +506,7 @@ func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string)
 			t.logger.Warn("github.inbound: stream config parse", "stream", s.ID, "err", err)
 			continue
 		}
-		if !strings.EqualFold(cfg.Repo, repo) {
+		if !repoMatches(cfg.Repo, repo) {
 			continue
 		}
 		if !contains(cfg.Events, eventType) {
@@ -515,6 +515,20 @@ func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string)
 		matched = append(matched, s)
 	}
 	return matched, nil
+}
+
+// repoMatches reports whether a stream's configured repo filter matches a
+// delivery's repository full_name. Supports:
+//   - exact repo: "owner/name" (case-insensitive)
+//   - org wildcard: "owner/*" matches every repo under that owner — the
+//     "scoped to an org" case when the app is installed on all of an org's
+//     repos.
+func repoMatches(cfgRepo, deliveredRepo string) bool {
+	if owner, ok := strings.CutSuffix(cfgRepo, "/*"); ok {
+		dOwner, _, found := strings.Cut(deliveredRepo, "/")
+		return found && strings.EqualFold(owner, dOwner)
+	}
+	return strings.EqualFold(cfgRepo, deliveredRepo)
 }
 
 // verifySignature compares X-Hub-Signature-256 ("sha256=<hex>")
