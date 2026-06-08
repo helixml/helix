@@ -62,11 +62,52 @@ func (f *fakeStore) UpdateSandboxInstanceStatus(ctx context.Context, id, status 
 	return nil
 }
 
+func (f *fakeStore) UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.rows[id]
+	if !ok {
+		return errors.New("not found")
+	}
+	r.ComputeState = computeState
+	return nil
+}
+
+func (f *fakeStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.rows[id]
+	if !ok {
+		return errors.New("not found")
+	}
+	r.ProviderID = providerID
+	return nil
+}
+
 func (f *fakeStore) DeregisterSandboxInstance(ctx context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.rows, id)
 	return nil
+}
+
+// failOnceStore wraps fakeStore but injects a one-shot failure on
+// UpdateSandboxInstanceProviderID, used by the test that exercises
+// provisionOne's rollback path when the second write fails.
+type failOnceStore struct {
+	*fakeStore
+	updProviderIDErr error
+	updProviderIDCalls int
+}
+
+func (f *failOnceStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
+	f.updProviderIDCalls++
+	if f.updProviderIDErr != nil {
+		err := f.updProviderIDErr
+		f.updProviderIDErr = nil // one-shot
+		return err
+	}
+	return f.fakeStore.UpdateSandboxInstanceProviderID(ctx, id, providerID)
 }
 
 // newTestManager builds a Manager wired to a fresh fake store + stub
@@ -269,10 +310,9 @@ func TestReconcileRefreshesProvisioningRows(t *testing.T) {
 	if err := m.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile #1: %v", err)
 	}
-	// Manually mark the row state=provisioning to mirror what'd happen
-	// in production: row.ComputeState=provisioning, stub.handle.State=Ready.
-	// The next Reconcile must call HealthCheck and propagate the
-	// stub's view onto the row.
+	// Second cycle: refreshProvisioning calls HealthCheck on the
+	// provisioning row, observes the stub reporting Ready, and MUST
+	// persist BOTH the new ComputeState AND the mirrored Status.
 	if err := m.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile #2: %v", err)
 	}
@@ -281,7 +321,189 @@ func TestReconcileRefreshesProvisioningRows(t *testing.T) {
 		t.Fatalf("expected exactly 1 row after two cycles, got %d", len(rows))
 	}
 	if rows[0].Status != "online" {
-		t.Fatalf("HealthCheck should have promoted row to online; got Status=%q", rows[0].Status)
+		t.Fatalf("HealthCheck should have mirrored Ready to Status=online; got %q", rows[0].Status)
+	}
+	// Regression guard for the must-fix bug from review of D1: prior
+	// to the fix, Status was updated but ComputeState was not, so a
+	// Ready or Failed row would silently keep counting as
+	// "provisioning" toward Floor forever.
+	if rows[0].ComputeState != string(StateReady) {
+		t.Fatalf("HealthCheck must persist ComputeState=ready; got %q", rows[0].ComputeState)
+	}
+}
+
+func TestReconcileHealthCheckFailedRollsForwardComputeState(t *testing.T) {
+	// Regression guard for review-discovered bug: when HealthCheck
+	// reports StateFailed, the row's ComputeState must transition off
+	// 'provisioning' so it stops counting toward Floor. Otherwise the
+	// Manager believes it has capacity it does not, and pre-warming
+	// silently degrades to zero usable hosts.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	// Hook only fires on the FIRST Provision so the replacement
+	// (provisioned in cycle 2 after the original is marked Failed)
+	// boots cleanly. Otherwise every provision would be Failed and
+	// we'd never converge.
+	provisionCount := 0
+	stub.SetProvisionHook(func(_ Spec, h *Handle) {
+		provisionCount++
+		if provisionCount == 1 {
+			h.State = StateFailed
+		}
+	})
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:              1,
+		ReconcileInterval:  time.Second,
+		HealthCheckTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile #1: %v", err)
+	}
+	// Cycle 2: refreshProvisioning observes Failed on row #1 via
+	// HealthCheck and persists it. Then the count of "available"
+	// rows is 0 (Failed doesn't count), so a replacement is
+	// provisioned in the same cycle - confirming the Failed row
+	// is NOT being mistaken for capacity.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile #2: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("expected Failed row + replacement = 2 rows, got %d", len(rows))
+	}
+	failedCount := 0
+	provisioningCount := 0
+	for _, r := range rows {
+		switch State(r.ComputeState) {
+		case StateFailed:
+			failedCount++
+		case StateProvisioning:
+			provisioningCount++
+		}
+	}
+	if failedCount != 1 {
+		t.Fatalf("expected exactly 1 row in ComputeState=failed (the original), got %d", failedCount)
+	}
+	if provisioningCount != 1 {
+		t.Fatalf("expected exactly 1 row in ComputeState=provisioning (the replacement), got %d", provisioningCount)
+	}
+}
+
+func TestReconcileTimesOutStuckProvisioningRows(t *testing.T) {
+	// Regression guard: a stuck Provision (upstream task hung in
+	// image-pull etc.) must not hold a Floor slot forever. After
+	// MaxProvisioningAge elapses, the row is rolled back via
+	// Deprovision + Deregister.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:              1,
+		ReconcileInterval:  time.Second,
+		HealthCheckTimeout: time.Second,
+		MaxProvisioningAge: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	// First cycle provisions one row. Default stub state is
+	// Provisioning and stays there - it never transitions to Ready
+	// (no hook). Perfect simulation of a stuck upstream.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile #1: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row after first cycle, got %d", len(rows))
+	}
+	// Wait past MaxProvisioningAge.
+	time.Sleep(20 * time.Millisecond)
+	// Second cycle should observe age > MaxProvisioningAge, roll back
+	// the stuck row, and (because we're below Floor again) provision
+	// a fresh one.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile #2: %v", err)
+	}
+	rows, _ = store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("expected stuck row replaced (still 1 row), got %d", len(rows))
+	}
+	// New row's ProvisionedAt must be after the original cutoff.
+	if rows[0].ProvisionedAt == nil {
+		t.Fatal("replacement row missing ProvisionedAt")
+	}
+}
+
+func TestReconcileProvisionSecondWriteFailureRollsBack(t *testing.T) {
+	// Regression guard: if UpdateSandboxInstanceProviderID fails
+	// after Provision succeeded, both the upstream resource AND the
+	// Helix row must be cleaned up. Otherwise the upstream WR runs
+	// forever with nothing tracking it.
+	store := &failOnceStore{
+		fakeStore:        newFakeStore(),
+		updProviderIDErr: errors.New("simulated db write failure"),
+	}
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:              1,
+		ReconcileInterval:  time.Second,
+		HealthCheckTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	err = m.Reconcile(context.Background())
+	if err == nil {
+		t.Fatal("expected Reconcile to surface persist-failure error")
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("row should have been rolled back, got %d rows", len(rows))
+	}
+	// Verify the upstream resource was deprovisioned (stub's view
+	// should show the handle in StateTerminated).
+	handles, _ := stub.List(context.Background())
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 stub handle to exist, got %d", len(handles))
+	}
+	if handles[0].State != StateTerminated {
+		t.Fatalf("expected upstream handle to be Terminated after rollback, got %q", handles[0].State)
+	}
+}
+
+func TestReconcileFiresMaxConcurrentProvisionsPerCycle(t *testing.T) {
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   5,
+		ReconcileInterval:       time.Second,
+		HealthCheckTimeout:      time.Second,
+		MaxConcurrentProvisions: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 3 {
+		t.Fatalf("expected MaxConcurrentProvisions=3 rows per cycle below Floor, got %d", len(rows))
+	}
+}
+
+func TestReconcileDefaultMaxConcurrentProvisionsIsOne(t *testing.T) {
+	// Backwards compatibility: cfg with no MaxConcurrentProvisions
+	// set must default to 1, preserving the D1 conservative behaviour.
+	m, _, store := newTestManager(t, 5)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("default MaxConcurrentProvisions should be 1; got %d rows", len(rows))
 	}
 }
 
