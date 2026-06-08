@@ -257,19 +257,6 @@ const HelixOrgWorkerDetail: FC = () => {
         useOrgRouter: false,
       }]}
       organizationId={account.organizationTools.organization?.id}
-      topbarContent={(
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <ChatBubbleOutlineIcon />}
-            onClick={openChat}
-            disabled={launching}
-          >
-            {launching ? 'Launching Human Desktop…' : 'Start new chat'}
-          </Button>
-        </Stack>
-      )}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         {isLoading || !worker ? (
