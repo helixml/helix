@@ -18,6 +18,9 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli"
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 func New() *cobra.Command {
@@ -595,22 +598,53 @@ type AppsResponse struct {
 }
 
 func newListAgentsCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "list-agents",
-		Short:   "List available Helix agents/apps",
+	var (
+		orgFlag        string
+		zedExternalOnly bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list-agents",
+		Short: "List agents (apps) in an organization",
+		Long: `List agents in an organization.
+
+Agents are organization-scoped. If --org is omitted and you belong to a
+single org, that org is used; if you belong to multiple, you will be
+prompted. The HELIX_ORG environment variable is also honoured.
+
+By default every agent the user has access to in the org is listed, with
+the assistant type shown so it is obvious which can be launched with
+"helix spectask start" (zed_external) vs other agent kinds. Pass
+--zed-external-only to restore the old behaviour and hide non-spec-task
+agents.`,
 		Aliases: []string{"agents"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			apiClient, err := client.NewClientFromEnv()
+			if err != nil {
+				return fmt.Errorf("failed to create API client: %w", err)
+			}
+
+			orgID, err := cli.ResolveOrganizationInteractive(ctx, apiClient, orgFlag)
+			if err != nil {
+				return err
+			}
+
 			apiURL := getAPIURL()
 			token := getToken()
 
-			req, err := http.NewRequest("GET", apiURL+"/api/v1/apps", nil)
+			q := url.Values{}
+			q.Set("organization_id", orgID)
+			endpoint := apiURL + "/api/v1/apps?" + q.Encode()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 			if err != nil {
 				return err
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
 
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			httpClient := &http.Client{}
+			resp, err := httpClient.Do(req)
 			if err != nil {
 				return err
 			}
@@ -621,41 +655,75 @@ func newListAgentsCommand() *cobra.Command {
 				return fmt.Errorf("failed to parse apps: %w", err)
 			}
 
-			fmt.Println("Available Agents (Apps with zed_external assistants):")
+			fmt.Println("Available Agents:")
 			fmt.Println()
 
-			count := 0
+			shown := 0
 			for _, app := range apps {
-				// Find zed_external assistants
-				for _, assistant := range app.Config.Helix.Assistants {
+				// Surface the most relevant assistant per app: prefer zed_external
+				// (the only kind launchable via `spectask start` today), fall back
+				// to the first assistant otherwise so non-spec-task agents are
+				// still visible to the user.
+				var primary *Assistant
+				for i, assistant := range app.Config.Helix.Assistants {
 					if assistant.AgentType == "zed_external" {
-						count++
-						fmt.Printf("App: %s\n", app.Name)
-						fmt.Printf("  ID: %s\n", app.ID)
-						fmt.Printf("  Assistant: %s\n", assistant.Name)
-						if assistant.CodeAgentRuntime != "" {
-							fmt.Printf("  Runtime: %s\n", assistant.CodeAgentRuntime)
-						}
-						if assistant.Model != "" {
-							fmt.Printf("  Model: %s\n", assistant.Model)
-						}
-						fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
-						fmt.Println()
+						primary = &app.Config.Helix.Assistants[i]
 						break
 					}
 				}
+				if primary == nil && len(app.Config.Helix.Assistants) > 0 {
+					if zedExternalOnly {
+						continue
+					}
+					primary = &app.Config.Helix.Assistants[0]
+				}
+				if primary == nil {
+					// App with no assistants at all - skip.
+					continue
+				}
+
+				shown++
+				usable := primary.AgentType == "zed_external"
+				marker := " (not launchable via spectask start)"
+				if usable {
+					marker = ""
+				}
+
+				fmt.Printf("App: %s%s\n", app.Name, marker)
+				fmt.Printf("  ID: %s\n", app.ID)
+				fmt.Printf("  Assistant: %s\n", primary.Name)
+				if primary.AgentType != "" {
+					fmt.Printf("  Agent type: %s\n", primary.AgentType)
+				}
+				if primary.CodeAgentRuntime != "" {
+					fmt.Printf("  Runtime: %s\n", primary.CodeAgentRuntime)
+				}
+				if primary.Model != "" {
+					fmt.Printf("  Model: %s\n", primary.Model)
+				}
+				if usable {
+					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
+				}
+				fmt.Println()
 			}
 
-			if count == 0 {
-				fmt.Println("No agents with zed_external assistants found.")
-				fmt.Println("Create an agent with a zed_external assistant in the Helix UI first.")
-			} else {
-				fmt.Printf("Found %d agent(s) with external assistant support.\n", count)
+			switch {
+			case shown == 0 && zedExternalOnly:
+				fmt.Println("No agents with zed_external assistants found in this org.")
+				fmt.Println("Create one in the Helix UI, or drop --zed-external-only to see all agents.")
+			case shown == 0:
+				fmt.Println("No agents found in this org. Create one in the Helix UI first.")
+			default:
+				fmt.Printf("Found %d agent(s) in this org.\n", shown)
 			}
 
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
+	cmd.Flags().BoolVar(&zedExternalOnly, "zed-external-only", false, "Hide agents whose assistant is not zed_external (the only kind launchable via spectask start today)")
+	return cmd
 }
 
 func formatBytes(b int64) string {
