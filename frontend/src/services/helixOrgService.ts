@@ -218,6 +218,9 @@ export function useHireHelixOrgWorker() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      // An AI hire mints its s-activations-<id> stream — refresh the
+      // Streams list / chart stream nodes so it shows without a reload.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }
@@ -225,8 +228,11 @@ export function useHireHelixOrgWorker() {
 // useAddWorkerParent adds a reporting line — the Worker now also
 // reports to parentID. Reporting is many-to-many, so this is additive.
 // Drives the chart's drag-to-report: dragging manager → subordinate
-// adds the line. Invalidates overview + the worker list so the new
-// accountability edge renders on the next refetch.
+// adds the line. The topology reconciler wires the comms channels the
+// edge implies (the manager's s-team-<mgr> stream and the pair's
+// s-dm-<pair> channel, plus the manager observing the report's
+// activation stream), so we refresh streams too — not just the worker
+// list — so those new nodes render without a reload.
 export function useAddWorkerParent() {
   const api = useApi()
   const qc = useQueryClient()
@@ -238,6 +244,7 @@ export function useAddWorkerParent() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }
@@ -245,6 +252,9 @@ export function useAddWorkerParent() {
 // useRemoveWorkerParent drops one reporting line — the Worker no longer
 // reports to parentID. Drives the chart's delete-edge flow; only the
 // dragged edge's line is removed, leaving any other managers intact.
+// The reconciler tears down the channels the edge implied (the manager's
+// team stream when its last report leaves, and the pair's DM channel),
+// so refresh streams as well as the worker list.
 export function useRemoveWorkerParent() {
   const api = useApi()
   const qc = useQueryClient()
@@ -256,6 +266,7 @@ export function useRemoveWorkerParent() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
   })
 }

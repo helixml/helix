@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -89,6 +90,8 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.GetRoleName,
 		tools.ListWorkersName,
 		tools.GetWorkerName,
+		tools.ManagersName,
+		tools.ReportsName,
 		tools.GetWorkerEnvironmentName,
 		tools.ListStreamsName,
 		tools.GetStreamName,
@@ -123,8 +126,15 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create owner environment: %w", err)
 	}
 
-	if err := tools.EnsureActivationStream(ctx, s, params.OrganizationID, owner.ID(), owner.ID(), now); err != nil {
-		return Result{}, fmt.Errorf("owner activation stream: %w", err)
+	// Mint the owner's activation Stream via the topology reconciler —
+	// the same single owner of activation/team Stream lifecycle every
+	// other mutation routes through. The owner is the manager-less root,
+	// so the rule gives it a self-observed activation Stream (its chat
+	// turns surface on the Streams page) and no team Stream yet (no
+	// reports until it hires).
+	rec := &topology.Reconciler{Store: s, Now: func() time.Time { return now }}
+	if err := rec.Reconcile(ctx, params.OrganizationID, owner.ID()); err != nil {
+		return Result{}, fmt.Errorf("owner topology: %w", err)
 	}
 
 	return Result{

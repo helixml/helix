@@ -16,6 +16,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -40,12 +41,13 @@ func newDeps(t *testing.T) (orgapi.Deps, *store.Store, *configregistry.Registry)
 	reg := configregistry.New(st.Configs)
 
 	deps := orgapi.Deps{
-		Store:   st,
-		Configs: reg,
-		Hub:     hub,
-		Owner:   "w-owner",
-		NewID:   func() string { return "test-id" },
-		Now:     func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		Store:    st,
+		Configs:  reg,
+		Hub:      hub,
+		Owner:    "w-owner",
+		Topology: &topology.Reconciler{Store: st},
+		NewID:    func() string { return "test-id" },
+		Now:      func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
 	}
 	return deps, st, reg
 }

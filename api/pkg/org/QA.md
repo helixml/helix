@@ -138,16 +138,26 @@ workers, so the list must be filterable, not grouped).
 Every **AI** Worker has an auto-created `s-activations-<workerID>`
 stream (humans don't need spawner activation, so `w-owner` is the
 only human with one — seeded at bootstrap so chat lands
-somewhere). The Streams surface lives at `…/helix-org/streams`.
+somewhere). Both kinds of hierarchy stream are derived from the
+reporting graph by the topology reconciler (`application/topology`):
+the activation stream's subscribers are the Worker's **managers**, and
+any Worker with ≥1 direct report also gets an `s-team-<managerID>`
+broadcast stream (members = manager + direct reports). The Streams
+surface lives at `…/helix-org/streams`.
 
 1. **Streams list** — columns ID / Name / Transport / Subscribers
    / Created. Every AI worker has a matching
-   `s-activations-<workerID>` row, plus `s-activations-w-owner`.
+   `s-activations-<workerID>` row, plus `s-activations-w-owner`. Any
+   Worker that has at least one direct report also shows an
+   `s-team-<managerID>` row.
 2. **Subscribers column** shows worker ids (not position ids).
-   For a freshly-hired `w-ai-1`, `s-activations-w-ai-1`'s
-   subscriber list is `[w-owner]` (the hiring caller is auto-
-   subscribed) and explicitly NOT `[w-ai-1]` (a worker
-   subscribed to its own activation stream would loop dispatch).
+   For a freshly-hired `w-ai-1` (parent `w-owner`),
+   `s-activations-w-ai-1`'s subscriber list is `[w-owner]` — its
+   **manager** is subscribed, because activation-stream observers are
+   derived from the reporting line, not from whoever clicked hire — and
+   explicitly NOT `[w-ai-1]` (a worker subscribed to its own activation
+   stream would loop dispatch). `s-team-w-owner` exists with subscribers
+   `[w-owner, w-ai-1]`.
 3. **Detail page**: click any stream id. URL becomes
    `…/helix-org/streams/<id>`. Header shows id (monospace) +
    transport kind chip + description + `created by … · ts` +
@@ -196,14 +206,28 @@ Role does NOT inherit.
 
 ## §9. Stream delete
 
-Firing a worker removes its `s-activations-<workerID>` stream.
+Firing a worker removes both kinds of hierarchy stream it owns —
+its `s-activations-<workerID>` stream and, if it was a manager, its
+`s-team-<workerID>` team stream. Topology owns the teardown (Fire
+reconciles after the row is gone; there is no inline stream delete).
 
 1. Hire a fresh AI `w-cleanup`. Its activation stream row + an
    entry in `s-activations-w-cleanup`'s subscriber list appear.
 2. Fire `w-cleanup`. `s-activations-w-cleanup` row disappears
-   from the Streams list within ~1s (`lifecycle.Fire` cascade).
-   Events on that stream survive in `org_events` as an audit
-   trail.
+   from the Streams list within ~1s (`lifecycle.Fire` →
+   `topology.Reconcile`). Events on that stream survive in
+   `org_events` as an audit trail.
+3. **Team stream teardown.** Hire AI `w-cleanup-mgr`, then hire AI
+   `w-cleanup-rep` with parent `w-cleanup-mgr`. Confirm
+   `s-team-w-cleanup-mgr` now exists (subscribers
+   `[w-cleanup-mgr, w-cleanup-rep]`). Fire `w-cleanup-mgr` (the
+   confirm dialog notes its report loses its manager). Both
+   `s-activations-w-cleanup-mgr` **and** `s-team-w-cleanup-mgr`
+   disappear from the Streams list:
+   `SELECT id FROM org_streams WHERE id IN
+   ('s-activations-w-cleanup-mgr','s-team-w-cleanup-mgr')` returns
+   zero rows. `w-cleanup-rep` survives, keeping its own
+   `s-activations-w-cleanup-rep`.
 
 ## §10. Chat: inline transcript + Human Desktop
 
@@ -278,7 +302,8 @@ The Chart is a ReactFlow canvas keyed off the `org_reporting_lines`
 join table (many-to-many: a Worker may report to several managers)
 and worker-anchored subscriptions — there are no Position rows. This
 pins the drag interactions and the `POST /workers/{id}/parents` /
-`DELETE /workers/{id}/parents/{parent_id}` endpoints.
+`DELETE /workers/{id}/parents/{parent_id}` endpoints — both of which
+now reconcile the activation/team streams the edge implies (see 3a).
 
 1. On `…/helix-org/chart`, hire three AI workers into a new role
    `r-eng` via the role frame's hire icon: `w-alice`, `w-bob`,
@@ -290,18 +315,52 @@ pins the drag interactions and the `POST /workers/{id}/parents` /
    WHERE report_id='w-alice' AND org_id='<org>'` → `{w-owner}`. The
    `r-owner` frame now sits above `r-eng` (dagre lays the role tree out
    from the cross-role edge).
+   - **Topology side-effects** (the new manager edge wires the comms
+     channels — and they exist ONLY because the edge was wired; the
+     orphan workers from step 1 had no team/DM streams, only their own
+     `s-activations-<id>`). `s-activations-w-alice` now has `w-owner` as
+     a subscriber (the manager observes the report's transcript):
+     `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-activations-w-alice'` → `{w-owner}`. The manager's team
+     stream now exists with both of them:
+     `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-team-w-owner'` → `{w-owner, w-alice}`. And the 1:1 DM
+     channel for the edge now exists too — DM channels are scoped to the
+     reporting graph, provisioned here, NOT created on demand by the `dm`
+     tool: `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-dm-w-alice-w-owner'` → `{w-alice, w-owner}` (id is the
+     sorted pair).
 3. Drag from `w-alice`'s bottom handle to `w-bob`'s top handle →
    `w-bob` reports to `w-alice` (intra-role edge; both stay in
    `r-eng`).
-3a. **Multi-manager.** Drag from `w-carol`'s bottom handle to
-   `w-alice`'s top handle. A second reporting edge appears; snackbar
-   `w-alice now reports to w-carol`. `GET /workers/w-alice →
-   .parent_ids` returns `[w-owner, w-carol]` (order may vary). DB:
+3a. **Multi-manager + reparent-desync fix (highest-priority
+   regression).** Drag from `w-carol`'s bottom handle to `w-alice`'s
+   top handle. A second reporting edge appears; snackbar `w-alice now
+   reports to w-carol`. `GET /workers/w-alice → .parent_ids` returns
+   `[w-owner, w-carol]` (order may vary). DB:
    `SELECT manager_id FROM org_reporting_lines WHERE
-   report_id='w-alice'` → two rows. Then select **only** the
-   `w-carol → w-alice` edge and press **Delete**: snackbar `w-alice no
-   longer reports to w-carol`; the `w-owner → w-alice` edge survives;
-   `parent_ids` is back to `[w-owner]`.
+   report_id='w-alice'` → two rows.
+   - **Both managers now observe the transcript.**
+     `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-activations-w-alice'` → `{w-owner, w-carol}`. And
+     `w-carol`'s team stream now exists:
+     `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-team-w-carol'` → `{w-carol, w-alice}`.
+
+   Then select **only** the `w-carol → w-alice` edge and press
+   **Delete**: snackbar `w-alice no longer reports to w-carol`; the
+   `w-owner → w-alice` edge survives; `parent_ids` is back to
+   `[w-owner]`.
+   - **The ex-manager is unsubscribed — this is the bug this PR fixes.**
+     `SELECT worker_id FROM org_subscriptions WHERE
+     stream_id='s-activations-w-alice'` → `{w-owner}` only (NOT
+     `{w-owner, w-carol}` — the old bug left `w-carol` subscribed after
+     the edge was removed). `s-team-w-carol` is gone (w-carol has no
+     other reports), and so is the DM channel for the dropped edge:
+     `SELECT id FROM org_streams WHERE id IN
+     ('s-team-w-carol','s-dm-w-alice-w-carol')` → zero rows.
+     `w-owner`'s observership, `s-team-w-owner`, and the
+     `s-dm-w-alice-w-owner` channel are untouched.
 4. **Cycle guard**: drag from `w-bob`'s bottom handle to `w-alice`'s
    top handle (would make alice→bob→alice). API returns 409; snackbar
    surfaces the cycle error; no edge added. DB unchanged.
@@ -321,6 +380,47 @@ pins the drag interactions and the `POST /workers/{id}/parents` /
    that her one direct report (`w-bob`) loses its manager. Confirm;
    node gone, `w-bob`'s edge to her removed.
 
+## §13. Reporting-line comms: `managers` / `reports` tools
+
+The two lazy read tools resolve a Worker's reporting lines live, so the
+fixed worker policy can refer to "your managers" / "your reports"
+abstractly (escalate up via `managers`+`dm`; brief down via
+`reports`+`publish` to the team stream). Both are MCP tools on each
+Worker's surface — call them via `tools/call` at
+`/api/v1/mcp/helix-org/<org>/workers/<id>/mcp` (the same endpoint §2.8
+uses for `tools/list`). The owner Role and every Role drafted via
+`/role` carry `managers` + `reports`.
+
+Setup: in a fresh role that grants `managers`, `reports`, hire AI
+`w-mgr` (parent `w-owner`), AI `w-rep` (parent `w-mgr`), and AI `w-sub`
+(parent `w-rep`) — so `w-rep` is both a report (of `w-mgr`) and a
+manager (of `w-sub`).
+
+1. **`managers` from a report.** `tools/call managers` on `w-rep` (no
+   args) → `{"managers":[{"id":"w-mgr","role":"<roleId>",
+   "dmStreamId":"s-dm-w-mgr-w-rep"}]}`. The `dmStreamId` is the
+   deterministic sorted pair, so `dm`-ing `w-mgr` lands on it. Call
+   `managers` on `w-owner` → `{"managers":[]}` — an **empty array, not
+   null** (the owner reports to no one).
+2. **`reports` from a manager.** `tools/call reports` on `w-mgr` →
+   `teamStreamId` is `"s-team-w-mgr"` (non-null), and the `reports`
+   array contains `w-rep` with `dmStreamId":"s-dm-w-mgr-w-rep"` and
+   `manages: true` + `teamStreamId":"s-team-w-rep"` (because `w-rep`
+   leads its own sub-team via `w-sub`). Publishing to the top-level
+   `s-team-w-mgr` reaches `w-rep`; you delegate `w-rep`'s workstream to
+   it rather than posting into `s-team-w-rep` yourself.
+3. **`reports` from a leaf.** `tools/call reports` on `w-sub` →
+   `teamStreamId": null` and `reports": []` (empty array — no one
+   reports to `w-sub`).
+4. **`dm` is reporting-scoped.** `tools/call dm` from `w-rep` to its
+   manager `w-mgr` (a reporting pair) succeeds — the channel was
+   provisioned when the edge was wired. `tools/call dm` from `w-mgr` to
+   `w-sub` (a **skip-level** worker, no direct reporting edge) is
+   **refused** with an error naming `managers`/`reports` — there is no
+   implicit DM channel to an arbitrary or skip-level worker, and the
+   `dm` tool does NOT mint one. (Confirm the refusal wrote nothing:
+   `SELECT id FROM org_streams WHERE id='s-dm-w-mgr-w-sub'` → zero rows.)
+
 ## Pass criteria
 
 - §1 — bootstrap creates one Worker (`w-owner` with `role_id =
@@ -334,13 +434,29 @@ pins the drag interactions and the `POST /workers/{id}/parents` /
   before confirm.
 - §4 — cross-org isolation holds; restart persists; both themes
   render.
-- §6 — activation streams' subscribers list contains the hiring
-  caller's worker id (not their position id); live SSE replaces,
-  doesn't append.
+- §6 — activation streams' subscribers list contains the Worker's
+  manager id (derived from the reporting line, not whoever clicked
+  hire); a manager with reports also has an `s-team-<id>` stream; live
+  SSE replaces, doesn't append.
 - §8 — subscriptions are worker-keyed; fire drops them; new
   hires do NOT inherit; two workers in the same role can hold
   disjoint subscription sets.
-- §9 — fire removes the worker's activation stream (no orphans).
+- §9 — fire removes the worker's activation stream (no orphans), and
+  if the worker was a manager, its `s-team-<id>` stream is torn down
+  too (topology owns the teardown).
+- §12.3a — adding a second manager subscribes that manager to the
+  report's activation stream and creates its team stream; **removing
+  the edge unsubscribes the ex-manager** (the reparent-desync
+  regression this PR fixes) and tears down the now-empty team stream;
+  the surviving manager is untouched.
+- §13 — `managers` returns each manager's id/role/`dmStreamId` (empty
+  array, not null, for the owner); `reports` returns a non-null
+  `s-team-<id>` teamStreamId + each report's `dmStreamId`, flags a
+  report that manages its own sub-team (`manages: true` +
+  `teamStreamId`), and returns `null` teamStreamId + empty `reports`
+  for a leaf. `dm` works only between reporting pairs (channel
+  provisioned by topology on edge-wiring); a `dm` to a skip-level /
+  non-reporting worker is refused and mints nothing.
 - §10 — the worker page shows the conversation inline (transcript +
   tool calls + composer) when a session exists, GET-only on load (no
   container spin-up); the empty state shows otherwise. Sending a

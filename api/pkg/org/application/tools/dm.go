@@ -5,26 +5,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// DM sends a direct message to a single other Worker. It bundles the
-// underlying primitives — get-or-create a per-pair Stream, subscribe
-// both parties, publish the body — into one Tool the agent can reach
-// for from a "DM the fact-checker..." style instruction without having
-// to chain four separate calls.
+// DM sends a direct message to a single other Worker over the 1:1
+// channel the two share.
 //
-// The Stream ID is deterministic from the sorted (sender, recipient)
-// pair, so subsequent DMs in either direction land on the same Stream
-// and the back-and-forth stays ordered in one place.
+// IMPORTANT — DM access is scoped to the reporting graph. A DM channel
+// is NOT created on demand here; it is provisioned by the topology
+// reconciler for every reporting edge (manager ↔ report). So a Worker
+// can only DM the people it shares a reporting line with — its managers
+// (escalate up) and its direct reports (message down 1:1). DMing an
+// arbitrary peer or a skip-level Worker has no channel and is refused.
+// This is deliberate: peer-to-peer / cross-tree reach is a decision the
+// org makes by wiring a reporting line (or explicitly creating a
+// stream), not something any Worker can do implicitly to anyone.
+//
+// The Stream ID is deterministic from the sorted pair
+// (topology.DMStreamID), so A→B and B→A land on the same Stream and the
+// back-and-forth stays ordered in one place. The managers / reports
+// read tools hand back that same id so callers know which channel to use.
 type DM struct {
 	deps Deps
 }
@@ -36,12 +43,13 @@ var dmSchema = mustSchema[dmArgs]()
 func (t *DM) Name() tool.Name { return DMName }
 func (t *DM) Description() string {
 	return "Send a direct message (DM/PM/private message) to a single other Worker. " +
-		"Reach for this whenever the user says to DM/message/ping a named colleague. " +
-		"Transparently creates a per-pair Stream the first time, subscribes both " +
-		"parties, and publishes the body; subsequent DMs to the same Worker reuse " +
-		"the same Stream so the conversation stays in one ordered place. Use " +
-		"list_workers first if you need to look up the recipient's ID. Returns the " +
-		"streamId — read_events on it to wait for a reply."
+		"You can only DM workers you share a reporting line with — your managers " +
+		"(call `managers` to find them and escalate up) or your direct reports (call " +
+		"`reports` to message one 1:1). There is NO implicit DM channel to an " +
+		"arbitrary peer or a skip-level worker: those have no channel and the call is " +
+		"refused. The channel is provisioned automatically when the reporting line " +
+		"exists. Publishes the body and returns the streamId — read_events on it " +
+		"(with wait) to catch the reply."
 }
 func (t *DM) InputSchema() *jsonschema.Schema { return dmSchema }
 
@@ -71,37 +79,22 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		return nil, fmt.Errorf("recipient %q: %w", recipient, err)
 	}
 
-	streamID := dmStreamID(sender, recipient)
-
+	// The DM channel must already exist. Topology provisions one per
+	// reporting edge; we do NOT create it here. A missing channel means
+	// the caller has no reporting relationship with the recipient — say
+	// so plainly rather than silently minting a channel that the org
+	// never sanctioned.
+	streamID := topology.DMStreamID(sender, recipient)
 	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("lookup stream %q: %w", streamID, err)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf(
+				"no DM channel with %q: you can only DM workers you share a reporting line with — "+
+					"your managers (call `managers`) or your direct reports (call `reports`). "+
+					"To reach %q directly, a reporting line must be wired between you; "+
+					"otherwise escalate to a manager or brief via your team stream",
+				recipient, recipient)
 		}
-		name := fmt.Sprintf("dm: %s ↔ %s", sender, recipient)
-		s, err := streaming.NewStream(streamID, name, "", sender, t.deps.Now(), transport.Transport{}, orgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.deps.Store.Streams.Create(ctx, s); err != nil {
-			return nil, fmt.Errorf("create stream %q: %w", streamID, err)
-		}
-	}
-
-	// Subscribe both DM participants directly. Subscriptions are
-	// worker-anchored.
-	for _, wid := range []orgchart.WorkerID{sender, recipient} {
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
-			continue
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		sub, err := streaming.NewSubscription(string(wid), streamID, t.deps.Now(), orgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("lookup dm stream %q: %w", streamID, err)
 	}
 
 	msg := streaming.Message{
@@ -135,12 +128,4 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		"streamId": string(streamID),
 		"to":       string(recipient),
 	})
-}
-
-// dmStreamID returns the deterministic Stream ID for a DM between two
-// Workers, ordered by string compare so A→B and B→A share one Stream.
-func dmStreamID(a, b orgchart.WorkerID) streaming.StreamID {
-	pair := []string{string(a), string(b)}
-	sort.Strings(pair)
-	return streaming.StreamID("s-dm-" + pair[0] + "-" + pair[1])
 }

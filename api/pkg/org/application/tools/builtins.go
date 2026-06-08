@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -80,6 +81,14 @@ type Deps struct {
 	// which returns ErrProjectConfigUnsupported. The MCP tool wraps
 	// that into a friendly error message.
 	ProjectConfig runtime.ProjectConfig
+
+	// Topology reconciles the activation/team Streams implied by the
+	// reporting graph. hire_worker calls it after writing the new
+	// Worker + reporting line so the hire's activation Stream and the
+	// manager's team Stream materialise from one declarative pass. A
+	// nil Reconciler is a no-op (tests / runtimes without topology),
+	// but DefaultDeps wires one so the standard path is always covered.
+	Topology *topology.Reconciler
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
@@ -87,7 +96,7 @@ type Deps struct {
 // specific implementation. EnvsDir, Hub, and Dispatcher are
 // left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
-	return Deps{
+	d := Deps{
 		Store:         s,
 		Now:           func() time.Time { return time.Now().UTC() },
 		NewID:         uuid.NewString,
@@ -95,6 +104,8 @@ func DefaultDeps(s *store.Store) Deps {
 		HireHook:      runtime.NoopHireHook{},
 		ProjectConfig: runtime.NoopProjectConfig{},
 	}
+	d.Topology = &topology.Reconciler{Store: s, Now: d.Now}
+	return d
 }
 
 // RegisterBuiltins registers every built-in tool on the registry —
@@ -124,6 +135,8 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&GetRole{deps: deps},
 		&ListWorkers{deps: deps},
 		&GetWorker{deps: deps},
+		&Managers{deps: deps},
+		&Reports{deps: deps},
 		&GetWorkerEnvironment{deps: deps},
 		&GetWorkerProject{deps: deps},
 		&ListStreams{deps: deps},
