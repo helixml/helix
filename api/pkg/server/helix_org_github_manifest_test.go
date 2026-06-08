@@ -76,12 +76,35 @@ func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
 	// Callback + setup URLs carry the helix org and the caller's origin.
 	require.Equal(t, "http://localhost:8080/api/v1/orgs/org-1/github/app-manifest/callback", m.RedirectURL)
 	require.Equal(t, "http://localhost:8080/api/v1/orgs/org-1/github/app-setup", m.SetupURL)
+	// Loopback origin: no webhook url (GitHub rejects unreachable hooks).
+	require.Empty(t, m.HookAttributes, "localhost manifest must omit the hook url")
+	require.Empty(t, m.DefaultEvents)
 
 	// The state must decode back to the same org.
 	decoded, err := decodeGitHubManifestState(resp.State, testEncKey)
 	require.NoError(t, err)
 	require.Equal(t, "org-1", decoded.OrgID)
 	require.Equal(t, "acme", decoded.GitHubOrg)
+}
+
+func TestGitHubManifestStart_PublicOriginWiresWebhook(t *testing.T) {
+	start := newGitHubManifestStart(testKeyGetter)
+	resp, err := start(context.Background(), "org-1", "acme", "https://helix.example.com")
+	require.NoError(t, err)
+	var m githubManifest
+	require.NoError(t, json.Unmarshal([]byte(resp.Manifest), &m))
+	require.Equal(t, "https://helix.example.com/api/v1/orgs/org-1/github/webhook", m.HookAttributes["url"],
+		"public origin must wire the webhook")
+	require.NotEmpty(t, m.DefaultEvents)
+}
+
+func TestIsLoopbackOrigin(t *testing.T) {
+	for _, o := range []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://0.0.0.0:8080", "https://foo.localhost"} {
+		require.True(t, isLoopbackOrigin(o), "%s should be loopback", o)
+	}
+	for _, o := range []string{"https://helix.example.com", "https://abc.trycloudflare.com", "http://10.0.0.5"} {
+		require.False(t, isLoopbackOrigin(o), "%s should be public", o)
+	}
 }
 
 func TestGitHubManifestStart_RejectsBadInput(t *testing.T) {

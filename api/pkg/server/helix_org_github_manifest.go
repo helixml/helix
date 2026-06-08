@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -111,6 +112,27 @@ func normalizeOrigin(origin string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
+// isLoopbackOrigin reports whether base points at a loopback / non-public
+// host. GitHub validates the manifest's hook_attributes.url is reachable over
+// the public Internet at creation time, so we omit the webhook URL for
+// loopback origins (the redirect/setup URLs are browser redirects and work
+// fine on localhost). A public origin — e.g. a cloudflared tunnel — gets the
+// webhook wired automatically.
+func isLoopbackOrigin(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return true // be conservative: if we can't tell, don't send a hook
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsUnspecified()
+	}
+	return false
+}
+
 // newGitHubManifestStart builds the start resolver wired into the org API
 // Deps. It returns the GitHub POST URL, the manifest JSON to submit, and an
 // encrypted state. getKey provides the server encryption key (for the state).
@@ -140,13 +162,19 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 		manifest := githubManifest{
 			Name:               fmt.Sprintf("Helix %s", githubOrg),
 			URL:                "https://tryhelix.ai",
-			HookAttributes:     map[string]string{"url": base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/webhook"},
 			RedirectURL:        base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-manifest/callback",
 			SetupURL:           base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-setup",
 			SetupOnUpdate:      true,
 			Public:             false,
 			DefaultPermissions: helixAppPermissions,
-			DefaultEvents:      helixAppEvents,
+		}
+		// GitHub rejects a manifest whose hook url isn't publicly reachable, so
+		// only wire the webhook (and the events that depend on it) when the
+		// origin is public. On localhost the app is still fully usable as a
+		// bot; the webhook can be added later from a public URL.
+		if !isLoopbackOrigin(base) {
+			manifest.HookAttributes = map[string]string{"url": base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/webhook"}
+			manifest.DefaultEvents = helixAppEvents
 		}
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
