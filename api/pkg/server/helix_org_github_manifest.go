@@ -169,8 +169,13 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 		manifest := githubManifest{
 			Name:               fmt.Sprintf("Helix %s", githubOrg),
 			URL:                "https://helix.ml",
-			RedirectURL:        base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-manifest/callback",
-			Public:             false,
+			RedirectURL: base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-manifest/callback",
+			// Public ("Any account") so the one app can be installed on more
+			// than one GitHub org (e.g. winderai AND helixml). A private app
+			// can only be installed on its owner org. Each install is a
+			// separate installation with its own per-org token; Helix
+			// aggregates repos across installations and routes tokens by owner.
+			Public:             true,
 			DefaultPermissions: helixAppPermissions,
 		}
 		// GitHub rejects a manifest whose hook url isn't publicly reachable, so

@@ -446,6 +446,64 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			}
 			return helixorgapi.GitHubInstallationStatus{AppExists: appExists, Installed: installed, InstallURL: installURL, ManageURL: manageURL}, nil
 		},
+		// GitHubAppRepos aggregates repos across every installation of the
+		// org's Helix App(s) — so one app installed on multiple GitHub orgs
+		// returns all of their repos. Mints a per-installation token and lists
+		// /installation/repositories for each.
+		GitHubAppRepos: func(ctx context.Context, orgID string) ([]string, bool, error) {
+			conns, err := helixStore.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
+			if err != nil {
+				return nil, false, fmt.Errorf("list github_app service connections: %w", err)
+			}
+			isApp := false
+			seen := map[string]struct{}{}
+			var repos []string
+			for _, c := range conns {
+				if c == nil || c.GitHubAppID == 0 || c.GitHubPrivateKey == "" {
+					continue
+				}
+				isApp = true
+				key, kerr := cfg.APIServer.getEncryptionKey()
+				if kerr != nil {
+					continue
+				}
+				pem, derr := crypto.DecryptAES256GCM(c.GitHubPrivateKey, key)
+				if derr != nil {
+					continue
+				}
+				installs, ierr := githubclient.ListAppInstallations(ctx, c.GitHubAppID, string(pem), c.BaseURL)
+				if ierr != nil {
+					// App deleted or a transient error — skip this app rather
+					// than fail the whole listing (other apps may still resolve).
+					log.Warn().Err(ierr).Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("list app installations for repo picker failed")
+					continue
+				}
+				for _, inst := range installs {
+					tok, terr := githubskill.MintInstallationToken(ctx, c.GitHubAppID, inst.GetID(), string(pem), c.BaseURL)
+					if terr != nil {
+						log.Warn().Err(terr).Str("org_id", orgID).Int64("installation_id", inst.GetID()).Msg("mint installation token for repo picker failed")
+						continue
+					}
+					client, cerr := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: tok, BaseURL: c.BaseURL})
+					if cerr != nil {
+						continue
+					}
+					names, lerr := client.LoadInstallationRepos()
+					if lerr != nil {
+						log.Warn().Err(lerr).Str("org_id", orgID).Int64("installation_id", inst.GetID()).Msg("list installation repos failed")
+						continue
+					}
+					for _, n := range names {
+						if _, ok := seen[n]; ok {
+							continue
+						}
+						seen[n] = struct{}{}
+						repos = append(repos, n)
+					}
+				}
+			}
+			return repos, isApp, nil
+		},
 		// GitHubManifestStart builds the "create the Helix app" manifest flow.
 		GitHubManifestStart: newGitHubManifestStart(cfg.APIServer.getEncryptionKey),
 		// PublicServerURL is the externally-reachable base URL the

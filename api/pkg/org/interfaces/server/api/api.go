@@ -152,6 +152,13 @@ type Deps struct {
 	// falls back to treating the org as not-installable.
 	GitHubInstallation func(ctx context.Context, orgID string) (GitHubInstallationStatus, error)
 
+	// GitHubAppRepos lists every repo the org's Helix App(s) can access,
+	// aggregated across all installations (so a single app installed on
+	// winderai AND helixml returns repos from both). isApp is false when the
+	// org has no app (caller then falls back to the user's OAuth repos). Wired
+	// in api/pkg/server.
+	GitHubAppRepos func(ctx context.Context, orgID string) (repos []string, isApp bool, err error)
+
 	// GitHubManifestStart builds the GitHub App Manifest flow for an org:
 	// a Helix-authored manifest + an encrypted state + the GitHub POST URL,
 	// which the frontend submits as a form so GitHub creates the app on the
@@ -2097,14 +2104,28 @@ func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	// Resolve the org's GitHub identity. Prefer the richer resolver
-	// (which tells us app vs oauth); fall back to the plain token
-	// resolver for wiring that hasn't set GitHubIdentity.
-	var (
-		token   string
-		mode    = "oauth"
-		baseURL string
-	)
+	// App mode: aggregate repos across every installation of the org's Helix
+	// App(s) — so one app installed on winderai + helixml returns both. The
+	// installation token can't call /user/repos, so this lists
+	// /installation/repositories per installation server-side.
+	if a.deps.GitHubAppRepos != nil {
+		names, isApp, err := a.deps.GitHubAppRepos(ctx, orgID)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, fmt.Errorf("list github app repos: %w", err))
+			return
+		}
+		if isApp {
+			out := GitHubReposResponse{Repos: make([]GitHubRepoDTO, 0, len(names)), Source: "app"}
+			for _, n := range names {
+				out.Repos = append(out.Repos, GitHubRepoDTO{FullName: n})
+			}
+			writeJSON(w, http.StatusOK, out)
+			return
+		}
+	}
+
+	// Legacy OAuth fallback: list the connecting user's repos.
+	var token string
 	switch {
 	case a.deps.GitHubIdentity != nil:
 		id, err := a.deps.GitHubIdentity(ctx, orgID)
@@ -2112,7 +2133,7 @@ func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github identity: %w", err))
 			return
 		}
-		token, mode, baseURL = id.Token, id.Mode, id.BaseURL
+		token = id.Token
 	case a.deps.GitHubTokenResolver != nil:
 		t, err := a.deps.GitHubTokenResolver(ctx, orgID)
 		if err != nil {
@@ -2128,28 +2149,17 @@ func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusPreconditionFailed, errors.New("Helix GitHub App not installed for this org and no GitHub OAuth connection found"))
 		return
 	}
-	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token, BaseURL: baseURL})
+	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("build github client: %w", err))
 		return
 	}
-	// In app mode the token is an installation token, which cannot call
-	// /user/repos — list the installation's repos instead (which is also
-	// the correct scope: you can only stream a repo the bot can act on).
-	var names []string
-	if mode == "app" {
-		names, err = client.LoadInstallationRepos()
-	} else {
-		names, err = client.LoadRepos()
-	}
+	names, err := client.LoadRepos()
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Errorf("list github repos: %w", err))
 		return
 	}
-	// Preserve GitHub's order so the dropdown lists the most-actively-worked
-	// repos first. (The frontend's Autocomplete is freeSolo, so anything
-	// missed by pagination can still be typed in manually.)
-	out := GitHubReposResponse{Repos: make([]GitHubRepoDTO, 0, len(names)), Source: mode}
+	out := GitHubReposResponse{Repos: make([]GitHubRepoDTO, 0, len(names)), Source: "oauth"}
 	for _, n := range names {
 		out.Repos = append(out.Repos, GitHubRepoDTO{FullName: n})
 	}
