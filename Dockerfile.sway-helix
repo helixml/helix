@@ -6,10 +6,10 @@
 # Developers can switch between Sway and KDE without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (refreshed 2026-06-08).
 # Update digests when intentionally upgrading base images.
 # - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25-bookworm -> sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547
+# - golang:1.25-bookworm -> sha256:a1ae6b6c564f3e0072d70081036827a2705dbcf6b38aaa6d97f5de97fe9abdb4
 
 # ====================================================================
 # Build grim from source with JPEG support
@@ -36,7 +36,7 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 # Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-build-env
+FROM golang:1.25-bookworm@sha256:a1ae6b6c564f3e0072d70081036827a2705dbcf6b38aaa6d97f5de97fe9abdb4 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
