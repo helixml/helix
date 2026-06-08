@@ -1174,28 +1174,19 @@ const HelixOrgChart: FC = () => {
     <Page breadcrumbTitle="Chart">
       <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', minHeight: 0 }}>
         <Box sx={{ px: 4, pt: 4, pb: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-            <Box>
-              <Typography
-                variant="h4"
-                sx={{ fontWeight: 700, mb: 1, color: titleColor, letterSpacing: '-0.02em' }}
-              >
-                Chart
-              </Typography>
-              <Typography variant="body2" sx={{ color: subtitleColor }}>
-                Roles group Workers. Hire Workers into a Role, then drag from a manager's
-                bottom handle to a subordinate to set who reports to whom, or from a
-                Worker's right handle to a Stream to subscribe.
-              </Typography>
-            </Box>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setRoleDialogOpen(true)}
+          <Box>
+            <Typography
+              variant="h4"
+              sx={{ fontWeight: 700, mb: 1, color: titleColor, letterSpacing: '-0.02em' }}
             >
-              New role
-            </Button>
-          </Stack>
+              Chart
+            </Typography>
+            <Typography variant="body2" sx={{ color: subtitleColor }}>
+              Roles group Workers. Hire Workers into a Role, then drag from a manager's
+              bottom handle to a subordinate to set who reports to whom, or from a
+              Worker's right handle to a Stream to subscribe.
+            </Typography>
+          </Box>
         </Box>
 
         <Box
@@ -1211,6 +1202,19 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
+          {/* New role lives on the canvas (floating top-right) rather than
+              in the page header — it reads as a canvas action, and keeps
+              the header to title + description. zIndex sits above the
+              ReactFlow surface / controls. */}
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setRoleDialogOpen(true)}
+            sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}
+          >
+            New role
+          </Button>
+
           {isLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
           ) : groups.length === 0 ? (
