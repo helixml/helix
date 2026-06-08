@@ -67,7 +67,8 @@ func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
 	var m githubManifest
 	require.NoError(t, json.Unmarshal([]byte(resp.Manifest), &m))
 	require.Equal(t, "Helix acme", m.Name)
-	require.False(t, m.Public)
+	// Public ("Any account") so one app can be installed across multiple orgs.
+	require.True(t, m.Public)
 	// Least-privilege bot permissions.
 	require.Equal(t, "write", m.DefaultPermissions["contents"])
 	require.Equal(t, "write", m.DefaultPermissions["pull_requests"])
