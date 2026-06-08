@@ -106,11 +106,16 @@ describe('HelixOrgWorkerDetail inline transcript', () => {
 
     renderPage()
 
+    // chatSessionId flips null -> 'ses_abc' after the exploratory-session
+    // promise resolves. The useEffect that calls setCurrentSessionId runs
+    // after the re-render; the embedded-session DOM update is visible
+    // before the effect's next tick fires, so the spy assertion must
+    // poll alongside the DOM ones rather than running once after.
     await waitFor(() => {
       expect(screen.getByTestId('embedded-session')).toHaveTextContent('ses_abc')
+      expect(screen.getByTestId('prompt-input')).toHaveTextContent('ses_abc')
+      expect(mockSetCurrentSessionId).toHaveBeenCalledWith('ses_abc')
     })
-    expect(screen.getByTestId('prompt-input')).toHaveTextContent('ses_abc')
-    expect(mockSetCurrentSessionId).toHaveBeenCalledWith('ses_abc')
   })
 
   it('shows the empty state and never creates a session on load', async () => {
