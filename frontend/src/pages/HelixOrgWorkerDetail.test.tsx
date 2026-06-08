@@ -35,8 +35,7 @@ const mockUseHelixOrgWorker = vi.fn()
 vi.mock('../services/helixOrgService', () => ({
   useHelixOrgWorker: (id: string | undefined) => mockUseHelixOrgWorker(id),
   useFireHelixOrgWorker: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useEnsureWorkerChat: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useActivateWorker: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateWorkerIdentity: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useListHelixOrgStreams: () => ({ data: { streams: [] }, isLoading: false }),
   useListWorkerSubscriptions: () => ({ data: { subscriptions: [] }, isLoading: false }),
   useSubscribeWorker: () => ({ mutateAsync: vi.fn() }),
@@ -64,6 +63,9 @@ vi.mock('../components/system/Page', () => ({
   ),
 }))
 vi.mock('../components/widgets/LoadingSpinner', () => ({ default: () => null }))
+vi.mock('../components/widgets/MonacoEditor', () => ({
+  default: ({ value }: any) => <div data-testid="monaco">{value}</div>,
+}))
 vi.mock('../components/widgets/DeleteConfirmWindow', () => ({ default: () => null }))
 vi.mock('../components/common/RobustPromptInput', () => ({
   default: ({ sessionId }: any) => <div data-testid="prompt-input">{sessionId}</div>,
