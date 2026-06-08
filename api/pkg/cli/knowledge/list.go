@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -14,21 +15,41 @@ import (
 )
 
 func init() {
+	listCmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (env: HELIX_ORG). Lists org-owned knowledge instead of personal knowledge.")
 	rootCmd.AddCommand(listCmd)
 }
+
+var orgFlag string
 
 var listCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List helix knowledge",
-	Long:    ``,
+	Short:   "List helix knowledge in an organization (or for the current user)",
+	Long: `List helix knowledge.
+
+By default lists the current user's personal knowledge. Pass --org to list
+knowledge owned by an organization instead. The HELIX_ORG environment
+variable is honoured if --org is not given but you want org-scoped results.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
 		}
 
-		knowledge, err := apiClient.ListKnowledge(cmd.Context(), &client.KnowledgeFilter{})
+		filter := &client.KnowledgeFilter{}
+		orgRef := orgFlag
+		if orgRef == "" {
+			orgRef = os.Getenv("HELIX_ORG")
+		}
+		if orgRef != "" {
+			org, err := cli.LookupOrganization(cmd.Context(), apiClient, orgRef)
+			if err != nil {
+				return err
+			}
+			filter.OrganizationID = org.ID
+		}
+
+		knowledge, err := apiClient.ListKnowledge(cmd.Context(), filter)
 		if err != nil {
 			return fmt.Errorf("failed to list knowledge: %w", err)
 		}

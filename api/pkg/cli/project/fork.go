@@ -8,15 +8,23 @@ import (
 	"net/http"
 
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli"
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 func newForkCommand() *cobra.Command {
 	var projectName string
 	var description string
+	var orgFlag string
 
 	cmd := &cobra.Command{
 		Use:   "fork <sample-project-id>",
 		Short: "Create a new project from a sample project",
+		Long: `Create a new project from a sample project.
+
+By default the forked project is personal (owned by the calling user). Pass
+--org to fork into an organization you belong to.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sampleID := args[0]
@@ -31,6 +39,17 @@ func newForkCommand() *cobra.Command {
 			}
 			if description != "" {
 				payload["description"] = description
+			}
+			if orgFlag != "" {
+				apiClient, err := client.NewClientFromEnv()
+				if err != nil {
+					return fmt.Errorf("failed to create API client: %w", err)
+				}
+				org, err := cli.LookupOrganization(cmd.Context(), apiClient, orgFlag)
+				if err != nil {
+					return err
+				}
+				payload["organization_id"] = org.ID
 			}
 
 			jsonData, err := json.Marshal(payload)
@@ -85,6 +104,7 @@ func newForkCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&projectName, "name", "n", "", "Project name (defaults to sample name)")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "Project description")
+	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID to fork into (default: personal project)")
 
 	return cmd
 }
