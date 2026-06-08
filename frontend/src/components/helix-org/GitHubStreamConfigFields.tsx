@@ -19,9 +19,9 @@ import Typography from '@mui/material/Typography'
 import {
   EventOption,
   GITHUB_EVENT_OPTIONS,
-  GITHUB_EVENT_PATTERN,
   GITHUB_REPO_PATTERN,
   eventValue,
+  isValidGitHubEvent,
 } from './githubStreamConstants'
 
 // GitHubEventsField is the curated-but-free-text event whitelist editor.
@@ -29,7 +29,7 @@ export const GitHubEventsField: FC<{ events: string[]; onChange: (next: string[]
   events,
   onChange,
 }) => {
-  const badEvents = events.filter((e) => !GITHUB_EVENT_PATTERN.test(e))
+  const badEvents = events.filter((e) => !isValidGitHubEvent(e))
   return (
     <Autocomplete<EventOption, true, false, true>
       multiple
@@ -68,7 +68,7 @@ export const GitHubEventsField: FC<{ events: string[]; onChange: (next: string[]
         value.map((option, index) => {
           const v = eventValue(option)
           const known = GITHUB_EVENT_OPTIONS.some((o) => o.value === v)
-          const valid = GITHUB_EVENT_PATTERN.test(v)
+          const valid = isValidGitHubEvent(v)
           const { key: _tagKey, ...tagProps } = getTagProps({ index })
           return (
             <Chip

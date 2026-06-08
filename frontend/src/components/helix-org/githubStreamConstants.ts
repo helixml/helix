@@ -93,6 +93,11 @@ export const GITHUB_EVENT_OPTIONS: EventOption[] = [
 // api/pkg/org/domain/transport/github.go.
 export const GITHUB_EVENT_PATTERN = /^[a-z][a-z0-9_]{1,63}$/
 
+// isValidGitHubEvent mirrors the backend validator, which accepts the "*"
+// wildcard as a special case in addition to the slug pattern. Use this for
+// validation rather than GITHUB_EVENT_PATTERN alone (which rejects "*").
+export const isValidGitHubEvent = (e: string) => e === '*' || GITHUB_EVENT_PATTERN.test(e)
+
 // Exactly one slash, both halves non-empty. Mirror of the backend's
 // repo check.
 export const GITHUB_REPO_PATTERN = /^[^/\s]+\/[^/\s]+$/

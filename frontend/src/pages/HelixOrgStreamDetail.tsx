@@ -30,7 +30,7 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import GitHubStreamConfigFields from '../components/helix-org/GitHubStreamConfigFields'
 import {
-  GITHUB_EVENT_PATTERN,
+  isValidGitHubEvent,
   GITHUB_REPO_PATTERN,
 } from '../components/helix-org/githubStreamConstants'
 
@@ -275,7 +275,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
         snackbar.error('Pick at least one GitHub event type')
         return
       }
-      const bad = ghEvents.filter((e) => !GITHUB_EVENT_PATTERN.test(e))
+      const bad = ghEvents.filter((e) => !isValidGitHubEvent(e))
       if (bad.length > 0) {
         snackbar.error(`Invalid event name(s): ${bad.join(', ')} — must match /^[a-z][a-z0-9_]+$/`)
         return
