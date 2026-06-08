@@ -5,11 +5,9 @@
 // worker pulls from which stream.
 
 import { FC, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
-import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -28,7 +26,6 @@ import useTheme from '@mui/material/styles/useTheme'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import RefreshIcon from '@mui/icons-material/Refresh'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -49,6 +46,7 @@ import {
   useListHelixOrgStreams,
 } from '../services/helixOrgService'
 import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
+import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import { GitHubAppConnect } from '../components/helix-org/GitHubAppPanel'
 
 const TRANSPORT_KINDS = [
@@ -305,8 +303,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // operator gets a "Connect GitHub for streams" CTA instead of a
   // confusing 412 mid-flow). The hook suppresses its own snackbar
   // so this stays a quiet probe.
+  // Kept for the refetch side-effects (App install completing,
+  // GitHubAppConnect's onChange). GitHubRepoPicker fetches the list
+  // itself via the same React Query key, so both stay in sync.
   const ghReposQuery = useListGitHubRepos({ enabled: open })
-  const ghRepoOptions = useMemo(() => (ghReposQuery.data?.repos ?? []).map((r) => r.full_name), [ghReposQuery.data])
 
   // Probe whether the Helix GitHub App is installed for this org. This is
   // the single gate for the github transport: the user's own credentials
@@ -488,63 +488,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
           )}
           {kind === 'github' && (
             <>
-              <Stack direction="row" spacing={1} alignItems="flex-start">
-                <Autocomplete
-                  freeSolo
-                  autoSelect
-                  selectOnFocus
-                  fullWidth
-                  options={ghRepoOptions}
-                  value={ghRepo || null}
-                  onChange={(_, v) => setGhRepo((v ?? '').trim())}
-                  onInputChange={(_, v, reason) => {
-                    // Sync typed text into ghRepo so the submit
-                    // handler sees what the operator typed even if
-                    // they never picked a dropdown row.
-                    if (reason === 'input') setGhRepo(v)
-                  }}
-                  loading={ghReposQuery.isLoading || ghReposQuery.isRefetching}
-                  disablePortal
-                  noOptionsText={
-                    ghReposQuery.isError
-                      ? 'Could not load repos — connect a GitHub account on Connected Services first.'
-                      : (ghReposQuery.isLoading || ghReposQuery.isRefetching)
-                        ? 'Loading…'
-                        : 'No matches — type the full owner/name and press Enter.'
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Repository"
-                      placeholder="search or type owner/name…"
-                      size="small"
-                      InputProps={{
-                        ...params.InputProps,
-                        endAdornment: (
-                          <>
-                            {(ghReposQuery.isLoading || ghReposQuery.isRefetching) && <CircularProgress size={16} sx={{ mr: 1 }} />}
-                            {params.InputProps.endAdornment}
-                          </>
-                        ),
-                      }}
-                      helperText={
-                        ghRepoOptions.length >= 1000
-                          ? `Showing the ${ghRepoOptions.length} most-recently-pushed repos. Type the full owner/name if the one you want isn't listed.`
-                          : `Pick a repo, or type owner/name directly. Helix will register the webhook on GitHub for you — no manual setup. ${ghRepoOptions.length} repos loaded.`
-                      }
-                    />
-                  )}
-                />
-                <IconButton
-                  size="small"
-                  onClick={() => ghReposQuery.refetch()}
-                  disabled={ghReposQuery.isFetching}
-                  title="Re-fetch repos from GitHub (use this after granting the helix OAuth app access to a new org)"
-                  sx={{ mt: 0.5 }}
-                >
-                  <RefreshIcon fontSize="small" />
-                </IconButton>
-              </Stack>
+              <GitHubRepoPicker value={ghRepo} onChange={setGhRepo} enabled={open} />
               <GitHubEventsField events={ghEvents} onChange={setGhEvents} />
               <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
