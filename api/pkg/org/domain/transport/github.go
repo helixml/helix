@@ -50,6 +50,13 @@ type GitHubConfig struct {
 	// Required and non-empty.
 	Events []string `json:"events,omitempty"`
 
+	// Branches narrows branch-carrying events (push, create, delete) to
+	// specific branches. Each entry is "*" (all branches), an exact branch
+	// name ("main"), or a prefix glob ("release/*"). Events without a branch
+	// ref (issues, pull_request, …) are unaffected. An absent/empty list is
+	// also treated as all branches, for streams created before this field.
+	Branches []string `json:"branches,omitempty"`
+
 	// WebhookID is the GitHub-side hook id (returned by `POST
 	// /repos/{owner}/{repo}/hooks`) once helix has auto-installed
 	// the webhook for this stream. Zero when no auto-install has
@@ -93,6 +100,11 @@ func (g GitHubConfig) Validate() error {
 		}
 		if !githubEventNamePattern.MatchString(ev) {
 			return fmt.Errorf("github transport: invalid event %q (must match %s, e.g. issues, pull_request, push, workflow_run, or \"*\" for all events)", ev, githubEventNamePattern.String())
+		}
+	}
+	for _, b := range g.Branches {
+		if strings.TrimSpace(b) == "" {
+			return errors.New("github transport: branch filter entries must be non-empty (e.g. main, release/*)")
 		}
 	}
 	return nil

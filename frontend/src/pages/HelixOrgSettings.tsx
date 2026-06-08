@@ -36,6 +36,7 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
 import {
   SettingsSpecDTO,
   useDeleteHelixOrgSetting,
@@ -180,6 +181,8 @@ const HelixOrgSettings: FC = () => {
                   />
                 </Stack>
               </Paper>
+
+              <GitHubAppPanel />
 
               {/* Generic spec rows — everything not in FIRST_CLASS_KEYS */}
               {(data?.specs ?? [])

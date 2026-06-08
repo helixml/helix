@@ -7,6 +7,66 @@ export type EventOption = { value: string; help: string }
 
 export const GITHUB_EVENT_OPTIONS: EventOption[] = [
   {
+    value: 'push',
+    help: 'Commits pushed to a branch (or tag). This is the "code changed" event. Use the Branches filter below to scope to specific branches (e.g. main, release/*).',
+  },
+  {
+    value: 'create',
+    help: 'A branch or tag was created.',
+  },
+  {
+    value: 'delete',
+    help: 'A branch or tag was deleted.',
+  },
+  {
+    value: 'release',
+    help: 'A release was published, edited, or deleted.',
+  },
+  {
+    value: 'workflow_run',
+    help: 'A GitHub Actions workflow run started or finished (requested, in_progress, completed).',
+  },
+  {
+    value: 'workflow_job',
+    help: 'An individual GitHub Actions job was queued, started, or completed.',
+  },
+  {
+    value: 'check_run',
+    help: 'A check run (CI status check) was created, updated, or completed.',
+  },
+  {
+    value: 'status',
+    help: 'A commit status changed (the older statuses API: pending / success / failure).',
+  },
+  {
+    value: 'deployment_status',
+    help: 'A deployment status changed (e.g. a deploy succeeded or failed).',
+  },
+  {
+    value: 'discussion',
+    help: 'A GitHub Discussion was created, edited, answered, etc.',
+  },
+  {
+    value: 'discussion_comment',
+    help: 'A comment on a GitHub Discussion.',
+  },
+  {
+    value: 'fork',
+    help: 'The repository was forked.',
+  },
+  {
+    value: 'star',
+    help: 'A star was added to or removed from the repository.',
+  },
+  {
+    value: 'label',
+    help: 'A label was created, edited, or deleted in the repository.',
+  },
+  {
+    value: 'milestone',
+    help: 'A milestone was created, closed, edited, or deleted.',
+  },
+  {
     value: 'issues',
     help: 'Issue lifecycle: opened, closed, reopened, labeled, assigned, milestoned, etc. Fires for every change to the issue itself (not comments on it).',
   },
@@ -32,6 +92,11 @@ export const GITHUB_EVENT_OPTIONS: EventOption[] = [
 // with a letter. Mirror of githubEventNamePattern in
 // api/pkg/org/domain/transport/github.go.
 export const GITHUB_EVENT_PATTERN = /^[a-z][a-z0-9_]{1,63}$/
+
+// isValidGitHubEvent mirrors the backend validator, which accepts the "*"
+// wildcard as a special case in addition to the slug pattern. Use this for
+// validation rather than GITHUB_EVENT_PATTERN alone (which rejects "*").
+export const isValidGitHubEvent = (e: string) => e === '*' || GITHUB_EVENT_PATTERN.test(e)
 
 // Exactly one slash, both halves non-empty. Mirror of the backend's
 // repo check.

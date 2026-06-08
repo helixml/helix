@@ -58,6 +58,42 @@ definitions:
       to:
         type: string
     type: object
+  api.GitHubInstallationStatus:
+    properties:
+      app_exists:
+        description: |-
+          AppExists is true when a Helix GitHub App has been created/registered
+          for this org (a github_app ServiceConnection exists), even if not yet
+          installed on any repo. Drives the gate's create-vs-install branch.
+        type: boolean
+      install_url:
+        description: |-
+          InstallURL is where the New Stream gate sends the user to install the
+          app (https://github.com/apps/<slug>/installations/new). Populated from
+          the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
+        type: string
+      installed:
+        description: |-
+          Installed is true when the Helix GitHub App has an installation for
+          this org (a github_app ServiceConnection with an installation id).
+        type: boolean
+      manage_url:
+        description: |-
+          ManageURL is the app's developer-settings page on GitHub
+          (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+          permissions, repos, and delete the app. Empty when the owner is unknown
+          (e.g. a BYO app configured without it).
+        type: string
+    type: object
+  api.GitHubManifestStartResponse:
+    properties:
+      manifest:
+        type: string
+      post_url:
+        type: string
+      state:
+        type: string
+    type: object
   api.GitHubRepoDTO:
     properties:
       full_name:
@@ -17238,6 +17274,40 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/orgs/{org}/github/app-installation:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubInstallationStatus'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: GitHub App install status for the org'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/github/app-manifest:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubManifestStartResponse'
+        "412":
+          description: manifest flow not wired
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: start the GitHub App manifest (create) flow'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/github/repos:
     get:
       produces:

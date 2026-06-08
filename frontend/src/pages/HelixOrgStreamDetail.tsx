@@ -29,8 +29,9 @@ import CloseIcon from '@mui/icons-material/Close'
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import GitHubStreamConfigFields from '../components/helix-org/GitHubStreamConfigFields'
+import { useGitHubAppActions } from '../components/helix-org/useGitHubAppActions'
 import {
-  GITHUB_EVENT_PATTERN,
+  isValidGitHubEvent,
   GITHUB_REPO_PATTERN,
 } from '../components/helix-org/githubStreamConstants'
 
@@ -42,6 +43,7 @@ import {
   InstallWebhookFailedError,
   StreamDTO,
   useHelixOrgStream,
+  useGitHubAppInstallation,
   useInstallGitHubWebhook,
   useUpdateHelixOrgStream,
 } from '../services/helixOrgService'
@@ -234,14 +236,16 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
   const [configText, setConfigText] = useState('')
   const [ghRepo, setGhRepo] = useState('')
   const [ghEvents, setGhEvents] = useState<string[]>([])
+  const [ghBranches, setGhBranches] = useState<string[]>([])
 
   const enterEdit = () => {
     setName(stream.name)
     setDescription(stream.description ?? '')
     if (stream.kind === 'github') {
-      const cfg = (stream.config ?? {}) as { repo?: string; events?: string[] }
+      const cfg = (stream.config ?? {}) as { repo?: string; events?: string[]; branches?: string[] }
       setGhRepo(cfg.repo ?? '')
       setGhEvents(Array.isArray(cfg.events) ? cfg.events : [])
+      setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? cfg.branches : ['*'])
     } else if (stream.config) {
       setConfigText(JSON.stringify(stream.config, null, 2))
     } else {
@@ -272,12 +276,15 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
         snackbar.error('Pick at least one GitHub event type')
         return
       }
-      const bad = ghEvents.filter((e) => !GITHUB_EVENT_PATTERN.test(e))
+      const bad = ghEvents.filter((e) => !isValidGitHubEvent(e))
       if (bad.length > 0) {
         snackbar.error(`Invalid event name(s): ${bad.join(', ')} — must match /^[a-z][a-z0-9_]+$/`)
         return
       }
-      payload.transport = { config: { repo: ghRepo.trim(), events: ghEvents } }
+      const ghConfig: Record<string, unknown> = { repo: ghRepo.trim(), events: ghEvents }
+      const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
+      if (branches.length > 0) ghConfig.branches = branches
+      payload.transport = { config: ghConfig }
     } else if (stream.kind !== 'local' && configText.trim()) {
       try {
         const parsed = JSON.parse(configText)
@@ -361,8 +368,10 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
             <GitHubStreamConfigFields
               repo={ghRepo}
               events={ghEvents}
+              branches={ghBranches}
               onRepoChange={setGhRepo}
               onEventsChange={setGhEvents}
+              onBranchesChange={setGhBranches}
             />
           )}
           {stream.kind !== 'local' && stream.kind !== 'github' && (
@@ -443,6 +452,13 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
 const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) => {
   const snackbar = useSnackbar()
   const install = useInstallGitHubWebhook()
+  // App mode: when the Helix GitHub App is installed for this org, events
+  // arrive via the App's single webhook (filtered to this stream by repo +
+  // events), so there's no per-repo webhook to install.
+  const appInstall = useGitHubAppInstallation()
+  const appMode = appInstall.data?.installed === true
+  const appActions = useGitHubAppActions()
+  const manageUrl = appInstall.data?.manage_url ?? ''
 
   // Check the EFFECTIVE public URL — what the install endpoint
   // would actually use (streams.public_url override applied on
@@ -486,6 +502,24 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Typography variant="h6" sx={{ mb: 1 }}>Connect to GitHub</Typography>
+      {appMode ? (
+        <Stack spacing={1}>
+          <Typography variant="body2">
+            Events arrive via the <strong>Helix GitHub App</strong> — one app-level webhook receives every event from the repos it's installed on. This stream receives the deliveries that match its filter (repo <strong>{cfg.repo || '(not set)'}</strong>, plus its events whitelist). There's no per-repo webhook to install.
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Scope is controlled by two things: which repos the app is installed on, and this stream's repo + events filter. Use <code>owner/*</code> as the repo to match a whole org. GitHub must be able to reach Helix at a public URL for deliveries to arrive.
+          </Typography>
+          {manageUrl && (
+            <Box>
+              <Button size="small" variant="outlined" onClick={() => appActions.openManage(manageUrl)}>
+                Manage app on GitHub →
+              </Button>
+            </Box>
+          )}
+        </Stack>
+      ) : (
+      <>
       {isLocalhost && (
         <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, backgroundColor: 'warning.main', color: 'warning.contrastText' }}>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -549,6 +583,8 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
             Requires a connected GitHub OAuth (on the helix Connected Services page) with admin rights on the repo.
           </Typography>
         </Stack>
+      )}
+      </>
       )}
     </Paper>
   )

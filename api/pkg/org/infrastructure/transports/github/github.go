@@ -286,7 +286,8 @@ func (t *Transport) HandleInbound() http.Handler {
 		}
 
 		// Find every stream this delivery should fan out to.
-		streams, err := t.matchingStreams(r.Context(), repo, eventType)
+		branch := payloadBranch(eventType, payload)
+		streams, err := t.matchingStreams(r.Context(), repo, eventType, branch)
 		if err != nil {
 			t.logger.Error("github.inbound: match streams", "repo", repo, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -424,7 +425,7 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		// Stream-level filters: drop on repo or event-whitelist
 		// mismatch with 204 so GitHub stops retrying. This is the
 		// same drop semantics as the org-level handler.
-		if !strings.EqualFold(streamCfg.Repo, repo) {
+		if !repoMatches(streamCfg.Repo, repo) {
 			t.logger.Info("github.inbound.stream: repo mismatch",
 				"stream", streamID, "stream_repo", streamCfg.Repo, "payload_repo", repo,
 				"event", eventType, "delivery", deliveryID)
@@ -433,6 +434,12 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		}
 		if !contains(streamCfg.Events, eventType) {
 			t.logger.Info("github.inbound.stream: event not whitelisted",
+				"stream", streamID, "event", eventType, "delivery", deliveryID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !branchAllowed(streamCfg.Branches, payloadBranch(eventType, payload)) {
+			t.logger.Info("github.inbound.stream: branch not in filter",
 				"stream", streamID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -491,7 +498,7 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 // contains `eventType`. Linear scan is fine at the scale we expect;
 // indexed lookups are an obvious follow-on if installations ever
 // grow many github streams.
-func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string) ([]streaming.Stream, error) {
+func (t *Transport) matchingStreams(ctx context.Context, repo, eventType, branch string) ([]streaming.Stream, error) {
 	all, err := t.store.Streams.List(ctx, t.orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list streams: %w", err)
@@ -506,15 +513,76 @@ func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string)
 			t.logger.Warn("github.inbound: stream config parse", "stream", s.ID, "err", err)
 			continue
 		}
-		if !strings.EqualFold(cfg.Repo, repo) {
+		if !repoMatches(cfg.Repo, repo) {
 			continue
 		}
 		if !contains(cfg.Events, eventType) {
 			continue
 		}
+		if !branchAllowed(cfg.Branches, branch) {
+			continue
+		}
 		matched = append(matched, s)
 	}
 	return matched, nil
+}
+
+// payloadBranch extracts the branch name from a delivery's ref for events
+// that carry one (push, create, delete). Returns "" for tag refs and for
+// events without a ref — branchAllowed then treats those as unfiltered.
+func payloadBranch(eventType string, payload map[string]any) string {
+	switch eventType {
+	case "push", "create", "delete":
+		ref, _ := payload["ref"].(string)
+		// push uses refs/heads/<branch>; create/delete put the bare name in
+		// `ref` with ref_type=branch.
+		if b, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+			return b
+		}
+		if rt, _ := payload["ref_type"].(string); rt == "branch" {
+			return ref
+		}
+	}
+	return ""
+}
+
+// branchAllowed reports whether a delivery's branch passes a stream's branch
+// filter. Patterns are "*" (all branches), an exact name ("main"), or a prefix
+// glob ("release/*"). A non-branch event (branch=="") is unaffected, as is an
+// absent/empty filter (for streams created before this field existed).
+func branchAllowed(patterns []string, branch string) bool {
+	if len(patterns) == 0 || branch == "" {
+		return true
+	}
+	for _, p := range patterns {
+		if p == "*" {
+			return true
+		}
+		if prefix, ok := strings.CutSuffix(p, "/*"); ok {
+			if branch == prefix || strings.HasPrefix(branch, prefix+"/") {
+				return true
+			}
+			continue
+		}
+		if strings.EqualFold(p, branch) {
+			return true
+		}
+	}
+	return false
+}
+
+// repoMatches reports whether a stream's configured repo filter matches a
+// delivery's repository full_name. Supports:
+//   - exact repo: "owner/name" (case-insensitive)
+//   - org wildcard: "owner/*" matches every repo under that owner — the
+//     "scoped to an org" case when the app is installed on all of an org's
+//     repos.
+func repoMatches(cfgRepo, deliveredRepo string) bool {
+	if owner, ok := strings.CutSuffix(cfgRepo, "/*"); ok {
+		dOwner, _, found := strings.Cut(deliveredRepo, "/")
+		return found && strings.EqualFold(owner, dOwner)
+	}
+	return strings.EqualFold(cfgRepo, deliveredRepo)
 }
 
 // verifySignature compares X-Hub-Signature-256 ("sha256=<hex>")

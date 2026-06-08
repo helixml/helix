@@ -9251,6 +9251,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/github/app-installation": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: GitHub App install status for the org",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubInstallationStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/app-manifest": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: start the GitHub App manifest (create) flow",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubManifestStartResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "manifest flow not wired",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/github/repos": {
             "get": {
                 "security": [
@@ -20217,6 +20274,41 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.GitHubInstallationStatus": {
+            "type": "object",
+            "properties": {
+                "app_exists": {
+                    "description": "AppExists is true when a Helix GitHub App has been created/registered\nfor this org (a github_app ServiceConnection exists), even if not yet\ninstalled on any repo. Drives the gate's create-vs-install branch.",
+                    "type": "boolean"
+                },
+                "install_url": {
+                    "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
+                    "type": "string"
+                },
+                "installed": {
+                    "description": "Installed is true when the Helix GitHub App has an installation for\nthis org (a github_app ServiceConnection with an installation id).",
+                    "type": "boolean"
+                },
+                "manage_url": {
+                    "description": "ManageURL is the app's developer-settings page on GitHub\n(github.com/organizations/\u003cowner\u003e/settings/apps/\u003cslug\u003e) — where you edit\npermissions, repos, and delete the app. Empty when the owner is unknown\n(e.g. a BYO app configured without it).",
+                    "type": "string"
+                }
+            }
+        },
+        "api.GitHubManifestStartResponse": {
+            "type": "object",
+            "properties": {
+                "manifest": {
+                    "type": "string"
+                },
+                "post_url": {
+                    "type": "string"
+                },
+                "state": {
                     "type": "string"
                 }
             }

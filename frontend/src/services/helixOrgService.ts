@@ -6,6 +6,8 @@ import {
   ApiCreateStreamRequest,
   ApiEventCard,
   ApiGitHubReposResponse,
+  ApiGitHubInstallationStatus,
+  ApiGitHubManifestStartResponse,
   ApiHireWorkerRequest,
   ApiHireWorkerResponse,
   ApiInstallGitHubWebhookResponse,
@@ -42,6 +44,8 @@ export type SettingsResponse = ApiSettingsResponse
 export type StreamsResponse = ApiStreamsResponse
 export type GitHubRepoDTO = NonNullable<ApiGitHubReposResponse['repos']>[number]
 export type GitHubReposResponse = ApiGitHubReposResponse
+export type GitHubInstallationStatus = ApiGitHubInstallationStatus
+export type GitHubManifestStartResponse = ApiGitHubManifestStartResponse
 export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
 export type WorkerSubscription = ApiWorkerSubscriptionDTO
 export type WorkerSubscriptionsResponse = ApiWorkerSubscriptionsResponse
@@ -520,6 +524,48 @@ export function useListGitHubRepos(options?: { enabled?: boolean }) {
     enabled: !!orgID && (options?.enabled ?? true),
     staleTime: 0,
     refetchOnMount: 'always',
+  })
+}
+
+// Probes "is the Helix GitHub App installed for this org?" — drives the
+// New Stream "Install Helix" gate. Quiet on failure (returns null) so the
+// dialog renders the install CTA rather than a toast.
+export function useGitHubAppInstallation(options?: { enabled?: boolean; pollWhileNotInstalled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', 'github-app-installation', orgID],
+    queryFn: async () => {
+      try {
+        const res = await api.getApiClient().v1OrgsGithubAppInstallationDetail(orgID)
+        return res.data as GitHubInstallationStatus
+      } catch {
+        return null
+      }
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    // Poll until installed: the GitHub popup's postMessage is severed by
+    // GitHub's COOP headers, so polling is how the dialog reliably detects
+    // create→install completing.
+    refetchInterval: options?.pollWhileNotInstalled
+      ? (query) => ((query.state.data as GitHubInstallationStatus | null)?.installed ? false : 4000)
+      : false,
+  })
+}
+
+// Starts the GitHub App Manifest flow: the backend returns the GitHub POST
+// URL + a Helix-authored manifest + CSRF state, which the dialog submits as a
+// form so GitHub creates the app on the user's behalf.
+export function useGitHubManifestStart() {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (input: { github_org: string; origin: string }) => {
+      const res = await api.getApiClient().v1OrgsGithubAppManifestCreate(orgID, { body: input } as any)
+      return res.data as GitHubManifestStartResponse
+    },
   })
 }
 

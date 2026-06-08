@@ -2,12 +2,63 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
+	"strings"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v61/github"
 	"golang.org/x/oauth2"
 )
+
+// ErrAppNotFound means the GitHub App no longer exists (or its key is invalid)
+// — GitHub rejected the app JWT with 401/404. Callers use this to clear a stale
+// stored connection after the app is deleted on GitHub.
+var ErrAppNotFound = errors.New("github app not found (deleted or invalid credentials)")
+
+// buildAppTransport builds the app-level JWT transport (authenticating as the
+// GitHub App itself, not an installation), pointed at GHES when baseURL is
+// non-empty. Centralises the ghinstallation + GHES base-URL setup for the
+// app-scoped calls in this package.
+func buildAppTransport(appID int64, privateKey, baseURL string) (*ghinstallation.AppsTransport, error) {
+	atr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, []byte(privateKey))
+	if err != nil {
+		return nil, fmt.Errorf("create app transport: %w", err)
+	}
+	if baseURL != "" {
+		atr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+	return atr, nil
+}
+
+// ListAppInstallations lists every installation of a GitHub App, authenticating
+// as the app (JWT signed with its private key). Used to reconcile an org's
+// installation id after the user installs the app, without relying on a
+// browser Setup-URL redirect. baseURL is empty for github.com or the GHES origin.
+func ListAppInstallations(ctx context.Context, appID int64, privateKey, baseURL string) ([]*github.Installation, error) {
+	atr, err := buildAppTransport(appID, privateKey, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	client := github.NewClient(&http.Client{Transport: atr})
+	if baseURL != "" {
+		if ec, err := client.WithEnterpriseURLs(baseURL, baseURL); err == nil {
+			client = ec
+		}
+	}
+	insts, resp, err := client.Apps.ListInstallations(ctx, &github.ListOptions{PerPage: 100})
+	if err != nil {
+		// A valid app authenticates and returns 200 even with zero
+		// installations, so 401/404 here means the app itself is gone.
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound) {
+			return nil, ErrAppNotFound
+		}
+		return nil, fmt.Errorf("list app installations: %w", err)
+	}
+	return insts, nil
+}
 
 type ClientOptions struct {
 	Ctx     context.Context
@@ -69,6 +120,60 @@ func (c *Client) LoadRepos() ([]string, error) {
 			return nil, err
 		}
 		repos = append(repos, result...)
+		if meta == nil || meta.NextPage == 0 {
+			break
+		}
+		opts.Page = meta.NextPage
+	}
+	results := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		if repo != nil && repo.FullName != nil {
+			results = append(results, *repo.FullName)
+		}
+	}
+	return results, nil
+}
+
+// CompleteAppManifest exchanges the temporary code GitHub returns at the end
+// of the App Manifest flow for the new app's permanent config: id, slug,
+// PEM private key, webhook secret and client credentials. The code is valid
+// for one hour and the call is unauthenticated (the code is the credential),
+// so this uses a tokenless client. baseURL is empty for github.com or the
+// GHES origin.
+func CompleteAppManifest(ctx context.Context, code, baseURL string) (*github.AppConfig, error) {
+	client := github.NewClient(nil)
+	if baseURL != "" {
+		enterpriseClient, err := client.WithEnterpriseURLs(baseURL, baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("configure GHES base url: %w", err)
+		}
+		client = enterpriseClient
+	}
+	cfg, _, err := client.Apps.CompleteAppManifest(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("complete app manifest: %w", err)
+	}
+	return cfg, nil
+}
+
+// LoadInstallationRepos returns full_name for every repo a GitHub App
+// installation can access, via GET /installation/repositories. Use this when
+// the client is built with an installation access token (the app bot
+// identity) rather than a user OAuth token — an installation token cannot
+// call the /user/repos endpoint LoadRepos uses, and listing the
+// installation's repos is exactly the right scope for the picker: you can
+// only wire a stream to a repo the bot can actually act on.
+func (c *Client) LoadInstallationRepos() ([]string, error) {
+	var repos []*github.Repository
+	opts := github.ListOptions{PerPage: 100, Page: 1}
+	for i := 0; i < loadReposMaxPages; i++ {
+		result, meta, err := c.client.Apps.ListRepos(c.ctx, &opts)
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			repos = append(repos, result.Repositories...)
+		}
 		if meta == nil || meta.NextPage == 0 {
 			break
 		}

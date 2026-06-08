@@ -44,6 +44,39 @@ export interface ApiEventCard {
   to?: string;
 }
 
+export interface ApiGitHubInstallationStatus {
+  /**
+   * AppExists is true when a Helix GitHub App has been created/registered
+   * for this org (a github_app ServiceConnection exists), even if not yet
+   * installed on any repo. Drives the gate's create-vs-install branch.
+   */
+  app_exists?: boolean;
+  /**
+   * InstallURL is where the New Stream gate sends the user to install the
+   * app (https://github.com/apps/<slug>/installations/new). Populated from
+   * the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
+   */
+  install_url?: string;
+  /**
+   * Installed is true when the Helix GitHub App has an installation for
+   * this org (a github_app ServiceConnection with an installation id).
+   */
+  installed?: boolean;
+  /**
+   * ManageURL is the app's developer-settings page on GitHub
+   * (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+   * permissions, repos, and delete the app. Empty when the owner is unknown
+   * (e.g. a BYO app configured without it).
+   */
+  manage_url?: string;
+}
+
+export interface ApiGitHubManifestStartResponse {
+  manifest?: string;
+  post_url?: string;
+  state?: string;
+}
+
 export interface ApiGitHubRepoDTO {
   full_name?: string;
   private?: boolean;
@@ -11530,6 +11563,43 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubAppInstallationDetail
+     * @summary Helix-org: GitHub App install status for the org
+     * @request GET:/api/v1/orgs/{org}/github/app-installation
+     * @secure
+     */
+    v1OrgsGithubAppInstallationDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubInstallationStatus, any>({
+        path: `/api/v1/orgs/${org}/github/app-installation`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubAppManifestCreate
+     * @summary Helix-org: start the GitHub App manifest (create) flow
+     * @request POST:/api/v1/orgs/{org}/github/app-manifest
+     * @secure
+     */
+    v1OrgsGithubAppManifestCreate: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubManifestStartResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/app-manifest`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

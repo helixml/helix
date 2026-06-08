@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -610,6 +611,38 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+	// AppSlug is the public URL slug of this deployment's Helix GitHub App
+	// (e.g. "helix-agent" → https://github.com/apps/helix-agent). NOT a
+	// secret — just the public app handle used to build the install URL the
+	// New Stream "Install Helix" gate opens. The app's private key lives
+	// encrypted in a ServiceConnection, never here.
+	AppSlug string `envconfig:"GITHUB_APP_SLUG" description:"Public slug of the Helix GitHub App used to build the install URL."`
+	// URL is the base web URL of the GitHub instance: https://github.com
+	// (default) or a GitHub Enterprise Server origin (e.g.
+	// https://github.acme.com). It drives the app create/install/manage links
+	// and points the API client at the right host for GHES customers.
+	URL string `envconfig:"GITHUB_URL" default:"https://github.com" description:"Base web URL of the GitHub instance (https://github.com or a GitHub Enterprise Server origin)."`
+}
+
+// WebURL returns the GitHub web origin (no trailing slash), defaulting to
+// github.com. Used to build the app create / install / manage links.
+func (g GitHub) WebURL() string {
+	u := strings.TrimRight(strings.TrimSpace(g.URL), "/")
+	if u == "" {
+		return "https://github.com"
+	}
+	return u
+}
+
+// APIBaseURL returns the value to hand the github client/transport: empty for
+// public github.com (the client special-cases it to api.github.com), or the
+// GHES origin otherwise. This is also what gets stored on a github_app
+// ServiceConnection so later API calls target the right host.
+func (g GitHub) APIBaseURL() string {
+	if g.WebURL() == "https://github.com" {
+		return ""
+	}
+	return g.WebURL()
 }
 
 type FineTuning struct {
