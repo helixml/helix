@@ -239,6 +239,7 @@ const HelixOrgWorkerDetail: FC = () => {
                         <EmbeddedSessionView
                           ref={sessionViewRef}
                           sessionId={chatSessionId}
+                          autoScrollOnMount
                         />
                         <Box sx={{ p: 1.5, flexShrink: 0 }}>
                           <RobustPromptInput
