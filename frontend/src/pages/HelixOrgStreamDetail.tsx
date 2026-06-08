@@ -29,11 +29,9 @@ import CloseIcon from '@mui/icons-material/Close'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import GitHubStreamConfigFields from '../components/helix-org/GitHubStreamConfigFields'
-import {
-  isValidGitHubEvent,
-  GITHUB_REPO_PATTERN,
-} from '../components/helix-org/githubStreamConstants'
+import { GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
+import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
+import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubStreamConstants'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -235,17 +233,22 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
   const [description, setDescription] = useState(stream.description ?? '')
   const [configText, setConfigText] = useState('')
   const [ghRepo, setGhRepo] = useState('')
-  const [ghEvents, setGhEvents] = useState<string[]>([])
   const [ghBranches, setGhBranches] = useState<string[]>([])
+  // The full github config as it was on the server when edit opened.
+  // We overlay only the operator-editable fields (repo, branches) on
+  // top of this at save time so server-managed fields — events (now
+  // owned by GitHub's webhook UI), webhook_id, webhook_html_url —
+  // survive the round-trip instead of being wiped.
+  const [ghOriginalConfig, setGhOriginalConfig] = useState<Record<string, unknown>>({})
 
   const enterEdit = () => {
     setName(stream.name)
     setDescription(stream.description ?? '')
     if (stream.kind === 'github') {
-      const cfg = (stream.config ?? {}) as { repo?: string; events?: string[]; branches?: string[] }
-      setGhRepo(cfg.repo ?? '')
-      setGhEvents(Array.isArray(cfg.events) ? cfg.events : [])
-      setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? cfg.branches : ['*'])
+      const cfg = (stream.config ?? {}) as Record<string, unknown>
+      setGhOriginalConfig(cfg)
+      setGhRepo(typeof cfg.repo === 'string' ? cfg.repo : '')
+      setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? (cfg.branches as string[]) : ['*'])
     } else if (stream.config) {
       setConfigText(JSON.stringify(stream.config, null, 2))
     } else {
@@ -272,18 +275,18 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
         snackbar.error('GitHub repo is required and must be owner/name')
         return
       }
-      if (ghEvents.length === 0) {
-        snackbar.error('Pick at least one GitHub event type')
-        return
-      }
-      const bad = ghEvents.filter((e) => !isValidGitHubEvent(e))
-      if (bad.length > 0) {
-        snackbar.error(`Invalid event name(s): ${bad.join(', ')} — must match /^[a-z][a-z0-9_]+$/`)
-        return
-      }
-      const ghConfig: Record<string, unknown> = { repo: ghRepo.trim(), events: ghEvents }
+      // Overlay the editable fields onto the original config so
+      // events (managed on GitHub now), webhook_id and webhook_html_url
+      // are preserved. The server's GitHubConfig.Validate requires a
+      // non-empty events list — dropping it here is what used to make
+      // the save silently fail.
+      const ghConfig: Record<string, unknown> = { ...ghOriginalConfig, repo: ghRepo.trim() }
       const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
-      if (branches.length > 0) ghConfig.branches = branches
+      if (branches.length > 0) {
+        ghConfig.branches = branches
+      } else {
+        delete ghConfig.branches
+      }
       payload.transport = { config: ghConfig }
     } else if (stream.kind !== 'local' && configText.trim()) {
       try {
@@ -365,14 +368,14 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
             fullWidth
           />
           {stream.kind === 'github' && (
-            <GitHubStreamConfigFields
-              repo={ghRepo}
-              events={ghEvents}
-              branches={ghBranches}
-              onRepoChange={setGhRepo}
-              onEventsChange={setGhEvents}
-              onBranchesChange={setGhBranches}
-            />
+            <>
+              <GitHubRepoPicker value={ghRepo} onChange={setGhRepo} />
+              <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
+              <Typography variant="caption" color="text.secondary">
+                Which GitHub event types this webhook delivers is configured on GitHub,
+                not here — open the webhook on GitHub (below) to change it.
+              </Typography>
+            </>
           )}
           {stream.kind !== 'local' && stream.kind !== 'github' && (
             <TextField
