@@ -3160,6 +3160,38 @@ type SandboxInstance struct {
 	// pulling weights from Hugging Face Hub. Empty once all services are
 	// healthy. Map key is compose service name.
 	ProfileProgress datatypes.JSON `json:"profile_progress,omitempty" gorm:"type:jsonb" swaggertype:"object,object"`
+
+	// --- Provider provenance fields ---
+	// Populated when this sandbox host was brought into existence by a
+	// compute provider (see api/pkg/sandbox/compute). Hosts that
+	// self-registered via the legacy WebSocket / operator-driven path
+	// leave these empty.
+
+	// Provider is the Name() of the compute.Provider that owns this host.
+	// E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+	Provider string `json:"provider,omitempty" gorm:"type:varchar(50);index:idx_sandbox_provider_id,priority:1"`
+
+	// ProviderID is the upstream system's opaque identifier for this
+	// host (e.g. a YellowDog work-requirement YDID). Forms a composite
+	// index with Provider so the reconciler can look hosts up cheaply.
+	ProviderID string `json:"provider_id,omitempty" gorm:"type:varchar(255);index:idx_sandbox_provider_id,priority:2"`
+
+	// ProviderMetadata is provider-specific opaque data for
+	// reconciliation, debugging, and admin display. Examples for YD:
+	// worker-pool ID, compute requirement ID, region, public IP.
+	ProviderMetadata datatypes.JSON `json:"provider_metadata,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
+
+	// ComputeState tracks the provider's view of the host's provisioning
+	// lifecycle. Distinct from Status (which is the heartbeat-derived
+	// online/offline/degraded view). Values: "provisioning" | "ready" |
+	// "terminating" | "terminated" | "failed". See compute.State for
+	// the canonical enum. Empty for self-registered hosts.
+	ComputeState string `json:"compute_state,omitempty" gorm:"type:varchar(50);index"`
+
+	// ProvisionedAt is when Helix asked the provider to bring this host
+	// up. Earlier than Created (which is the first heartbeat). Nil for
+	// self-registered hosts.
+	ProvisionedAt *time.Time `json:"provisioned_at,omitempty"`
 }
 
 // TableName returns the table name for GORM
