@@ -146,6 +146,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	return nil
 }
 
+// ReconcileAll converges the full topology for every Worker in the org.
+// Call at server startup so Workers hired before the reconciler was
+// wired (or before a new topology rule was added) get their activation,
+// team, and DM Streams created or corrected idempotently. Internally
+// loads every Worker ID and delegates to Reconcile so the scoping and
+// create/delete/subscribe logic stays in one place.
+func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
+	if r == nil || r.Store == nil {
+		return nil
+	}
+	workers, err := r.Store.Workers.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("topology: ReconcileAll list workers: %w", err)
+	}
+	if len(workers) == 0 {
+		return nil
+	}
+	ids := make([]orgchart.WorkerID, len(workers))
+	for i, w := range workers {
+		ids[i] = w.ID()
+	}
+	return r.Reconcile(ctx, orgID, ids...)
+}
+
 // ensureStream converges one managed Stream: create it if missing,
 // subscribe every desired member, and unsubscribe anyone the desired
 // set no longer includes (the load-bearing half — this is what fixes

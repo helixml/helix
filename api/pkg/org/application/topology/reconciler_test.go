@@ -123,7 +123,39 @@ func TestReconcile_LeavesForeignStreamsUntouched(t *testing.T) {
 	}
 }
 
-// TestReconcile_ScopedToAffectedSubtree: reconciling one manager's
+// TestReconcileAll_CatchesUpMissingTeamStream simulates the case where
+// Workers were hired before the topology reconciler was wired: the
+// reporting lines and Workers exist in the store but no team stream was
+// ever created. ReconcileAll must converge all Streams idempotently,
+// including the team stream for a manager who already has direct
+// reports.
+func TestReconcileAll_CatchesUpMissingTeamStream(t *testing.T) {
+	rec, st := newRec(t)
+	ctx := context.Background()
+
+	// Seed the org graph directly (bypassing hire_worker) to simulate
+	// Workers hired before the reconciler was wired — no streams exist.
+	seedWorker(t, st, human("w-owner"))
+	seedWorker(t, st, ai("w-alice"))
+	seedWorker(t, st, ai("w-qa-1"))
+	addLine(t, st, "w-owner", "w-alice")
+	addLine(t, st, "w-owner", "w-qa-1")
+
+	// ReconcileAll must create the team stream and subscribe all members.
+	if err := rec.ReconcileAll(ctx, orgID); err != nil {
+		t.Fatalf("ReconcileAll: %v", err)
+	}
+
+	team := TeamStreamID("w-owner")
+	if !streamExists(t, st, team) {
+		t.Fatalf("s-team-w-owner should exist after ReconcileAll")
+	}
+	if got := streamMembers(t, st, team); !eq(got, []orgchart.WorkerID{"w-alice", "w-owner", "w-qa-1"}) {
+		t.Fatalf("s-team-w-owner members = %v, want [w-alice w-owner w-qa-1]", got)
+	}
+}
+
+// TestReconcileAll_ScopedToAffectedSubtree: reconciling one manager's
 // subtree leaves an unrelated manager's team stream untouched.
 func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	rec, st := newRec(t)
