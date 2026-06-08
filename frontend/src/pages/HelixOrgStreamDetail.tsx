@@ -63,15 +63,19 @@ const HelixOrgStreamDetail: FC = () => {
   const [liveEvents, setLiveEvents] = useState<EventCard[] | null>(null)
   const events = liveEvents ?? stream?.recent_events ?? []
 
-  // SSE wiring. EventSource sends `Cookie` automatically, so the
-  // browser session auth flows through without extra headers. The
-  // server emits `event: message` frames with a JSON-array payload of
-  // up to 50 events newest-first; we replace state on each.
+  // SSE wiring. EventSource cannot send custom headers, so session
+  // cookie auth is insufficient for OIDC users who have no helix_session
+  // cookie. Pass the bearer token as ?access_token= so auth_utils.go
+  // getRequestToken() can pick it up regardless of cookie state.
+  // The server emits `event: message` frames with a JSON-array payload
+  // of up to 50 events newest-first; we replace state on each.
   const orgID = account.organizationTools.organization?.id || orgSlug || ''
+  const token = account.user?.token ?? ''
   const sseUrlRef = useRef<string | null>(null)
   useEffect(() => {
     if (!orgID || !streamId) return
-    const url = `/api/v1/orgs/${encodeURIComponent(orgID)}/streams/${encodeURIComponent(streamId)}/events`
+    const base = `/api/v1/orgs/${encodeURIComponent(orgID)}/streams/${encodeURIComponent(streamId)}/events`
+    const url = token ? `${base}?access_token=${encodeURIComponent(token)}` : base
     sseUrlRef.current = url
     const es = new EventSource(url, { withCredentials: true })
     const onMessage = (ev: MessageEvent) => {
@@ -88,7 +92,7 @@ const HelixOrgStreamDetail: FC = () => {
       es.removeEventListener('message', onMessage)
       es.close()
     }
-  }, [orgID, streamId])
+  }, [orgID, streamId, token])
 
   const subscribers = stream?.subscribers ?? []
 
