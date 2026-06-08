@@ -3,11 +3,39 @@ package github
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
+	"strings"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v61/github"
 	"golang.org/x/oauth2"
 )
+
+// ListAppInstallations lists every installation of a GitHub App, authenticating
+// as the app (JWT signed with its private key). Used to reconcile an org's
+// installation id after the user installs the app, without relying on a
+// browser Setup-URL redirect. baseURL is empty for github.com or the GHES origin.
+func ListAppInstallations(ctx context.Context, appID int64, privateKey, baseURL string) ([]*github.Installation, error) {
+	atr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, []byte(privateKey))
+	if err != nil {
+		return nil, fmt.Errorf("create app transport: %w", err)
+	}
+	if baseURL != "" {
+		atr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+	client := github.NewClient(&http.Client{Transport: atr})
+	if baseURL != "" {
+		if ec, err := client.WithEnterpriseURLs(baseURL, baseURL); err == nil {
+			client = ec
+		}
+	}
+	insts, _, err := client.Apps.ListInstallations(ctx, &github.ListOptions{PerPage: 100})
+	if err != nil {
+		return nil, fmt.Errorf("list app installations: %w", err)
+	}
+	return insts, nil
+}
 
 type ClientOptions struct {
 	Ctx     context.Context

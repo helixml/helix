@@ -73,9 +73,9 @@ func TestGitHubManifestStart_BuildsManifestAndPostURL(t *testing.T) {
 	require.Equal(t, "write", m.DefaultPermissions["pull_requests"])
 	require.Equal(t, "write", m.DefaultPermissions["issues"])
 	require.Equal(t, "read", m.DefaultPermissions["metadata"])
-	// Callback + setup URLs carry the helix org and the caller's origin.
+	// Callback URL carries the helix org and the caller's origin. No setup_url
+	// (it's optional; we reconcile the installation via GET /app/installations).
 	require.Equal(t, "http://localhost:8080/api/v1/orgs/org-1/github/app-manifest/callback", m.RedirectURL)
-	require.Equal(t, "http://localhost:8080/api/v1/orgs/org-1/github/app-setup", m.SetupURL)
 	// Loopback origin: no webhook url (GitHub rejects unreachable hooks).
 	require.Empty(t, m.HookAttributes, "localhost manifest must omit the hook url")
 	require.Empty(t, m.DefaultEvents)

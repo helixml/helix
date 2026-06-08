@@ -17,6 +17,8 @@ import (
 	"github.com/gorilla/mux"
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
+	"github.com/helixml/helix/api/pkg/crypto"
+	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -68,13 +70,9 @@ type helixOrgHandlers struct {
 	// /api/v1/orgs/{org}/github/app-manifest/callback). Insecure mount: it's
 	// a top-level navigation from github.com authenticated by the encrypted
 	// ?state=, not the helix session. Exchanges the code, stores the app,
-	// then redirects to the install page.
+	// then redirects to the install page. The installation id is reconciled
+	// later via GET /app/installations (no Setup-URL redirect needed).
 	publicGitHubManifestCallback http.Handler
-	// publicGitHubAppSetup receives GitHub's redirect after the user installs
-	// the app (the app's setup_url, path
-	// /api/v1/orgs/{org}/github/app-setup?installation_id=...). Persists the
-	// installation id, then closes the popup and notifies the opener.
-	publicGitHubAppSetup http.Handler
 }
 
 // alphaFeatureHelixOrg is the alpha-feature flag that gates the
@@ -383,6 +381,23 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 				if c.GitHubAppSlug != "" {
 					slug = c.GitHubAppSlug // prefer the created app's own slug
 				}
+				// Reconcile the installation id by asking GitHub directly (no
+				// Setup-URL redirect needed). Only runs while we don't yet have
+				// one, so it stops once the app is installed.
+				if c.GitHubInstallationID == 0 && c.GitHubPrivateKey != "" {
+					if key, kerr := cfg.APIServer.getEncryptionKey(); kerr == nil {
+						if pem, derr := crypto.DecryptAES256GCM(c.GitHubPrivateKey, key); derr == nil {
+							if insts, ierr := githubclient.ListAppInstallations(ctx, c.GitHubAppID, string(pem), c.BaseURL); ierr == nil && len(insts) > 0 {
+								c.GitHubInstallationID = insts[0].GetID()
+								if uerr := helixStore.UpdateServiceConnection(ctx, c); uerr != nil {
+									log.Warn().Err(uerr).Str("org_id", orgID).Msg("persist reconciled installation id failed")
+								} else {
+									log.Info().Str("org_id", orgID).Int64("installation_id", c.GitHubInstallationID).Msg("reconciled Helix GitHub App installation from GitHub")
+								}
+							}
+						}
+					}
+				}
 				if c.GitHubInstallationID != 0 {
 					installed = true
 				}
@@ -482,7 +497,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// by the encrypted ?state=; the setup callback only records a non-secret
 	// installation id onto the org's app.
 	publicGitHubManifestCallback := newGitHubManifestCallbackHandler(cfg.APIServer.getEncryptionKey, helixStore, deps.NewID)
-	publicGitHubAppSetup := newGitHubAppSetupHandler(helixStore)
 
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
@@ -490,7 +504,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 		publicGitHubManifestCallback: publicGitHubManifestCallback,
-		publicGitHubAppSetup:         publicGitHubAppSetup,
 	}, nil
 }
 

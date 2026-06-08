@@ -54,8 +54,6 @@ type githubManifest struct {
 	URL                string            `json:"url"`
 	HookAttributes     map[string]string `json:"hook_attributes,omitempty"`
 	RedirectURL        string            `json:"redirect_url"`
-	SetupURL           string            `json:"setup_url,omitempty"`
-	SetupOnUpdate      bool              `json:"setup_on_update,omitempty"`
 	Public             bool              `json:"public"`
 	DefaultPermissions map[string]string `json:"default_permissions"`
 	DefaultEvents      []string          `json:"default_events,omitempty"`
@@ -161,10 +159,8 @@ func newGitHubManifestStart(getKey func() ([]byte, error)) func(ctx context.Cont
 
 		manifest := githubManifest{
 			Name:               fmt.Sprintf("Helix %s", githubOrg),
-			URL:                "https://tryhelix.ai",
+			URL:                "https://helix.ml",
 			RedirectURL:        base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-manifest/callback",
-			SetupURL:           base + "/api/v1/orgs/" + url.PathEscape(orgID) + "/github/app-setup",
-			SetupOnUpdate:      true,
 			Public:             false,
 			DefaultPermissions: helixAppPermissions,
 		}
@@ -257,65 +253,3 @@ func newGitHubManifestCallbackHandler(getKey func() ([]byte, error), st helixsto
 	}
 }
 
-// newGitHubAppSetupHandler captures the installation_id GitHub appends to the
-// app's setup_url after the user installs, persisting it onto the org's
-// newest github_app ServiceConnection. It then postMessages the opener so the
-// New Stream dialog re-checks and closes the popup.
-func newGitHubAppSetupHandler(st helixstore.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		orgID := orgIDFromManifestPath(r)
-		installIDStr := r.URL.Query().Get("installation_id")
-		if orgID == "" || installIDStr == "" {
-			writeManifestClosePage(w, false, "Missing org or installation id.")
-			return
-		}
-		var installID int64
-		if _, err := fmt.Sscan(installIDStr, &installID); err != nil || installID == 0 {
-			writeManifestClosePage(w, false, "Invalid installation id.")
-			return
-		}
-		conns, err := st.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
-		if err != nil || len(conns) == 0 {
-			writeManifestClosePage(w, false, "No Helix app found for this org.")
-			return
-		}
-		// Newest first (store returns created_at DESC) — attach to the app
-		// the user just created/installed.
-		conn := conns[0]
-		conn.GitHubInstallationID = installID
-		if err := st.UpdateServiceConnection(ctx, conn); err != nil {
-			log.Error().Err(err).Str("org_id", orgID).Msg("persist installation id failed")
-			writeManifestClosePage(w, false, "Failed to save the installation.")
-			return
-		}
-		log.Info().Str("org_id", orgID).Int64("installation_id", installID).Msg("captured Helix GitHub App installation")
-		writeManifestClosePage(w, true, "")
-	}
-}
-
-// orgIDFromManifestPath extracts {org} from /api/v1/orgs/{org}/github/app-setup
-// without depending on the mux var name used at mount time.
-func orgIDFromManifestPath(r *http.Request) string {
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	for i := 0; i+1 < len(parts); i++ {
-		if parts[i] == "orgs" {
-			return parts[i+1]
-		}
-	}
-	return ""
-}
-
-// writeManifestClosePage renders a tiny page that notifies the opener (the
-// New Stream dialog) and closes the popup.
-func writeManifestClosePage(w http.ResponseWriter, ok bool, msg string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	status := "github-app-installed"
-	body := "Helix is installed. You can close this window."
-	if !ok {
-		status = "github-app-install-error"
-		body = "Could not complete the install: " + msg
-	}
-	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:2rem">%s
-<script>try{window.opener&&window.opener.postMessage({type:%q},"*")}catch(e){};setTimeout(function(){window.close()},800)</script>`, body, status)
-}

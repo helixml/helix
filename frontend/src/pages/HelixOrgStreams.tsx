@@ -4,7 +4,7 @@
 // the chart edges (added in the same PR as this page) show which
 // worker pulls from which stream.
 
-import { FC, MouseEvent, useEffect, useMemo, useState } from 'react'
+import { FC, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
@@ -308,8 +308,18 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // are used only to install the app; everything after (repo listing,
   // worker git/gh) acts as the bot. Replaces the old "Connect GitHub
   // OAuth" gate.
-  const ghInstallQuery = useGitHubAppInstallation({ enabled: open })
+  const ghInstallQuery = useGitHubAppInstallation({ enabled: open, pollWhileNotInstalled: open })
   const ghInstalled = !ghInstallQuery.isLoading && ghInstallQuery.data?.installed === true
+  // When the install transitions to done (detected via polling, since the
+  // GitHub popup can't postMessage back through COOP), refetch the repo list
+  // so the picker shows the bot's installation repos instead of stale state.
+  const prevInstalledRef = useRef(false)
+  useEffect(() => {
+    if (ghInstalled && !prevInstalledRef.current) {
+      ghReposQuery.refetch()
+    }
+    prevInstalledRef.current = ghInstalled
+  }, [ghInstalled])
   // app_exists = the Helix app has been created for this org (via the manifest
   // flow or BYO creds) but may not be installed on a repo yet.
   const ghAppExists = !ghInstallQuery.isLoading && ghInstallQuery.data?.app_exists === true

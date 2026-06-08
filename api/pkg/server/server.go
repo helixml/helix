@@ -821,11 +821,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 					Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
 					Methods(http.MethodGet)
 			}
-			if orgHandlers.publicGitHubAppSetup != nil {
-				insecureRouter.
-					Handle("/orgs/{org}/github/app-setup", orgHandlers.publicGitHubAppSetup).
-					Methods(http.MethodGet)
-			}
 
 			// /api/v1/orgs/{org}/* — per-tenant surface for the
 			// org-graph resources (chart, workers, roles, positions,

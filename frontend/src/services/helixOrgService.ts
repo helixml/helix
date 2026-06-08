@@ -530,7 +530,7 @@ export function useListGitHubRepos(options?: { enabled?: boolean }) {
 // Probes "is the Helix GitHub App installed for this org?" — drives the
 // New Stream "Install Helix" gate. Quiet on failure (returns null) so the
 // dialog renders the install CTA rather than a toast.
-export function useGitHubAppInstallation(options?: { enabled?: boolean }) {
+export function useGitHubAppInstallation(options?: { enabled?: boolean; pollWhileNotInstalled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
@@ -546,6 +546,12 @@ export function useGitHubAppInstallation(options?: { enabled?: boolean }) {
     enabled: !!orgID && (options?.enabled ?? true),
     staleTime: 0,
     refetchOnMount: 'always',
+    // Poll until installed: the GitHub popup's postMessage is severed by
+    // GitHub's COOP headers, so polling is how the dialog reliably detects
+    // create→install completing.
+    refetchInterval: options?.pollWhileNotInstalled
+      ? (query) => ((query.state.data as GitHubInstallationStatus | null)?.installed ? false : 4000)
+      : false,
   })
 }
 
