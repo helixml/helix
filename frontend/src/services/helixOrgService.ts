@@ -172,6 +172,25 @@ export function useHelixOrgWorker(workerId: string | undefined, options?: { enab
   })
 }
 
+// useUpdateWorkerIdentity rewrites a Worker's identity markdown. The
+// Spawner projects the new content into the Worker's identity.md on the
+// next activation. Drives the editable Identity panel on the worker
+// detail page.
+export function useUpdateWorkerIdentity() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ workerId, identity }: { workerId: string; identity: string }) => {
+      await api.getApiClient().v1OrgsWorkersIdentityCreate(workerId, orgID, { identity })
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, vars.workerId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+    },
+  })
+}
+
 export function useListHelixOrgTools(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()

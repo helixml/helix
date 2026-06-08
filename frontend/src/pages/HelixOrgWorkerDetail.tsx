@@ -28,10 +28,12 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import SaveIcon from '@mui/icons-material/Save'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
@@ -51,6 +53,7 @@ import {
   useListWorkerSubscriptions,
   useSubscribeWorker,
   useUnsubscribeWorker,
+  useUpdateWorkerIdentity,
 } from '../services/helixOrgService'
 import {
   WorkerChatReader,
@@ -75,11 +78,30 @@ const HelixOrgWorkerDetail: FC = () => {
     enabled: !fire.isPending && !fire.isSuccess,
   })
   const streaming = useStreaming()
+  const updateIdentity = useUpdateWorkerIdentity()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
   const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
   const projectID = data?.project_id
+
+  // Editable identity markdown. Seeded from the worker every time it
+  // loads/refreshes so a cancelled edit re-syncs to server state.
+  const [identityContent, setIdentityContent] = useState('')
+  useEffect(() => {
+    setIdentityContent(worker?.identity_content ?? '')
+  }, [worker?.identity_content])
+  const identityDirty = identityContent !== (worker?.identity_content ?? '')
+
+  const handleSaveIdentity = async () => {
+    if (!workerId) return
+    try {
+      await updateIdentity.mutateAsync({ workerId, identity: identityContent })
+      snackbar.success('identity saved')
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save identity failed')
+    }
+  }
 
   // chatSessionId is the worker's long-lived "Human Desktop" exploratory
   // session — the transcript we render inline. Null until we've resolved
@@ -244,26 +266,35 @@ const HelixOrgWorkerDetail: FC = () => {
                   </Stack>
                 </Paper>
 
-                {worker.identity_content && (
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Identity</Typography>
-                    <Box
-                      component="pre"
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 1,
-                        backgroundColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
-                        fontSize: '0.8rem',
-                        whiteSpace: 'pre-wrap',
-                        fontFamily: 'monospace',
-                        maxHeight: 360,
-                        overflow: 'auto',
-                      }}
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                    <Typography variant="subtitle2">Identity</Typography>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      startIcon={<SaveIcon />}
+                      disabled={!identityDirty || updateIdentity.isPending}
+                      onClick={handleSaveIdentity}
                     >
-                      {worker.identity_content}
-                    </Box>
-                  </Box>
-                )}
+                      {updateIdentity.isPending ? 'Saving…' : 'Save'}
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    The worker's persona markdown. Projected into its identity.md on the next
+                    activation. Cmd/Ctrl+S inside the editor saves.
+                  </Typography>
+                  <MonacoEditor
+                    value={identityContent}
+                    onChange={setIdentityContent}
+                    onSave={handleSaveIdentity}
+                    language="markdown"
+                    minHeight={240}
+                    maxHeight={600}
+                    autoHeight={true}
+                    theme="helix-dark"
+                  />
+                </Box>
 
                 {worker.tools && worker.tools.length > 0 && (
                   <Box>
