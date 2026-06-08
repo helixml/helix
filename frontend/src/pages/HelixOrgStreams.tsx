@@ -49,7 +49,6 @@ import {
   useListHelixOrgStreams,
 } from '../services/helixOrgService'
 import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
-import { useGitHubAppActions } from '../components/helix-org/useGitHubAppActions'
 import { GitHubAppConnect } from '../components/helix-org/GitHubAppPanel'
 
 const TRANSPORT_KINDS = [
@@ -326,11 +325,6 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
     }
     prevInstalledRef.current = ghInstalled
   }, [ghInstalled])
-  const ghManageURL = ghInstallQuery.data?.manage_url ?? ''
-  // Shared GitHub App actions (the create/install gate is rendered by
-  // <GitHubAppConnect>; this is just for the "Manage app" link in the repo
-  // picker once installed). onComplete re-checks install status + repos.
-  const ghActions = useGitHubAppActions(() => { ghInstallQuery.refetch(); ghReposQuery.refetch() })
 
   // If the operator had `github` selected when the probe came back
   // negative (e.g. they disconnected OAuth between dialog opens),
@@ -489,9 +483,13 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary">{helpFor}</Typography>
-          {/* Shared create/install gate — same component as the Settings page.
-              Renders nothing once installed (the repo picker below takes over). */}
-          <GitHubAppConnect mode="gate" onChange={() => { ghInstallQuery.refetch(); ghReposQuery.refetch() }} />
+          {/* Shared GitHub App connector — same component as the Settings page.
+              Shown while the app isn't ready (so the user can set it up from any
+              transport), and alongside the repo picker once github is selected
+              (where its "Add repositories" button is useful). */}
+          {(!ghInstalled || kind === 'github') && (
+            <GitHubAppConnect mode="gate" onChange={() => { ghInstallQuery.refetch(); ghReposQuery.refetch() }} />
+          )}
           {kind === 'github' && (
             <>
               <Stack direction="row" spacing={1} alignItems="flex-start">
@@ -554,16 +552,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               <GitHubEventsField events={ghEvents} onChange={setGhEvents} />
               <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Missing a repo? The bot only sees repos the Helix App is installed on. Add/remove repos, edit permissions, or delete the app from its developer settings:{' '}
-                <Button
-                  size="small"
-                  variant="text"
-                  onClick={() => ghActions.openManage(ghManageURL)}
-                  disabled={!ghManageURL}
-                  sx={{ p: 0, minWidth: 0, textTransform: 'none', verticalAlign: 'baseline' }}
-                >
-                  Manage app on GitHub →
-                </Button>
+                The bot only sees repos the Helix App is installed on — use "Add repositories / another org" above to grant more.
               </Typography>
             </>
           )}
