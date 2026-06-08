@@ -20292,6 +20292,10 @@ const docTemplate = `{
                 "installed": {
                     "description": "Installed is true when the Helix GitHub App has an installation for\nthis org (a github_app ServiceConnection with an installation id).",
                     "type": "boolean"
+                },
+                "manage_url": {
+                    "description": "ManageURL is the app's developer-settings page on GitHub\n(github.com/organizations/\u003cowner\u003e/settings/apps/\u003cslug\u003e) — where you edit\npermissions, repos, and delete the app. Empty when the owner is unknown\n(e.g. a BYO app configured without it).",
+                    "type": "string"
                 }
             }
         },

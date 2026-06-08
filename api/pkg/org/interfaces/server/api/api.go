@@ -1982,6 +1982,11 @@ type GitHubInstallationStatus struct {
 	// app (https://github.com/apps/<slug>/installations/new). Populated from
 	// the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
 	InstallURL string `json:"install_url,omitempty"`
+	// ManageURL is the app's developer-settings page on GitHub
+	// (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+	// permissions, repos, and delete the app. Empty when the owner is unknown
+	// (e.g. a BYO app configured without it).
+	ManageURL string `json:"manage_url,omitempty"`
 }
 
 // GitHubManifestStartResponse is what the frontend needs to POST a GitHub App

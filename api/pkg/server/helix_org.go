@@ -375,6 +375,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			appExists := false
 			installed := false
 			slug := cfg.APIServer.Cfg.GitHub.AppSlug // BYO/pre-existing app fallback
+			var owner string
 			for _, c := range conns {
 				if c == nil || c.GitHubAppID == 0 {
 					continue
@@ -404,8 +405,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 								if len(insts) > 0 {
 									newInstallID = insts[0].GetID()
 								}
-								if newInstallID != c.GitHubInstallationID {
+								// Backfill the owner (for the manage URL) on apps
+								// created before the field existed — for our
+								// org-owned/installed-on-same-org flow the install
+								// account is the owner.
+								newOwner := c.GitHubAppOwner
+								if newOwner == "" && len(insts) > 0 {
+									newOwner = insts[0].GetAccount().GetLogin()
+								}
+								if newInstallID != c.GitHubInstallationID || newOwner != c.GitHubAppOwner {
 									c.GitHubInstallationID = newInstallID
+									c.GitHubAppOwner = newOwner
 									if uerr := helixStore.UpdateServiceConnection(ctx, c); uerr != nil {
 										log.Warn().Err(uerr).Str("org_id", orgID).Msg("persist synced installation id failed")
 									} else {
@@ -420,15 +430,21 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 				if c.GitHubAppSlug != "" {
 					slug = c.GitHubAppSlug // prefer the created app's own slug
 				}
+				if c.GitHubAppOwner != "" {
+					owner = c.GitHubAppOwner
+				}
 				if c.GitHubInstallationID != 0 {
 					installed = true
 				}
 			}
-			var installURL string
+			var installURL, manageURL string
 			if slug != "" {
 				installURL = "https://github.com/apps/" + slug + "/installations/new"
 			}
-			return helixorgapi.GitHubInstallationStatus{AppExists: appExists, Installed: installed, InstallURL: installURL}, nil
+			if slug != "" && owner != "" {
+				manageURL = "https://github.com/organizations/" + owner + "/settings/apps/" + slug
+			}
+			return helixorgapi.GitHubInstallationStatus{AppExists: appExists, Installed: installed, InstallURL: installURL, ManageURL: manageURL}, nil
 		},
 		// GitHubManifestStart builds the "create the Helix app" manifest flow.
 		GitHubManifestStart: newGitHubManifestStart(cfg.APIServer.getEncryptionKey),

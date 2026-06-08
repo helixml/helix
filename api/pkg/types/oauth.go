@@ -270,6 +270,11 @@ type ServiceConnection struct {
 	// github.com/apps/helix-acme). Populated by the Manifest flow; used to
 	// build the install URL after the app is created. Not secret.
 	GitHubAppSlug string `json:"github_app_slug,omitempty" gorm:"type:text"`
+	// GitHubAppOwner is the GitHub org the app was created under (e.g.
+	// "acme"). Used to build the developer-settings URL
+	// (github.com/organizations/<owner>/settings/apps/<slug>) where the app
+	// is managed/deleted. Not secret.
+	GitHubAppOwner string `json:"github_app_owner,omitempty" gorm:"type:text"`
 
 	// Azure DevOps Service Principal credentials (encrypted at rest)
 	ADOOrganizationURL string `json:"ado_organization_url,omitempty"`

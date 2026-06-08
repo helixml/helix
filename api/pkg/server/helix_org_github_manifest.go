@@ -252,6 +252,7 @@ func newGitHubManifestCallbackHandler(
 			ProviderType:     types.ExternalRepositoryTypeGitHub,
 			GitHubAppID:      cfg.GetID(),
 			GitHubAppSlug:    cfg.GetSlug(),
+			GitHubAppOwner:   parsed.GitHubOrg,
 			GitHubPrivateKey: encPEM,
 		}
 		if err := st.CreateServiceConnection(ctx, conn); err != nil {

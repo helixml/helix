@@ -44,12 +44,13 @@ import {
   useCreateHelixOrgStream,
   useDeleteHelixOrgStream,
   useGitHubAppInstallation,
-  useGitHubManifestStart,
   useInstallGitHubWebhook,
   useListGitHubRepos,
   useListHelixOrgStreams,
 } from '../services/helixOrgService'
 import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
+import { useGitHubAppActions } from '../components/helix-org/useGitHubAppActions'
+import { GitHubAppConnect } from '../components/helix-org/GitHubAppPanel'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
@@ -325,108 +326,11 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
     }
     prevInstalledRef.current = ghInstalled
   }, [ghInstalled])
-  // app_exists = the Helix app has been created for this org (via the manifest
-  // flow or BYO creds) but may not be installed on a repo yet.
-  const ghAppExists = !ghInstallQuery.isLoading && ghInstallQuery.data?.app_exists === true
-  const ghInstallURL = ghInstallQuery.data?.install_url ?? ''
-  const manifestStart = useGitHubManifestStart()
-  // GitHub org the user wants to create the app under (org-owned app).
-  const [ghCreateOrg, setGhCreateOrg] = useState('')
-
-  // installGitHubApp sends the user to GitHub to install (or reconfigure)
-  // the Helix App. This is the ONLY step that uses the user's own GitHub
-  // identity. After they install, GitHub bounces them back; we re-check
-  // install status both via a postMessage from the app's Setup-URL callback
-  // (when wired) and on window focus (the always-works fallback).
-  // openGitHubPopup centres a popup; returns null (and toasts) if blocked.
-  const openGitHubPopup = (url: string, name: string): Window | null => {
-    const width = 1000
-    const height = 800
-    const left = (window.innerWidth - width) / 2
-    const top = (window.innerHeight - height) / 2
-    const popup = window.open(
-      url,
-      name,
-      `width=${width},height=${height},left=${left},top=${top},toolbar=0,location=0,menubar=0,directories=0,scrollbars=1`,
-    )
-    if (!popup) snackbar.error('Popup blocked — allow popups for this site and try again.')
-    return popup
-  }
-
-  // watchForInstallCompletion re-checks install status when the GitHub flow
-  // finishes — either via the app's setup-URL callback postMessage, or when
-  // the user returns focus to this window (the always-works fallback).
-  const watchForInstallCompletion = () => {
-    const recheck = () => {
-      ghInstallQuery.refetch()
-      ghReposQuery.refetch()
-    }
-    const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'github-app-installed') {
-        window.removeEventListener('message', onMessage)
-        window.removeEventListener('focus', onFocus)
-        snackbar.success('Helix installed — refreshing…')
-        recheck()
-      } else if (event.data?.type === 'github-app-install-error') {
-        window.removeEventListener('message', onMessage)
-        snackbar.error('GitHub reported a problem completing the install.')
-      }
-    }
-    const onFocus = () => {
-      window.removeEventListener('message', onMessage)
-      recheck()
-    }
-    window.addEventListener('message', onMessage)
-    window.addEventListener('focus', onFocus, { once: true })
-  }
-
-  // installGitHubApp: app already created → send the user to GitHub to pick
-  // repos to install it on.
-  const installGitHubApp = () => {
-    if (!ghInstallURL) {
-      snackbar.error('The Helix GitHub App is not configured on this deployment. Ask an admin to set GITHUB_APP_SLUG.')
-      return
-    }
-    if (!openGitHubPopup(ghInstallURL, 'github-app-install')) return
-    watchForInstallCompletion()
-  }
-
-  // createGitHubApp: no app yet → run the Manifest flow. Ask the backend for
-  // the GitHub POST URL + manifest, then submit it as a form inside a popup so
-  // GitHub creates the app (org-owned) on the user's behalf. The popup then
-  // chains create → install → setup-callback, which postMessages us back.
-  const createGitHubApp = async () => {
-    const githubOrg = ghCreateOrg.trim()
-    if (!githubOrg) {
-      snackbar.error('Enter the GitHub organization to create the app under')
-      return
-    }
-    // Open the popup synchronously on the click — opening it after the await
-    // below would lose the user gesture and get blocked.
-    const popup = openGitHubPopup('about:blank', 'github-app-create')
-    if (!popup) return
-    try {
-      popup.document.body.innerHTML = 'Preparing the Helix app…'
-      const start = await manifestStart.mutateAsync({ github_org: githubOrg, origin: window.location.origin })
-      // Build and submit the manifest form inside the (same-origin) popup.
-      const doc = popup.document
-      doc.body.innerHTML = 'Redirecting to GitHub to create the Helix app…'
-      const form = doc.createElement('form')
-      form.method = 'POST'
-      form.action = start.post_url
-      const input = doc.createElement('input')
-      input.type = 'hidden'
-      input.name = 'manifest'
-      input.value = start.manifest
-      form.appendChild(input)
-      doc.body.appendChild(form)
-      form.submit()
-      watchForInstallCompletion()
-    } catch (e: any) {
-      try { popup.close() } catch { /* ignore */ }
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'Could not start GitHub app creation')
-    }
-  }
+  const ghManageURL = ghInstallQuery.data?.manage_url ?? ''
+  // Shared GitHub App actions (the create/install gate is rendered by
+  // <GitHubAppConnect>; this is just for the "Manage app" link in the repo
+  // picker once installed). onComplete re-checks install status + repos.
+  const ghActions = useGitHubAppActions(() => { ghInstallQuery.refetch(); ghReposQuery.refetch() })
 
   // If the operator had `github` selected when the probe came back
   // negative (e.g. they disconnected OAuth between dialog opens),
@@ -585,55 +489,9 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary">{helpFor}</Typography>
-          {!ghInstallQuery.isLoading && !ghInstalled && !ghAppExists && (
-            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }} data-testid="github-app-create-gate">
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                <strong>Create the Helix GitHub App for your org.</strong> Helix creates an app owned by your GitHub organization (one click — GitHub pre-fills the permissions). Afterwards Helix acts as the <code>helix</code> bot, not your personal account.
-              </Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <TextField
-                  size="small"
-                  label="GitHub organization"
-                  placeholder="e.g. helixml"
-                  value={ghCreateOrg}
-                  onChange={(e) => setGhCreateOrg(e.target.value)}
-                  sx={{ flex: 1 }}
-                  inputProps={{ 'data-testid': 'github-app-create-org' }}
-                />
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={createGitHubApp}
-                  disabled={!ghCreateOrg.trim() || manifestStart.isPending}
-                  data-testid="github-app-create-button"
-                >
-                  {manifestStart.isPending ? 'Starting…' : 'Create Helix app'}
-                </Button>
-              </Stack>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                You must be an owner of that GitHub org. You'll review the app on GitHub, click Create, then choose which repos to install it on — all in one popup.
-              </Typography>
-            </Box>
-          )}
-          {!ghInstallQuery.isLoading && !ghInstalled && ghAppExists && (
-            <Box sx={{ p: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }} data-testid="github-app-install-gate">
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                <strong>The Helix app is created but not installed on any repo yet.</strong> Install it on the repos you want Helix to work with — afterwards Helix lists those repos and acts on them as the <code>helix</code> bot.
-              </Typography>
-              <Button
-                size="small"
-                variant="contained"
-                onClick={installGitHubApp}
-                disabled={!ghInstallURL}
-                data-testid="github-app-install-button"
-              >
-                Install Helix
-              </Button>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                You'll be sent to GitHub to choose the repositories, then bounced back here. Only an org owner can install it.
-              </Typography>
-            </Box>
-          )}
+          {/* Shared create/install gate — same component as the Settings page.
+              Renders nothing once installed (the repo picker below takes over). */}
+          <GitHubAppConnect mode="gate" onChange={() => { ghInstallQuery.refetch(); ghReposQuery.refetch() }} />
           {kind === 'github' && (
             <>
               <Stack direction="row" spacing={1} alignItems="flex-start">
@@ -696,15 +554,15 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               <GitHubEventsField events={ghEvents} onChange={setGhEvents} />
               <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Missing a repo? The bot only sees repos the Helix App is installed on.{' '}
+                Missing a repo? The bot only sees repos the Helix App is installed on. Add/remove repos, edit permissions, or delete the app from its developer settings:{' '}
                 <Button
                   size="small"
                   variant="text"
-                  onClick={installGitHubApp}
-                  disabled={!ghInstallURL}
+                  onClick={() => ghActions.openManage(ghManageURL)}
+                  disabled={!ghManageURL}
                   sx={{ p: 0, minWidth: 0, textTransform: 'none', verticalAlign: 'baseline' }}
                 >
-                  Configure repositories on GitHub →
+                  Manage app on GitHub →
                 </Button>
               </Typography>
             </>

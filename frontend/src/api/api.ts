@@ -62,6 +62,13 @@ export interface ApiGitHubInstallationStatus {
    * this org (a github_app ServiceConnection with an installation id).
    */
   installed?: boolean;
+  /**
+   * ManageURL is the app's developer-settings page on GitHub
+   * (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+   * permissions, repos, and delete the app. Empty when the owner is unknown
+   * (e.g. a BYO app configured without it).
+   */
+  manage_url?: string;
 }
 
 export interface ApiGitHubManifestStartResponse {

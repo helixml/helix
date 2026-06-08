@@ -29,6 +29,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import GitHubStreamConfigFields from '../components/helix-org/GitHubStreamConfigFields'
+import { useGitHubAppActions } from '../components/helix-org/useGitHubAppActions'
 import {
   isValidGitHubEvent,
   GITHUB_REPO_PATTERN,
@@ -456,6 +457,8 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
   // events), so there's no per-repo webhook to install.
   const appInstall = useGitHubAppInstallation()
   const appMode = appInstall.data?.installed === true
+  const appActions = useGitHubAppActions()
+  const manageUrl = appInstall.data?.manage_url ?? ''
 
   // Check the EFFECTIVE public URL — what the install endpoint
   // would actually use (streams.public_url override applied on
@@ -505,8 +508,15 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
             Events arrive via the <strong>Helix GitHub App</strong> — one app-level webhook receives every event from the repos it's installed on. This stream receives the deliveries that match its filter (repo <strong>{cfg.repo || '(not set)'}</strong>, plus its events whitelist). There's no per-repo webhook to install.
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Scope is controlled by two things: which repos the app is installed on (GitHub → the app → Configure), and this stream's repo + events filter. Use <code>owner/*</code> as the repo to match a whole org. GitHub must be able to reach Helix at a public URL for deliveries to arrive.
+            Scope is controlled by two things: which repos the app is installed on, and this stream's repo + events filter. Use <code>owner/*</code> as the repo to match a whole org. GitHub must be able to reach Helix at a public URL for deliveries to arrive.
           </Typography>
+          {manageUrl && (
+            <Box>
+              <Button size="small" variant="outlined" onClick={() => appActions.openManage(manageUrl)}>
+                Manage app on GitHub →
+              </Button>
+            </Box>
+          )}
         </Stack>
       ) : (
       <>

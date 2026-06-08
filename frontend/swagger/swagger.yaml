@@ -77,6 +77,13 @@ definitions:
           Installed is true when the Helix GitHub App has an installation for
           this org (a github_app ServiceConnection with an installation id).
         type: boolean
+      manage_url:
+        description: |-
+          ManageURL is the app's developer-settings page on GitHub
+          (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+          permissions, repos, and delete the app. Empty when the owner is unknown
+          (e.g. a BYO app configured without it).
+        type: string
     type: object
   api.GitHubManifestStartResponse:
     properties:
