@@ -63,10 +63,13 @@ const HelixOrgStreamDetail: FC = () => {
   const [liveEvents, setLiveEvents] = useState<EventCard[] | null>(null)
   const events = liveEvents ?? stream?.recent_events ?? []
 
-  // SSE wiring. EventSource sends `Cookie` automatically, so the
-  // browser session auth flows through without extra headers. The
-  // server emits `event: message` frames with a JSON-array payload of
-  // up to 50 events newest-first; we replace state on each.
+  // SSE wiring. For normal browser sessions EventSource sends the
+  // helix_session cookie automatically. For embed-token flows
+  // (pages loaded with ?access_token=…) the EventSource constructor
+  // is patched in useApi.ts to append ?access_token= to same-origin
+  // URLs — see the embedToken block there. The server emits
+  // `event: message` frames with a JSON-array payload of up to 50
+  // events newest-first; we replace state on each.
   const orgID = account.organizationTools.organization?.id || orgSlug || ''
   const sseUrlRef = useRef<string | null>(null)
   useEffect(() => {
