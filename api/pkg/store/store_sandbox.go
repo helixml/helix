@@ -104,6 +104,32 @@ func (s *PostgresStore) UpdateSandboxInstanceStatus(ctx context.Context, id stri
 		Update("status", status).Error
 }
 
+// UpdateSandboxInstanceComputeState writes only the compute_state column
+// for the given row. Used by the compute.Manager reconciler to record
+// provider-driven lifecycle transitions (provisioning -> ready, etc.)
+// WITHOUT overwriting heartbeat-driven fields (status, last_seen,
+// active_sandboxes). Pairs with UpdateSandboxInstanceProviderID for
+// the post-Provision update flow.
+func (s *PostgresStore) UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Update("compute_state", computeState).Error
+}
+
+// UpdateSandboxInstanceProviderID writes only the provider_id column.
+// Called by compute.Manager.provisionOne after the upstream Provider
+// accepts a new request and returns its opaque ID. Doing it as a
+// targeted column update (rather than a full row save) avoids racing
+// the heartbeat path that may have written fresher status/last_seen
+// for this row in between.
+func (s *PostgresStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Update("provider_id", providerID).Error
+}
+
 // MarkSandboxInstanceOfflineIfStale flips a sandbox row to status="offline"
 // only when its current last_seen is older than `staleBefore`. This is a
 // compare-and-swap variant of UpdateSandboxInstanceStatus used by the
