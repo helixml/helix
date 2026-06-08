@@ -286,7 +286,8 @@ func (t *Transport) HandleInbound() http.Handler {
 		}
 
 		// Find every stream this delivery should fan out to.
-		streams, err := t.matchingStreams(r.Context(), repo, eventType)
+		branch := payloadBranch(eventType, payload)
+		streams, err := t.matchingStreams(r.Context(), repo, eventType, branch)
 		if err != nil {
 			t.logger.Error("github.inbound: match streams", "repo", repo, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -437,6 +438,12 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if !branchAllowed(streamCfg.Branches, payloadBranch(eventType, payload)) {
+			t.logger.Info("github.inbound.stream: branch not in filter",
+				"stream", streamID, "event", eventType, "delivery", deliveryID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		// Inject the event header into the body's top level for
 		// roles, same as HandleInbound.
 		payload["event"] = eventType
@@ -491,7 +498,7 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 // contains `eventType`. Linear scan is fine at the scale we expect;
 // indexed lookups are an obvious follow-on if installations ever
 // grow many github streams.
-func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string) ([]streaming.Stream, error) {
+func (t *Transport) matchingStreams(ctx context.Context, repo, eventType, branch string) ([]streaming.Stream, error) {
 	all, err := t.store.Streams.List(ctx, t.orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list streams: %w", err)
@@ -512,9 +519,52 @@ func (t *Transport) matchingStreams(ctx context.Context, repo, eventType string)
 		if !contains(cfg.Events, eventType) {
 			continue
 		}
+		if !branchAllowed(cfg.Branches, branch) {
+			continue
+		}
 		matched = append(matched, s)
 	}
 	return matched, nil
+}
+
+// payloadBranch extracts the branch name from a delivery's ref for events
+// that carry one (push, create, delete). Returns "" for tag refs and for
+// events without a ref — branchAllowed then treats those as unfiltered.
+func payloadBranch(eventType string, payload map[string]any) string {
+	switch eventType {
+	case "push", "create", "delete":
+		ref, _ := payload["ref"].(string)
+		// push uses refs/heads/<branch>; create/delete put the bare name in
+		// `ref` with ref_type=branch.
+		if b, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+			return b
+		}
+		if rt, _ := payload["ref_type"].(string); rt == "branch" {
+			return ref
+		}
+	}
+	return ""
+}
+
+// branchAllowed reports whether a delivery's branch passes a stream's branch
+// filter. Empty filter (or a non-branch event, branch=="") matches everything.
+// Patterns are exact ("main") or prefix globs ("release/*").
+func branchAllowed(patterns []string, branch string) bool {
+	if len(patterns) == 0 || branch == "" {
+		return true
+	}
+	for _, p := range patterns {
+		if prefix, ok := strings.CutSuffix(p, "/*"); ok {
+			if branch == prefix || strings.HasPrefix(branch, prefix+"/") {
+				return true
+			}
+			continue
+		}
+		if strings.EqualFold(p, branch) {
+			return true
+		}
+	}
+	return false
 }
 
 // repoMatches reports whether a stream's configured repo filter matches a

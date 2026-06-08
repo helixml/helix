@@ -235,14 +235,16 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
   const [configText, setConfigText] = useState('')
   const [ghRepo, setGhRepo] = useState('')
   const [ghEvents, setGhEvents] = useState<string[]>([])
+  const [ghBranches, setGhBranches] = useState<string[]>([])
 
   const enterEdit = () => {
     setName(stream.name)
     setDescription(stream.description ?? '')
     if (stream.kind === 'github') {
-      const cfg = (stream.config ?? {}) as { repo?: string; events?: string[] }
+      const cfg = (stream.config ?? {}) as { repo?: string; events?: string[]; branches?: string[] }
       setGhRepo(cfg.repo ?? '')
       setGhEvents(Array.isArray(cfg.events) ? cfg.events : [])
+      setGhBranches(Array.isArray(cfg.branches) ? cfg.branches : [])
     } else if (stream.config) {
       setConfigText(JSON.stringify(stream.config, null, 2))
     } else {
@@ -278,7 +280,10 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
         snackbar.error(`Invalid event name(s): ${bad.join(', ')} — must match /^[a-z][a-z0-9_]+$/`)
         return
       }
-      payload.transport = { config: { repo: ghRepo.trim(), events: ghEvents } }
+      const ghConfig: Record<string, unknown> = { repo: ghRepo.trim(), events: ghEvents }
+      const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
+      if (branches.length > 0) ghConfig.branches = branches
+      payload.transport = { config: ghConfig }
     } else if (stream.kind !== 'local' && configText.trim()) {
       try {
         const parsed = JSON.parse(configText)
@@ -362,8 +367,10 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
             <GitHubStreamConfigFields
               repo={ghRepo}
               events={ghEvents}
+              branches={ghBranches}
               onRepoChange={setGhRepo}
               onEventsChange={setGhEvents}
+              onBranchesChange={setGhBranches}
             />
           )}
           {stream.kind !== 'local' && stream.kind !== 'github' && (

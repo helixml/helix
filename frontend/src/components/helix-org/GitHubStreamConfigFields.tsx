@@ -23,15 +23,19 @@ import {
 export interface GitHubStreamConfigFieldsProps {
   repo: string
   events: string[]
+  branches?: string[]
   onRepoChange: (next: string) => void
   onEventsChange: (next: string[]) => void
+  onBranchesChange?: (next: string[]) => void
 }
 
 export const GitHubStreamConfigFields: FC<GitHubStreamConfigFieldsProps> = ({
   repo,
   events,
+  branches = [],
   onRepoChange,
   onEventsChange,
+  onBranchesChange,
 }) => {
   const repoError = repo.trim() === ''
     ? ''
@@ -128,6 +132,35 @@ export const GitHubStreamConfigFields: FC<GitHubStreamConfigFieldsProps> = ({
           />
         )}
       />
+      {onBranchesChange && (
+        <Autocomplete<string, true, false, true>
+          multiple
+          freeSolo
+          openOnFocus
+          disablePortal
+          options={[]}
+          value={branches}
+          onChange={(_, next) => {
+            const cleaned = next.map((s) => s.trim()).filter((s) => s.length > 0)
+            onBranchesChange(Array.from(new Set(cleaned)))
+          }}
+          renderTags={(value, getTagProps) =>
+            value.map((b, index) => {
+              const { key: _k, ...tagProps } = getTagProps({ index })
+              return <Chip {...tagProps} key={b} label={b} size="small" sx={{ fontFamily: 'monospace' }} />
+            })
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Branches (optional)"
+              placeholder={branches.length === 0 ? 'e.g. main, release/* — leave empty for all branches' : ''}
+              size="small"
+              helperText="Narrows push / create / delete events to these branches — exact name (main) or prefix glob (release/*). Empty = all branches. Other event types (issues, pull_request, …) are unaffected."
+            />
+          )}
+        />
+      )}
     </>
   )
 }
