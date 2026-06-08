@@ -88,20 +88,37 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 		reportsByManager[l.ManagerID] = append(reportsByManager[l.ManagerID], l.ReportID)
 	}
 
-	// Collect the Stream ids in scope. Only ever activation/team stream
-	// ids — never DM or operator streams.
+	// Collect the Stream ids in scope. Only ever activation / team / DM
+	// stream ids derived from the affected Workers and their one-hop
+	// neighbours — never an operator-created stream.
 	relevant := map[streaming.StreamID]struct{}{}
 	for _, a := range affected {
 		relevant[activation.StreamID(a)] = struct{}{}
 		relevant[TeamStreamID(a)] = struct{}{}
-		// A manager's team stream gains/loses this Worker as a member.
+		// A manager's team stream gains/loses this Worker as a member,
+		// and the manager↔this-Worker DM channel is created/kept.
 		for _, m := range managersByReport[a] {
 			relevant[TeamStreamID(m)] = struct{}{}
+			relevant[DMStreamID(a, m)] = struct{}{}
 		}
 		// A report's activation stream gains/loses this Worker as an
-		// observer.
+		// observer, and the this-Worker↔report DM channel is
+		// created/kept.
 		for _, rep := range reportsByManager[a] {
 			relevant[activation.StreamID(rep)] = struct{}{}
+			relevant[DMStreamID(a, rep)] = struct{}{}
+		}
+	}
+	// All-pairs of the affected set covers DM-channel *teardown*: when a
+	// reporting edge is removed the two endpoints are no longer one
+	// another's neighbours, so the neighbour walk above wouldn't reach
+	// their DM channel. Both endpoints are passed in `affected`
+	// (add/remove-parent pass (report, manager); fire passes
+	// (firedID, ex-managers…)), so the pair is named here and the diff
+	// below deletes the now-undesired channel.
+	for i := 0; i < len(affected); i++ {
+		for j := i + 1; j < len(affected); j++ {
+			relevant[DMStreamID(affected[i], affected[j])] = struct{}{}
 		}
 	}
 

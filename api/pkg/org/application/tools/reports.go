@@ -90,7 +90,7 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		view := reportView{
 			ID:         w.ID(),
 			Role:       w.RoleID(),
-			DMStreamID: DMStreamID(caller, r),
+			DMStreamID: topology.DMStreamID(caller, r),
 			Manages:    len(subReports) > 0,
 		}
 		if view.Manages {

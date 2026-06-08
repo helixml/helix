@@ -58,7 +58,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		[]tool.Name{
 			tools.CreateRoleName,
 			tools.UpdateRoleName,
-						tools.HireWorkerName,
+			tools.HireWorkerName,
 			tools.CreateStreamName,
 			tools.SubscribeName,
 			tools.PublishName,
@@ -94,11 +94,10 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		"tools":   []string{"publish", "subscribe"},
 	})
 
-
 	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
 		"id":              "w-ceo",
-		"roleId":         "r-ceo",
-		"parentId":       "w-owner",
+		"roleId":          "r-ceo",
+		"parentId":        "w-owner",
 		"kind":            "ai",
 		"identityContent": "# Meina Gladstone\nCEO. Decisive, warm, direct.",
 	})
@@ -201,7 +200,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 			tools.CreateRoleName,
 			tools.UpdateRoleName,
 			tools.UpdateIdentityName,
-						tools.HireWorkerName,
+			tools.HireWorkerName,
 		},
 		nil,
 		now,
@@ -445,9 +444,10 @@ func TestInviteWorkers(t *testing.T) {
 	}
 }
 
-// TestDM exercises the dm tool: a single call from Alice to Bob
-// creates the per-pair Stream, subscribes both, and publishes the
-// body. A second DM in the reverse direction reuses the same Stream.
+// TestDM exercises the dm tool over MCP. DM channels are provisioned by
+// topology for reporting pairs, so the test wires a reporting line
+// (Alice manages Bob) and reconciles first; the dm call then publishes
+// over the existing per-pair Stream, and the reverse DM reuses it.
 func TestDM(t *testing.T) {
 	t.Parallel()
 
@@ -484,6 +484,15 @@ func TestDM(t *testing.T) {
 	mustCreate(t, s.Workers.Create(ctx, alice))
 	bob, _ := orgchart.NewAIWorker("w-bob", "r-member", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bob))
+
+	// DM channels are scoped to reporting relationships: wire one (Alice
+	// manages Bob) and reconcile so topology provisions s-dm-w-alice-w-bob
+	// before either party DMs the other.
+	line, _ := orgchart.NewReportingLine("org-test", "w-alice", "w-bob")
+	mustCreate(t, s.ReportingLines.Add(ctx, line))
+	if err := deps.Topology.Reconcile(ctx, "org-test", "w-bob", "w-alice"); err != nil {
+		t.Fatalf("reconcile DM topology: %v", err)
+	}
 
 	aliceSession := connectMCP(t, srv.URL, "w-alice")
 	bobSession := connectMCP(t, srv.URL, "w-bob")

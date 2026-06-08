@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -80,7 +81,7 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 		out = append(out, managerView{
 			ID:         w.ID(),
 			Role:       w.RoleID(),
-			DMStreamID: DMStreamID(caller, m),
+			DMStreamID: topology.DMStreamID(caller, m),
 		})
 	}
 	return json.Marshal(managersResult{Managers: out})

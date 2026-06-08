@@ -48,6 +48,26 @@ func TeamStreamID(managerID orgchart.WorkerID) streaming.StreamID {
 	return streaming.StreamID("s-team-" + string(managerID))
 }
 
+// DMStreamID returns the deterministic Stream ID for a 1:1 channel
+// between two Workers, ordered by string compare so A→B and B→A share
+// one Stream. DM channels are a topology concern — the reconciler
+// provisions one per reporting edge (manager ↔ report), so the `dm`
+// tool can assume the channel exists rather than creating it. The
+// managers / reports read tools hand this id back so a Worker can
+// escalate up / message a report 1:1 along an existing channel.
+func DMStreamID(a, b orgchart.WorkerID) streaming.StreamID {
+	pair := sortedPair(a, b)
+	return streaming.StreamID("s-dm-" + pair[0] + "-" + pair[1])
+}
+
+func sortedPair(a, b orgchart.WorkerID) [2]string {
+	p := [2]string{string(a), string(b)}
+	if p[0] > p[1] {
+		p[0], p[1] = p[1], p[0]
+	}
+	return p
+}
+
 // DesiredStream is a Stream the topology wants to exist. The reconciler
 // builds a streaming.Stream from it when the row is missing; the fields
 // are immutable once created, so an existing row is never rewritten.
@@ -93,6 +113,16 @@ type Spec struct {
 //     Worker with two managers is therefore a member of two team
 //     Streams — correct: either manager can brief it. No reports → no
 //     team Stream (lazy).
+//
+//   - DM Stream `s-dm-<pair>` exists for every reporting edge (M, R),
+//     with members exactly {M, R}. This is the 1:1 channel a Worker
+//     escalates up / messages a report down on. DMs are deliberately
+//     tied to the reporting graph: a Worker can only DM the people it
+//     shares a reporting line with (its managers and its direct
+//     reports), not arbitrary peers — the `dm` tool assumes the channel
+//     exists and refuses when it doesn't. Peer-to-peer or skip-level
+//     reach is a deliberate, explicitly-created stream, not an implicit
+//     DM.
 func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) Spec {
 	spec := Spec{
 		Streams: map[streaming.StreamID]DesiredStream{},
@@ -117,6 +147,18 @@ func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) 
 		}
 		managersByReport[l.ReportID] = append(managersByReport[l.ReportID], l.ManagerID)
 		reportsByManager[l.ManagerID] = append(reportsByManager[l.ManagerID], l.ReportID)
+
+		// DM channel for this reporting edge: members exactly {M, R}.
+		dmID := DMStreamID(l.ManagerID, l.ReportID)
+		pair := sortedPair(l.ManagerID, l.ReportID)
+		spec.Streams[dmID] = DesiredStream{
+			ID:          dmID,
+			Name:        "dm: " + pair[0] + " ↔ " + pair[1],
+			Description: dmStreamDescription(pair[0], pair[1]),
+			CreatedBy:   orgchart.WorkerID(pair[0]),
+		}
+		spec.Subs[SubKey{WorkerID: l.ManagerID, StreamID: dmID}] = struct{}{}
+		spec.Subs[SubKey{WorkerID: l.ReportID, StreamID: dmID}] = struct{}{}
 	}
 
 	for _, w := range workers {
@@ -175,6 +217,14 @@ func teamStreamDescription(managerID orgchart.WorkerID) string {
 		" and their direct reports. The manager publishes here to brief " +
 		"the whole team in one post; every report receives it. Discover " +
 		"it via the `reports` tool."
+}
+
+func dmStreamDescription(a, b string) string {
+	return "Direct 1:1 channel between " + a + " and " + b +
+		" — provisioned because they share a reporting line. Either " +
+		"escalates up / messages down here via the `dm` tool; both read " +
+		"it with read_events. Reporting pairs only — there is no implicit " +
+		"DM channel between arbitrary Workers."
 }
 
 // EnsureStreamWithMembers is the shared create-stream-and-subscribe

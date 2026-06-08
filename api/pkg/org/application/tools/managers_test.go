@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -13,7 +14,8 @@ import (
 )
 
 // seedReportingGraph wires a small graph: owner → jane → {li, sam}, plus
-// li also reporting to bob. Returns store-backed Deps.
+// li also reporting to bob. Returns store-backed Deps. Shared by the
+// managers_test and reports_test suites.
 func seedReportingGraph(t *testing.T) Deps {
 	t.Helper()
 	ctx := context.Background()
@@ -75,8 +77,8 @@ func TestManagers_ListsBothManagersWithDMStreams(t *testing.T) {
 	if !ok {
 		t.Fatalf("w-jane missing from managers: %+v", got.Managers)
 	}
-	if jane.DMStreamID != DMStreamID("w-li", "w-jane") {
-		t.Fatalf("jane dmStreamId = %q, want %q", jane.DMStreamID, DMStreamID("w-li", "w-jane"))
+	if jane.DMStreamID != topology.DMStreamID("w-li", "w-jane") {
+		t.Fatalf("jane dmStreamId = %q, want %q", jane.DMStreamID, topology.DMStreamID("w-li", "w-jane"))
 	}
 	if jane.Role != "r-x" {
 		t.Fatalf("jane role = %q, want r-x", jane.Role)
@@ -109,89 +111,28 @@ func TestManagers_OwnerHasNone(t *testing.T) {
 	}
 }
 
-// TestReports_TeamStreamAndManagesFlag: jane has two reports; li itself
-// manages a sub-team (none here) — verify team stream id, dm streams,
-// and the manages flag.
-func TestReports_TeamStreamAndManagesFlag(t *testing.T) {
+// TestManagers_SkipsDanglingManager: a reporting line that points at a
+// manager who no longer exists is skipped rather than returned as a
+// phantom (defensive — the line should have cascaded, but tolerate it).
+func TestManagers_SkipsDanglingManager(t *testing.T) {
 	deps := seedReportingGraph(t)
-	caller, _ := orgchart.NewAIWorker("w-jane", "r-x", "#", "org-test")
-	tl := &Reports{deps: deps}
-
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
-	if err != nil {
-		t.Fatalf("invoke: %v", err)
-	}
-	var got reportsResult
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got.TeamStreamID == nil || *got.TeamStreamID != "s-team-w-jane" {
-		t.Fatalf("teamStreamId = %v, want s-team-w-jane", got.TeamStreamID)
-	}
-	if len(got.Reports) != 2 {
-		t.Fatalf("reports = %+v, want 2 (w-li, w-sam)", got.Reports)
-	}
-	for _, r := range got.Reports {
-		if r.Manages {
-			t.Fatalf("report %s should not manage anyone (no sub-reports)", r.ID)
-		}
-		if r.TeamStreamID != nil {
-			t.Fatalf("non-managing report %s must not carry a teamStreamId", r.ID)
-		}
-		wantDM := DMStreamID("w-jane", r.ID)
-		if r.DMStreamID != wantDM {
-			t.Fatalf("report %s dmStreamId = %q, want %q", r.ID, r.DMStreamID, wantDM)
-		}
-	}
-}
-
-// TestReports_ManagesFlagSurfacesSubTeam: a report that leads its own
-// sub-team is flagged manages:true and carries its sub-team stream id.
-func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
-	deps := seedReportingGraph(t)
-	// w-owner's only report is w-jane, who manages li + sam.
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-x", "#", "org-test")
-	tl := &Reports{deps: deps}
-
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
-	if err != nil {
-		t.Fatalf("invoke: %v", err)
-	}
-	var got reportsResult
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(got.Reports) != 1 || got.Reports[0].ID != "w-jane" {
-		t.Fatalf("reports = %+v, want [w-jane]", got.Reports)
-	}
-	jane := got.Reports[0]
-	if !jane.Manages {
-		t.Fatalf("w-jane should be flagged manages:true")
-	}
-	if jane.TeamStreamID == nil || *jane.TeamStreamID != "s-team-w-jane" {
-		t.Fatalf("w-jane teamStreamId = %v, want s-team-w-jane", jane.TeamStreamID)
-	}
-}
-
-// TestReports_NoReportsNullTeamStream: a leaf worker has no reports —
-// teamStreamId is null and reports is an empty array.
-func TestReports_NoReportsNullTeamStream(t *testing.T) {
-	deps := seedReportingGraph(t)
+	// Add a line from a non-existent manager to w-sam directly in the
+	// store (bypassing the worker-existence check a real hire would do).
+	addReportingLine(t, deps.Store, "w-ghost", "w-sam")
 	caller, _ := orgchart.NewAIWorker("w-sam", "r-x", "#", "org-test")
-	tl := &Reports{deps: deps}
+	tl := &Managers{deps: deps}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
-	var got reportsResult
+	var got managersResult
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamStreamID != nil {
-		t.Fatalf("teamStreamId = %v, want null", *got.TeamStreamID)
-	}
-	if got.Reports == nil || len(got.Reports) != 0 {
-		t.Fatalf("reports = %+v, want empty array", got.Reports)
+	// w-sam reports to w-jane (real) and w-ghost (dangling) — only jane
+	// comes back.
+	if len(got.Managers) != 1 || got.Managers[0].ID != "w-jane" {
+		t.Fatalf("managers = %+v, want only [w-jane]", got.Managers)
 	}
 }
