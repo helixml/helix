@@ -221,6 +221,24 @@ func (c *Client) AddWebhookToRepo(
 type WebhookSummary struct {
 	ID     int64
 	Events []string
+	Active bool
+}
+
+// FindWebhook returns the repo webhook whose payload URL matches `url`.
+// found=false with a nil error means the repo has no hook pointing there
+// (i.e. it needs installing) — distinct from a non-nil error, which means we
+// couldn't determine the state (auth/permission/transport failure).
+func (c *Client) FindWebhook(owner, repo, url string) (WebhookSummary, bool, error) {
+	hooks, _, err := c.client.Repositories.ListHooks(c.ctx, owner, repo, nil)
+	if err != nil {
+		return WebhookSummary{}, false, err
+	}
+	for _, hook := range hooks {
+		if hook.Config != nil && hook.Config.URL != nil && *hook.Config.URL == url {
+			return summarizeHook(hook), true, nil
+		}
+	}
+	return WebhookSummary{}, false, nil
 }
 
 // UpsertWebhook creates a webhook on the repo if none points at `url`,
@@ -302,6 +320,9 @@ func summarizeHook(h *github.Hook) WebhookSummary {
 	out := WebhookSummary{Events: h.Events}
 	if h.ID != nil {
 		out.ID = *h.ID
+	}
+	if h.Active != nil {
+		out.Active = *h.Active
 	}
 	return out
 }

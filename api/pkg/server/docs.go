@@ -9996,6 +9996,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/streams/{id}/github/webhook-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: live webhook status for a github stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubWebhookStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/streams/{id}/publish": {
             "post": {
                 "security": [
@@ -20336,6 +20375,31 @@ const docTemplate = `{
                 "source": {
                     "description": "Source identifies which token paid for this list — useful\nwhen debugging \"I can't see repo X\" reports.",
                     "type": "string"
+                }
+            }
+        },
+        "api.GitHubWebhookStatusResponse": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "detail": {
+                    "description": "Detail explains a \"unknown\" state (and is empty otherwise).",
+                    "type": "string"
+                },
+                "payload_url": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "State is one of:\n  \"installed\" — a webhook for this stream's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
                 }
             }
         },
@@ -31661,6 +31725,10 @@ const docTemplate = `{
                     "description": "Sandbox capacity",
                     "type": "integer"
                 },
+                "compute_state": {
+                    "description": "ComputeState tracks the provider's view of the host's provisioning\nlifecycle. Distinct from Status (which is the heartbeat-derived\nonline/offline/degraded view). Values: \"provisioning\" | \"ready\" |\n\"terminating\" | \"terminated\" | \"failed\". See compute.State for\nthe canonical enum. Empty for self-registered hosts.",
+                    "type": "string"
+                },
                 "created": {
                     "type": "string"
                 },
@@ -31721,6 +31789,25 @@ const docTemplate = `{
                 },
                 "profile_status": {
                     "description": "ProfileStatus tracks the compose stack lifecycle:\n\"\" | \"assigning\" | \"pulling\" | \"starting\" | \"running\" | \"failed\".",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nE.g. \"yellowdog\", \"gcp\", \"lambda\". Empty for self-registered hosts.",
+                    "type": "string"
+                },
+                "provider_id": {
+                    "description": "ProviderID is the upstream system's opaque identifier for this\nhost (e.g. a YellowDog work-requirement YDID). Forms a composite\nindex with Provider so the reconciler can look hosts up cheaply.",
+                    "type": "string"
+                },
+                "provider_metadata": {
+                    "description": "ProviderMetadata is provider-specific opaque data for\nreconciliation, debugging, and admin display. Examples for YD:\nworker-pool ID, compute requirement ID, region, public IP.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "provisioned_at": {
+                    "description": "ProvisionedAt is when Helix asked the provider to bring this host\nup. Earlier than Created (which is the first heartbeat). Nil for\nself-registered hosts.",
                     "type": "string"
                 },
                 "render_node": {
