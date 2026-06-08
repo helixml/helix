@@ -63,6 +63,18 @@ type helixOrgHandlers struct {
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
 	publicGitHubWebhookForStream http.Handler
+	// publicGitHubManifestCallback receives GitHub's browser redirect after
+	// the App Manifest flow creates the app (path
+	// /api/v1/orgs/{org}/github/app-manifest/callback). Insecure mount: it's
+	// a top-level navigation from github.com authenticated by the encrypted
+	// ?state=, not the helix session. Exchanges the code, stores the app,
+	// then redirects to the install page.
+	publicGitHubManifestCallback http.Handler
+	// publicGitHubAppSetup receives GitHub's redirect after the user installs
+	// the app (the app's setup_url, path
+	// /api/v1/orgs/{org}/github/app-setup?installation_id=...). Persists the
+	// installation id, then closes the popup and notifies the opener.
+	publicGitHubAppSetup http.Handler
 }
 
 // alphaFeatureHelixOrg is the alpha-feature flag that gates the
@@ -360,19 +372,29 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			if err != nil {
 				return helixorgapi.GitHubInstallationStatus{}, fmt.Errorf("list github_app service connections: %w", err)
 			}
+			appExists := false
 			installed := false
+			slug := cfg.APIServer.Cfg.GitHub.AppSlug // BYO/pre-existing app fallback
 			for _, c := range conns {
-				if c != nil && c.GitHubInstallationID != 0 {
+				if c == nil || c.GitHubAppID == 0 {
+					continue
+				}
+				appExists = true
+				if c.GitHubAppSlug != "" {
+					slug = c.GitHubAppSlug // prefer the created app's own slug
+				}
+				if c.GitHubInstallationID != 0 {
 					installed = true
-					break
 				}
 			}
 			var installURL string
-			if slug := cfg.APIServer.Cfg.GitHub.AppSlug; slug != "" {
+			if slug != "" {
 				installURL = "https://github.com/apps/" + slug + "/installations/new"
 			}
-			return helixorgapi.GitHubInstallationStatus{Installed: installed, InstallURL: installURL}, nil
+			return helixorgapi.GitHubInstallationStatus{AppExists: appExists, Installed: installed, InstallURL: installURL}, nil
 		},
+		// GitHubManifestStart builds the "create the Helix app" manifest flow.
+		GitHubManifestStart: newGitHubManifestStart(cfg.APIServer.getEncryptionKey),
 		// PublicServerURL is the externally-reachable base URL the
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
@@ -455,11 +477,20 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		t.HandleInboundForStream(streaming.StreamID(streamID)).ServeHTTP(w, r)
 	})
 
+	// GitHub App Manifest flow callbacks. Insecure mounts (top-level
+	// navigations from github.com): the conversion callback is authenticated
+	// by the encrypted ?state=; the setup callback only records a non-secret
+	// installation id onto the org's app.
+	publicGitHubManifestCallback := newGitHubManifestCallbackHandler(cfg.APIServer.getEncryptionKey, helixStore, deps.NewID)
+	publicGitHubAppSetup := newGitHubAppSetupHandler(helixStore)
+
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
 		scope:                        scope,
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
+		publicGitHubManifestCallback: publicGitHubManifestCallback,
+		publicGitHubAppSetup:         publicGitHubAppSetup,
 	}, nil
 }
 

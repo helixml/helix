@@ -152,6 +152,13 @@ type Deps struct {
 	// falls back to treating the org as not-installable.
 	GitHubInstallation func(ctx context.Context, orgID string) (GitHubInstallationStatus, error)
 
+	// GitHubManifestStart builds the GitHub App Manifest flow for an org:
+	// a Helix-authored manifest + an encrypted state + the GitHub POST URL,
+	// which the frontend submits as a form so GitHub creates the app on the
+	// user's behalf. Wired in api/pkg/server (needs the encryption key); nil
+	// disables the "Create the Helix app" path.
+	GitHubManifestStart func(ctx context.Context, orgID, githubOrg, origin string) (GitHubManifestStartResponse, error)
+
 	// PublicServerURL is the operator-configured external base URL
 	// (e.g. https://helix.example.com) that auto-installed GitHub
 	// webhooks should POST back to. Falls back to localhost when
@@ -241,6 +248,7 @@ func Routes(deps Deps) []Route {
 		// operator has a connected GitHub OAuth).
 		{Pattern: "GET /github/repos", Handler: http.HandlerFunc(a.listGitHubRepos)},
 		{Pattern: "GET /github/app-installation", Handler: http.HandlerFunc(a.getGitHubAppInstallation)},
+		{Pattern: "POST /github/app-manifest", Handler: http.HandlerFunc(a.startGitHubAppManifest)},
 		{Pattern: "POST /streams/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
 	}
 }
@@ -1963,14 +1971,26 @@ type GitHubRepoDTO struct {
 // GitHubInstallationStatus is the resolved install state for an org plus
 // the URL to start an install when it isn't installed yet.
 type GitHubInstallationStatus struct {
+	// AppExists is true when a Helix GitHub App has been created/registered
+	// for this org (a github_app ServiceConnection exists), even if not yet
+	// installed on any repo. Drives the gate's create-vs-install branch.
+	AppExists bool `json:"app_exists"`
 	// Installed is true when the Helix GitHub App has an installation for
 	// this org (a github_app ServiceConnection with an installation id).
 	Installed bool `json:"installed"`
 	// InstallURL is where the New Stream gate sends the user to install the
-	// app (https://github.com/apps/<slug>/installations/new). Empty when the
-	// operator hasn't configured the app slug — the gate then tells the user
-	// to ask their admin to configure the Helix GitHub App.
+	// app (https://github.com/apps/<slug>/installations/new). Populated from
+	// the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
 	InstallURL string `json:"install_url,omitempty"`
+}
+
+// GitHubManifestStartResponse is what the frontend needs to POST a GitHub App
+// manifest on the user's behalf: the GitHub URL to POST to, the manifest JSON
+// to submit as the "manifest" form field, and the CSRF state.
+type GitHubManifestStartResponse struct {
+	PostURL  string `json:"post_url"`
+	Manifest string `json:"manifest"`
+	State    string `json:"state"`
 }
 
 // getGitHubAppInstallation backs the New Stream "Install Helix" gate: it
@@ -2004,6 +2024,45 @@ func (a *apiHandler) getGitHubAppInstallation(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
+}
+
+// startGitHubAppManifest builds the GitHub App Manifest flow so the frontend
+// can create the Helix app on the user's behalf (org-owned). Body:
+// { "github_org": "acme", "origin": "https://helix.example.com" }.
+//
+// @Summary Helix-org: start the GitHub App manifest (create) flow
+// @Tags HelixOrg
+// @Accept json
+// @Produce json
+// @Success 200 {object} api.GitHubManifestStartResponse
+// @Failure 412 {object} api.ErrorResponse "manifest flow not wired"
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/github/app-manifest [post]
+func (a *apiHandler) startGitHubAppManifest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if a.deps.GitHubManifestStart == nil {
+		writeError(w, http.StatusPreconditionFailed, errors.New("GitHub App manifest flow is not enabled on this deployment"))
+		return
+	}
+	var body struct {
+		GitHubOrg string `json:"github_org"`
+		Origin    string `json:"origin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	resp, err := a.deps.GitHubManifestStart(ctx, orgID, body.GitHubOrg, body.Origin)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // GitHubReposResponse is the body of GET /github/repos.

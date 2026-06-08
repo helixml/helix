@@ -46,10 +46,15 @@ export interface ApiEventCard {
 
 export interface ApiGitHubInstallationStatus {
   /**
+   * AppExists is true when a Helix GitHub App has been created/registered
+   * for this org (a github_app ServiceConnection exists), even if not yet
+   * installed on any repo. Drives the gate's create-vs-install branch.
+   */
+  app_exists?: boolean;
+  /**
    * InstallURL is where the New Stream gate sends the user to install the
-   * app (https://github.com/apps/<slug>/installations/new). Empty when the
-   * operator hasn't configured the app slug — the gate then tells the user
-   * to ask their admin to configure the Helix GitHub App.
+   * app (https://github.com/apps/<slug>/installations/new). Populated from
+   * the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
    */
   install_url?: string;
   /**
@@ -57,6 +62,12 @@ export interface ApiGitHubInstallationStatus {
    * this org (a github_app ServiceConnection with an installation id).
    */
   installed?: boolean;
+}
+
+export interface ApiGitHubManifestStartResponse {
+  manifest?: string;
+  post_url?: string;
+  state?: string;
 }
 
 export interface ApiGitHubRepoDTO {
@@ -11563,6 +11574,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/github/app-installation`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubAppManifestCreate
+     * @summary Helix-org: start the GitHub App manifest (create) flow
+     * @request POST:/api/v1/orgs/{org}/github/app-manifest
+     * @secure
+     */
+    v1OrgsGithubAppManifestCreate: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubManifestStartResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/app-manifest`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

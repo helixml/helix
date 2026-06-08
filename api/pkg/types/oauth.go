@@ -266,6 +266,10 @@ type ServiceConnection struct {
 	GitHubAppID          int64  `json:"github_app_id,omitempty"`
 	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
 	GitHubPrivateKey     string `json:"-" gorm:"type:text"` // PEM-encoded, sensitive
+	// GitHubAppSlug is the app's public URL slug (e.g. "helix-acme" →
+	// github.com/apps/helix-acme). Populated by the Manifest flow; used to
+	// build the install URL after the app is created. Not secret.
+	GitHubAppSlug string `json:"github_app_slug,omitempty" gorm:"type:text"`
 
 	// Azure DevOps Service Principal credentials (encrypted at rest)
 	ADOOrganizationURL string `json:"ado_organization_url,omitempty"`

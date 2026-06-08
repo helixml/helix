@@ -810,6 +810,22 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 					Handle("/orgs/{org}/streams/{stream_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
 					Methods(http.MethodPost)
 			}
+			// GitHub App Manifest flow callbacks — top-level browser
+			// navigations from github.com (GET), so they must be on the
+			// insecure router (no session cookie / API key). The conversion
+			// callback authenticates via the encrypted ?state=. Registered
+			// before the authRouter /orgs/{org}/ prefix so these exact paths
+			// win the match.
+			if orgHandlers.publicGitHubManifestCallback != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
+					Methods(http.MethodGet)
+			}
+			if orgHandlers.publicGitHubAppSetup != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/github/app-setup", orgHandlers.publicGitHubAppSetup).
+					Methods(http.MethodGet)
+			}
 
 			// /api/v1/orgs/{org}/* — per-tenant surface for the
 			// org-graph resources (chart, workers, roles, positions,

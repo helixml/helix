@@ -83,6 +83,28 @@ func (c *Client) LoadRepos() ([]string, error) {
 	return results, nil
 }
 
+// CompleteAppManifest exchanges the temporary code GitHub returns at the end
+// of the App Manifest flow for the new app's permanent config: id, slug,
+// PEM private key, webhook secret and client credentials. The code is valid
+// for one hour and the call is unauthenticated (the code is the credential),
+// so this uses a tokenless client. baseURL is empty for github.com or the
+// GHES origin.
+func CompleteAppManifest(ctx context.Context, code, baseURL string) (*github.AppConfig, error) {
+	client := github.NewClient(nil)
+	if baseURL != "" {
+		enterpriseClient, err := client.WithEnterpriseURLs(baseURL, baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("configure GHES base url: %w", err)
+		}
+		client = enterpriseClient
+	}
+	cfg, _, err := client.Apps.CompleteAppManifest(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("complete app manifest: %w", err)
+	}
+	return cfg, nil
+}
+
 // LoadInstallationRepos returns full_name for every repo a GitHub App
 // installation can access, via GET /installation/repositories. Use this when
 // the client is built with an installation access token (the app bot
