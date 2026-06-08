@@ -15,6 +15,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -115,6 +116,18 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// for the idempotency story.
 		if _, err := ensureHelixOrgServiceAPIKey(ctx, orgID, s.helixStore, s.configs); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
+		}
+
+		// Converge the full topology for this org. Best-effort: a
+		// failure is logged but does not break the request — the org
+		// is still accessible and future hire/reparent/fire mutations
+		// will re-run Reconcile on the affected Workers. This catches
+		// Workers hired before the topology reconciler was wired
+		// (e.g. orgs upgraded from an older server version that
+		// lacked team-stream auto-creation).
+		rec := &topology.Reconciler{Store: s.orgStore}
+		if err := rec.ReconcileAll(ctx, orgID); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
 		}
 
 		s.mu.Lock()
