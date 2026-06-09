@@ -72,10 +72,10 @@ func connectMCP(t *testing.T, baseURL string, workerID orgchart.WorkerID) *mcp.C
 }
 
 // newTestServerRoleDerived seeds a Worker whose MCP surface comes from
-// Role.Tools rather than per-Worker grants. The Role lists ping; no rows
-// are inserted into org_grants. Asserting that ping appears on the
-// Worker's MCP endpoint pins the new "Role.Tools is the live source of
-// truth" contract — see feat/org-role-tools-as-source-of-truth.
+// Role.Tools rather than a per-Worker tool record. The Role lists ping.
+// Asserting that ping appears on the Worker's MCP endpoint pins the
+// "Role.Tools is the live source of truth" contract — see
+// feat/org-role-tools-as-source-of-truth.
 func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
@@ -107,10 +107,10 @@ func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID
 	return srv, "w-ceo"
 }
 
-// TestMCPListToolsFromRole pins the new contract: a Worker's MCP surface
-// is derived live from their Position's Role.Tools, with no grants rows
+// TestMCPListToolsFromRole pins the contract: a Worker's MCP surface
+// is derived live from their Role.Tools, with no per-Worker tool record
 // involved. Hiring a Worker into a Role with `ping` listed must make
-// ping appear on the MCP endpoint without any explicit grant call.
+// ping appear on the MCP endpoint without any explicit tool-assignment call.
 func TestMCPListToolsFromRole(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServerRoleDerived(t)
@@ -158,8 +158,8 @@ func TestMCPListTools(t *testing.T) {
 	}
 }
 
-// TestMCPInvokePing exercises a granted tool over MCP end-to-end: the
-// CEO holds a ping grant, so calling tools/call should succeed and echo
+// TestMCPInvokePing exercises a tool over MCP end-to-end: the CEO's
+// Role lists ping, so calling tools/call should succeed and echo
 // the message back along with the caller ID.
 func TestMCPInvokePing(t *testing.T) {
 	t.Parallel()
@@ -195,11 +195,11 @@ func TestMCPInvokePing(t *testing.T) {
 	}
 }
 
-// TestMCPUngrantedToolHidden confirms that a tool not listed in the
+// TestMCPToolNotInRoleHidden confirms that a tool not listed in the
 // Worker's Role.Tools isn't visible. Calling a hidden tool surfaces as
 // a protocol-level "tool not found", not a 403 — the LLM never sees
 // tools its Role doesn't carry.
-func TestMCPUngrantedToolHidden(t *testing.T) {
+func TestMCPToolNotInRoleHidden(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServer(t)
 	session := connectMCP(t, srv.URL, workerID)
@@ -209,7 +209,7 @@ func TestMCPUngrantedToolHidden(t *testing.T) {
 		Arguments: map[string]any{"id": "r-x", "title": "X"},
 	})
 	if err == nil {
-		t.Fatalf("expected error for ungranted tool, got nil")
+		t.Fatalf("expected error for tool not in Role, got nil")
 	}
 }
 
@@ -249,9 +249,9 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 	return srv, "w-ceo"
 }
 
-// TestMCPListPromptsVisibleWithGrant confirms that a prompt gated on a
-// tool shows up exactly when the worker's Role.Tools includes it.
-func TestMCPListPromptsVisibleWithGrant(t *testing.T) {
+// TestMCPListPromptsVisibleWhenRoleHasTool confirms that a prompt gated
+// on a tool shows up exactly when the worker's Role.Tools includes it.
+func TestMCPListPromptsVisibleWhenRoleHasTool(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServerWithPrompts(t, true)
 	session := connectMCP(t, srv.URL, workerID)
@@ -269,10 +269,10 @@ func TestMCPListPromptsVisibleWithGrant(t *testing.T) {
 	}
 }
 
-// TestMCPListPromptsHiddenWithoutGrant confirms the gating: a worker
+// TestMCPListPromptsHiddenWhenRoleLacksTool confirms the gating: a worker
 // whose Role doesn't list create_role does NOT see the new_role
 // prompt, because the final tool call would fail anyway.
-func TestMCPListPromptsHiddenWithoutGrant(t *testing.T) {
+func TestMCPListPromptsHiddenWhenRoleLacksTool(t *testing.T) {
 	t.Parallel()
 	srv, workerID := newTestServerWithPrompts(t, false)
 	session := connectMCP(t, srv.URL, workerID)
@@ -283,7 +283,7 @@ func TestMCPListPromptsHiddenWithoutGrant(t *testing.T) {
 	}
 	for _, p := range res.Prompts {
 		if p.Name == string(prompts.RoleName) {
-			t.Errorf("new_role visible without create_role grant: %+v", p)
+			t.Errorf("new_role visible without create_role tool: %+v", p)
 		}
 	}
 }

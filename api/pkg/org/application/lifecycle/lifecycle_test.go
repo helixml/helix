@@ -17,7 +17,7 @@ import (
 // TestFire_RemovesWorkersActivationStream pins the regression behind
 // "we still see s-activations-w-ai-1 and s-activations-w-test-ai
 // even though those workers are gone": the Fire cascade tore down
-// subscriptions, grants, environment, runtime state, and the worker
+// subscriptions, environment, runtime state, and the worker
 // row — but left the per-Worker activation Stream
 // (s-activations-<workerID>) lying around, so the Streams page kept
 // rendering ghost rows for workers that no longer existed and the

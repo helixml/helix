@@ -17,7 +17,7 @@ import (
 // mcpHandler returns an http.Handler that speaks MCP over the Streamable
 // HTTP transport. It is mounted at /workers/{id}/mcp; the worker ID in
 // the URL identifies the caller, and the server exposes only the tools
-// that worker holds grants for.
+// listed in that worker's Role.
 //
 // Stateless mode is used: each request stands on its own. The server has
 // no need to push notifications to clients, so session state buys us
@@ -60,9 +60,9 @@ func (s *Server) mcpHandler() http.Handler {
 
 // buildMCPServer assembles a fresh *mcp.Server tailored to the worker in
 // the request URL. The advertised tools are derived live from the
-// Worker's Role.Tools: changing the Role updates every Worker holding
-// it. There is no per-Worker grants table — capability is the Role's
-// responsibility.
+// Worker's Role.Tools: changing the Role updates every Worker filling
+// it. There is no per-Worker tool record — the Role's tool list is the
+// whole story.
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
@@ -94,9 +94,9 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
-	heldTools := make(map[tool.Name]bool, len(role.Tools))
+	roleTools := make(map[tool.Name]bool, len(role.Tools))
 	for _, toolName := range role.Tools {
-		heldTools[toolName] = true
+		roleTools[toolName] = true
 		t, err := s.registry.Get(toolName)
 		if err != nil {
 			// Role lists a tool the server doesn't know about. Skip
@@ -109,7 +109,7 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 
 	if s.prompts != nil {
 		for _, p := range s.prompts.All() {
-			if req := p.RequiresTool(); req != "" && !heldTools[req] {
+			if req := p.RequiresTool(); req != "" && !roleTools[req] {
 				continue
 			}
 			registerPromptForWorker(srv, p, s.logger.With("worker", workerID, "prompt", p.Name()))
@@ -123,7 +123,7 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 // server. The handler closes over the caller so each invocation
 // dispatches with the right Invocation without re-querying the store.
 // Authorisation is by virtue of the tool appearing in the Worker's
-// Role.Tools; there is no grant object to consult at call time.
+// Role.Tools; there is no per-Worker tool record to consult at call time.
 func registerToolForWorker(srv *mcp.Server, t tool.Tool, caller orgchart.Worker, logger interface {
 	Info(msg string, args ...any)
 }) {

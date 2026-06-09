@@ -47,7 +47,7 @@ func (r *Registry) Get(name tool.Name) (tool.Tool, error) {
 
 // List returns every registered tool, sorted by name for stable
 // rendering. Used by the chart UI's role editor to populate the
-// "Tools" multi-select with the catalogue of available grants.
+// "Tools" multi-select with the catalogue of available tools.
 func (r *Registry) List() []tool.Tool {
 	out := make([]tool.Tool, 0, len(r.tools))
 	for _, t := range r.tools {

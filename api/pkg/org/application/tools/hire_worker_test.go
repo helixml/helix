@@ -80,7 +80,7 @@ func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, orgchart.Worke
 	deps.EnvsDir = envsDir
 	deps.Dispatcher = dispatcher
 	deps.Now = func() time.Time { return now }
-	// Deterministic IDs make assertions on stream + grant IDs feasible.
+	// Deterministic IDs make assertions on stream IDs feasible.
 	var counter int
 	deps.NewID = func() string {
 		counter++

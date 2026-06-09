@@ -9,7 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 )
 
-func TestRoleRequiresCreateRoleGrant(t *testing.T) {
+func TestRoleRequiresCreateRoleTool(t *testing.T) {
 	t.Parallel()
 	if got := (prompts.Role{}).RequiresTool(); got != tools.CreateRoleName {
 		t.Fatalf("RequiresTool = %q, want %q", got, tools.CreateRoleName)

@@ -16,7 +16,7 @@ import (
 // write; the new content takes effect on the Worker's next activation,
 // when the Spawner projects identity into the Environment.
 //
-// Identity is owner-managed: subordinate Workers don't get this grant.
+// Identity is owner-managed: subordinate Workers don't get this tool.
 // The identity supplied at hire time stays in place until rewritten.
 type UpdateIdentity struct {
 	deps Deps

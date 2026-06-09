@@ -34,8 +34,8 @@ type OrgOverview struct {
 	Groups []RoleGroup `json:"groups"`
 }
 
-// ToolDTO is one entry in GET /tools — the catalogue of every grant
-// the org can hand to a Role. Powers the chart-UI role editor's
+// ToolDTO is one entry in GET /tools — the catalogue of every tool
+// that can be listed on a Role. Powers the chart-UI role editor's
 // multi-select. Description is the human-readable one-liner the
 // underlying tool surfaces to LLM callers via MCP.
 type ToolDTO struct {

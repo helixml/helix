@@ -45,8 +45,8 @@ type Prompt interface {
 	Description() string
 	Arguments() []Argument
 
-	// RequiresTool gates visibility: only Workers holding a grant for
-	// the named tool see this prompt. The empty string means visible
+	// RequiresTool gates visibility: only Workers whose Role lists the
+	// named tool see this prompt. The empty string means visible
 	// to every Worker. Gating exists because prompts that end in a
 	// tool call are useless to a Worker who can't make that call —
 	// surfacing the slash command would just produce a 403 at the end.

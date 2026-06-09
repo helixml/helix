@@ -58,8 +58,8 @@ When you hire — directly or via `/role` — chain the steps without
 asking permission between them:
 
 1. Save the Role (`create_role`) with its `tools` list populated. The
-   Role's tools are the MCP surface every Worker holding this Role
-   gets — there is no separate per-Worker grant step. List **every
+   Role's tools are the MCP surface every Worker filling this Role
+   gets — there is no separate per-Worker tool-assignment step. List **every
    MCP tool the Role's prompt expects to use** (typically `subscribe`,
    `unsubscribe`, `read_events`, `publish`, `dm`, `list_streams`,
    `stream_members`, `managers`, `reports`, plus anything specific to
@@ -67,13 +67,13 @@ asking permission between them:
    reporting lines live — escalate up to a manager, brief down to its
    reports. If you later
    realise the Role needs more or fewer tools, call `update_role` and
-   every Worker holding that Role sees the change on their next MCP
+   every Worker filling that Role sees the change on their next MCP
    request.
 2. Hire the Worker (`hire_worker`) — kind `ai`, id
    `w-<lowercase-firstname>` (e.g. `w-mark`, `w-priya`), `roleId`
    pointing at the Role you just saved, and `parentId` set to the
    manager Worker (default: `w-owner`). The Worker's MCP tool surface
-   is read live from Role.tools, so `hire_worker` takes no `grants`
+   is read live from Role.tools, so `hire_worker` takes no `tools`
    parameter.
 
    Example shape:

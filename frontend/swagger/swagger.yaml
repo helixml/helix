@@ -17919,7 +17919,7 @@ paths:
   /api/v1/orgs/{org}/workers/{id}:
     delete:
       description: 'Delete a Worker. Cascades: stops sessions, deletes the Helix project
-        + agent app, clears runtime state, deletes subscriptions + grants + env dir
+        + agent app, clears runtime state, deletes subscriptions + env dir
         + env row, then the worker row. Activations are preserved as audit.'
       parameters:
       - description: Worker ID

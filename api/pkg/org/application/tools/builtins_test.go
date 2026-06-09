@@ -29,7 +29,7 @@ import (
 //
 // Owner is pre-seeded. Owner creates a #general Stream, subscribes
 // themselves, defines a CEO Role (markdown content), creates a Position,
-// then hires the CEO with inline grants and an identityContent. The
+// then hires the CEO with an identityContent. The
 // Worker's IdentityContent is stored in the domain alongside the Role —
 // no env files are written at hire (the spawner projects them at
 // activation). Owner publishes; CEO sees it.
@@ -50,7 +50,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Seed owner directly: role, position, worker, environment, structural grants.
+	// Seed owner directly: role (with the structural tool list), worker, environment.
 	now := time.Now().UTC()
 	ownerRole, err := orgchart.NewRole(
 		"r-owner",
@@ -465,12 +465,10 @@ func TestDM(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	// Alice and Bob share a Role with both dm + read_events. In the
-	// old grants model they had slightly different sets (Bob had only
-	// dm); under Role.Tools both get both, which is fine — Bob simply
-	// never calls read_events in this test.
-	// Alice and Bob share a Role with both dm + read_events. Subscriptions
-	// are worker-anchored, so the DM subscribes each worker independently.
+	// Alice and Bob share a Role with both dm + read_events. Because the
+	// tool surface is the Role's, both get both, which is fine — Bob
+	// simply never calls read_events in this test. Subscriptions are
+	// worker-anchored, so the DM subscribes each worker independently.
 	memberRole, _ := orgchart.NewRole(
 		"r-member",
 		"# Member",
@@ -574,8 +572,8 @@ func TestDM(t *testing.T) {
 	}
 }
 
-// TestReadsOverMCP exercises the new read tools: an Owner with the
-// full builtin grant set lists workers, lists streams, and reads back
+// TestReadsOverMCP exercises the read tools: an Owner with the
+// full builtin tool set lists workers, lists streams, and reads back
 // events on subscribed streams, all over MCP.
 func TestReadsOverMCP(t *testing.T) {
 	t.Parallel()
