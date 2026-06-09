@@ -27,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // New returns a fresh *store.Store backed by in-memory repos. Use
@@ -392,6 +393,24 @@ func (s *streamsRepo) List(_ context.Context, orgID string) ([]streaming.Stream,
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (s *streamsRepo) ListByTransportKind(_ context.Context, kind transport.Kind) ([]streaming.Stream, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]streaming.Stream, 0)
+	for _, st := range s.rows {
+		if st.Transport.Kind == kind {
+			out = append(out, st)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].OrganizationID != out[j].OrganizationID {
+			return out[i].OrganizationID < out[j].OrganizationID
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 

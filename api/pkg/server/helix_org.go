@@ -30,6 +30,7 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
@@ -48,6 +49,10 @@ import (
 type helixOrgHandlers struct {
 	api   http.Handler
 	scope *helixOrgScope
+	// streamCron is the in-process scheduler that fires events on
+	// KindCron streams. The server's run loop calls Start on it in a
+	// goroutine so it runs for the lifetime of the API process.
+	streamCron *streamcron.Scheduler
 	// publicGitHubWebhook is the inbound /github/webhook handler
 	// mounted on the INSECURE router. GitHub deliveries carry no
 	// helix session cookie or API key — they authenticate via the
@@ -282,6 +287,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, secretInjectors, deps.NewID, deps.Now)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
+
+	// streamCron drives KindCron streams. Same call sequence as the
+	// publish MCP tool — Events.Append → Hub.Notify → Dispatcher.Dispatch
+	// — so cron-driven activations look identical to publish-driven
+	// activations downstream. Started in a goroutine from
+	// registerRoutes once we have the long-lived ctx.
+	streamCronScheduler, err := streamcron.New(st, bc, dispatcher, deps.NewID, deps.Now)
+	if err != nil {
+		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
+	}
 
 	reg := tools.NewRegistry()
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
@@ -591,6 +606,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
 		scope:                        scope,
+		streamCron:                   streamCronScheduler,
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 		publicGitHubManifestCallback: publicGitHubManifestCallback,

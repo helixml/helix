@@ -773,7 +773,7 @@ func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 	return true
 }
 
-func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
+func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {
@@ -821,6 +821,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
+			// Stream-cron scheduler runs for the lifetime of ctx
+			// (ListenAndServe's). Logs its own errors; one bad fire
+			// can't kill the loop because fire() has panic recovery.
+			if orgHandlers.streamCron != nil {
+				go func() {
+					if err := orgHandlers.streamCron.Start(ctx); err != nil {
+						log.Error().Err(err).Msg("streamcron scheduler exited with error")
+					}
+				}()
+			}
 			// /api/v1/orgs/{org}/github/webhook — public, GitHub
 			// deliveries authenticate via HMAC of the per-org
 			// webhook_secret. Registered on the INSECURE router so
@@ -1672,7 +1682,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Initialize skills
 	log.Info().Msg("Loading YAML skills")
-	ctx := context.Background()
 	if err := apiServer.skillManager.LoadSkills(ctx); err != nil {
 		log.Error().Err(err).Msg("Failed to load skills, continuing without them")
 	}
