@@ -433,6 +433,60 @@ type StreamSummary = {
 // that cross role boundaries. Workers sit in a horizontal row inside
 // their role's frame. Worker → Worker reporting edges and Worker →
 // Stream subscription edges are drawn on top.
+// layoutStreamColumns positions worker-anchored stream pseudo-nodes to
+// the right of the org tree without overlaps. Each stream prefers to sit
+// at its subject Worker's y (so the subscription edge is short and
+// roughly horizontal), but two streams may never occupy the same space.
+//
+// Algorithm:
+//  1. Sort streams by their anchor y (then id, for a stable order).
+//  2. Decide how many vertical columns are needed: a single column can
+//     hold `floor((band + gap) / slot)` streams within the tree's
+//     vertical extent. More streams than that spill into extra columns
+//     to the right, so the column never grows unboundedly tall and
+//     overruns the canvas.
+//  3. Split the sorted list into balanced, contiguous column chunks
+//     (contiguous in anchor-y, so each column owns a vertical band and
+//     edges don't criss-cross between columns).
+//  4. Within a column, place each stream at `max(anchorY, cursor)` and
+//     advance the cursor past it — anchor-biased greedy packing, which
+//     keeps streams beside their worker while guaranteeing no overlap.
+const STREAM_VERTICAL_GAP = 16
+const layoutStreamColumns = (
+  items: { stream: StreamSummary; anchorY: number }[],
+  opts: { columnX: number; columnGap: number; top: number; bottom: number },
+): { stream: StreamSummary; x: number; y: number }[] => {
+  if (items.length === 0) return []
+  const sorted = items
+    .slice()
+    .sort((a, b) => a.anchorY - b.anchorY || a.stream.id.localeCompare(b.stream.id))
+
+  const slot = STREAM_H + STREAM_VERTICAL_GAP
+  // A column should at least span the tree's height, but never spill to a
+  // second column until it holds a decent stack — otherwise a short tree
+  // (e.g. one Worker) would fan a handful of streams across many columns.
+  const MIN_PER_COLUMN = 6
+  const band = Math.max(opts.bottom - opts.top, slot)
+  const perColumn = Math.max(MIN_PER_COLUMN, Math.floor((band + STREAM_VERTICAL_GAP) / slot))
+  const columnCount = Math.ceil(sorted.length / perColumn)
+  // Re-balance so columns are evenly filled (e.g. 5 into 2 cols → 3 + 2,
+  // not 4 + 1) — avoids a near-empty trailing column.
+  const chunkSize = Math.ceil(sorted.length / columnCount)
+
+  const out: { stream: StreamSummary; x: number; y: number }[] = []
+  for (let col = 0; col < columnCount; col++) {
+    const x = opts.columnX + col * (STREAM_W + opts.columnGap)
+    let cursor = -Infinity
+    const chunk = sorted.slice(col * chunkSize, (col + 1) * chunkSize)
+    for (const it of chunk) {
+      const y = Math.max(it.anchorY, cursor)
+      out.push({ stream: it.stream, x, y })
+      cursor = y + slot
+    }
+  }
+  return out
+}
+
 const buildGraph = (
   groups: RoleGroup[],
   flat: FlatWorker[],
@@ -591,11 +645,21 @@ const buildGraph = (
 
   // 5. Stream pseudo-nodes + subscription edges. Subscriptions are
   //    worker-anchored, so subscribers carries Worker ids — one dashed
-  //    edge per subscribed Worker. Streams sit in a column to the right
+  //    edge per subscribed Worker. Streams sit in column(s) to the right
   //    of the org tree. Each stream is vertically anchored to the
   //    "subject" Worker: for activation streams (`s-activations-<id>`)
   //    that's the encoded worker; otherwise created_by. Streams whose
   //    subject isn't on the chart park in an orphan strip below.
+  //
+  //    Layout engine (see `layoutStreamColumns`): the old code stacked
+  //    each worker-row's streams independently in ONE shared column with
+  //    no global collision check, so a tall stack from one row would
+  //    overrun the stack of the row below (streams literally overlapped).
+  //    The replacement is an anchor-biased, collision-free packer: it
+  //    sorts streams by their subject's y, splits them into as many
+  //    vertical columns as needed to fit the tree's height, then within
+  //    each column places each stream at `max(anchorY, cursor)` so it
+  //    stays beside its worker yet never overlaps the one above it.
   if (streams.length > 0) {
     const ACTIVATION_PREFIX = 's-activations-'
     const workerAbs = new Map<string, { x: number; y: number }>()
@@ -610,23 +674,22 @@ const buildGraph = (
       })
     }
 
-    let maxY = 0
+    let minTop = Infinity, maxY = 0
     let minLeft = Infinity, maxRight = -Infinity
     for (const ro of roleOrigin.values()) {
       const bottom = ro.y + ro.h
+      if (ro.y < minTop) minTop = ro.y
       if (bottom > maxY) maxY = bottom
       if (ro.x < minLeft) minLeft = ro.x
       if (ro.x + ro.w > maxRight) maxRight = ro.x + ro.w
     }
+    if (!isFinite(minTop)) minTop = 0
     if (!isFinite(minLeft)) minLeft = 0
     if (!isFinite(maxRight)) maxRight = 0
 
-    const STREAM_VERTICAL_GAP = 16
-    const STREAM_COLUMN_GAP = 120
     const STREAM_GAP_X = 32
+    const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
-    const streamColumnX = maxRight + STREAM_COLUMN_GAP
-    const stackByYRow = new Map<number, number>()
 
     const resolved: { stream: StreamSummary; subjectWorker: string | null }[] = []
     for (const s of streams) {
@@ -639,28 +702,35 @@ const buildGraph = (
       const onChart = subjectWorker && workerAbs.has(subjectWorker) ? subjectWorker : null
       resolved.push({ stream: s, subjectWorker: onChart })
     }
-    const orphans = resolved.filter((r) => !r.subjectWorker)
-    let orphanCursorX = (minLeft + maxRight) / 2
-    if (orphans.length > 0) {
-      const stripWidth = orphans.length * STREAM_W + (orphans.length - 1) * STREAM_GAP_X
-      orphanCursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+
+    // Anchored streams: lay them out beside their subject Worker.
+    const anchored = resolved.filter((r) => r.subjectWorker)
+    const placed = layoutStreamColumns(
+      anchored.map((r) => ({ stream: r.stream, anchorY: workerAbs.get(r.subjectWorker!)!.y })),
+      { columnX: maxRight + STREAM_COLUMN_GAP, columnGap: STREAM_COLUMN_GAP, top: minTop, bottom: maxY },
+    )
+    const streamPos = new Map<string, { x: number; y: number }>()
+    let streamsBottom = maxY
+    for (const p of placed) {
+      streamPos.set(p.stream.id, { x: p.x, y: p.y })
+      if (p.y + STREAM_H > streamsBottom) streamsBottom = p.y + STREAM_H
     }
 
-    for (const { stream: s, subjectWorker } of resolved) {
-      let x: number
-      let y: number
-      if (subjectWorker) {
-        const anchor = workerAbs.get(subjectWorker)!
-        const yRow = Math.round(anchor.y)
-        const stackIndex = stackByYRow.get(yRow) ?? 0
-        x = streamColumnX
-        y = anchor.y + stackIndex * (STREAM_H + STREAM_VERTICAL_GAP)
-        stackByYRow.set(yRow, stackIndex + 1)
-      } else {
-        x = orphanCursorX
-        y = maxY + ORPHAN_VERTICAL_GAP
-        orphanCursorX += STREAM_W + STREAM_GAP_X
+    // Orphans: a centred strip below everything else.
+    const orphans = resolved.filter((r) => !r.subjectWorker)
+    if (orphans.length > 0) {
+      const stripWidth = orphans.length * STREAM_W + (orphans.length - 1) * STREAM_GAP_X
+      let cursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+      const orphanY = streamsBottom + ORPHAN_VERTICAL_GAP
+      for (const r of orphans) {
+        streamPos.set(r.stream.id, { x: cursorX, y: orphanY })
+        cursorX += STREAM_W + STREAM_GAP_X
       }
+    }
+
+    for (const { stream: s } of resolved) {
+      const pos = streamPos.get(s.id)!
+      const { x, y } = pos
       nodes.push({
         id: `stream:${s.id}`,
         type: 'stream',
