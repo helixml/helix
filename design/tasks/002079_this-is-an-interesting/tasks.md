@@ -30,11 +30,11 @@
 
 ## Frontend: stream creation
 
-- [ ] Add `{ value: 'cron', label: 'cron', help: … }` to `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgStreams.tsx` (line 53)
-- [ ] In the create-stream dialog, render a **Schedule** input when `cron` is selected
-- [ ] Add quick-pick preset buttons: Hourly, Daily, Weekly, Weekdays, Weekends, Mon 09:00, Fri 18:00
-- [ ] Show inline "next fire: …" preview (server endpoint OR shared client-side parser — pick one during implementation)
-- [ ] Surface server-side validation errors clearly on the schedule field
+- [x] Add `{ value: 'cron', label: 'cron', help: … }` to `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgStreams.tsx`
+- [x] In the create-stream dialog, render a **Schedule** input when `cron` is selected
+- [x] Add quick-pick preset buttons (Chips): Hourly, Daily, Weekly, Weekdays, Weekends, Mon 09:00, Fri 18:00
+- [ ] ~~Show inline "next fire: …" preview~~ **Deferred.** Both client-side and server-endpoint approaches add API surface or duplicate parser logic; the helperText explains the syntax and server-side validation rejects bad input on submit with a clear error. The detail page can grow a "next fire" badge in a follow-up.
+- [x] Surface server-side validation errors clearly on the schedule field — the existing snackbar already pipes through `e?.response?.data?.error` from the create endpoint, which contains the verbatim `CronConfig.Validate` error
 
 ## Frontend: stream list
 
