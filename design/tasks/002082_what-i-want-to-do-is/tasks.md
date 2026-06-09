@@ -13,7 +13,7 @@
 
 > Pivoted from original plan — creating a `zed_external` session via API requires re-implementing org/project/app/session onboarding. Simpler to drive the UI which does this naturally, then validate the fork-specific bits via script with the resulting session IDs.
 
-- [~] Register `test@helix.ml` / `helixtest` via the UI and complete onboarding (testorg → testproj → first agent)
+- [x] Register `test@helix.ml` / `helixtest` via the UI and complete onboarding (testorg → testproj → first agent)
 - [ ] Run the M1–M9 walkthrough (Phase 3 below) — this creates real `zed_external` sessions
 
 ## Phase 3 — Backend smoke test script (uses sessions from Phase 2)
