@@ -29,8 +29,9 @@ type fakeHelixClient struct {
 	sendCalls      int32
 	outputCalls    int32
 	subscribeCalls int32
-	startSessionID string
-	sessionOwner   string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
+	startSessionID     string
+	sessionOwner       string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
+	exploratorySession string // returned by ExploratorySession; the mirror polls this to track the worker's current session
 	startErr       error
 	sendErr        error
 	outputs        []types.SessionOutputResponse
@@ -61,6 +62,20 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
 func (f *fakeHelixClient) SessionOwner(_ context.Context, _ string) (string, error) {
 	return f.sessionOwner, nil
+}
+
+// exploratorySession + setExploratory back the Mirror's session
+// resolver. The mirror polls this to track the worker as its session
+// changes; tests flip it to simulate session churn.
+func (f *fakeHelixClient) setExploratory(sid string) {
+	f.mu.Lock()
+	f.exploratorySession = sid
+	f.mu.Unlock()
+}
+func (f *fakeHelixClient) ExploratorySession(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.exploratorySession, nil
 }
 func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) {
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
@@ -430,54 +445,55 @@ func (c *concurrencyClient) SessionOwner(ctx context.Context, sid string) (strin
 	return c.inner.SessionOwner(ctx, sid)
 }
 
-// TestSpawnerPublishesTranscriptViaEntryStream verifies the bridge
-// subscribes via pubsub.GetSessionQueue, feeds frames through
-// EntryStream, and republishes settled events as activation Stream
-// events.
-func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
+// TestSpawnerEnsuresSessionMirror verifies the spawner→mirror wiring:
+// an activation Ensure()s the session-layer Mirror for the worker's
+// session, so that turns on that session land on s-activations-<worker>
+// via the mirror — including turns that arrive AFTER the activation
+// returns (e.g. a human typing into the inline chat). The spawner no
+// longer owns a per-activation bridge; the mirror is the single
+// transcript writer for every surface that drives the session.
+func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
+	// Steady state: project + session persisted, so the activation
+	// resumes ses_y and the spawner Ensures the mirror up front.
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_y"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
 
 	ps := newFakePubSub()
 	fc := &fakeHelixClient{
-		startSessionID: "ses_y",
-		// The session is owned by a real user; helix publishes its
-		// updates to that owner's pubsub topic. The bridge must resolve
-		// the owner (via SessionOwner) and subscribe there — subscribing
-		// with an empty owner is the regression this test guards.
-		sessionOwner: "u-owner",
-		// Several waiting outputs so the bridge has time to consume
-		// the pubsub frames before pollUntilDone terminates.
-		outputs: []types.SessionOutputResponse{
-			{Status: "waiting"}, {Status: "waiting"}, {Status: "complete", Output: "ok"},
-		},
+		sessionOwner:       "u-owner",
+		exploratorySession: "ses_y",
+		outputs:            []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
 	cfg.PubSub = ps
-	cfg.PollInitial = 80 * time.Millisecond
-	cfg.ActivationTimeout = 2 * time.Second
-	// Unique IDs so each publishActivationEvent insert succeeds.
 	var idCounter int32
 	cfg.NewID = func() string { return fmt.Sprintf("e-%d", atomic.AddInt32(&idCounter, 1)) }
+	cfg.Mirror = NewMirror(context.Background(), MirrorConfig{
+		PubSub: ps, Snapshotter: NoopSessionPreamble{}, Client: fc,
+		ExploratorySession: fc.ExploratorySession,
+		Store:              s, Logger: cfg.Logger, NewID: cfg.NewID, Now: cfg.Now,
+		PollInterval: 15 * time.Millisecond,
+	})
 	sp := Spawner(cfg)
 
-	// Drive the activation in a goroutine so we can publish frames
-	// after the bridge has subscribed.
-	done := make(chan error, 1)
-	go func() {
-		done <- sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
-	}()
-
-	// Wait for the bridge to subscribe (handlers map populated).
-	deadline := time.Now().Add(2 * time.Second)
-	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
-	for time.Now().Before(deadline) {
-		if ps.handlerCount(topic) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+		t.Fatalf("spawn: %v", err)
 	}
 
+	// The activation has returned, but the spawner registered the worker
+	// with the mirror, which now tracks its session. A turn arriving on
+	// that session from another surface (the inline chat) must still be
+	// captured.
+	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
+	if !waitForHandlers(ps, topic, 1) {
+		t.Fatal("spawner did not leave a live mirror subscription for the session")
+	}
 	patch, _ := json.Marshal(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi there"},
 	}})
@@ -485,26 +501,8 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	complete, _ := json.Marshal(types.WebsocketEvent{Interaction: &types.Interaction{State: "complete"}})
 	ps.publish(t, topic, complete)
 
-	if err := <-done; err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-
-	events, err := s.Events.ListForStream(context.Background(), "org-test", activation.StreamID(wid), 100)
-	if err != nil {
-		t.Fatalf("list events: %v", err)
-	}
-	var sawAssistant bool
-	for _, e := range events {
-		msg, err := e.Message()
-		if err != nil {
-			continue
-		}
-		if strings.Contains(msg.Body, "assistant: hi there") {
-			sawAssistant = true
-		}
-	}
-	if !sawAssistant {
-		t.Fatalf("activation stream missing transcript line; events: %+v", events)
+	if !waitForSegment(t, s, wid, "assistant: hi there") {
+		t.Fatal("post-activation session turn not mirrored to the activation stream")
 	}
 }
 

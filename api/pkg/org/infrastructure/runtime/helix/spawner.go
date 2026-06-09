@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // SpawnerConfig wires the helix-backed Spawner. The Client is
@@ -33,6 +34,13 @@ type SpawnerConfig struct {
 	// per-session WebsocketEvent frames to in-process subscribers.
 	PubSub      pubsub.PubSub
 	Snapshotter SessionPreamble
+	// Mirror is the session-layer transcript writer. The spawner no
+	// longer owns a per-activation bridge; instead it Ensure()s the
+	// mirror is subscribed to the worker's session, and the mirror
+	// republishes every turn on that session — activation-driven OR
+	// inline chat — to s-activations-<worker>. Nil disables transcript
+	// mirroring (tests / app-only wirings).
+	Mirror *Mirror
 	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
 	// back to helix.Runtime. See WorkerProject.Runtime for the
@@ -242,22 +250,25 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			}
 		}
 
+		// Register the worker with the session-layer transcript mirror.
+		// The mirror tracks the worker (not a fixed session ID): it
+		// resolves the worker's current session and re-points as that
+		// churns, so every turn on the session — spawner activation,
+		// human inline chat, anything that posts to /sessions/chat — is
+		// mirrored onto s-activations-<worker>. Idempotent; the tracker
+		// persists across activations. The spawner no longer owns a
+		// per-activation bridge.
+		if cfg.Mirror != nil {
+			cfg.Mirror.Ensure(orgID, workerID)
+		}
+
 		sessionID, err := cfg.ensureSession(actCtx, orgID, workerID, prompt, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 
-		// Live transcript bridge. On disconnect the spawner reconnects
-		// for the lifetime of the activation; the dedup map prevents
-		// republishing on snapshot replay.
-		bridge := newBridge(publish)
-		bridgeCtx, bridgeCancel := context.WithCancel(actCtx)
-		defer bridgeCancel()
-		go bridge.run(bridgeCtx, cfg, sessionID)
-
 		err = cfg.pollUntilDone(actCtx, sessionID, publish)
-		bridgeCancel()
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
@@ -489,12 +500,35 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 type bridge struct {
 	publish func(body string)
 	stream  *EntryStream
+	// seenPrompts dedupes the user-prompt line: an interaction is
+	// restreamed on many frames during a turn, but its prompt is
+	// emitted once, keyed by interaction ID.
+	seenPrompts map[string]bool
 }
 
 func newBridge(publish func(body string)) *bridge {
-	b := &bridge{publish: publish}
+	b := &bridge{publish: publish, seenPrompts: map[string]bool{}}
 	b.stream = NewEntryStream(b.onEvent)
 	return b
+}
+
+// apply renders one session frame onto the activation transcript: it
+// emits the user's prompt (once per interaction) and feeds the agent's
+// entry patches through the EntryStream. Every prompt is recorded —
+// human inline-chat turns AND the synthetic activation prompts the
+// spawner injects — so the stream is a faithful, two-sided record of
+// what the worker was told and what it replied. Prompts come from the
+// single current interaction (u.Interaction), never the full-session
+// history (u.Session.Interactions), so a late subscriber / restart
+// doesn't re-emit past prompts.
+func (b *bridge) apply(u types.WebsocketEvent) {
+	if in := u.Interaction; in != nil && in.ID != "" && !b.seenPrompts[in.ID] {
+		if body := in.PromptMessage; body != "" {
+			b.seenPrompts[in.ID] = true
+			b.publish(activation.TranscriptSegment{Kind: activation.SegmentUser, Body: body}.Marker())
+		}
+	}
+	b.stream.Apply(u)
 }
 
 // onEvent renders one settled EntryStream event into the canonical
@@ -542,51 +576,6 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 		return activation.TranscriptSegment{Kind: activation.SegmentError, Body: e.Text}, true
 	}
 	return activation.TranscriptSegment{}, false
-}
-
-func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
-	// Resolve the session owner once. Helix publishes every session
-	// update (assistant text, tool_use, tool_result) to
-	// GetSessionQueue(session.Owner, sessionID); subscribing with an
-	// empty owner lands us on the wrong topic and the bridge receives
-	// zero frames — leaving only the spawner's own lifecycle markers on
-	// the activation stream. Owner never changes, so resolve it before
-	// the reconnect loop rather than on every reconnect.
-	ownerID := ""
-	if cfg.Client != nil {
-		if owner, err := cfg.Client.SessionOwner(ctx, sessionID); err != nil {
-			if cfg.Logger != nil {
-				cfg.Logger.Warn("helix transcript bridge: resolve session owner", "session", sessionID, "err", err)
-			}
-		} else {
-			ownerID = owner
-		}
-	}
-
-	delay := time.Second
-	for {
-		ch, err := SubscribeSessionUpdates(ctx, cfg.PubSub, cfg.Snapshotter, ownerID, sessionID)
-		if err != nil {
-			if cfg.Logger != nil {
-				cfg.Logger.Warn("helix subscribe", "session", sessionID, "err", err)
-			}
-		} else {
-			for u := range ch {
-				b.stream.Apply(u)
-			}
-		}
-		// Reconnect with capped exponential backoff while the
-		// activation context is still live.
-		select {
-		case <-ctx.Done():
-			b.stream.Flush()
-			return
-		case <-time.After(delay):
-		}
-		if delay < 30*time.Second {
-			delay *= 2
-		}
-	}
 }
 
 // publishActivationEvent is a thin wrapper around the shared

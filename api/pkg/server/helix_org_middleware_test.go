@@ -56,6 +56,7 @@ func TestEnsureBootstrapConcurrentCallsAllSucceed(t *testing.T) {
 		orgStore,
 		t.TempDir(),
 		&noAdminHelixStore{},
+		nil, // mirror — nil is a safe no-op for this bootstrap-race test
 	)
 
 	const N = 8

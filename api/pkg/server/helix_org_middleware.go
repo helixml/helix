@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
@@ -30,6 +31,13 @@ type helixOrgScope struct {
 	orgStore   *helixorgstore.Store
 	envsRoot   string
 	helixStore helixstore.Store
+
+	// mirror is the session-layer transcript mirror. After bootstrap
+	// converges an org, EnsureAll sweeps the org's workers so any that
+	// exist before this process started — and any that are only ever
+	// inline-chatted, never spawner-activated — have their session
+	// turns mirrored onto s-activations-<worker>. nil disables it.
+	mirror *runtimehelix.Mirror
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
@@ -50,12 +58,13 @@ type helixOrgScope struct {
 // orgStore are the same instances handed to the helix-org handler;
 // envsRoot is the parent directory under which `<orgID>/w-owner/`
 // will land at bootstrap time.
-func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, envsRoot string, hs helixstore.Store) *helixOrgScope {
+func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, envsRoot string, hs helixstore.Store, mirror *runtimehelix.Mirror) *helixOrgScope {
 	return &helixOrgScope{
 		configs:      configs,
 		orgStore:     orgStore,
 		envsRoot:     envsRoot,
 		helixStore:   hs,
+		mirror:       mirror,
 		bootstrapped: map[string]bool{},
 	}
 }
@@ -129,6 +138,14 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		if err := rec.ReconcileAll(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
 		}
+
+		// Sweep the org's workers and ensure a transcript mirror for
+		// each one that already has a session. This is what makes the
+		// inline chat work after a restart for pre-existing workers:
+		// their session turns are mirrored to s-activations-<worker>
+		// without needing a spawner activation first. Runs once per
+		// org per process (bootstrap is cached). Best-effort.
+		s.mirror.EnsureAll(ctx, orgID)
 
 		s.mu.Lock()
 		s.bootstrapped[orgID] = true
