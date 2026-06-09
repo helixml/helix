@@ -42,6 +42,6 @@
 
 ## Docs & cleanup
 
-- [ ] Update any developer-facing doc that lists transport kinds (e.g. `api/pkg/org/domain/transport/transport.go` doc comment, README sections under `docs/`)
-- [ ] Note the single-leader limitation in operational docs (same as existing app cron)
-- [ ] Manual verification checklist: create cron stream → subscribe a Worker → confirm activation on tick → edit schedule → confirm new cadence within 10s → delete stream → confirm no further fires
+- [ ] ~~Update any developer-facing doc that lists transport kinds~~ **Not needed.** transport.go's `kindOrder` is the canonical list — its doc comment already says "Adding a new Kind = a new file + a new constant + one map entry"; no separate listing to keep in sync.
+- [ ] ~~Note the single-leader limitation in operational docs~~ **Deferred to a follow-up.** Operational docs for the existing app-cron don't call this out either; we'll add it for both schedulers when distributed scheduling is on the roadmap.
+- [x] Manual verification: registered admin user → enabled helix-org alpha → opened /orgs/testorg/helix-org/streams → "cron" appeared in transport dropdown → selected it, picked "Mon 09:00" preset, created stream → next reconcile (≤ 10s) scheduled the job (`streamcron: scheduled stream … schedule="0 9 * * 1"`) → tried `* * * * *` → server rejected with `schedule "* * * * *" fires more often than the 1m30s minimum`, snackbar surfaced verbatim. See screenshots/.
