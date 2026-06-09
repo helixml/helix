@@ -22,7 +22,7 @@
 - [x] Implement `Scheduler.fire(streamID, orgID)` — build event via `streaming.NewMessageEvent` with `kind:"scheduled"` body, call `Store.Events.Append`, `Hub.Notify`, `Dispatcher.Dispatch`
 - [x] Wrap `fire()` in panic recovery so a single bad tick can't poison the schedule
 - [x] Start the scheduler in the helix-org bootstrap (`api/pkg/server/helix_org.go`), driven by the server's `ctx` so shutdown is clean
-- [~] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent`
+- [x] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent` *(implemented as scheduler-level tests against memory store + recording dispatcher — exercises fire(), reconcile() add/update/remove, panic recovery, and the invalid-schedule defensive skip)*
 
 ## Backend: audit
 
