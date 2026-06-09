@@ -311,7 +311,7 @@ func (t *Transport) HandleInbound() http.Handler {
 			return
 		}
 		if t.broadcaster != nil {
-			t.broadcaster.Notify(stream.ID)
+			t.broadcaster.Notify(t.orgID, stream.ID)
 		}
 		if t.dispatcher != nil {
 			t.dispatcher.Dispatch(r.Context(), event)

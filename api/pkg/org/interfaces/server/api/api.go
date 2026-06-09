@@ -1644,7 +1644,7 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	wake := a.deps.Hub.Subscribe([]streaming.StreamID{streaming.StreamID(streamID)})
+	wake := a.deps.Hub.Subscribe(orgID, []streaming.StreamID{streaming.StreamID(streamID)})
 	defer a.deps.Hub.Unsubscribe([]streaming.StreamID{streaming.StreamID(streamID)}, wake)
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -1769,7 +1769,7 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.deps.Hub != nil {
-		a.deps.Hub.Notify(streamID)
+		a.deps.Hub.Notify(orgID, streamID)
 	}
 	if a.deps.Dispatcher != nil {
 		a.deps.Dispatcher.Dispatch(ctx, ev)

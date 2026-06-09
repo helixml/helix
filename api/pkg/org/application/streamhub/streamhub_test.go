@@ -63,9 +63,9 @@ func TestSubscribeAndNotify_WakesMatchingSubscriber(t *testing.T) { // B1
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe([]streaming.StreamID{"s-a", "s-b"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a", "s-b"})
 	time.Sleep(subInstall)
-	h.Notify("s-a")
+	h.Notify("org-test", "s-a")
 	select {
 	case <-ch:
 	case <-time.After(waitForWake):
@@ -77,9 +77,9 @@ func TestNotify_IgnoresOtherStreams(t *testing.T) { // B2
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe([]streaming.StreamID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
-	h.Notify("s-b")
+	h.Notify("org-test", "s-b")
 	select {
 	case <-ch:
 		t.Fatalf("subscriber woke on unrelated stream")
@@ -91,10 +91,10 @@ func TestNotify_CoalescesBurstyNotifications(t *testing.T) { // B3
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe([]streaming.StreamID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
 	for i := 0; i < 100; i++ {
-		h.Notify("s-a")
+		h.Notify("org-test", "s-a")
 	}
 	// Drain the first wake-up. With pubsub-backed delivery this may
 	// take a few ms to appear; the 1 s wake timeout absorbs that.
@@ -125,10 +125,10 @@ func TestUnsubscribe_StopsDelivery(t *testing.T) { // B4
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe([]streaming.StreamID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
 	h.Unsubscribe([]streaming.StreamID{"s-a"}, ch)
-	h.Notify("s-a")
+	h.Notify("org-test", "s-a")
 	select {
 	case <-ch:
 		t.Fatalf("woke after unsubscribe")
@@ -144,7 +144,7 @@ func TestNotify_WakesEveryMatchingSubscriber(t *testing.T) { // B5
 	var wg sync.WaitGroup
 	channels := make([]chan struct{}, n)
 	for i := range channels {
-		channels[i] = h.Subscribe([]streaming.StreamID{"s-a"})
+		channels[i] = h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	}
 	time.Sleep(subInstall)
 	for i := range channels {
@@ -158,7 +158,7 @@ func TestNotify_WakesEveryMatchingSubscriber(t *testing.T) { // B5
 			}
 		}(channels[i])
 	}
-	h.Notify("s-a")
+	h.Notify("org-test", "s-a")
 	wg.Wait()
 }
 
@@ -168,11 +168,11 @@ func TestSubscriber_RegisteredForMultipleStreams_WakesOnAny(t *testing.T) { // B
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe([]streaming.StreamID{"s-a", "s-b", "s-c"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a", "s-b", "s-c"})
 	time.Sleep(subInstall)
 
 	// Notify on s-b — the middle one — to prove order doesn't matter.
-	h.Notify("s-b")
+	h.Notify("org-test", "s-b")
 	select {
 	case <-ch:
 	case <-time.After(waitForWake):
@@ -180,7 +180,7 @@ func TestSubscriber_RegisteredForMultipleStreams_WakesOnAny(t *testing.T) { // B
 	}
 
 	// And again on s-c after draining.
-	h.Notify("s-c")
+	h.Notify("org-test", "s-c")
 	select {
 	case <-ch:
 	case <-time.After(waitForWake):
@@ -192,11 +192,11 @@ func TestSubscribeAll_WakesOnAnyNotify(t *testing.T) { // B7
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.SubscribeAll()
+	ch := h.SubscribeAll("org-test")
 	time.Sleep(subInstall)
 
 	// No registration for a specific stream, yet any Notify wakes it.
-	h.Notify("s-anything")
+	h.Notify("org-test", "s-anything")
 	select {
 	case <-ch:
 	case <-time.After(waitForWake):
@@ -204,7 +204,7 @@ func TestSubscribeAll_WakesOnAnyNotify(t *testing.T) { // B7
 	}
 
 	// A second, unrelated stream — same listener wakes again.
-	h.Notify("s-different")
+	h.Notify("org-test", "s-different")
 	select {
 	case <-ch:
 	case <-time.After(waitForWake):
@@ -216,11 +216,11 @@ func TestUnsubscribeAll_StopsDelivery(t *testing.T) { // B8
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.SubscribeAll()
+	ch := h.SubscribeAll("org-test")
 	time.Sleep(subInstall)
 	h.UnsubscribeAll(ch)
 
-	h.Notify("s-x")
+	h.Notify("org-test", "s-x")
 	select {
 	case <-ch:
 		t.Fatalf("SubscribeAll listener woke after UnsubscribeAll")
@@ -235,17 +235,17 @@ func TestNotify_NonBlockingOnFullSubscriberChannel(t *testing.T) { // B9
 	// Subscribe but never drain the channel — the second notify must
 	// not block. If Notify weren't non-blocking, this test would hang
 	// past the timeout and fail.
-	ch := h.Subscribe([]streaming.StreamID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	_ = ch // not draining intentionally
 	time.Sleep(subInstall)
 
 	// First Notify fills the channel.
-	h.Notify("s-a")
+	h.Notify("org-test", "s-a")
 	// Subsequent Notifies must coalesce silently — none of them block.
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 1000; i++ {
-			h.Notify("s-a")
+			h.Notify("org-test", "s-a")
 		}
 		close(done)
 	}()
@@ -260,7 +260,7 @@ func TestUnsubscribe_EmptyStreamListIsNoop(t *testing.T) { // B10
 	t.Parallel()
 
 	h := newHub(t)
-	ch := h.Subscribe([]streaming.StreamID{"s-a"})
+	ch := h.Subscribe("org-test", []streaming.StreamID{"s-a"})
 	time.Sleep(subInstall)
 
 	// Calling Unsubscribe with an empty list MUST NOT panic and MUST
@@ -269,7 +269,7 @@ func TestUnsubscribe_EmptyStreamListIsNoop(t *testing.T) { // B10
 	h.Unsubscribe(nil, ch)
 	h.Unsubscribe([]streaming.StreamID{}, ch)
 
-	h.Notify("s-a")
+	h.Notify("org-test", "s-a")
 	select {
 	case <-ch:
 	case <-time.After(waitForWake):
@@ -290,7 +290,7 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 
 	// One durable subscriber registered before any Notify — guaranteed
 	// to observe at least one wake.
-	durable := h.Subscribe([]streaming.StreamID{"s-shared"})
+	durable := h.Subscribe("org-test", []streaming.StreamID{"s-shared"})
 	time.Sleep(subInstall)
 
 	var wg sync.WaitGroup
@@ -303,7 +303,7 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 			defer wg.Done()
 			<-start
 			for i := 0; i < iterations; i++ {
-				h.Notify("s-shared")
+				h.Notify("org-test", "s-shared")
 			}
 		}()
 	}
@@ -317,7 +317,7 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 			defer wg.Done()
 			<-start
 			for i := 0; i < iterations; i++ {
-				ch := h.Subscribe([]streaming.StreamID{"s-shared"})
+				ch := h.Subscribe("org-test", []streaming.StreamID{"s-shared"})
 				h.Unsubscribe([]streaming.StreamID{"s-shared"}, ch)
 			}
 		}()
@@ -334,5 +334,60 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 	case <-durable:
 	case <-time.After(waitForWake):
 		t.Fatalf("durable subscriber did not observe a wake across %d notifies", goroutines*iterations)
+	}
+}
+
+// TestNotify_IsolatedAcrossOrgs is the regression test for the
+// cross-tenant wake leak (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// Stream IDs are unique only within an org, so two orgs share ids like
+// `s-general` and `s-activations-w-owner`. The wake topic must include
+// the org, otherwise one org's Notify wakes the other org's subscriber
+// on a colliding id. Here both orgs subscribe to the SAME id; a Notify
+// for org-a must wake only org-a.
+func TestNotify_IsolatedAcrossOrgs(t *testing.T) {
+	t.Parallel()
+
+	h := newHub(t)
+	chA := h.Subscribe("org-a", []streaming.StreamID{"s-general"})
+	chB := h.Subscribe("org-b", []streaming.StreamID{"s-general"})
+	time.Sleep(subInstall)
+
+	h.Notify("org-a", "s-general")
+
+	select {
+	case <-chA:
+	case <-time.After(waitForWake):
+		t.Fatalf("org-a subscriber did not wake on its own org's Notify")
+	}
+	select {
+	case <-chB:
+		t.Fatalf("org-b subscriber woke on org-a's Notify for a colliding stream id — cross-tenant wake leak")
+	case <-time.After(waitForNonWake):
+	}
+}
+
+// TestSubscribeAll_IsolatedAcrossOrgs pins that the wildcard live-view
+// subscription is org-scoped: SubscribeAll for org-a must not fire on
+// org-b's Notify.
+func TestSubscribeAll_IsolatedAcrossOrgs(t *testing.T) {
+	t.Parallel()
+
+	h := newHub(t)
+	ch := h.SubscribeAll("org-a")
+	time.Sleep(subInstall)
+
+	h.Notify("org-b", "s-anything")
+	select {
+	case <-ch:
+		t.Fatalf("org-a SubscribeAll woke on org-b's Notify — wildcard is not org-scoped")
+	case <-time.After(waitForNonWake):
+	}
+
+	h.Notify("org-a", "s-anything")
+	select {
+	case <-ch:
+	case <-time.After(waitForWake):
+		t.Fatalf("org-a SubscribeAll did not wake on its own org's Notify")
 	}
 }

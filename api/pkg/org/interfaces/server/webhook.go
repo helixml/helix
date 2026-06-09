@@ -98,7 +98,7 @@ func (s *Server) webhookHandler() http.Handler {
 		}
 
 		if s.broadcaster != nil {
-			s.broadcaster.Notify(streamID)
+			s.broadcaster.Notify(orgID, streamID)
 		}
 		if s.dispatcher != nil {
 			s.dispatcher.Dispatch(r.Context(), event)
