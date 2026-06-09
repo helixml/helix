@@ -463,175 +463,63 @@ func (c *inProcHelixClient) StopExternalAgent(ctx context.Context, sessionID str
 	return nil
 }
 
-// StartChatWithStatus opens or continues a chat session and reports
-// whether the SSE stream surfaced a transient error after the session
-// ID came through. The underlying startChatSessionHandler is streaming
-// (writes SSE chunks to the ResponseWriter and Flushes), so we capture
-// via a custom sseCapture writer that scans the chunks — `data: `
-// prefix, JSON chunks with `id` and `error.message`, sets hadWSError
-// when an error chunk arrives.
-func (c *inProcHelixClient) StartChatWithStatus(ctx context.Context, req runtimehelix.StartChatRequest) (types.Session, bool, error) {
-	if req.Type == "" {
-		req.Type = "text"
+// StartSession creates a worker's external-agent session via the shared
+// StartExternalAgentSession primitive — the same one the cron trigger
+// drives autonomous sessions with. It creates the session row, starts
+// the desktop, and queues the prompt as the first (Waiting) message.
+// Non-blocking: the agent runs the turn asynchronously; the spawner
+// observes completion via pollUntilDone + the transcript mirror.
+// session_role is "exploratory" so the session is discoverable in
+// Helix's per-project desktop view and resolvable by the mirror's
+// GetProjectExploratorySession lookup.
+func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (string, error) {
+	if params.Prompt == "" {
+		return "", errors.New("StartSession: Prompt is required")
 	}
-	if len(req.Messages) == 0 {
-		return types.Session{}, false, errors.New("StartChatWithStatus: req.Messages must contain at least one message")
-	}
-	if req.AgentType == "zed_external" && req.ExternalAgentConfig == nil {
-		req.ExternalAgentConfig = &types.ExternalAgentConfig{}
-	}
-
-	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/chat", req, nil)
+	user, err := c.resolveUser(ctx)
 	if err != nil {
-		return types.Session{}, false, err
+		return "", err
 	}
-	cap := newSSECapture(req.OnSessionID)
-	c.server.startChatSessionHandler(cap, r)
-	if cap.statusCode >= 400 {
-		return types.Session{}, false, fmt.Errorf("start chat: HTTP %d: %s", cap.statusCode, strings.TrimSpace(cap.errBody.String()))
+	req := &types.SessionChatRequest{
+		ProjectID:      params.ProjectID,
+		OrganizationID: params.OrganizationID,
+		AppID:          params.AppID,
+		AgentType:      params.AgentType,
+		Provider:       types.Provider(params.Provider),
+		Model:          params.Model,
+		SessionRole:    "exploratory",
+		Messages: []*types.Message{{
+			Role:    "user",
+			Content: types.MessageContent{Parts: []any{params.Prompt}},
+		}},
 	}
-	// Try SSE parsing first — `data: ` prefix means we got a stream.
-	if id, hadErr := cap.parseSSE(); id != "" {
-		return types.Session{ID: id}, hadErr, nil
+	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
+	if err != nil {
+		return "", fmt.Errorf("start external agent session: %w", err)
 	}
-	// Fall back: handler may have returned a JSON body (helix_basic /
-	// openai shape).
-	if cap.body.Len() > 0 {
-		s, perr := parseStartChatResponseInProc(cap.body.Bytes())
-		if perr != nil {
-			return types.Session{}, false, perr
-		}
-		if req.OnSessionID != nil && s.ID != "" {
-			req.OnSessionID(s.ID)
-		}
-		return s, false, nil
-	}
-	return types.Session{}, false, errors.New("start chat: no session id and no body")
+	return session.ID, nil
 }
 
-// parseStartChatResponseInProc handles both the zed_external
-// types.Session shape and the OpenAI chat-completion shape
-// helix_basic returns.
-func parseStartChatResponseInProc(raw []byte) (types.Session, error) {
-	var s types.Session
-	_ = json.Unmarshal(raw, &s)
-	if len(s.Interactions) > 0 {
-		if s.ID == "" {
-			return types.Session{}, errors.New("start chat: session has no id")
-		}
-		return s, nil
+// SendMessage dispatches a follow-up turn to an existing worker session
+// through the same REST handler the frontend and spec tasks use
+// (POST /sessions/{id}/messages). Fire-and-forget: it persists a Waiting
+// interaction, sends the WS command, and returns immediately — no
+// blocking on the turn, so no response-timeout cap. If the desktop is
+// down, Helix auto-starts it and delivers the queued message on
+// reconnect, on the SAME session (conversation preserved).
+func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
+	if sessionID == "" {
+		return errors.New("SendMessage: sessionID is required")
 	}
-	var oai struct {
-		ID      string `json:"id"`
-		Choices []struct {
-			Index   int `json:"index"`
-			Message struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+	body := SessionMessageRequest{Content: prompt}
+	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", body, map[string]string{"id": sessionID})
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(raw, &oai); err != nil {
-		return types.Session{}, fmt.Errorf("decode start-chat response: %w", err)
+	if _, herr := c.server.sendSessionMessage(nil, r); herr != nil {
+		return fmt.Errorf("send session message to %s: %s", sessionID, herr.Error())
 	}
-	if oai.ID == "" {
-		return types.Session{}, errors.New("start chat: empty session id")
-	}
-	out := types.Session{ID: oai.ID}
-	if len(oai.Choices) > 0 && oai.Choices[0].Message.Content != "" {
-		out.Interactions = []*types.Interaction{{
-			ID:              oai.ID + ":synth",
-			State:           "complete",
-			ResponseMessage: oai.Choices[0].Message.Content,
-		}}
-	}
-	return out, nil
-}
-
-// sseCapture is an http.ResponseWriter + http.Flusher that buffers
-// everything the streaming startChatSessionHandler writes, so the
-// adapter can scan it for SSE chunks (session ID + error.message).
-//
-// Flush() is a no-op — there's no client to push to, but the handler's
-// `if f, ok := rw.(http.Flusher); ok` check still needs to succeed for
-// chunks to be emitted on the buffer mid-handler.
-type sseCapture struct {
-	header      http.Header
-	body        bytes.Buffer
-	errBody     bytes.Buffer
-	statusCode  int
-	onSessionID func(string)
-}
-
-func newSSECapture(onSessionID func(string)) *sseCapture {
-	return &sseCapture{
-		header:      http.Header{},
-		statusCode:  http.StatusOK,
-		onSessionID: onSessionID,
-	}
-}
-
-// Header satisfies http.ResponseWriter.
-func (s *sseCapture) Header() http.Header { return s.header }
-
-// Write satisfies http.ResponseWriter. We buffer error bodies separately
-// from success bodies so the caller can surface a meaningful HTTP-style
-// error when the handler returned >=400.
-func (s *sseCapture) Write(b []byte) (int, error) {
-	if s.statusCode >= 400 {
-		return s.errBody.Write(b)
-	}
-	return s.body.Write(b)
-}
-
-// WriteHeader satisfies http.ResponseWriter.
-func (s *sseCapture) WriteHeader(code int) { s.statusCode = code }
-
-// Flush satisfies http.Flusher — no-op since we're an in-process buffer.
-func (s *sseCapture) Flush() {}
-
-// parseSSE scans the buffered body looking for `data: …` chunks of the
-// shape `{"id":"…","error":{"message":"…"}}` and returns the first
-// session ID it sees along with a flag indicating whether any chunk
-// carried an error.message.
-func (s *sseCapture) parseSSE() (sessionID string, hadWSError bool) {
-	// Quick check: does the body look like SSE? Handler emits "data: "
-	// prefixed lines for streaming sessions. helix_basic returns plain JSON.
-	bodyStr := s.body.String()
-	if !strings.Contains(bodyStr, "data:") {
-		return "", false
-	}
-	for _, line := range strings.Split(bodyStr, "\n") {
-		payload := strings.TrimSpace(line)
-		if payload == "" {
-			continue
-		}
-		payload = strings.TrimPrefix(payload, "data:")
-		payload = strings.TrimSpace(payload)
-		if payload == "" || payload == "[DONE]" {
-			continue
-		}
-		var chunk struct {
-			ID    string `json:"id"`
-			Error *struct {
-				Message string `json:"message"`
-			} `json:"error,omitempty"`
-		}
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue
-		}
-		if chunk.ID != "" && sessionID == "" {
-			sessionID = chunk.ID
-			if s.onSessionID != nil {
-				s.onSessionID(sessionID)
-			}
-		}
-		if chunk.Error != nil {
-			hadWSError = true
-			break
-		}
-	}
-	return sessionID, hadWSError
+	return nil
 }
 
 // Compile-time interface assertions — both ports must be satisfied by
