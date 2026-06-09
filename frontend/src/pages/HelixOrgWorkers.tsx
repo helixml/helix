@@ -20,6 +20,7 @@ import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 
 import Page from '../components/system/Page'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -38,6 +39,7 @@ const OWNER_WORKER = 'w-owner'
 const HelixOrgWorkers: FC = () => {
   const router = useRouter()
   const account = useAccount()
+  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
   const orgSlug = router.params.org_id as string | undefined
@@ -154,7 +156,7 @@ const HelixOrgWorkers: FC = () => {
   return (
     <Page
       breadcrumbTitle="Workers"
-      orgBreadcrumbs={true}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>

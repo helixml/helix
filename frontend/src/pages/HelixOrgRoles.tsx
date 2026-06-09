@@ -21,6 +21,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import Page from '../components/system/Page'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -39,6 +40,7 @@ const OWNER_ROLE = 'r-owner'
 const HelixOrgRoles: FC = () => {
   const router = useRouter()
   const account = useAccount()
+  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
   const orgSlug = router.params.org_id as string | undefined
@@ -145,7 +147,7 @@ const HelixOrgRoles: FC = () => {
   return (
     <Page
       breadcrumbTitle="Roles"
-      orgBreadcrumbs={true}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>

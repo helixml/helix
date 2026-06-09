@@ -28,6 +28,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 import Page from '../components/system/Page'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -72,6 +73,7 @@ const HIGHLIGHT_DURATION_MS = 2400
 const HelixOrgStreams: FC = () => {
   const account = useAccount()
   const router = useRouter()
+  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
 
@@ -185,7 +187,7 @@ const HelixOrgStreams: FC = () => {
   return (
     <Page
       breadcrumbTitle="Streams"
-      orgBreadcrumbs={true}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <Button
