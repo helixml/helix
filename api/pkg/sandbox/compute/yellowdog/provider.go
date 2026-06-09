@@ -28,10 +28,20 @@ import (
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 )
 
-// providerName is the value returned by Provider.Name(). Stable across
-// releases - SandboxInstance rows persist this string in their
-// Provider column, so renaming it is a data migration.
-const providerName = "yellowdog"
+// providerKind is the prefix of the value returned by Provider.Name().
+// Combined with the DeploymentTag at construction time to form the
+// full per-deployment provider name (e.g. "yellowdog-prod-eu-west-2").
+//
+// The per-deployment suffix distinguishes work requirements created
+// by this Helix install from WRs created by other Helix installs or
+// other tooling sharing the same YD account. Without it, two Helix
+// installs sharing a YD namespace would also see each other's
+// SandboxInstance rows as owned.
+//
+// Stable across releases - SandboxInstance rows persist the full
+// composite string in their Provider column, so renaming it is a data
+// migration.
+const providerKind = "yellowdog"
 
 // Config carries operator-supplied configuration for the YellowDog
 // provider. Loaded from env/secret-store at Helix startup; not loaded
@@ -110,6 +120,7 @@ type Provider struct {
 	httpc   *http.Client
 	baseURL string
 	retry   retryConfig
+	name    string // composite: providerKind + "-" + cfg.DeploymentTag
 }
 
 // Compile-time conformance check. If compute.Provider drifts and
@@ -176,12 +187,15 @@ func NewProvider(cfg Config) (*Provider, error) {
 			maxAttempts:    cfg.MaxRetries,
 			initialBackoff: cfg.InitialBackoff,
 		},
+		name: providerKind + "-" + cfg.DeploymentTag,
 	}, nil
 }
 
-// Name returns "yellowdog". Persisted on every SandboxInstance row this
-// Provider creates.
-func (p *Provider) Name() string { return providerName }
+// Name returns the composite identifier "yellowdog-<deploymentTag>".
+// Persisted on every SandboxInstance row this Provider creates, so two
+// Helix installations sharing a Postgres but using different deployment
+// tags do not see each other's rows as owned.
+func (p *Provider) Name() string { return p.name }
 
 // Provision submits a YD work requirement that runs the configured
 // bash script on a worker matching cfg.WorkerTag, then returns a
@@ -243,7 +257,7 @@ func (p *Provider) Provision(ctx context.Context, spec compute.Spec) (*compute.H
 	}
 
 	h := &compute.Handle{
-		ProviderName: providerName,
+		ProviderName: p.name,
 		ProviderID:   created.ID,
 		State:        compute.StateProvisioning,
 		CreatedAt:    time.Now(),
@@ -295,7 +309,7 @@ func (p *Provider) List(ctx context.Context) ([]*compute.Handle, error) {
 			state = compute.StateFailed
 		}
 		out = append(out, &compute.Handle{
-			ProviderName: providerName,
+			ProviderName: p.name,
 			ProviderID:   wr.ID,
 			State:        state,
 			CreatedAt:    derefTime(wr.CreatedTime),
