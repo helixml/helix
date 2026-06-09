@@ -54,7 +54,7 @@
 
 - [x] Confirm all M1–M9 scenarios pass (or have tracked follow-ups) AND `validate_fork.sh` exits green — **17/17 smoke + 7/9 walkthrough scenarios validated, 2 deferred-by-design**
 - [x] Write PR descriptions
-- [ ] Notify the user that the branch is validated and ready for merge review
+- [x] Notify the user that the branch is validated and ready for merge review
 
 ---
 
