@@ -113,13 +113,25 @@ func deriveDeploymentTag(cfg config.Compute) string {
 func buildProvider(cfg config.Compute) (compute.Provider, error) {
 	switch cfg.Provider {
 	case "yellowdog":
+		// Auto-derive WorkerTag from Namespace when unset, matching
+		// the yd-provision POC convention (`worker_tag = "worker-<tag>"`).
+		// Operator who set up their pool per the POC docs gets a
+		// working default; anyone with a custom pool naming scheme
+		// overrides via HELIX_YD_WORKER_TAG.
+		workerTag := cfg.Yellowdog.WorkerTag
+		if workerTag == "" && cfg.Yellowdog.Namespace != "" {
+			workerTag = "worker-" + cfg.Yellowdog.Namespace
+			log.Info().
+				Str("worker_tag", workerTag).
+				Msg("compute: HELIX_YD_WORKER_TAG auto-derived from namespace; override if your YD worker pool advertises a different tag")
+		}
 		return yellowdog.NewProvider(yellowdog.Config{
 			APIKeyID:      cfg.Yellowdog.APIKeyID,
 			APISecret:     cfg.Yellowdog.APISecret,
 			BaseURL:       cfg.Yellowdog.BaseURL,
 			Namespace:     cfg.Yellowdog.Namespace,
 			DeploymentTag: cfg.DeploymentTag,
-			WorkerTag:     cfg.Yellowdog.WorkerTag,
+			WorkerTag:     workerTag,
 			TaskTimeout:   cfg.Yellowdog.TaskTimeout,
 			MaxRetries:    cfg.Yellowdog.MaxRetries,
 		})

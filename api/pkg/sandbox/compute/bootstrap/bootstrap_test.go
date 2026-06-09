@@ -173,6 +173,65 @@ func TestBootstrapUnknownProviderErrors(t *testing.T) {
 	}
 }
 
+func TestBootstrapDerivesWorkerTagFromNamespace(t *testing.T) {
+	// Omitting HELIX_YD_WORKER_TAG should auto-derive "worker-<namespace>"
+	// per the yd-provision POC convention. Bootstrap completes without
+	// error using only Namespace; yellowdog.NewProvider will reject
+	// the build if WorkerTag is still empty after derivation.
+	cfg := config.Compute{
+		Provider:                "yellowdog",
+		ReconcileInterval:       time.Second,
+		HealthCheckTimeout:      time.Second,
+		MaxConcurrentProvisions: 1,
+		MaxProvisioningAge:      time.Minute,
+		Yellowdog: config.Yellowdog{
+			APIKeyID:    "k",
+			APISecret:   "s",
+			BaseURL:     "https://portal.yellowdog.co/api",
+			Namespace:   "development",
+			WorkerTag:   "", // intentionally empty
+			TaskTimeout: time.Hour,
+		},
+	}
+	mgr, err := Bootstrap(cfg, nullStore{})
+	if err != nil {
+		t.Fatalf("Bootstrap with empty WorkerTag should auto-derive, got error: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil Manager")
+	}
+}
+
+func TestBootstrapErrorsWhenWorkerTagAndNamespaceBothEmpty(t *testing.T) {
+	// With BOTH WorkerTag AND Namespace empty, derivation can't
+	// produce a default and yellowdog.NewProvider rejects the
+	// empty WorkerTag (existing validation in provider.go).
+	cfg := config.Compute{
+		Provider:                "yellowdog",
+		DeploymentTag:           "explicit-tag", // skip the namespace-derived DeploymentTag path
+		ReconcileInterval:       time.Second,
+		HealthCheckTimeout:      time.Second,
+		MaxConcurrentProvisions: 1,
+		MaxProvisioningAge:      time.Minute,
+		Yellowdog: config.Yellowdog{
+			APIKeyID:    "k",
+			APISecret:   "s",
+			BaseURL:     "https://portal.yellowdog.co/api",
+			Namespace:   "", // intentionally empty - blocks the derivation
+			WorkerTag:   "",
+			TaskTimeout: time.Hour,
+		},
+	}
+	// Bootstrap should fail at the Namespace validation in
+	// yellowdog.NewProvider, since Namespace is required for the
+	// provider itself; WorkerTag derivation never gets a chance to
+	// run with no namespace input.
+	_, err := Bootstrap(cfg, nullStore{})
+	if err == nil {
+		t.Fatal("expected error when Namespace is empty (which blocks both Namespace validation and WorkerTag derivation)")
+	}
+}
+
 func TestBootstrapYellowdogRequiresCredentials(t *testing.T) {
 	// Bootstrap delegates field validation to yellowdog.NewProvider,
 	// so this test mostly proves the wiring is plumbed correctly.
