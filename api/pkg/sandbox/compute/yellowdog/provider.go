@@ -32,9 +32,11 @@ import (
 // Combined with the DeploymentTag at construction time to form the
 // full per-deployment provider name (e.g. "yellowdog-prod-eu-west-2").
 //
-// The per-deployment suffix is what keeps two Helix installations that
-// happen to share a Postgres from seeing each other's SandboxInstance
-// rows as owned. See the security review of D1 for the failure mode.
+// The per-deployment suffix distinguishes work requirements created
+// by this Helix install from WRs created by other Helix installs or
+// other tooling sharing the same YD account. Without it, two Helix
+// installs sharing a YD namespace would also see each other's
+// SandboxInstance rows as owned.
 //
 // Stable across releases - SandboxInstance rows persist the full
 // composite string in their Provider column, so renaming it is a data

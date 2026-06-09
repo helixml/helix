@@ -2391,9 +2391,9 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 		// handler returns.
 		//
 		// Treating `failed` as a forward-transition recovery path
-		// closes a gap flagged in D2 review: previously a row that
-		// the Manager rolled forward to ComputeState=failed (due to
-		// transient HealthCheck issue) would, on the host phoning
+		// closes a real recovery gap: a row that the Manager rolled
+		// forward to ComputeState=failed (due to a transient
+		// HealthCheck issue) would, on the host eventually phoning
 		// home, fall through to ResetSandboxOnReconnect - Status
 		// would flip to online but ComputeState stayed `failed`
 		// forever. `isAvailable()` returns false for `failed`, so

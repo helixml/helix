@@ -15,7 +15,7 @@ import (
 //   1. Manager-provisioned host registering for the first time
 //      (row exists, ComputeState in {provisioning, failed}) - bridge
 //      forward-transitions to ready via THREE targeted column updates
-//      (compute_state, status, network). The split was driven by D2
+//      (compute_state, status, network). The split was driven by a
 //      review finding that the previous full-row gorm.Save approach
 //      would clobber concurrent heartbeat writes.
 //   2. Reconnect of a previously-online host (row exists, ComputeState
@@ -41,8 +41,8 @@ func TestEnsureSandboxRegistered_BridgesProvisioningRow_TargetedUpdates(t *testi
 		Return([]*types.SandboxInstance{existing}, nil)
 
 	// Bridge MUST use targeted column updates, NOT the full-row Save
-	// path (RegisterSandboxInstance). Regression guard for the bug
-	// found in D2 review: full-row Save would clobber heartbeat
+	// path (RegisterSandboxInstance). Regression guard for a
+	// review-surfaced bug: full-row Save would clobber heartbeat
 	// columns that the heartbeat goroutine writes between our load
 	// and our save.
 	mockStore.EXPECT().
@@ -59,9 +59,10 @@ func TestEnsureSandboxRegistered_BridgesProvisioningRow_TargetedUpdates(t *testi
 }
 
 func TestEnsureSandboxRegistered_BridgesFailedRow_RecoveryPath(t *testing.T) {
-	// Regression guard for D2 review finding: a host whose row got
-	// rolled forward to ComputeState=failed (transient HealthCheck
-	// blip, Provider thought it was dead) may still phone home later.
+	// Regression guard for a review-surfaced recovery gap: a host
+	// whose row got rolled forward to ComputeState=failed (transient
+	// HealthCheck blip, Provider thought it was dead) may still
+	// phone home later.
 	// The bridge MUST forward-transition it to ready, otherwise it
 	// stays failed forever - isAvailable() returns false, Manager
 	// pre-warms a replacement, and the host serves but doesn't count.

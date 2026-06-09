@@ -48,8 +48,8 @@ func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager
 	// derivation cannot detect that scenario.
 	//
 	// A more robust "persistent install ID hashed into the tag"
-	// design is tracked for D2b; for now the namespace-derived
-	// default + boot-time log + manual override covers the realistic
+	// design is a follow-up; for now the namespace-derived default
+	// + boot-time log + manual override covers the realistic
 	// deployment shapes.
 	if cfg.DeploymentTag == "" {
 		derived := deriveDeploymentTag(cfg)

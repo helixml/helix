@@ -41,10 +41,11 @@ func (nullStore) DeregisterSandboxInstance(context.Context, string) error {
 }
 
 func TestBootstrapDisabledWhenProviderUnset(t *testing.T) {
-	// THE core contract of D2: HELIX_COMPUTE_PROVIDER empty means no
-	// Manager is constructed, no goroutine runs, no behavioural
-	// change for existing deployments. Returning (nil, nil) is how
-	// the boot path detects "disabled" without a sentinel.
+	// THE core disabled-by-default contract: HELIX_COMPUTE_PROVIDER
+	// empty means no Manager is constructed, no goroutine runs, no
+	// behavioural change for existing deployments. Returning (nil,
+	// nil) is how the boot path detects "disabled" without a
+	// sentinel.
 	mgr, err := Bootstrap(config.Compute{}, nullStore{})
 	if err != nil {
 		t.Fatalf("expected nil error for disabled config, got %v", err)
