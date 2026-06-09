@@ -1,0 +1,171 @@
+package bootstrap
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/sandbox/compute"
+	"github.com/helixml/helix/api/pkg/types"
+)
+
+// nullStore is a no-op SandboxStore so we can construct Bootstrap
+// without standing up a real Postgres or even an in-memory fake.
+// Bootstrap doesn't call into the store at construction time - it
+// only stashes the reference for later use by Manager.Reconcile -
+// so a nil-method stub is sufficient for these contract tests.
+type nullStore struct{}
+
+func (nullStore) ListSandboxInstances(context.Context) ([]*types.SandboxInstance, error) {
+	return nil, nil
+}
+func (nullStore) GetSandboxInstance(context.Context, string) (*types.SandboxInstance, error) {
+	return nil, nil
+}
+func (nullStore) RegisterSandboxInstance(context.Context, *types.SandboxInstance) error {
+	return nil
+}
+func (nullStore) UpdateSandboxInstanceStatus(context.Context, string, string) error {
+	return nil
+}
+func (nullStore) UpdateSandboxInstanceComputeState(context.Context, string, string) error {
+	return nil
+}
+func (nullStore) UpdateSandboxInstanceProviderID(context.Context, string, string) error {
+	return nil
+}
+func (nullStore) DeregisterSandboxInstance(context.Context, string) error {
+	return nil
+}
+
+func TestBootstrapDisabledWhenProviderUnset(t *testing.T) {
+	// THE core contract of D2: HELIX_COMPUTE_PROVIDER empty means no
+	// Manager is constructed, no goroutine runs, no behavioural
+	// change for existing deployments. Returning (nil, nil) is how
+	// the boot path detects "disabled" without a sentinel.
+	mgr, err := Bootstrap(config.Compute{}, nullStore{})
+	if err != nil {
+		t.Fatalf("expected nil error for disabled config, got %v", err)
+	}
+	if mgr != nil {
+		t.Fatalf("expected nil Manager for disabled config, got %+v", mgr)
+	}
+}
+
+func TestBootstrapDisabledIgnoresAllOtherFields(t *testing.T) {
+	// Defence-in-depth: even if other fields are set (e.g. operator
+	// left HELIX_COMPUTE_FLOOR=5 from a previous setup), an empty
+	// Provider MUST still disable the subsystem. No partial enable.
+	cfg := config.Compute{
+		Provider:                "", // the only thing that matters
+		DeploymentTag:           "prod",
+		Floor:                   5,
+		ReconcileInterval:       30 * time.Second,
+		HealthCheckTimeout:      10 * time.Second,
+		MaxConcurrentProvisions: 3,
+		MaxProvisioningAge:      30 * time.Minute,
+	}
+	mgr, err := Bootstrap(cfg, nullStore{})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if mgr != nil {
+		t.Fatal("expected nil Manager, got non-nil")
+	}
+}
+
+func TestBootstrapRequiresDeploymentTagWhenEnabled(t *testing.T) {
+	cfg := config.Compute{
+		Provider: "yellowdog",
+	}
+	_, err := Bootstrap(cfg, nullStore{})
+	if err == nil {
+		t.Fatal("expected error for missing DeploymentTag, got nil")
+	}
+	if !strings.Contains(err.Error(), "HELIX_COMPUTE_DEPLOYMENT_TAG") {
+		t.Fatalf("error should name the missing env var, got %q", err.Error())
+	}
+}
+
+func TestBootstrapUnknownProviderErrors(t *testing.T) {
+	cfg := config.Compute{
+		Provider:      "nonesuch",
+		DeploymentTag: "prod",
+	}
+	_, err := Bootstrap(cfg, nullStore{})
+	if err == nil {
+		t.Fatal("expected error for unknown provider, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonesuch") {
+		t.Fatalf("error should name the bad provider, got %q", err.Error())
+	}
+}
+
+func TestBootstrapYellowdogRequiresCredentials(t *testing.T) {
+	// Bootstrap delegates field validation to yellowdog.NewProvider,
+	// so this test mostly proves the wiring is plumbed correctly.
+	cfg := config.Compute{
+		Provider:                "yellowdog",
+		DeploymentTag:           "prod",
+		ReconcileInterval:       time.Second,
+		HealthCheckTimeout:      time.Second,
+		MaxConcurrentProvisions: 1,
+		MaxProvisioningAge:      time.Minute,
+		// Yellowdog block empty - missing APIKeyID/APISecret etc.
+	}
+	_, err := Bootstrap(cfg, nullStore{})
+	if err == nil {
+		t.Fatal("expected error for missing yellowdog credentials, got nil")
+	}
+}
+
+func TestBootstrapNilStoreErrors(t *testing.T) {
+	cfg := config.Compute{
+		Provider:      "yellowdog",
+		DeploymentTag: "prod",
+	}
+	_, err := Bootstrap(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for nil store, got nil")
+	}
+	if !strings.Contains(err.Error(), "store") {
+		t.Fatalf("error should mention store, got %q", err.Error())
+	}
+}
+
+func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
+	cfg := config.Compute{
+		Provider:                "yellowdog",
+		DeploymentTag:           "prod",
+		Floor:                   2,
+		ReconcileInterval:       30 * time.Second,
+		HealthCheckTimeout:      10 * time.Second,
+		MaxConcurrentProvisions: 1,
+		MaxProvisioningAge:      30 * time.Minute,
+		Yellowdog: config.Yellowdog{
+			APIKeyID:    "test-key",
+			APISecret:   "test-secret",
+			BaseURL:     "https://portal.yellowdog.co/api",
+			Namespace:   "development",
+			WorkerTag:   "helix-prod",
+			TaskTimeout: 4 * time.Hour,
+		},
+	}
+	mgr, err := Bootstrap(cfg, nullStore{})
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil Manager for valid config")
+	}
+	// Compile-time check: returned value satisfies the public Manager
+	// surface (Run + Reconcile). If the bootstrap accidentally
+	// returns something else, this won't compile.
+	var _ interface {
+		Run(context.Context) error
+		Reconcile(context.Context) error
+	} = mgr
+	_ = compute.Manager{} // keep the compute import used even if signature simplifies later
+}

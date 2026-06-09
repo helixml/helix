@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -43,6 +44,8 @@ import (
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/sandbox"
+	"github.com/helixml/helix/api/pkg/sandbox/compute"
+	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -171,6 +174,13 @@ type HelixAPIServer struct {
 	activeStreamProxiesMu sync.Mutex
 	// Sandboxes API: ephemeral user-created containers
 	sandboxController *sandbox.Controller
+
+	// computeManager pre-provisions sandbox HOSTS via a cloud
+	// compute.Provider (currently only yellowdog). Nil when
+	// HELIX_COMPUTE_PROVIDER is unset - in that case the legacy
+	// self-registered host path is the only way SandboxInstance rows
+	// get created. See api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
+	computeManager *compute.Manager
 }
 
 func NewServer(
@@ -398,6 +408,17 @@ func NewServer(
 		sandboxAPIURL,
 		"/data/workspaces/sandboxes",
 	)
+
+	// Bootstrap the compute subsystem (cloud-side host provisioning).
+	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving
+	// Helix on the legacy self-registered-host path. A non-nil error
+	// is fatal: better to fail boot than start with a misconfigured
+	// Manager that silently drops Provision calls.
+	computeManager, err := bootstrap.Bootstrap(cfg.Compute, store)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap compute subsystem: %w", err)
+	}
+	apiServer.computeManager = computeManager
 
 	// Sandbox-absorbs-runner: wire the inference router into the
 	// internal helix server so it picks sandboxes by model name. Safe
@@ -677,6 +698,20 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		apiServer.Cfg.SandboxReaperInterval,
 		apiServer.Cfg.SandboxStaleThreshold,
 	)
+
+	// Compute manager reconcile loop: brings sandbox hosts into
+	// existence via a cloud Provider (currently only YellowDog) and
+	// keeps the count at Floor. Nil when HELIX_COMPUTE_PROVIDER is
+	// unset - in that case Helix is fully on the legacy self-registered
+	// host path and no goroutine is started. Logged-and-skip rather
+	// than fatal so existing deployments are unaffected.
+	if apiServer.computeManager != nil {
+		go func() {
+			if err := apiServer.computeManager.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error().Err(err).Msg("compute manager Run exited with unexpected error")
+			}
+		}()
+	}
 
 	apiServer.startUserWebSocketServer(
 		ctx,

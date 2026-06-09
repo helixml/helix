@@ -6239,6 +6239,34 @@ func (mr *MockStoreMockRecorder) UpdateSandboxHeartbeat(ctx, id, req any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateSandboxHeartbeat), ctx, id, req)
 }
 
+// UpdateSandboxInstanceComputeState mocks base method.
+func (m *MockStore) UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSandboxInstanceComputeState", ctx, id, computeState)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSandboxInstanceComputeState indicates an expected call of UpdateSandboxInstanceComputeState.
+func (mr *MockStoreMockRecorder) UpdateSandboxInstanceComputeState(ctx, id, computeState any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxInstanceComputeState", reflect.TypeOf((*MockStore)(nil).UpdateSandboxInstanceComputeState), ctx, id, computeState)
+}
+
+// UpdateSandboxInstanceProviderID mocks base method.
+func (m *MockStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSandboxInstanceProviderID", ctx, id, providerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSandboxInstanceProviderID indicates an expected call of UpdateSandboxInstanceProviderID.
+func (mr *MockStoreMockRecorder) UpdateSandboxInstanceProviderID(ctx, id, providerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxInstanceProviderID", reflect.TypeOf((*MockStore)(nil).UpdateSandboxInstanceProviderID), ctx, id, providerID)
+}
+
 // UpdateSandboxInstanceStatus mocks base method.
 func (m *MockStore) UpdateSandboxInstanceStatus(ctx context.Context, id, status string) error {
 	m.ctrl.T.Helper()
