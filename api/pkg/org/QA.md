@@ -168,12 +168,32 @@ surface lives at `…/helix-org/streams`.
 
 ## §7. GitHub streams — one-click setup
 
-Pre-conditions: GitHub OAuth connected with `repo,
-admin:repo_hook, read:org`. `SERVER_URL` is a public host
+Pre-conditions: the Helix GitHub App installed for the org (the repo
+picker lists its installable repos). `SERVER_URL` is a public host
 (loopback refused).
 
 Create → pick repo → submit → webhook installed end-to-end.
 Detail page exposes **Edit on GitHub →** and **Re-install**.
+
+- **Shared repo picker.** Both the New Stream dialog and the per-stream
+  Edit form use the same `GitHubRepoPicker` (autocomplete over
+  installable repos + free-text fallback + refresh). The Edit form's
+  Repository field is the picker, not a plain text input.
+- **Events live on GitHub, not Helix.** The event-type whitelist is
+  offered only at **creation** (Helix installs the webhook with those
+  events). The post-creation Edit form does NOT show an events editor —
+  a caption points the operator at the GitHub webhook UI. Editing the
+  repo/branches and saving must PRESERVE the existing `events`,
+  `webhook_id`, and `webhook_html_url` (the prior bug rebuilt the
+  config from `{repo, events, branches}` only, wiping the managed
+  fields and silently failing `GitHubConfig.Validate` on an empty
+  events list). Confirm a save round-trips: `org_streams` config still
+  has the original `events` and `webhook_id` after editing only the
+  repo.
+- **Settings.** The `transport.github` row is no longer shown on the
+  Settings page — the GitHub App provisions the webhook secret itself,
+  so there is nothing to paste. (The registry key still exists; it's
+  just not operator-facing.)
 
 ## §8. Worker-anchored subscriptions
 
@@ -229,14 +249,18 @@ reconciles after the row is gone; there is no inline stream delete).
    zero rows. `w-cleanup-rep` survives, keeping its own
    `s-activations-w-cleanup-rep`.
 
-## §10. Chat: inline transcript + Human Desktop
+## §10. Chat: inline transcript
 
 The worker detail page renders the worker's conversation inline using
 the same transcript view the spec-task page uses (`EmbeddedSessionView`
 + `RobustPromptInput`), reading the per-Worker project's long-lived
-"Human Desktop" exploratory session. The operator should NOT have to
-click out to the external desktop tab just to see what the worker is
-doing. The desktop launch stays available for the full Zed GUI / video.
+"Human Desktop" exploratory session. The inline transcript is the chat
+surface — there are no "Open Human Desktop" / "Restart Desktop" buttons
+on the page (removed); session (re)provisioning is handled by the
+worker's activation flow and the Advanced → Restart agent session
+action (§14). The embedded transcript defaults to auto-scroll ON
+(`autoScrollOnMount`), so live output follows to the bottom without the
+operator un-pausing it.
 
 1. **Inline transcript auto-loads.** Open a worker that has already
    been chatted with (`…/helix-org/workers/<id>` with a `project_id`).
@@ -247,8 +271,8 @@ doing. The desktop launch stays available for the full Zed GUI / video.
    `GET …/projects/<pid>/exploratory-session`, no create/resume POST).
 2. **No-session empty state.** A freshly-hired worker that has never
    been chatted with (no `project_id`, or project with no exploratory
-   session — the GET returns 204) shows "No conversation yet — launch
-   the Human Desktop to start one", not a crash or a spinner.
+   session — the GET returns 204) shows "No conversation yet for this
+   worker", not a crash or a spinner.
 3. **Send a message and verify the worker responds.** This is the
    load-bearing test — the worker chat is useless if messages don't
    actually reach the agent. With the transcript shown, type a prompt
@@ -284,11 +308,10 @@ doing. The desktop launch stays available for the full Zed GUI / video.
      `SELECT state, prompt_message FROM interactions WHERE session_id =
      '<sid>' ORDER BY created DESC LIMIT 2;` shows the user prompt and a
      `complete` assistant turn.
-4. **Open Human Desktop** still lands on
-   `…/projects/<project_id>/desktop/<session_id>` in a new tab — the
-   full GUI surface, NOT the bare composer at `/agent/<id>`. After
-   launch, the inline transcript on the worker page reflects the same
-   session.
+4. **No desktop-launch buttons.** The page must NOT render "Open Human
+   Desktop", "Restart Desktop", or a topbar "Start new chat" button —
+   all removed. Chat happens inline; the only restart affordance is the
+   Advanced accordion (§14).
 
 ## §11. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
@@ -421,6 +444,52 @@ manager (of `w-sub`).
    `dm` tool does NOT mint one. (Confirm the refusal wrote nothing:
    `SELECT id FROM org_streams WHERE id='s-dm-w-mgr-w-sub'` → zero rows.)
 
+## §14. Breadcrumbs (all helix-org pages)
+
+Every helix-org page builds its breadcrumb trail from the shared
+`useHelixOrgBreadcrumbs(section?)` hook (`components/helix-org/`), so the
+trail is consistent and the leading org-name crumb is always a link to
+the chart. No page uses the old `orgBreadcrumbs={true}` plain-text org
+crumb, and the detail pages have NO standalone "back" button — the
+breadcrumb is the back-nav.
+
+1. **List pages.** On `…/helix-org/roles`, `…/workers`, `…/streams`
+   the trail is `<org name> / <Section>` (e.g. `test / Streams`). The
+   org-name crumb is a clickable link → navigates to
+   `…/helix-org/chart`. The section word is the current (leaf) crumb,
+   not a link.
+2. **Detail pages.** On a role/worker/stream detail page the trail is
+   `<org name> / <Section> / <leaf id>` (e.g. `test / Workers / w-ai-1`).
+   Both `<org name>` (→ chart) and `<Section>` (→ the list page) are
+   links. There is no separate "Roles" / "Streams" / "Workers" back
+   button anywhere.
+3. **Settings.** `…/helix-org/settings` shows `test / Settings`; the
+   org crumb links to the chart.
+4. The org link works from **every** page above, not just settings —
+   this is the regression that motivated the shared hook (the list
+   pages previously rendered the org name as plain text).
+
+## §15. Worker detail surfaces: identity, links, Advanced
+
+Beyond the inline chat (§10), the worker detail page exposes an
+editable identity, deep links into Helix, and a guarded restart.
+
+1. **Editable identity.** The Identity section is a Monaco markdown
+   editor (not a read-only block) with a **Save** button. Edit the
+   text → Save is enabled → click (or Cmd/Ctrl+S) → snackbar
+   `identity saved`; `POST …/workers/<id>/identity` returns 2xx. The
+   Spawner projects the new content into `identity.md` on the next
+   activation.
+2. **Right-rail links.** In the right panel, the **Project** id is a
+   link → `…/projects/<project_id>/specs` (the project's board), and an
+   **Agent** row links to `…/agent/<agent_app_id>`. Both render only
+   when the worker has been provisioned (has a project / agent app).
+3. **Advanced → Restart agent session.** A collapsed **Advanced**
+   accordion at the bottom of the page expands to a **Restart agent
+   session** button with a caption warning that in-progress work is
+   lost. Clicking re-activates the worker (`POST …/workers/<id>/activate`)
+   → snackbar confirming the restart was queued.
+
 ## Pass criteria
 
 - §1 — bootstrap creates one Worker (`w-owner` with `role_id =
@@ -459,11 +528,19 @@ manager (of `w-sub`).
   non-reporting worker is refused and mints nothing.
 - §10 — the worker page shows the conversation inline (transcript +
   tool calls + composer) when a session exists, GET-only on load (no
-  container spin-up); the empty state shows otherwise. Sending a
-  message dispatches via `POST …/sessions/chat` (the composer does NOT
-  get stuck on "Message queue (saved locally)") and the worker's agent
-  replies live in the transcript. "Open Human Desktop" lands on
-  `…/projects/<pid>/desktop/<sid>`, never on `…/agent/<id>`.
+  container spin-up), auto-scroll defaulting ON; the empty state shows
+  otherwise. Sending a message dispatches via `POST …/sessions/chat`
+  (the composer does NOT get stuck on "Message queue (saved locally)")
+  and the worker's agent replies live in the transcript. No
+  desktop-launch / "Start new chat" buttons remain on the page.
+- §14 — every helix-org page's breadcrumb comes from the shared hook;
+  the org-name crumb links to the chart from every page (list, detail,
+  settings), and detail pages carry an org / Section / leaf trail with
+  no standalone back button.
+- §15 — worker identity is an editable Monaco field saved via
+  `POST …/workers/<id>/identity`; the right-rail Project and Agent ids
+  link into Helix; the Advanced accordion's "Restart agent session"
+  re-activates the worker with a data-loss warning.
 - §11 — fresh sandbox: Zed launches; per-Worker `gh`
   startupScript installs cleanly; `gh auth status` green.
 - No console errors beyond the three Vite WS errors at startup.
