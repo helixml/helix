@@ -88,6 +88,17 @@ The branch is validated for merge when:
 - Pause enforcement was intentionally NOT wired into `pickupWaitingInteraction` (commit `be5d51313` rationale). If during M9 you somehow see an in-flight interaction on the paused parent continue to complete, that is **expected** — pause is "no new input", not "kill the agent".
 - The 002081 design notes Postgres JSONB serialization should round-trip the new fields with no migration. If the validation script sees `metadata.paused` missing on the response, that's a bug worth chasing (the field has `omitempty` so missing == false, which is correct).
 
+## Implementation pivot (discovered during execution)
+
+The original plan had the smoke script create everything from scratch (org → project → app → session → message → fork). In practice this requires re-implementing the entire onboarding pipeline against the API, which is far more code than the validation needs.
+
+**Pivoted approach:** the chrome-devtools UI walkthrough creates the orgs/projects/sessions naturally as a side effect of testing the UX. After that pass, the smoke script `validate_fork.sh` only needs the JWT token + an already-created `zed_external` session ID as env inputs, and validates just the fork endpoint contract (200 + new_session_id, parent paused, child has fork_seed, 409 on send-to-paused). This keeps the script under 100 lines and avoids duplicating onboarding logic.
+
+Discovered details:
+- The inner Helix at `localhost:8080` starts empty. First step is always `POST /api/v1/auth/register` with `{email, password, password_confirm, full_name}` — the response returns a JWT in `token`. The first registered user is auto-admin.
+- The JWT is the bearer token for all `authRouter` endpoints (including `/sessions/{id}/fork`).
+- The 002081 design and tasks docs explicitly state "register `test@helix.ml` / `helixtest`" — using those credentials for idempotency between agent runs.
+
 ## Validation outcome
 
 (Filled in at the end of the task — once `validate_fork.sh` and the M1–M9 walkthrough are complete, append a short report here noting any failures or follow-up issues.)

@@ -9,13 +9,17 @@
 - [x] Confirm the branch is checked out: `cd /home/retro/work/helix && git rev-parse --abbrev-ref HEAD` reports `feature/001806-high-leverage-for-us-to`
 - [x] Confirm the in-process tests still pass on the branch: `cd /home/retro/work/helix && go test ./api/pkg/server/... -run 'Fork|Pause|Transcript' -count=1` is green (re-confirms the baseline before manual validation)
 
-## Phase 2 — Backend smoke test script
+## Phase 2 — UI walkthrough first (creates sessions for Phase 3)
 
-- [~] Create `validate_fork.sh` in this task directory (`/home/retro/work/helix-specs/design/tasks/002082_what-i-want-to-do-is/`) that:
-  - [ ] Logs in to the inner Helix and grabs a bearer token
-  - [ ] Creates (or reuses, via env var) a `zed_external` session and posts one user message
-  - [ ] Waits for the first interaction to complete
-  - [ ] Calls `POST /sessions/{id}/fork` with a different runtime
+> Pivoted from original plan — creating a `zed_external` session via API requires re-implementing org/project/app/session onboarding. Simpler to drive the UI which does this naturally, then validate the fork-specific bits via script with the resulting session IDs.
+
+- [~] Register `test@helix.ml` / `helixtest` via the UI and complete onboarding (testorg → testproj → first agent)
+- [ ] Run the M1–M9 walkthrough (Phase 3 below) — this creates real `zed_external` sessions
+
+## Phase 3 — Backend smoke test script (uses sessions from Phase 2)
+
+- [ ] Create `validate_fork.sh` in this task directory that takes `HELIX_TOKEN` + `HELIX_PARENT_SESSION_ID` as env vars and:
+  - [ ] Calls `POST /sessions/{id}/fork` with a different runtime (read from current session's runtime)
   - [ ] Asserts 200 + `new_session_id`
   - [ ] Asserts parent has `metadata.paused == true` and `metadata.paused_reason` matches `forked_to:<child>`
   - [ ] Asserts child has `metadata.parent_session_id == <parent>` and a `fork_seed` interaction with non-empty `response_message`
