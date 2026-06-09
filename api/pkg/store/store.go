@@ -774,6 +774,9 @@ type Store interface {
 	ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error)
 	DeregisterSandboxInstance(ctx context.Context, id string) error
 	UpdateSandboxInstanceStatus(ctx context.Context, id string, status string) error
+	UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error
+	UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error
+	UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error
 	MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error)
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error

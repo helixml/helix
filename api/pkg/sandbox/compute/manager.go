@@ -37,8 +37,9 @@ type ManagerConfig struct {
 	// Floor is the minimum number of provisioned hosts the Manager
 	// keeps available at all times. The Reconcile loop kicks off
 	// Provision calls until the total (Ready + Provisioning) reaches
-	// this count. Set to 0 to disable pre-warming (the Manager then
-	// behaves on-demand only - feature added in D3).
+	// this count. Set to 0 to disable pre-warming (the Manager
+	// remains constructed but its Reconcile loop is a no-op until
+	// on-demand provisioning lands in a follow-up).
 	Floor int
 
 	// ReconcileInterval is how often the reconciliation loop runs.
@@ -398,15 +399,15 @@ func (m *Manager) rollbackStuckRow(ctx context.Context, r *types.SandboxInstance
 // host claim a pre-existing row (instead of inserting a new one):
 // the upstream task is launched with HELIX_SANDBOX_ID=<this id>, the
 // helix-sandbox container reads it on startup, and the auto-register
-// handler in api/server.go matches it against this row. That bridge
-// lands in D2; the Manager populates the right field here so D2 can
-// flip the switch without schema churn.
+// handler in api/pkg/server/server.go matches it against this row.
+// The Manager populates the row's identifying fields here so the
+// bridge can promote it without schema churn.
 func (m *Manager) provisionOne(ctx context.Context) error {
 	sandboxID := newSandboxID()
 	// Defence-in-depth: refuse to proceed if the generator ever drifts
-	// to something that could escape the shell when D2's bash-script
-	// interpolates HELIX_SANDBOX_ID. UUIDs are safe; this guards
-	// against future changes to newSandboxID.
+	// to something that could escape the shell when a downstream
+	// bash-script interpolates HELIX_SANDBOX_ID. UUIDs are safe; this
+	// guards against future changes to newSandboxID.
 	if !sandboxIDPattern.MatchString(sandboxID) {
 		return fmt.Errorf("compute: generated sandbox id %q does not match %s", sandboxID, sandboxIDPattern)
 	}
@@ -430,8 +431,10 @@ func (m *Manager) provisionOne(ctx context.Context) error {
 		spec.Labels = map[string]string{}
 	}
 	// The Provider passes this label through to the task environment,
-	// where bash-script.sh reads it and launches helix-sandbox with
-	// the matching ID. Wired up in D2.
+	// where the bash script reads it and launches helix-sandbox with
+	// the matching ID. The bash script integration is downstream
+	// work; for now the label travels and is ignored if no script
+	// references it.
 	spec.Labels["helix.sandbox_id"] = sandboxID
 
 	handle, err := m.provider.Provision(ctx, spec)
@@ -450,8 +453,8 @@ func (m *Manager) provisionOne(ctx context.Context) error {
 	// Persist the upstream id with a TARGETED column update. Going
 	// through RegisterSandboxInstance again would be an upsert that
 	// races the auto-register path: if a host registered between
-	// these two writes (possible in D2), Save would overwrite its
-	// fresh heartbeat fields with stale defaults from the stub.
+	// these two writes, Save would overwrite its fresh heartbeat
+	// fields with stale defaults from the stub.
 	if updErr := m.store.UpdateSandboxInstanceProviderID(ctx, sandboxID, handle.ProviderID); updErr != nil {
 		// Helix-side persist failed but upstream accepted. We MUST
 		// roll back the upstream resource or it'll burn cloud spend
@@ -494,7 +497,8 @@ func (m *Manager) provisionOne(ctx context.Context) error {
 // Ready rows count (host is up and registered). Provisioning rows
 // also count (host is on its way) so we don't double-provision while
 // the first one is still booting. Failed and Terminated rows do not
-// count - they are dead and should be cleaned up (D4).
+// count - they are dead and should be cleaned up by a follow-up
+// idle-deprovision pass.
 func isAvailable(r *types.SandboxInstance) bool {
 	switch State(r.ComputeState) {
 	case StateReady, StateProvisioning:

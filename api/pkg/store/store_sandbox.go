@@ -130,6 +130,37 @@ func (s *PostgresStore) UpdateSandboxInstanceProviderID(ctx context.Context, id,
 		Update("provider_id", providerID).Error
 }
 
+// UpdateSandboxInstanceNetwork writes only the columns that describe
+// where the sandbox host is reachable: its IP address, hostname, and
+// the LastSeen timestamp that marks "we just heard from this host".
+//
+// Used by the auto-register bridge in ensureSandboxRegistered to
+// transition a Manager-provisioned row to a registered state without
+// reusing the full-row gorm.Save path. Save would have replaced every
+// column with the in-memory value loaded a few statements earlier,
+// stamping out any heartbeat columns (gpus, service_health,
+// profile_status, profile_progress, helix_version, desktop_versions)
+// the heartbeat goroutine may have updated in between.
+//
+// The bridge calls this alongside UpdateSandboxInstanceComputeState
+// and UpdateSandboxInstanceStatus; doing it as three targeted updates
+// is verbose but each is race-safe in isolation.
+func (s *PostgresStore) UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error {
+	updates := map[string]interface{}{
+		"last_seen": lastSeen,
+	}
+	if ipAddress != "" {
+		updates["ip_address"] = ipAddress
+	}
+	if hostname != "" {
+		updates["hostname"] = hostname
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
 // MarkSandboxInstanceOfflineIfStale flips a sandbox row to status="offline"
 // only when its current last_seen is older than `staleBefore`. This is a
 // compare-and-swap variant of UpdateSandboxInstanceStatus used by the

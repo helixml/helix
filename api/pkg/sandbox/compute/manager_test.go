@@ -323,9 +323,9 @@ func TestReconcileRefreshesProvisioningRows(t *testing.T) {
 	if rows[0].Status != "online" {
 		t.Fatalf("HealthCheck should have mirrored Ready to Status=online; got %q", rows[0].Status)
 	}
-	// Regression guard for the must-fix bug from review of D1: prior
-	// to the fix, Status was updated but ComputeState was not, so a
-	// Ready or Failed row would silently keep counting as
+	// Regression guard for a silent-failure bug surfaced during
+	// review: an earlier version updated Status but not ComputeState,
+	// so a Ready or Failed row would silently keep counting as
 	// "provisioning" toward Floor forever.
 	if rows[0].ComputeState != string(StateReady) {
 		t.Fatalf("HealthCheck must persist ComputeState=ready; got %q", rows[0].ComputeState)
@@ -496,7 +496,7 @@ func TestReconcileFiresMaxConcurrentProvisionsPerCycle(t *testing.T) {
 
 func TestReconcileDefaultMaxConcurrentProvisionsIsOne(t *testing.T) {
 	// Backwards compatibility: cfg with no MaxConcurrentProvisions
-	// set must default to 1, preserving the D1 conservative behaviour.
+	// set must default to 1 (the conservative one-per-cycle behaviour).
 	m, _, store := newTestManager(t, 5)
 	if err := m.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
