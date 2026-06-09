@@ -510,7 +510,7 @@ const HelixOrgWorkerDetail: FC = () => {
         >
           <Typography variant="body1">
             Firing worker <b style={{ fontFamily: 'monospace' }}>{workerId}</b> tears down its
-            per-worker Helix project + agent app and removes its grants. This is irreversible.
+            per-worker Helix project + agent app and clears its runtime state. This is irreversible.
           </Typography>
         </DeleteConfirmWindow>
       )}

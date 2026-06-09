@@ -95,7 +95,7 @@ type Deps struct {
 
 	// Tools is the same tools registry the MCP server exposes — used
 	// by GET /tools so the chart UI's role-editor multi-select can
-	// render the catalogue of available grants. nil = endpoint
+	// render the catalogue of available tools. nil = endpoint
 	// returns an empty list (degrade gracefully on test wirings that
 	// don't bother building a registry).
 	Tools *tools.Registry
@@ -332,8 +332,8 @@ func buildOverview(workers []orgchart.Worker, roles []orgchart.Role) OrgOverview
 
 // ---- Roles / Workers ----------------------------------------------------
 
-// listTools returns the catalogue of available MCP tools the org
-// can grant to its roles. Powers the role editor's multi-select.
+// listTools returns the catalogue of available MCP tools that can be
+// listed on a Role. Powers the role editor's multi-select.
 //
 // @Summary Helix-org: list available MCP tools
 // @Tags HelixOrg
@@ -544,7 +544,7 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 // 409 if the target is the owner.
 //
 // @Summary Helix-org: fire worker
-// @Description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + grants + env dir + env row, then the worker row. Activations are preserved as audit.
+// @Description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.
 // @Tags HelixOrg
 // @Param id path string true "Worker ID"
 // @Success 204
@@ -579,7 +579,7 @@ func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 }
 
 // workerDTO converts a orgchart.Worker to its wire form. tools may be
-// nil — callers populating per-worker grants pass the sorted list.
+// nil — callers that want to surface the Role's tools pass the sorted list.
 // parentIDs are the managers this Worker reports to (from the reporting
 // lines); nil for a top-level Worker.
 func workerDTO(wk orgchart.Worker, tools []string, parentIDs []string) WorkerDTO {

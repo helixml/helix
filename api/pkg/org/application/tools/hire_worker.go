@@ -28,10 +28,10 @@ import (
 // tomorrow) without touching the tools.
 //
 // A Worker's MCP tool surface is derived live from Role.Tools: change
-// the Role and every Worker holding it sees the new tool set on the
-// next MCP request. There is no per-Worker grants table and no
-// `grants` parameter on this tool — capability is the Role's
-// responsibility.
+// the Role and every Worker filling it sees the new tool set on the
+// next MCP request. There is no per-Worker tool record and no
+// `tools` parameter on this tool — the Role's tool list is the whole
+// story.
 //
 // hire_worker does not subscribe to Streams; the hiring Worker does
 // that explicitly after the Worker is alive, typically via the Worker's

@@ -1,7 +1,7 @@
 // Package bootstrap creates the per-org initial owner Role (with the
 // structural tool list) and the owner Worker. The Worker's MCP surface
 // is derived live from r-owner.Tools — there is no separate per-Worker
-// grants step. Run once per helix.Organization; subsequent calls for
+// tool-assignment step. Run once per helix.Organization; subsequent calls for
 // the same org return ErrAlreadyInitialised, leaving other orgs free
 // to bootstrap independently.
 package bootstrap

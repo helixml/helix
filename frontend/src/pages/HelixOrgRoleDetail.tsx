@@ -1,5 +1,5 @@
 // HelixOrgRoleDetail edits a single role end-to-end: markdown content,
-// tools (MCP grants), streams (inbound subscriptions). Lives at
+// tools (the role's MCP tool list), streams (inbound subscriptions). Lives at
 // `/orgs/:org_id/helix-org/roles/:role_id` and is the destination
 // both the chart's role drawer and the Roles list link to.
 //
@@ -79,11 +79,11 @@ const HelixOrgRoleDetail: FC = () => {
 
   const streams = useMemo(() => parseList(streamsText), [streamsText])
 
-  // The Autocomplete needs Option objects, but the role's grant
-  // shape is just a string[] of names. We render every catalogue
-  // entry plus any role-held names the catalogue didn't return
-  // (defensive — if a tool was unregistered but the grant still
-  // exists, we keep showing it as selected so the operator can
+  // The Autocomplete needs Option objects, but the role's tool list
+  // is just a string[] of names. We render every catalogue
+  // entry plus any role-listed names the catalogue didn't return
+  // (defensive — if a tool was unregistered but the role still
+  // lists it, we keep showing it as selected so the operator can
   // explicitly remove it).
   const toolOptions = useMemo<ToolDTO[]>(() => {
     const cat = toolCatalogue ?? []
@@ -256,7 +256,7 @@ const HelixOrgRoleDetail: FC = () => {
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        placeholder={tools.length === 0 ? 'Pick the tools to grant to workers in this role' : ''}
+                        placeholder={tools.length === 0 ? 'Pick the tools for workers in this role' : ''}
                         helperText="MCP tools the Workers in this role can call. Empty = no tools (workers can still receive owner-chat)."
                       />
                     )}

@@ -70,8 +70,8 @@ func TestNew_RejectsZeroTime(t *testing.T) {
 func TestNew_NilToolsAndStreamsAreValid(t *testing.T) {
 	t.Parallel()
 	// A Role with no declared tools or streams is valid — the hiring
-	// caller's prompt is responsible for figuring out what to grant
-	// and subscribe from Content alone.
+	// caller's prompt is responsible for figuring out which tools to list
+	// and streams to subscribe from Content alone.
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	r, err := orgchart.NewRole("r-minimal", "# Minimal", nil, nil, now, "org-test")
 	if err != nil {

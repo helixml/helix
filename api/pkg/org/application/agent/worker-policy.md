@@ -118,7 +118,7 @@ hierarchy, not a limitation to work around.
 
 ## Errors and exits
 
-If you cannot make progress (missing tool grant, ambiguous request,
+If you cannot make progress (missing tool, ambiguous request,
 broken environment), say so once — briefly — and exit. Do not loop,
 retry, or compose long apologies. A short failure note in `helix-log.md` is
 enough.

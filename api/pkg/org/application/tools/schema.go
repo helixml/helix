@@ -40,7 +40,7 @@ var schemaOpts = &jsonschema.ForOptions{
 
 // enumSchema builds an "enum-constrained string" schema for a
 // string-typed domain enum. Centralising this means new enum domains
-// (e.g. a future GrantScope) get the right shape automatically.
+// (e.g. a future transport kind) get the right shape automatically.
 func enumSchema[T ~string](vals []T, description string) *jsonschema.Schema {
 	out := make([]any, len(vals))
 	for i, v := range vals {

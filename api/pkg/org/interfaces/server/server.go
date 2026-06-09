@@ -1,6 +1,6 @@
 // Package server exposes the HTTP surface. There is exactly one
 // endpoint: /workers/{id}/mcp — every Worker is its own MCP server,
-// scoped to the tools that Worker holds grants for, and used for both
+// scoped to the tools listed in that Worker's Role, and used for both
 // reads and mutations of the org graph. The CLI bootstraps by opening
 // the store directly; there is no other HTTP write path.
 package server

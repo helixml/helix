@@ -1,8 +1,9 @@
-// Package tool owns the Tool concept: a capability the MCP gateway
-// exposes to a calling Worker, gated by Grants. The package carries
-// the Name typed identifier (used both in `grants` rows and as the
-// MCP tool name advertised to LLM callers), the Tool interface every
-// implementation satisfies, and the Invocation envelope passed to
+// Package tool owns the Tool concept: an MCP tool the gateway exposes
+// to a calling Worker. Which tools a Worker sees is derived live from
+// their Role.Tools list; there is no per-Worker permission record. The
+// package carries the Name typed identifier (used both in Role.Tools and
+// as the MCP tool name advertised to LLM callers), the Tool interface
+// every implementation satisfies, and the Invocation envelope passed to
 // Tool.Invoke.
 //
 // Lifted from api/pkg/org/tool and api/pkg/org/domain/tool.go in the
@@ -24,8 +25,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Name is the stable identifier for a Tool — used both in `grants`
-// rows and as the MCP tool name advertised to LLM callers. Convention
+// Name is the stable identifier for a Tool — used both in Role.Tools
+// and as the MCP tool name advertised to LLM callers. Convention
 // is snake_case (e.g. `hire_worker`, `read_events`, `publish`).
 type Name = string
 
@@ -40,7 +41,7 @@ type Worker interface {
 }
 
 // Invocation bundles the per-call data passed to Tool.Invoke. The
-// pipeline populates it from the caller's grant; tools parse Args
+// pipeline populates Caller from the MCP request; tools parse Args
 // according to their own input schema.
 type Invocation struct {
 	Caller Worker
@@ -53,7 +54,7 @@ type Invocation struct {
 // owner-defined tools, and any future MCP-shaped tools all implement
 // this interface.
 type Tool interface {
-	// Name is the stable identifier used in grants and MCP tool calls.
+	// Name is the stable identifier used in Role.Tools and MCP tool calls.
 	Name() Name
 
 	// Description is a human-readable summary the LLM sees when
@@ -64,8 +65,8 @@ type Tool interface {
 	// clients to validate calls and by LLMs to understand the call shape.
 	InputSchema() *jsonschema.Schema
 
-	// Invoke executes the tool. Holding the grant is the entire
-	// authorisation — the tool does not re-check the caller's scope
-	// because there is no scope.
+	// Invoke executes the tool. The tool appearing in the caller's
+	// Role.Tools is the entire authorisation — the tool does not
+	// re-check the caller's scope because there is no scope.
 	Invoke(ctx context.Context, inv Invocation) (json.RawMessage, error)
 }

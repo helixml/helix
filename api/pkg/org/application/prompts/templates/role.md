@@ -62,8 +62,8 @@ Default tools: pick from what the org has — typically `subscribe`,
 `publish`, `read_events`, `dm`, `managers`, `reports`. `managers` and
 `reports` let the Worker resolve its reporting lines live — escalate up
 to a manager (`managers` + `dm`), brief down to its reports (`reports` +
-`publish` to the team stream). Grant both to any Role that sits in a
-hierarchy. Don't grant `hire_worker` or `create_role` unless the title
+`publish` to the team stream). List both on any Role that sits in a
+hierarchy. Don't list `hire_worker` or `create_role` unless the title
 implies seniority.
 
 ## Step 2 — Save it. **Don't ask permission.**
@@ -102,7 +102,7 @@ person, then chain:
 1. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`, `roleId`
    pointing at the Role you just saved, `parentId` set to the manager
    Worker (default `w-owner`). The Worker's MCP tools come live from
-   the Role you just saved; no `grants` parameter is needed (or
+   the Role you just saved; no `tools` parameter is needed (or
    accepted).
 2. **Stand up their streams.** For each stream the Role's Streams
    section lists:

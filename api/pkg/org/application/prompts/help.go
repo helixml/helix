@@ -42,8 +42,8 @@ func (Help) Description() string {
 func (Help) Arguments() []Argument { return nil }
 
 // RequiresTool returns the empty string so every Worker sees `/help`
-// regardless of grants. There is no tool to gate against — `/help`
-// reads the registry, never mutates anything.
+// regardless of their Role's tools. There is no tool to gate against —
+// `/help` reads the registry, never mutates anything.
 func (Help) RequiresTool() tool.Name { return "" }
 
 func (h Help) Render(_ context.Context, _ map[string]string) ([]Message, error) {

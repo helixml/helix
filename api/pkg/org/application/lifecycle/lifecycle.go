@@ -86,7 +86,7 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 // the hiring playbook explicitly re-subscribes.
 //
 // Tool capability is derived from Role.Tools, so there is no
-// per-Worker grants cascade.
+// per-Worker tool cascade to clean up.
 //
 // Activation events themselves are intentionally left behind as an
 // audit trail; only the Stream row is dropped.

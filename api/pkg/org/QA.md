@@ -12,8 +12,8 @@ the why.
 
 - **Role** — the job description. Carries the markdown a Worker
   reads at activation plus the tool list that becomes the Worker's
-  live MCP surface. There is no separate per-Worker grants table —
-  capability is the Role's responsibility.
+  live MCP surface. There is no separate per-Worker tool record —
+  the Role's tool list is the whole story.
 - **Worker** — a human or AI agent. Holds a single `role_id` (the
   capability binding). Who reports to whom is a separate many-to-many
   relation (see Reporting line), not a field on the Worker.
@@ -86,8 +86,8 @@ in that Role on their next MCP request.
    (§3.2). Add `publish` via the dropdown + Save. Hit the
    Worker's MCP endpoint
    (`/api/v1/mcp/helix-org/<org>/workers/<id>/mcp` → `tools/list`):
-   `publish` is now in the list without any `hire_worker`,
-   `grant_tool`, or session restart. Remove + Save: next
+   `publish` is now in the list without any `hire_worker` call,
+   tool-assignment step, or session restart. Remove + Save: next
    `tools/list` no longer includes it.
 
 ## §3. Hire workers + cascade semantics
@@ -391,7 +391,7 @@ Worker's surface — call them via `tools/call` at
 uses for `tools/list`). The owner Role and every Role drafted via
 `/role` carry `managers` + `reports`.
 
-Setup: in a fresh role that grants `managers`, `reports`, hire AI
+Setup: in a fresh role that lists `managers`, `reports`, hire AI
 `w-mgr` (parent `w-owner`), AI `w-rep` (parent `w-mgr`), and AI `w-sub`
 (parent `w-rep`) — so `w-rep` is both a report (of `w-mgr`) and a
 manager (of `w-sub`).
