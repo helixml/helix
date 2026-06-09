@@ -196,6 +196,13 @@ func (apiServer *HelixAPIServer) maybePrependTranscript(ctx context.Context, ses
 	if session == nil || session.Metadata.ZedThreadID != "" {
 		return message
 	}
+	// Cheap precondition: only forked sessions have a parent_session_id (set
+	// at fork time alongside the fork_seed interaction). Skipping the DB
+	// lookup on regular sessions avoids an extra ListInteractions call on
+	// every first message of every session — only forked sessions pay it.
+	if session.Metadata.ParentSessionID == "" {
+		return message
+	}
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    session.ID,
 		GenerationID: session.GenerationID,
