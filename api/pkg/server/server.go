@@ -970,6 +970,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/sandbox-state", apiServer.getSessionSandboxState).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/messages", system.Wrapper(apiServer.sendSessionMessage)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/fork", system.Wrapper(apiServer.forkSession)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)

@@ -8418,6 +8418,24 @@
                         "BearerAuth": []
                     }
                 ],
+                "parameters": [
+                    {
+                        "description": "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge.",
+                        "name": "organization_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -17671,11 +17689,21 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List secrets for the user.",
+                "description": "List secrets for the user, or for an organization when organization_id is set.",
                 "tags": [
                     "secrets"
                 ],
                 "summary": "List secrets",
+                "parameters": [
+                    {
+                        "description": "Organization ID or name. When set, lists org-owned secrets instead of personal secrets.",
+                        "name": "organization_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -18868,6 +18896,54 @@
                             "application/json": {
                                 "schema": {
                                     "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/fork": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Fork a session to a different agent (fork-and-pause)",
+                "parameters": [
+                    {
+                        "description": "Source session ID to fork from",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.ForkSessionRequest"
+                            }
+                        }
+                    },
+                    "description": "Target runtime selection",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ForkSessionResponse"
                                 }
                             }
                         }
@@ -26634,6 +26710,25 @@
                         "type": "string"
                     },
                     "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.ForkSessionRequest": {
+                "type": "object",
+                "properties": {
+                    "code_agent_runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
+                    "helix_app_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.ForkSessionResponse": {
+                "type": "object",
+                "properties": {
+                    "new_session_id": {
                         "type": "string"
                     }
                 }
@@ -36731,6 +36826,12 @@
                         "description": "NEW: External agent status (running, stopped, terminated_idle)",
                         "type": "string"
                     },
+                    "forked_at": {
+                        "type": "string"
+                    },
+                    "forked_at_interaction_id": {
+                        "type": "string"
+                    },
                     "gpu_vendor": {
                         "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
                         "type": "string"
@@ -36744,6 +36845,20 @@
                     },
                     "manually_review_questions": {
                         "type": "boolean"
+                    },
+                    "parent_session_id": {
+                        "description": "Fork lineage — set on a session created by forking from a parent.\nSee design/tasks/002081_kickoff-mid-session/design.md.",
+                        "type": "string"
+                    },
+                    "paused": {
+                        "description": "Pause state — sessions cannot accept new messages while paused.\nPausedReason is the only producer in v1: \"forked_to:<child_id>\".",
+                        "type": "boolean"
+                    },
+                    "paused_at": {
+                        "type": "string"
+                    },
+                    "paused_reason": {
+                        "type": "string"
                     },
                     "paused_screenshot_path": {
                         "description": "Path to saved screenshot when agent is paused",

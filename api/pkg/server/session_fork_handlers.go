@@ -1,0 +1,377 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
+)
+
+// ForkSessionRequest is the body of POST /api/v1/sessions/{id}/fork.
+// Exactly one of HelixAppID / CodeAgentRuntime must drive the target choice.
+// In practice the frontend chat-panel dropdown sends HelixAppID (the app the
+// user picked); CodeAgentRuntime is a power-user / scripted-caller shortcut.
+type ForkSessionRequest struct {
+	HelixAppID       string                 `json:"helix_app_id,omitempty"`
+	CodeAgentRuntime types.CodeAgentRuntime `json:"code_agent_runtime,omitempty"`
+}
+
+// ForkSessionResponse identifies the child session created by the fork.
+// The frontend uses NewSessionID to navigate the chat panel.
+type ForkSessionResponse struct {
+	NewSessionID string `json:"new_session_id"`
+}
+
+// forkSession godoc
+// @Summary Fork a session to a different agent (fork-and-pause)
+// @Description Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.
+// @Tags    sessions
+// @Accept  json
+// @Produce json
+// @Param   id path string true "Source session ID to fork from"
+// @Param   request body ForkSessionRequest true "Target runtime selection"
+// @Success 200 {object} ForkSessionResponse
+// @Router  /api/v1/sessions/{id}/fork [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Request) (*ForkSessionResponse, *system.HTTPError) {
+	sourceID := mux.Vars(req)["id"]
+	if sourceID == "" {
+		return nil, system.NewHTTPError400("cannot fork session without id")
+	}
+
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthenticated")
+	}
+
+	var body ForkSessionRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		// Empty body is fine — the user may want to fork to the same app with
+		// no runtime override (rejected below by the same-runtime check, which
+		// is the right error message in that case).
+		if !errors.Is(err, io.EOF) {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid request body: %v", err))
+		}
+	}
+
+	parent, err := apiServer.Store.GetSession(ctx, sourceID)
+	if err != nil {
+		return nil, system.NewHTTPError404(fmt.Sprintf("source session %s not found", sourceID))
+	}
+
+	if err := apiServer.authorizeUserToSession(ctx, user, parent, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if parent.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400(
+			fmt.Sprintf("source session is not an external agent session (agent_type=%q)", parent.Metadata.AgentType))
+	}
+	if parent.Metadata.Paused {
+		return nil, system.NewHTTPError409(
+			fmt.Sprintf("source session is paused (reason: %s); fork from its active descendant instead", parent.Metadata.PausedReason))
+	}
+
+	targetRuntime, targetAppID, err := apiServer.resolveForkTarget(ctx, parent, body)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+	if targetRuntime == parent.Metadata.CodeAgentRuntime {
+		return nil, system.NewHTTPError400(
+			fmt.Sprintf("source session is already using %s; fork to a different runtime", targetRuntime))
+	}
+
+	child, forkErr := apiServer.forkSessionFromParent(ctx, user, parent, targetRuntime, targetAppID)
+	if forkErr != nil {
+		return nil, forkErr
+	}
+
+	return &ForkSessionResponse{NewSessionID: child.ID}, nil
+}
+
+// resolveForkTarget chooses the (runtime, app) pair the child session will
+// adopt. Precedence:
+//   - explicit body.CodeAgentRuntime wins (power-user shortcut)
+//   - body.HelixAppID is resolved to the app's zed_external assistant runtime
+//   - if neither is supplied, fall back to the parent's app (will hit the
+//     "already using <runtime>" 400 above — the user must change something)
+//
+// When HelixAppID is set we return it as targetAppID so the child can carry
+// its own ParentApp linkage; otherwise we reuse the parent's ParentApp.
+func (apiServer *HelixAPIServer) resolveForkTarget(
+	ctx context.Context,
+	parent *types.Session,
+	body ForkSessionRequest,
+) (types.CodeAgentRuntime, string, error) {
+	if body.CodeAgentRuntime != "" {
+		appID := body.HelixAppID
+		if appID == "" {
+			appID = parent.ParentApp
+		}
+		return body.CodeAgentRuntime, appID, nil
+	}
+
+	appID := body.HelixAppID
+	if appID == "" {
+		appID = parent.ParentApp
+	}
+	if appID == "" {
+		return "", "", fmt.Errorf("target app cannot be resolved: no helix_app_id provided and parent has no ParentApp")
+	}
+
+	app, err := apiServer.Store.GetApp(ctx, appID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to look up target app %s: %w", appID, err)
+	}
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType != types.AgentTypeZedExternal {
+			continue
+		}
+		runtime := assistant.CodeAgentRuntime
+		if runtime == "" {
+			runtime = types.CodeAgentRuntimeZedAgent
+		}
+		return runtime, appID, nil
+	}
+	return "", "", fmt.Errorf("target app %s has no zed_external assistant", appID)
+}
+
+// forkSessionFromParent does the actual fork: snapshot parent's transcript,
+// create the child session row + fork_seed interaction, mark parent paused,
+// provision the desktop container for the child. Mutations happen in this
+// order so a desktop-provisioning failure leaves the DB consistent (child
+// exists with its seed, parent is paused) — re-fork is unnecessary; the
+// child can just be started again via the normal resume path.
+func (apiServer *HelixAPIServer) forkSessionFromParent(
+	ctx context.Context,
+	user *types.User,
+	parent *types.Session,
+	targetRuntime types.CodeAgentRuntime,
+	targetAppID string,
+) (*types.Session, *system.HTTPError) {
+	parentInteractions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    parent.ID,
+		GenerationID: parent.GenerationID,
+		PerPage:      10_000,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load parent interactions: %v", err))
+	}
+
+	transcript := serializeTranscript(parentInteractions, maxTranscriptBytes)
+	completedCount := 0
+	var lastCompletedID string
+	for _, in := range parentInteractions {
+		if in == nil || in.Trigger == types.InteractionTriggerForkSeed {
+			continue
+		}
+		if in.State == types.InteractionStateComplete {
+			completedCount++
+			lastCompletedID = in.ID
+		}
+	}
+
+	now := time.Now()
+	parentAppID := parent.ParentApp
+	childAppID := targetAppID
+	if childAppID == "" {
+		childAppID = parentAppID
+	}
+
+	child := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           parent.Name,
+		Created:        now,
+		Updated:        now,
+		Mode:           parent.Mode,
+		Type:           parent.Type,
+		Provider:       parent.Provider,
+		ModelName:      parent.ModelName,
+		Owner:          parent.Owner,
+		OwnerType:      parent.OwnerType,
+		OrganizationID: parent.OrganizationID,
+		ProjectID:      parent.ProjectID,
+		ParentApp:      childAppID,
+		Metadata: types.SessionMetadata{
+			// Copy load-bearing parent metadata.
+			Stream:              parent.Metadata.Stream,
+			SystemPrompt:        parent.Metadata.SystemPrompt,
+			AssistantID:         parent.Metadata.AssistantID,
+			HelixVersion:        data.GetHelixVersion(),
+			AgentType:           "zed_external",
+			ExternalAgentConfig: parent.Metadata.ExternalAgentConfig,
+			SpecTaskID:          parent.Metadata.SpecTaskID,
+			ProjectID:           parent.Metadata.ProjectID,
+			WorkSessionID:       parent.Metadata.WorkSessionID,
+			SessionRole:         parent.Metadata.SessionRole,
+			CallbackURL:         parent.Metadata.CallbackURL,
+			// Target runtime/agent — overrides parent's.
+			CodeAgentRuntime: targetRuntime,
+			ZedAgentName:     targetRuntime.ZedAgentName(),
+			// Fork lineage.
+			ParentSessionID:       parent.ID,
+			ForkedAt:              now,
+			ForkedAtInteractionID: lastCompletedID,
+		},
+	}
+
+	createdChild, err := apiServer.Store.CreateSession(ctx, *child)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create child session: %v", err))
+	}
+
+	// fork_seed interaction. Its ResponseMessage carries the parent's serialized
+	// transcript and is re-read by maybePrependTranscript on the child's first
+	// outgoing message. The interaction is also a UI-visible record of the fork.
+	seedInteraction := &types.Interaction{
+		Created:         now,
+		Updated:         now,
+		SessionID:       createdChild.ID,
+		UserID:          createdChild.Owner,
+		GenerationID:    createdChild.GenerationID,
+		Mode:            types.SessionModeInference,
+		Trigger:         types.InteractionTriggerForkSeed,
+		State:           types.InteractionStateComplete,
+		PromptMessage:   fmt.Sprintf("Session forked from %s at turn %d", parent.ID, completedCount),
+		ResponseMessage: transcript,
+	}
+	if _, err := apiServer.Store.CreateInteraction(ctx, seedInteraction); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create fork_seed interaction: %v", err))
+	}
+
+	// Mark parent paused. Done AFTER the child exists so a transient pause-update
+	// failure doesn't leave us with a child whose parent is still live.
+	parent.Metadata.Paused = true
+	parent.Metadata.PausedReason = fmt.Sprintf("forked_to:%s", createdChild.ID)
+	parent.Metadata.PausedAt = now
+	if _, err := apiServer.Store.UpdateSession(ctx, *parent); err != nil {
+		// Surface as 500 but don't roll back the child — the child is valid;
+		// the user can retry the pause later or it can be done lazily.
+		log.Error().Err(err).
+			Str("parent_session_id", parent.ID).
+			Str("child_session_id", createdChild.ID).
+			Msg("fork: failed to mark parent paused after child creation")
+		return nil, system.NewHTTPError500(fmt.Sprintf("child created (%s) but failed to pause parent: %v", createdChild.ID, err))
+	}
+
+	// Provision the desktop for the child. Same path as initial session start.
+	if err := apiServer.provisionForkedSessionDesktop(ctx, user, createdChild); err != nil {
+		// As above, leave the child row in place — its desktop can be started on
+		// next access via the normal autoStartDevContainerForSession path. Log
+		// loudly so the user sees the surface error.
+		log.Error().Err(err).
+			Str("child_session_id", createdChild.ID).
+			Msg("fork: failed to provision child desktop; child will be started lazily")
+	}
+
+	log.Info().
+		Str("parent_session_id", parent.ID).
+		Str("child_session_id", createdChild.ID).
+		Str("target_runtime", string(targetRuntime)).
+		Int("seed_completed_count", completedCount).
+		Int("seed_transcript_len", len(transcript)).
+		Msg("fork: created child session, paused parent")
+
+	return createdChild, nil
+}
+
+// provisionForkedSessionDesktop mirrors the desktop-startup branch of
+// startChatSessionHandler for forked sessions. Kept separate so the fork
+// path is easy to read and so a desktop failure can degrade gracefully
+// (the child row is already persisted; lazy startup will pick it up).
+func (apiServer *HelixAPIServer) provisionForkedSessionDesktop(
+	ctx context.Context,
+	user *types.User,
+	child *types.Session,
+) error {
+	if apiServer.externalAgentExecutor == nil {
+		return fmt.Errorf("external agent executor unavailable")
+	}
+
+	zedAgent := &types.DesktopAgent{
+		OrganizationID: child.OrganizationID,
+		ProjectID:      child.ProjectID,
+		SessionID:      child.ID,
+		UserID:         user.ID,
+		Input:          "Continue forked session",
+		ProjectPath:    "workspace",
+	}
+
+	if child.ProjectID != "" {
+		projectRepos, repoErr := apiServer.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: child.ProjectID,
+		})
+		if repoErr == nil && len(projectRepos) > 0 {
+			zedAgent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					zedAgent.RepositoryIDs = append(zedAgent.RepositoryIDs, repo.ID)
+				}
+			}
+			if project, projErr := apiServer.Controller.Options.Store.GetProject(ctx, child.ProjectID); projErr == nil && project != nil {
+				primaryRepoID := project.DefaultRepoID
+				if primaryRepoID == "" {
+					primaryRepoID = projectRepos[0].ID
+				}
+				zedAgent.PrimaryRepositoryID = primaryRepoID
+			}
+		}
+	}
+
+	if child.Metadata.ExternalAgentConfig != nil {
+		cfg := child.Metadata.ExternalAgentConfig
+		if cfg.DisplayWidth > 0 {
+			zedAgent.DisplayWidth = cfg.DisplayWidth
+		}
+		if cfg.DisplayHeight > 0 {
+			zedAgent.DisplayHeight = cfg.DisplayHeight
+		}
+		if cfg.DisplayRefreshRate > 0 {
+			zedAgent.DisplayRefreshRate = cfg.DisplayRefreshRate
+		}
+		if cfg.Resolution != "" {
+			zedAgent.Resolution = cfg.Resolution
+		}
+		if cfg.ZoomLevel > 0 {
+			zedAgent.ZoomLevel = cfg.ZoomLevel
+		}
+		if cfg.DesktopType != "" {
+			zedAgent.DesktopType = cfg.DesktopType
+		}
+	}
+
+	sessionOwner := child.Owner
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return apiServer.addUserAPITokenToAgent(hookCtx, a, sessionOwner)
+	}
+
+	agentResp, err := apiServer.externalAgentExecutor.StartDesktop(ctx, zedAgent)
+	if err != nil {
+		return fmt.Errorf("StartDesktop: %w", err)
+	}
+	if agentResp == nil {
+		return nil
+	}
+	if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
+		freshChild, fetchErr := apiServer.Store.GetSession(ctx, child.ID)
+		if fetchErr != nil {
+			return fmt.Errorf("re-fetch after StartDesktop: %w", fetchErr)
+		}
+		freshChild.Metadata.DevContainerID = agentResp.DevContainerID
+		freshChild.SandboxID = agentResp.SandboxID
+		if _, err := apiServer.Store.UpdateSession(ctx, *freshChild); err != nil {
+			return fmt.Errorf("persist container info: %w", err)
+		}
+	}
+	return nil
+}
