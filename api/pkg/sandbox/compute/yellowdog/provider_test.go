@@ -119,8 +119,8 @@ func TestNewProviderDefaults(t *testing.T) {
 	if p.baseURL != defaultBaseURL {
 		t.Fatalf("expected default baseURL, got %q", p.baseURL)
 	}
-	if p.cfg.TaskType != "docker" {
-		t.Fatalf("expected TaskType default 'docker', got %q", p.cfg.TaskType)
+	if p.cfg.TaskType != "bash" {
+		t.Fatalf("expected TaskType default 'bash', got %q", p.cfg.TaskType)
 	}
 }
 
@@ -136,13 +136,13 @@ func TestProviderName(t *testing.T) {
 	}
 }
 
-func TestTaskBodyShape_DockerTaskType(t *testing.T) {
-	// Validates the YD task wiring: TaskType=docker so YD's
-	// docker-run.sh handler invokes the container directly with our
-	// arguments as docker run flags. Asserts the docker run argv
-	// shape, that SANDBOX_INSTANCE_ID flows via "-e" (not via Task
-	// environment), and that no taskInputs are emitted (the
-	// bash-script + S3 upload path is gone).
+func TestTaskBodyShape_BashInline(t *testing.T) {
+	// Validates the YD task wiring: TaskType=bash so YD's default
+	// /bin/bash handler is invoked with our arguments. We use the
+	// "bash -c <body> argv..." form so the embedded script body
+	// runs with $1, $2, $3 as helix_url, runner_token, helix_image.
+	// SANDBOX_INSTANCE_ID flows via the task Environment because
+	// the script reads $SANDBOX_INSTANCE_ID from its env.
 	f := newFakeServer(t)
 	var taskBody []byte
 	f.handler = func(w http.ResponseWriter, r *http.Request) {
@@ -193,44 +193,45 @@ func TestTaskBodyShape_DockerTaskType(t *testing.T) {
 	}
 	task := tasks[0]
 
-	// TaskType must be "docker" (the new default) so YD invokes its
-	// docker-run.sh handler rather than the bash one.
-	if task.TaskType != "docker" {
-		t.Fatalf("TaskType = %q, want docker", task.TaskType)
+	// TaskType must be "bash" - we no longer use the docker task
+	// type because YD agent registration is one-shot and adding
+	// docker via post-install userdata is fragile (see
+	// design/2026-06-09-yd-bash-script-alternatives.md).
+	if task.TaskType != "bash" {
+		t.Fatalf("TaskType = %q, want bash", task.TaskType)
 	}
 
-	// Arguments are docker run flags, ending with the image.
-	wantArgs := []string{
-		"--privileged",
-		"--gpus", "all",
-		"--device", "/dev/dri/renderD128",
-		"--device", "/dev/dri/card1",
-		"-v", "/var/lib/docker",
-		"-e", "HELIX_API_URL=https://helix.example.com",
-		"-e", "RUNNER_TOKEN=secret-token-xyz",
-		"-e", "SANDBOX_INSTANCE_ID=sbx_test123",
-		"-e", "GPU_VENDOR=nvidia",
-		"-e", "MAX_SANDBOXES=2",
-		"ghcr.io/helixml/helix-sandbox:test-tag",
+	// Argument shape: -c, <embedded body>, "yd-inline" ($0),
+	// helix_url ($1), runner_token ($2), helix_image ($3).
+	if len(task.Arguments) != 6 {
+		t.Fatalf("expected 6 arguments [-c body $0 $1 $2 $3], got %d: %v", len(task.Arguments), task.Arguments)
 	}
-	if len(task.Arguments) != len(wantArgs) {
-		t.Fatalf("Arguments length: got %d (%v), want %d (%v)", len(task.Arguments), task.Arguments, len(wantArgs), wantArgs)
+	if task.Arguments[0] != "-c" {
+		t.Fatalf("Arguments[0] = %q, want -c", task.Arguments[0])
 	}
-	for i := range wantArgs {
-		if task.Arguments[i] != wantArgs[i] {
-			t.Fatalf("Arguments[%d] = %q, want %q", i, task.Arguments[i], wantArgs[i])
-		}
+	// Arguments[1] is the embedded script body. Spot-check that it
+	// references the positional args we'll pass.
+	if !strings.Contains(task.Arguments[1], "HELIX_URL=\"${1") {
+		t.Fatalf("embedded script body doesn't reference $1 as expected")
+	}
+	if task.Arguments[2] != "yd-inline" {
+		t.Fatalf("Arguments[2] = %q, want yd-inline ($0)", task.Arguments[2])
+	}
+	if task.Arguments[3] != "https://helix.example.com" {
+		t.Fatalf("Arguments[3] = %q, want helix URL ($1)", task.Arguments[3])
+	}
+	if task.Arguments[4] != "secret-token-xyz" {
+		t.Fatalf("Arguments[4] = %q, want runner token ($2)", task.Arguments[4])
+	}
+	if task.Arguments[5] != "ghcr.io/helixml/helix-sandbox:test-tag" {
+		t.Fatalf("Arguments[5] = %q, want image ($3)", task.Arguments[5])
 	}
 
-	// helix-sandbox container env vars must flow via docker -e flags
-	// in Arguments (verified above), NOT via task Environment. The
-	// task Environment is for the docker-run.sh handler itself
-	// (DOCKER_USERNAME, YD_STOP_SIGNAL, etc.) - kept minimal here.
-	if got := task.Environment["SANDBOX_INSTANCE_ID"]; got != "" {
-		t.Fatalf("SANDBOX_INSTANCE_ID must NOT appear in task Environment (it goes via docker -e in Arguments); got %q", got)
-	}
-	if got := task.Environment["HELIX_API_URL"]; got != "" {
-		t.Fatalf("HELIX_API_URL must NOT appear in task Environment; got %q", got)
+	// SANDBOX_INSTANCE_ID must be in the task Environment - the
+	// embedded script reads $SANDBOX_INSTANCE_ID from its process
+	// env to name the container + propagate to helix-sandbox.
+	if got := task.Environment["SANDBOX_INSTANCE_ID"]; got != "sbx_test123" {
+		t.Fatalf("Environment[SANDBOX_INSTANCE_ID] = %q, want sbx_test123", got)
 	}
 }
 
@@ -249,7 +250,7 @@ func TestTaskArgumentsEmptyWhenConfigIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
-	if got := p.taskArguments(compute.Spec{}); got != nil {
+	if got := p.taskArguments(); got != nil {
 		t.Fatalf("expected nil arguments when config is incomplete, got %v", got)
 	}
 }
