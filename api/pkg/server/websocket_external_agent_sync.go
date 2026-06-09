@@ -545,6 +545,11 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Msg("🔗 [HELIX] Resuming in existing Zed thread after reconnect")
 		}
 
+		// Forked sessions: if this is the first message (no Zed thread yet) and a
+		// fork_seed interaction exists, prepend the parent transcript. No-op on
+		// non-forked sessions and on reconnect-to-existing-thread.
+		fullMessage = apiServer.maybePrependTranscript(ctx, helixSession, fullMessage)
+
 		command := types.ExternalAgentCommand{
 			Type: "chat_message",
 			Data: map[string]interface{}{
@@ -1948,10 +1953,15 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		_ = apiServer.Controller.Options.Store.TouchSession(ctx, sessionID)
 	}
 
+	// Forked sessions get the parent's transcript prepended on the very first
+	// message (when ZedThreadID=="" so Zed will create a new thread). No-op
+	// on regular sessions and on follow-up messages.
+	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, message)
+
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"message":       message,
+			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
 			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
@@ -3233,13 +3243,19 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Str("session_id", sessionID).
 		Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
 
+	// Forked sessions: prepend parent transcript on the first outgoing message
+	// (when ZedThreadID is empty so Zed will create a new thread). No-op on
+	// regular / follow-up sends. maybePrependTranscript loads the seed from
+	// the fork_seed interaction's ResponseMessage exactly once.
+	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, prompt.Content)
+
 	// Create the command to send to the external agent
 	// NOTE: acp_thread_id can be empty on first message - this triggers thread creation in Zed
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
 			"acp_thread_id": session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
-			"message":       prompt.Content,
+			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"agent_name":    agentName,
 			"from_queue":    true,         // Indicate this came from the queue

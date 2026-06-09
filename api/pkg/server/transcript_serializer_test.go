@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -162,6 +163,58 @@ func TestSerializeAgentResponse_ToolCallWithoutStatus(t *testing.T) {
 
 	assert.Contains(t, got, "[bash]")
 	assert.Contains(t, got, "cmd")
+}
+
+func TestMaybePrependTranscript_NoOpWhenThreadAlreadyExists(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	parent := newTestParentSession("user_a")
+	seedParentWithInteractions(t, mem, parent, 1)
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	child, httpErr := srv.forkSessionFromParent(context.Background(), user, parent, types.CodeAgentRuntimeQwenCode, "")
+	require.Nil(t, httpErr)
+
+	// Simulate that the child already has a Zed thread (any non-empty value).
+	child.Metadata.ZedThreadID = "ctx_some_thread"
+	_, err := mem.UpdateSession(context.Background(), *child)
+	require.NoError(t, err)
+	freshChild, _ := mem.GetSession(context.Background(), child.ID)
+
+	got := srv.maybePrependTranscript(context.Background(), freshChild, "follow-up")
+	assert.Equal(t, "follow-up", got, "must not prepend once a thread is open")
+}
+
+func TestMaybePrependTranscript_NoOpOnNonForkedSession(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	parent := newTestParentSession("user_a")
+	seedParentWithInteractions(t, mem, parent, 1)
+
+	got := srv.maybePrependTranscript(context.Background(), parent, "hello")
+	assert.Equal(t, "hello", got, "non-forked session has no fork_seed; must pass through")
+}
+
+func TestMaybePrependTranscript_PrependsOnFirstMessageOfForkedSession(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	parent := newTestParentSession("user_a")
+	parent.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
+	seedParentWithInteractions(t, mem, parent, 2)
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	child, httpErr := srv.forkSessionFromParent(context.Background(), user, parent, types.CodeAgentRuntimeQwenCode, "")
+	require.Nil(t, httpErr)
+
+	freshChild, _ := mem.GetSession(context.Background(), child.ID)
+	require.Equal(t, "", freshChild.Metadata.ZedThreadID, "child must start with no Zed thread")
+
+	got := srv.maybePrependTranscript(context.Background(), freshChild, "now do X")
+
+	assert.NotEqual(t, "now do X", got, "the seed should have been prepended")
+	assert.Contains(t, got, "transcript of a prior session", "must include the bridge framing")
+	assert.Contains(t, got, "user turn 0", "must include parent's interactions")
+	assert.Contains(t, got, "user turn 1")
+	assert.Contains(t, got, "now do X", "must still contain the user's new message at the end")
+	// User message must appear after the seed, not before.
+	transcriptIdx := strings.Index(got, "user turn 0")
+	userMsgIdx := strings.Index(got, "now do X")
+	assert.Greater(t, userMsgIdx, transcriptIdx, "user message must follow the prepended transcript")
 }
 
 func TestRequireUnpaused(t *testing.T) {
