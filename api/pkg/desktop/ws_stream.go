@@ -1858,10 +1858,16 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 			// Handle Ping/Pong at this level (needs ws access for response)
 			if msgType == StreamMsgPing {
 				// Client sent Ping for RTT measurement - respond with Pong
-				// Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
-				// encoderLatencyMs is the average time from PipeWire capture to WebSocket send (encoder pipeline)
+				// Extended Pong format:
+				//   type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2)
+				//   + schedulerP50Ms(2) + schedulerP99Ms(2) + schedulerMaxMs(2) = 29 bytes
+				// encoderLatencyMs is the average PipeWire-capture-to-WebSocket-send time.
+				// scheduler{P50,P99,Max}Ms reflect this process's 60Hz canary lateness —
+				// a proxy for kernel-scheduler health inside the desktop container.
+				// Client parses defensively (length check), so older clients seeing 29
+				// bytes still read the original 23-byte prefix without breaking.
 				if len(msg) >= 13 {
-					pong := make([]byte, 23)
+					pong := make([]byte, 29)
 					pong[0] = StreamMsgPong
 					copy(pong[1:13], msg[1:13]) // Echo back seq + clientTime
 					// Add server time (microseconds since epoch)
@@ -1876,6 +1882,18 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 						encoderLatencyMs = 65535
 					}
 					binary.BigEndian.PutUint16(pong[21:23], uint16(encoderLatencyMs))
+					// Scheduler-jitter canary stats. Zeros if no Server context (older
+					// callers of handleStreamWebSocketInternal pass server==nil) or if
+					// the canary hasn't recorded any samples yet.
+					var sched SchedulerStats
+					if server != nil {
+						if c := server.SchedulerCanary(); c != nil {
+							sched = c.Stats()
+						}
+					}
+					binary.BigEndian.PutUint16(pong[23:25], sched.P50Ms)
+					binary.BigEndian.PutUint16(pong[25:27], sched.P99Ms)
+					binary.BigEndian.PutUint16(pong[27:29], sched.MaxMs)
 					// Use streamer's mutex-protected write to avoid concurrent write panic
 					if _, err := streamer.writeMessage(websocket.BinaryMessage, pong); err != nil {
 						logger.Debug("failed to send pong", "err", err)
