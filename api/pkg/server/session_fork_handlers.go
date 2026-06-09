@@ -1,5 +1,11 @@
 package server
 
+// Fork-and-pause endpoint. Designed in helix-specs:002081_kickoff-mid-session
+// and validated end-to-end against a live stack in
+// helix-specs:002082_what-i-want-to-do-is (2026-06-09, 17/17 backend
+// assertions + 7/9 UI walkthrough scenarios — see that task's design.md for
+// the outcome report and screenshots).
+
 import (
 	"context"
 	"encoding/json"
