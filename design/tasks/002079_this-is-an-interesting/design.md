@@ -181,6 +181,52 @@ compatible (decide during implementation).
 - **Observability**: log every fire at info level with stream ID, org ID,
   and subscriber count. Failures at error level.
 
+## Implementation Notes
+
+Captured during the build for future agents who'll work on similar transports.
+
+### Final shape of the changes
+
+**Files added:**
+- `api/pkg/org/domain/transport/cron.go` — `KindCron`, `CronConfig`, `CronConfig.Validate`, `ExpandCronSchedule` helper, `Transport.CronConfig()` typed accessor.
+- `api/pkg/org/domain/transport/cron_test.go` — alias/parse/DoS-floor unit tests.
+- `api/pkg/org/infrastructure/streamcron/scheduler.go` — gocron-driven Scheduler with `Start` (blocking on ctx), `reconcile`, `fire`, and the panic-protected `fireFn`.
+- `api/pkg/org/infrastructure/streamcron/scheduler_test.go` — integration tests against memorystore + recording dispatcher (fire, reconcile add/update/remove, panic recovery, invalid-schedule defensive skip).
+
+**Files modified:**
+- `api/pkg/org/domain/transport/transport.go` — added `KindCron` to `kindOrder` and `strategies`.
+- `api/pkg/org/domain/transport/transport_test.go` — extended `KindValues` test, added drift-prevention test, added end-to-end Transport.Validate cases for cron.
+- `api/pkg/org/domain/store/store.go` — added `Streams.ListByTransportKind(ctx, kind)` to the interface.
+- `api/pkg/org/infrastructure/persistence/gorm/stream.go` — implemented `ListByTransportKind` as a single cross-org `WHERE transport_kind = ?` query.
+- `api/pkg/org/infrastructure/persistence/memory/memorystore.go` — implemented the same in the memory store.
+- `api/pkg/server/helix_org.go` — instantiated `streamcron.Scheduler` inside `initHelixOrgHandler` and added it to `helixOrgHandlers`.
+- `api/pkg/server/server.go` — renamed `_ context.Context` → `ctx` in `registerRoutes`; launched `orgHandlers.streamCron.Start(ctx)` in a goroutine right after init.
+- `frontend/src/pages/HelixOrgStreams.tsx` — added `cron` to `TRANSPORT_KINDS`, added `CRON_PRESETS`, added the conditional schedule field + preset chips, added cron-handling in `submit()`, gated the JSON config box.
+
+### Things I discovered during build
+
+- The frontend's `TRANSPORT_KINDS` array already lists `postmark` rather than `email` (the backend constant is `KindEmail = "email"`). Pre-existing inconsistency; left alone.
+- `streaming.NewStream` calls `Transport.Validate` — there's no path to construct a Stream domain value with an invalid transport via the constructor. To test the scheduler's defensive `Validate` inside `reconcile`, I mutate the row through `Streams.Update` (which doesn't re-validate the transport) after creating with a valid schedule.
+- `gocron/v2`'s `CronJob` constructor with `withSeconds=false` insists on the 5-field syntax — and our `cronv3.ParseStandard` also rejects 6-field. That's the design choice from D1/R1: closing the syntactic door is stronger than checking gap intervals.
+- The `Repository` generic in `gorm/repository.go` exposes `db` as an unexported field. Since `streamsRepo` embeds `*Repository`, the existing code in `stream.go` already reaches the embedded `r.db` directly through Go's field promotion. `ListByTransportKind` follows the same pattern.
+- `HELIX_ORG_ENABLED` defaults to `false` in `docker-compose.dev.yaml` (envconfig fallback). For end-to-end UI testing I had to `down api` + `HELIX_ORG_ENABLED=true docker compose -f docker-compose.dev.yaml up -d api` (a plain `restart` won't pick up new env). Helix-org also requires an admin user to exist before initHelixOrgHandler will wire itself up.
+- The `chrome-devtools__fill` MCP tool concatenates onto existing values rather than replacing — used a small `evaluate_script` to set the schedule field cleanly via the native input value setter.
+
+### Manual verification
+
+End-to-end exercised in the inner Helix at http://localhost:8080:
+- Registered `test@helix.ml` (auto-admin in dev), created `testorg`, granted the `helix-org` alpha feature, opened `/orgs/testorg/helix-org/streams`.
+- Clicked "New Stream" → "Transport" dropdown: `cron` appears as the 5th option (alongside local, webhook, github, postmark).
+- Selecting cron renders the Schedule field with the helper text and the seven preset chips.
+- Clicked "Mon 09:00" → schedule auto-fills `0 9 * * 1` → submit → success snackbar.
+- ~10 seconds later, api logs show `streamcron: scheduled stream … schedule="0 9 * * 1"` — the scheduler picked up the new row on the next reconcile.
+- Tried submitting `* * * * *` → server rejected with `schedule "* * * * *" fires more often than the 1m30s minimum` → snackbar surfaced the verbatim error.
+
+Screenshots in `screenshots/`:
+- `01-new-stream-cron-selected.png` — cron transport selected, Schedule field + preset chips visible.
+- `02-cron-stream-in-list.png` — created cron stream appears in the streams table.
+- `03-validation-rejects-every-minute.png` — server-side 90s minimum enforcement surfaced in the UI.
+
 ## Risks
 
 - **R1: Runaway sub-minute schedules.** Standard cron syntax allows up to
