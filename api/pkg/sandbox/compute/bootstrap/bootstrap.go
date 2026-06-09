@@ -133,18 +133,17 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 				Msg("compute: HELIX_YD_WORKER_TAG auto-derived from namespace; override if your YD worker pool advertises a different tag")
 		}
 		return yellowdog.NewProvider(yellowdog.Config{
-			APIKeyID:         cfg.Yellowdog.APIKeyID,
-			APISecret:        cfg.Yellowdog.APISecret,
-			BaseURL:          cfg.Yellowdog.BaseURL,
-			Namespace:        cfg.Yellowdog.Namespace,
-			DeploymentTag:    cfg.DeploymentTag,
-			WorkerTag:        workerTag,
-			TaskTimeout:      cfg.Yellowdog.TaskTimeout,
-			MaxRetries:       cfg.Yellowdog.MaxRetries,
-			HelixURL:         serverURL,
-			RunnerToken:      runnerToken,
-			HelixImage:       cfg.Yellowdog.HelixImage,
-			BashScriptSource: cfg.Yellowdog.BashScriptSource,
+			APIKeyID:      cfg.Yellowdog.APIKeyID,
+			APISecret:     cfg.Yellowdog.APISecret,
+			BaseURL:       cfg.Yellowdog.BaseURL,
+			Namespace:     cfg.Yellowdog.Namespace,
+			DeploymentTag: cfg.DeploymentTag,
+			WorkerTag:     workerTag,
+			TaskTimeout:   cfg.Yellowdog.TaskTimeout,
+			MaxRetries:    cfg.Yellowdog.MaxRetries,
+			HelixURL:      serverURL,
+			RunnerToken:   runnerToken,
+			HelixImage:    cfg.Yellowdog.HelixImage,
 		})
 	default:
 		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)

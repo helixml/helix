@@ -119,8 +119,8 @@ func TestNewProviderDefaults(t *testing.T) {
 	if p.baseURL != defaultBaseURL {
 		t.Fatalf("expected default baseURL, got %q", p.baseURL)
 	}
-	if p.cfg.TaskType != "bash" {
-		t.Fatalf("expected TaskType default 'bash', got %q", p.cfg.TaskType)
+	if p.cfg.TaskType != "docker" {
+		t.Fatalf("expected TaskType default 'docker', got %q", p.cfg.TaskType)
 	}
 }
 
@@ -136,12 +136,13 @@ func TestProviderName(t *testing.T) {
 	}
 }
 
-func TestTaskBodyShape(t *testing.T) {
-	// Validates the new end-to-end task wiring: Arguments,
-	// Environment, and Inputs all populated correctly so the YD
-	// worker can download bash-script.sh, invoke it with
-	// HELIX_URL/RUNNER_TOKEN/HelixImage, and pass SANDBOX_INSTANCE_ID
-	// through the env to helix-sandbox.
+func TestTaskBodyShape_DockerTaskType(t *testing.T) {
+	// Validates the YD task wiring: TaskType=docker so YD's
+	// docker-run.sh handler invokes the container directly with our
+	// arguments as docker run flags. Asserts the docker run argv
+	// shape, that SANDBOX_INSTANCE_ID flows via "-e" (not via Task
+	// environment), and that no taskInputs are emitted (the
+	// bash-script + S3 upload path is gone).
 	f := newFakeServer(t)
 	var taskBody []byte
 	f.handler = func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +170,6 @@ func TestTaskBodyShape(t *testing.T) {
 		HelixURL:             "https://helix.example.com",
 		RunnerToken:          "secret-token-xyz",
 		HelixImage:           "ghcr.io/helixml/helix-sandbox:test-tag",
-		BashScriptSource:     "rclone:S3,...:bucket/bash-script.sh",
 	}
 	p, err := NewProvider(cfg)
 	if err != nil {
@@ -193,11 +193,24 @@ func TestTaskBodyShape(t *testing.T) {
 	}
 	task := tasks[0]
 
-	// Arguments shape: [script.sh, helix_url, runner_token, helix_image]
+	// TaskType must be "docker" (the new default) so YD invokes its
+	// docker-run.sh handler rather than the bash one.
+	if task.TaskType != "docker" {
+		t.Fatalf("TaskType = %q, want docker", task.TaskType)
+	}
+
+	// Arguments are docker run flags, ending with the image.
 	wantArgs := []string{
-		"bash-script.sh",
-		"https://helix.example.com",
-		"secret-token-xyz",
+		"--privileged",
+		"--gpus", "all",
+		"--device", "/dev/dri/renderD128",
+		"--device", "/dev/dri/card1",
+		"-v", "/var/lib/docker",
+		"-e", "HELIX_API_URL=https://helix.example.com",
+		"-e", "RUNNER_TOKEN=secret-token-xyz",
+		"-e", "SANDBOX_INSTANCE_ID=sbx_test123",
+		"-e", "GPU_VENDOR=nvidia",
+		"-e", "MAX_SANDBOXES=2",
 		"ghcr.io/helixml/helix-sandbox:test-tag",
 	}
 	if len(task.Arguments) != len(wantArgs) {
@@ -209,25 +222,16 @@ func TestTaskBodyShape(t *testing.T) {
 		}
 	}
 
-	// SANDBOX_INSTANCE_ID env var (bridge to helix-sandbox)
-	if got := task.Environment["SANDBOX_INSTANCE_ID"]; got != "sbx_test123" {
-		t.Fatalf("Environment[SANDBOX_INSTANCE_ID] = %q, want sbx_test123", got)
+	// helix-sandbox container env vars must flow via docker -e flags
+	// in Arguments (verified above), NOT via task Environment. The
+	// task Environment is for the docker-run.sh handler itself
+	// (DOCKER_USERNAME, YD_STOP_SIGNAL, etc.) - kept minimal here.
+	if got := task.Environment["SANDBOX_INSTANCE_ID"]; got != "" {
+		t.Fatalf("SANDBOX_INSTANCE_ID must NOT appear in task Environment (it goes via docker -e in Arguments); got %q", got)
 	}
-
-	// Inputs shape: download from BashScriptSource to local:bash-script.sh
-	if len(task.Inputs) != 1 {
-		t.Fatalf("Inputs length: got %d, want 1", len(task.Inputs))
+	if got := task.Environment["HELIX_API_URL"]; got != "" {
+		t.Fatalf("HELIX_API_URL must NOT appear in task Environment; got %q", got)
 	}
-	if task.Inputs[0].Source != "rclone:S3,...:bucket/bash-script.sh" {
-		t.Fatalf("Inputs[0].Source = %q", task.Inputs[0].Source)
-	}
-	if task.Inputs[0].Destination != "local:bash-script.sh" {
-		t.Fatalf("Inputs[0].Destination = %q, want local:bash-script.sh", task.Inputs[0].Destination)
-	}
-
-	// Cross-check the YD-side RUNNER_TOKEN isn't accidentally
-	// leaked into anything log-visible. The body itself contains
-	// it (necessarily) but no log output should.
 }
 
 func TestTaskArgumentsEmptyWhenConfigIncomplete(t *testing.T) {
@@ -245,7 +249,7 @@ func TestTaskArgumentsEmptyWhenConfigIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
-	if got := p.taskArguments(); got != nil {
+	if got := p.taskArguments(compute.Spec{}); got != nil {
 		t.Fatalf("expected nil arguments when config is incomplete, got %v", got)
 	}
 }

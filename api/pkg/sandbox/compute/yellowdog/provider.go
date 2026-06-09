@@ -79,37 +79,37 @@ type Config struct {
 	TaskTimeout time.Duration
 
 	// TaskType is the worker task-type handler name (registered on
-	// each worker by install-agent.sh in the POC). Defaults to "bash"
-	// if empty.
+	// each worker via the operator's userdata scripts). Defaults to
+	// "docker" if empty - YD's docker task type handler
+	// (add-docker-run-script.sh) reads the task's Arguments as
+	// docker run flags and invokes the container directly. The
+	// older "bash" path is still supported for backwards compat
+	// but is being phased out (no need to ship + maintain a
+	// separate bash script).
 	TaskType string
 
 	// TaskArguments overrides the positional argument vector passed
-	// to each task. Empty (the default) uses the per-task arguments
-	// constructed from HelixURL + RunnerToken + HelixImage, which is
-	// what production deployments want. Tests inject a custom vector
-	// to keep the task body shape simple.
+	// to each task. Empty (the default) uses the auto-built docker
+	// run argument vector constructed from HelixURL + RunnerToken +
+	// HelixImage + the hardware-specific flags. Tests inject a
+	// custom vector to keep assertion shape simple.
 	TaskArguments []string
 
 	// HelixURL is the Helix control-plane URL the helix-sandbox
-	// container inside the YD task connects back to. Passed through
-	// to bash-script.sh as positional arg $1, which sets
-	// HELIX_API_URL on the docker-run invocation.
+	// container connects back to. Auto-built docker run args
+	// include "-e HELIX_API_URL=<HelixURL>".
 	HelixURL string
 
-	// RunnerToken is the shared secret bash-script.sh injects into
-	// the helix-sandbox container as RUNNER_TOKEN env var. Same
-	// value as Helix's RUNNER_TOKEN config; we pass it through here
-	// rather than have the worker fetch it independently.
+	// RunnerToken is the shared secret helix-sandbox uses to
+	// authenticate against the Helix control plane. Auto-built
+	// docker run args include "-e RUNNER_TOKEN=<RunnerToken>".
+	// Same value as Helix's WebServer.RunnerToken; passed through
+	// here rather than having the worker fetch it independently.
 	RunnerToken string
 
-	// HelixImage is the helix-sandbox container image tag. Passed
-	// as positional arg $3 to bash-script.sh, which docker-runs it.
+	// HelixImage is the helix-sandbox container image the YD worker
+	// will docker-run. Last positional in the docker run args.
 	HelixImage string
-
-	// BashScriptSource is the YD data-client URI bash-script.sh has
-	// been pre-uploaded to. The YD worker downloads from this source
-	// into local:bash-script.sh before invoking it.
-	BashScriptSource string
 
 	// HTTPClient overrides the default *http.Client. Tests inject
 	// an httptest-backed client. Nil falls back to http.DefaultClient.
@@ -171,7 +171,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 		return nil, errors.New("yellowdog: WorkerTag is required")
 	}
 	if cfg.TaskType == "" {
-		cfg.TaskType = "bash"
+		cfg.TaskType = "docker"
 	}
 	base := cfg.BaseURL
 	if base == "" {
@@ -264,10 +264,9 @@ func (p *Provider) Provision(ctx context.Context, spec compute.Spec) (*compute.H
 	task := taskPayload{
 		Name:        fmt.Sprintf("task-%d", time.Now().UnixNano()),
 		TaskType:    p.cfg.TaskType,
-		Arguments:   p.taskArguments(),
+		Arguments:   p.taskArguments(spec),
 		Environment: p.taskEnvironment(spec),
 		Timeout:     isoMinutes(p.cfg.TaskTimeout),
-		Inputs:      p.taskInputs(),
 	}
 	if err := p.addTask(ctx, tg.ID, &task); err != nil {
 		// Roll back the WR so we don't leak a stuck empty task group.
@@ -404,81 +403,81 @@ type taskPayload struct {
 	Arguments   []string          `json:"arguments,omitempty"`
 	Environment map[string]string `json:"environment,omitempty"`
 	Timeout     string            `json:"timeout,omitempty"`
-	Inputs      []taskInput       `json:"inputs,omitempty"`
 }
 
-// taskInput tells the YD worker to fetch a file from the data-client
-// and place it on the local filesystem before running the task. Used
-// to ship bash-script.sh to the worker without baking it into the
-// image. Mirrors the POC's config.toml taskDataInputs entries.
-type taskInput struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-}
-
-// taskArguments builds the positional argument vector passed to
-// bash-script.sh on the worker. Matches the POC's config.toml:
+// taskArguments builds the docker run argument vector passed to YD's
+// docker task type handler. The handler invokes:
 //
-//	arguments = ["bash-script.sh", helix_url, runner_token, helix_image]
+//	docker run --rm --name yd-container-$$ --stop-signal SIGTERM \
+//	  --env YD_WORKING=/yd_working -v $(pwd):/yd_working "$@"
 //
-// Tests can pre-set cfg.TaskArguments to inject a deterministic
-// vector; production deployments leave it empty and let this method
-// construct the right shape from HelixURL/RunnerToken/HelixImage.
-func (p *Provider) taskArguments() []string {
+// Where "$@" is what we return here. We append:
+//   - hardware flags (--privileged, --gpus, --device, -v /var/lib/docker)
+//   - env vars (-e HELIX_API_URL, RUNNER_TOKEN, SANDBOX_INSTANCE_ID, ...)
+//   - the helix-sandbox image
+//
+// Tests inject cfg.TaskArguments to skip the auto-build.
+//
+// HARDWARE-SPECIFIC: the --gpus / --device / -e GPU_VENDOR / -e
+// MAX_SANDBOXES values are hardcoded here for NVIDIA + the POC's
+// EC2 g5.xlarge layout. When Helix grows multi-profile support
+// (different instance types, vendors), these become per-Spec fields.
+// Tracked in design/2026-06-09-yd-bash-script-alternatives.md.
+func (p *Provider) taskArguments(spec compute.Spec) []string {
 	if len(p.cfg.TaskArguments) > 0 {
 		return p.cfg.TaskArguments
 	}
 	if p.cfg.HelixURL == "" || p.cfg.RunnerToken == "" || p.cfg.HelixImage == "" {
-		// Returning empty produces a task that fails immediately on the
-		// worker - operator sees the failure in YD logs and notices the
-		// missing config. Better than silently submitting a task that
-		// happens to work for a few cycles then breaks.
+		// Returning empty produces a task that fails immediately on
+		// the worker - operator sees the failure in YD logs and
+		// notices the missing config. Better than silently
+		// submitting a task that "almost works."
 		return nil
 	}
+	sandboxID := spec.Labels["helix.sandbox_id"]
 	return []string{
-		"bash-script.sh",
-		p.cfg.HelixURL,
-		p.cfg.RunnerToken,
+		// Container runtime flags.
+		"--privileged",
+		"--gpus", "all",
+		"--device", "/dev/dri/renderD128",
+		"--device", "/dev/dri/card1",
+		"-v", "/var/lib/docker",
+		// Env vars consumed by helix-sandbox at startup.
+		"-e", "HELIX_API_URL=" + p.cfg.HelixURL,
+		"-e", "RUNNER_TOKEN=" + p.cfg.RunnerToken,
+		"-e", "SANDBOX_INSTANCE_ID=" + sandboxID,
+		"-e", "GPU_VENDOR=nvidia",
+		"-e", "MAX_SANDBOXES=2",
+		// Image to run (last positional - everything before is a flag).
 		p.cfg.HelixImage,
 	}
 }
 
-// taskEnvironment builds the env var map for the YD task. Two
-// load-bearing entries:
-//   - SANDBOX_INSTANCE_ID: bridges the pre-decided SandboxID
-//     from compute.Manager to the helix-sandbox container, so
-//     the container registers with the matching ID and the
-//     auto-register bridge can promote the existing row.
-//   - any other spec.Labels are passed through verbatim.
+// taskEnvironment builds the env var map attached to the YD task
+// itself (read by the YD task handler script, NOT the helix-sandbox
+// container). For our docker-task-type flow, the helix-sandbox env
+// vars travel as docker -e flags inside taskArguments above.
 //
-// bash-script.sh reads SANDBOX_INSTANCE_ID from its environment
-// and propagates it to the docker-run as -e SANDBOX_INSTANCE_ID=$ID.
+// This map can carry:
+//   - YD_STOP_SIGNAL / YD_STOP_TIMEOUT: graceful-shutdown tuning
+//     read by the docker task handler.
+//   - DOCKER_USERNAME / DOCKER_PASSWORD / DOCKER_REGISTRY: private
+//     registry auth (unused today since helix-sandbox is on public
+//     ghcr.io).
+//   - Any spec.Labels the operator wants to surface in YD's UI.
+//
+// We do NOT set SANDBOX_INSTANCE_ID here - it flows to the
+// helix-sandbox container via the docker -e flag in taskArguments,
+// not via the YD task environment.
 func (p *Provider) taskEnvironment(spec compute.Spec) map[string]string {
-	env := make(map[string]string, len(spec.Labels)+1)
+	if len(spec.Labels) == 0 {
+		return nil
+	}
+	env := make(map[string]string, len(spec.Labels))
 	for k, v := range spec.Labels {
 		env[k] = v
 	}
-	if id := spec.Labels["helix.sandbox_id"]; id != "" {
-		// The label key is the cross-package handoff between
-		// compute.Manager and yellowdog.Provider; the env var key
-		// is what bash-script.sh reads.
-		env["SANDBOX_INSTANCE_ID"] = id
-	}
 	return env
-}
-
-// taskInputs returns the data-client downloads the YD worker must
-// fetch before running the task. Today that's just bash-script.sh
-// at a fixed destination. In-Go script upload is a follow-up;
-// operators currently pre-upload during pool setup.
-func (p *Provider) taskInputs() []taskInput {
-	if p.cfg.BashScriptSource == "" {
-		return nil
-	}
-	return []taskInput{{
-		Source:      p.cfg.BashScriptSource,
-		Destination: "local:bash-script.sh",
-	}}
 }
 
 // --- HTTP helper methods (one per YD call we make) ----------------------

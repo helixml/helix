@@ -240,18 +240,6 @@ type Yellowdog struct {
 	// sandbox versions out. The default tracks the latest stable
 	// release; pin to a SHA for reproducible deploys.
 	HelixImage string `envconfig:"HELIX_YD_HELIX_IMAGE" default:"ghcr.io/helixml/helix-sandbox:latest"`
-
-	// BashScriptSource is the YD data-client URI where bash-script.sh
-	// has been pre-uploaded by the operator. The YD worker downloads
-	// it to local:bash-script.sh before running the task. Required;
-	// without it the task has nothing to execute.
-	//
-	// Example (matches the POC yellowdog-poc):
-	//   rclone:S3,type=s3,provider=AWS,env_auth=true,...:bucket-name/path/bash-script.sh
-	//
-	// In-Helix script upload from Go is a follow-up; for now operators
-	// upload once at pool-setup time using yd-submit's data-client.
-	BashScriptSource string `envconfig:"HELIX_YD_BASH_SCRIPT_SOURCE"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
