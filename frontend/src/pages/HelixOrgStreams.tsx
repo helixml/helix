@@ -58,17 +58,16 @@ const TRANSPORT_KINDS = [
   { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this stream at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
 ]
 
-// CRON_PRESETS surface the common schedules the requirements doc named
-// (daily, weekly, weekdays-only, Monday 9am, etc.) as one-click chips
-// in the New Stream dialog. The value is what gets stored verbatim in
-// transport_config; the backend's CronConfig.Validate accepts both
-// aliases (@daily) and standard 5-field cron.
+// CRON_PRESETS are one-click chips that inject a standard 5-field
+// cron expression into the schedule field. We keep the UI on the
+// literal cron grammar — no @-aliases — so users see exactly what's
+// stored, and there's one syntax to learn rather than two.
 const CRON_PRESETS: Array<{ label: string; value: string }> = [
-  { label: 'Hourly', value: '@hourly' },
-  { label: 'Daily 00:00', value: '@daily' },
-  { label: 'Weekly Sun 00:00', value: '@weekly' },
-  { label: 'Weekdays 00:00', value: '@weekdays' },
-  { label: 'Weekends 00:00', value: '@weekends' },
+  { label: 'Hourly', value: '0 * * * *' },
+  { label: 'Daily 00:00', value: '0 0 * * *' },
+  { label: 'Weekly Sun 00:00', value: '0 0 * * 0' },
+  { label: 'Weekdays 00:00', value: '0 0 * * 1-5' },
+  { label: 'Weekends 00:00', value: '0 0 * * 0,6' },
   { label: 'Mon 09:00', value: '0 9 * * 1' },
   { label: 'Fri 18:00', value: '0 18 * * 5' },
 ]
@@ -318,7 +317,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // Cron schedule — free text accepting either a 5-field cron expression
   // or one of the @aliases the backend recognises (@hourly, @daily, …).
   // CRON_PRESETS populate it via one-click chips.
-  const [cronSchedule, setCronSchedule] = useState<string>('@daily')
+  const [cronSchedule, setCronSchedule] = useState<string>('0 0 * * *')
 
   // Probe GitHub on dialog open — the result tells us whether to
   // disable the `github` transport option (no OAuth connection →
@@ -432,7 +431,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
         snackbar.success('stream created')
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('@daily')
+      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -441,7 +440,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('@daily')
+    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
     onClose()
   }
 
@@ -529,11 +528,11 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
             <Box>
               <TextField
                 label="Schedule"
-                placeholder="@daily, 0 9 * * 1, CRON_TZ=Europe/London 0 9 * * 1"
+                placeholder="0 9 * * 1"
                 value={cronSchedule}
                 onChange={(e) => setCronSchedule(e.target.value)}
                 fullWidth
-                helperText="5-field cron, or one of @hourly @daily @weekly @weekdays @weekends @monthly. Prefix with CRON_TZ=<zone> to pin the timezone. Minimum interval: 90 seconds."
+                helperText="Standard 5-field cron: minute hour day-of-month month day-of-week. Prefix with CRON_TZ=<zone> to pin the timezone (defaults to UTC). Minimum interval: 90 seconds."
               />
               <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}>
                 {CRON_PRESETS.map((p) => (
@@ -561,10 +560,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
                   Examples
                 </Typography>
                 {[
-                  { value: '@daily', description: 'every day at midnight (alias)' },
-                  { value: '@weekdays', description: 'Mon–Fri at midnight (alias)' },
+                  { value: '0 0 * * *', description: 'every day at midnight' },
                   { value: '0 9 * * 1', description: 'every Monday at 09:00' },
                   { value: '0 18 * * 5', description: 'every Friday at 18:00' },
+                  { value: '0 0 * * 1-5', description: 'weekdays at midnight' },
                   { value: '*/15 * * * *', description: 'every 15 minutes' },
                   { value: '0 0 1 * *', description: 'first day of every month at 00:00' },
                   { value: 'CRON_TZ=America/New_York 30 14 * * 1-5', description: 'weekdays at 14:30 New York time' },

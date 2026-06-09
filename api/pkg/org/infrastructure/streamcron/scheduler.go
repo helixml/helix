@@ -180,7 +180,6 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 			log.Warn().Err(err).Str("stream", string(s.ID)).Str("org", s.OrganizationID).Str("schedule", cfg.Schedule).Msg("streamcron: skipping invalid schedule")
 			continue
 		}
-		expanded := transport.ExpandCronSchedule(cfg.Schedule)
 
 		if existing, ok := have[key]; ok {
 			// Job exists — check whether the schedule changed.
@@ -195,7 +194,7 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 				Msg("streamcron: updating schedule")
 			if _, err := c.scheduler.Update(
 				existing.ID(),
-				gocron.CronJob(expanded, false),
+				gocron.CronJob(cfg.Schedule, false),
 				gocron.NewTask(c.fireFn(s.OrganizationID, s.ID)),
 				jobOptions(s, cfg.Schedule)...,
 			); err != nil {
@@ -206,7 +205,7 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 
 		// New job.
 		job, err := c.scheduler.NewJob(
-			gocron.CronJob(expanded, false),
+			gocron.CronJob(cfg.Schedule, false),
 			gocron.NewTask(c.fireFn(s.OrganizationID, s.ID)),
 			jobOptions(s, cfg.Schedule)...,
 		)
@@ -228,9 +227,9 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 func jobOptions(s streaming.Stream, schedule string) []gocron.JobOption {
 	return []gocron.JobOption{
 		gocron.WithName(streamKey(s.OrganizationID, s.ID)),
-		// Tag carries the canonical (unexpanded) schedule. Reconcile
-		// reads this to decide whether to re-create the job; gocron
-		// itself has no public accessor for the cron expression.
+		// Tag carries the schedule string verbatim. Reconcile reads
+		// this to decide whether to re-create the job; gocron itself
+		// has no public accessor for the cron expression.
 		gocron.WithTags("schedule:" + schedule),
 	}
 }

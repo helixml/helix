@@ -205,8 +205,8 @@ func TestTransportValidate_Cron(t *testing.T) {
 		wantErr string
 	}{
 		{"valid 5-field", `{"schedule":"0 9 * * 1"}`, ""},
-		{"valid alias daily", `{"schedule":"@daily"}`, ""},
-		{"valid alias weekdays", `{"schedule":"@weekdays"}`, ""},
+		{"valid daily midnight", `{"schedule":"0 0 * * *"}`, ""},
+		{"valid weekdays midnight", `{"schedule":"0 0 * * 1-5"}`, ""},
 		{"valid weekend range", `{"schedule":"0 0 * * 0,6"}`, ""},
 		{"valid with timezone prefix", `{"schedule":"CRON_TZ=Europe/London 0 9 * * 1"}`, ""},
 		{"valid as bare string", `"0 9 * * 1"`, ""},
