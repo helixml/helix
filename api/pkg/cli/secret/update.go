@@ -55,7 +55,7 @@ var updateCmd = &cobra.Command{
 		var existingSecret types.Secret
 
 		// Fetch the existing secret
-		secrets, err := apiClient.ListSecrets(cmd.Context())
+		secrets, err := apiClient.ListSecrets(cmd.Context(), nil)
 		if err != nil {
 			return fmt.Errorf("failed to fetch existing secret: %w", err)
 		}

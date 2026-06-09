@@ -42,6 +42,7 @@ import {
   getStandardVideoFormats,
 } from "../../lib/helix-stream/stream/video";
 import useApi from "../../hooks/useApi";
+import useLightTheme from "../../hooks/useLightTheme";
 import { useAccount } from "../../contexts/account";
 import { useVideoStream } from "../../contexts/VideoStreamContext";
 import { TypesClipboardData } from "../../api/api";
@@ -144,6 +145,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   className = "",
   suppressOverlay = false,
 }) => {
+  const lightTheme = useLightTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
@@ -245,7 +247,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const addConnectionLog = useCallback((msg: string) => {
     const time = new Date().toLocaleTimeString();
     console.log(`[DesktopStreamViewer] ${msg}`);
-    setConnectionLog((prev) => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
+    // Keep last 49 entries so the user can grab Stats-for-Nerds → Log and have
+    // ~5+ reconnect cycles of context for debugging. Display caps height + scrolls.
+    setConnectionLog((prev) => [...prev.slice(-49), { time, msg }]);
   }, []);
 
   // Shared retry logic for AlreadyStreaming errors.
@@ -596,6 +600,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // but this ensures we never have two streams active at once even if connect() is
     // called directly or there's a race condition
     if (streamRef.current) {
+      addConnectionLog("connect() called while stream still alive — closing it first");
       console.log(
         "[DesktopStreamViewer] Closing existing stream before creating new one",
       );
@@ -907,6 +912,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setIsConnected(false);
           onConnectionChange?.(false);
 
+          // Server-initiated supersede: a newer connection from this same tab is
+          // already taking over. Don't flash "Reconnecting…" — the new stream
+          // will drive isConnected back to true momentarily.
+          if (data.superseded) {
+            addConnectionLog("Disconnected (superseded by server)");
+            console.log(
+              "[DesktopStreamViewer] Disconnected because superseded by server",
+            );
+            return;
+          }
+
           // If explicitly closed (unmount, HMR, user-initiated disconnect), show Disconnected overlay
           // Otherwise, WebSocketStream will auto-reconnect, so show "Reconnecting..." state
           if (isExplicitlyClosingRef.current) {
@@ -918,7 +934,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             setStatus("Disconnected");
           } else {
             addConnectionLog(
-              `Disconnected unexpectedly (code: ${data.code || "unknown"})`,
+              `Disconnected unexpectedly (code: ${data.code || "unknown"}${data.reason ? `, ${data.reason}` : ""})`,
             );
             console.log(
               "[DesktopStreamViewer] Unexpected disconnect - will auto-reconnect",
@@ -933,6 +949,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           );
           setIsConnecting(true);
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
+        } else if (data.type === "reconnectScheduled") {
+          addConnectionLog(
+            `WS backoff reconnect in ${data.delayMs}ms (attempt ${data.attempt}/${data.maxAttempts})`,
+          );
+        } else if (data.type === "heartbeatStale") {
+          addConnectionLog(
+            `WS heartbeat stale (${data.elapsedMs}ms since last msg)`,
+          );
+        } else if (data.type === "connectionTimeout") {
+          addConnectionLog(`WS open timed out after ${data.timeoutMs}ms`);
+        } else if (data.type === "visibility") {
+          addConnectionLog(`Page ${data.visible ? "visible" : "hidden"}`);
         } else if (data.type === "reconnectAborted") {
           // WebSocketStream refused to reconnect (this.closed was true unexpectedly)
           // IMPORTANT: Only handle if this event is from the CURRENT stream.
@@ -949,6 +977,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             "[DesktopStreamViewer] Reconnect aborted by stream:",
             data.reason,
           );
+
+          // Server-initiated supersede: a newer connection from this same tab has
+          // already taken over. Do NOT manually reconnect — that just supersedes
+          // the new stream and triggers the storm again. The new connection's
+          // events will drive the UI from here.
+          // See design/2026-05-21-stream-reconnect-storm-root-cause.md.
+          if (data.superseded) {
+            addConnectionLog("Superseded by server (no reconnect)");
+            console.log(
+              "[DesktopStreamViewer] Superseded by server — letting newer connection take over, suppressing reconnect",
+            );
+            return;
+          }
 
           // If we weren't explicitly closing, this is unexpected - try to reconnect ourselves
           // But limit to 3 attempts to prevent infinite loops
@@ -1259,9 +1300,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Default 1 second delay for fast reconnects - infrastructure is reliable now
   const reconnect = useCallback(
     (delayMs = 1000, reason?: string) => {
+      addConnectionLog(
+        `Component reconnect requested in ${delayMs}ms${reason ? ` (${reason})` : ""}`,
+      );
       // CRITICAL: Cancel any pending reconnect to prevent duplicate streams
       // This happens when user rapidly changes bitrate or mode
       if (pendingReconnectTimeoutRef.current) {
+        addConnectionLog("Cancelling previous pending reconnect");
         console.log("[DesktopStreamViewer] Cancelling pending reconnect");
         clearTimeout(pendingReconnectTimeoutRef.current);
         pendingReconnectTimeoutRef.current = null;
@@ -1283,7 +1328,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         connectRef.current();
       }, delayMs);
     },
-    [disconnect],
+    [disconnect, addConnectionLog],
   );
 
   // Ref to reconnect function for use in closures (avoids stale closure issues)
@@ -1894,16 +1939,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     );
     setUserBitrate(defaultBitrate);
     setRequestedBitrate(defaultBitrate);
+    addConnectionLog(
+      `Auto-connecting at ${defaultBitrate} Mbps for ${width}x${height}`,
+    );
     connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sandboxId, sessionId, isVisible, width, height, account.initialized]); // Only trigger on props and visibility, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
+    addConnectionLog("Component mounted");
     console.log(
       "[DesktopStreamViewer] Component mounted, setting up cleanup handler",
     );
     return () => {
+      // No addConnectionLog here — the component is unmounting so the log
+      // state will be discarded immediately. Console only.
       console.log(
         "[DesktopStreamViewer] Component unmounting, calling disconnect()",
       );
@@ -2811,6 +2862,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           framesDropped: isScreenshotMode ? 0 : wsStats.framesDropped,
           rttMs: wsStats.rttMs,
           encoderLatencyMs: wsStats.encoderLatencyMs,
+          schedulerJitterP50Ms: wsStats.schedulerJitterP50Ms,
+          schedulerJitterP99Ms: wsStats.schedulerJitterP99Ms,
+          schedulerJitterMaxMs: wsStats.schedulerJitterMaxMs,
           isHighLatency: wsStats.isHighLatency,
           batchingRatio: 0,
           avgBatchSize: 0,
@@ -4445,7 +4499,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
         // High z-index for iOS fullscreen to cover everything, or keyboard open
         zIndex: isIOSFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
-        backgroundColor: "#000",
+        // Letterbox/pillarbox bars around the streamed video. Match the page
+        // background so a light-mode desktop reads as fully light, not "light
+        // desktop in a black frame".
+        backgroundColor: lightTheme.isLight ? "#f4f4f4" : "#000",
         display: "flex",
         flexDirection: "column",
         outline: "none",

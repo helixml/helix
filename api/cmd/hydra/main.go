@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -60,8 +61,16 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// Use pretty logging for console output
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	// Create the shared log buffer first so we can tee zerolog into it
+	// alongside stderr. The admin /logs WS endpoint reads from this buffer,
+	// so capturing hydra's own diagnostics (not just inner-container output)
+	// makes start-up failures and runtime warnings visible to admins.
+	logBuffer := hydra.NewLogBuffer(0)
+	logOutput := io.MultiWriter(
+		zerolog.ConsoleWriter{Out: os.Stderr},
+		zerolog.ConsoleWriter{Out: logBuffer.Writer(), NoColor: true},
+	)
+	log.Logger = log.Output(logOutput)
 
 	log.Info().Msg("========================================")
 	log.Info().Msg("  Hydra daemon starting")
@@ -73,9 +82,10 @@ func run(cmd *cobra.Command, args []string) {
 		Bool("privileged_mode", os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true").
 		Msg("========================================")
 
-	// Create manager and server
+	// Create manager and server. The server takes ownership of the log
+	// buffer and exposes it via the /api/v1/logs WS endpoint.
 	manager := hydra.NewManager(socketDir, dataDir)
-	server := hydra.NewServer(manager, socketPath)
+	server := hydra.NewServerWithLogBuffer(manager, socketPath, logBuffer)
 
 	// Create context that cancels on SIGINT/SIGTERM
 	ctx, cancel := context.WithCancel(context.Background())

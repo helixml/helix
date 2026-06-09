@@ -9,6 +9,7 @@ import {
   MenuItem,
   Menu,
   IconButton,
+  CircularProgress,
   Tooltip,
   useMediaQuery,
   useTheme,
@@ -71,6 +72,7 @@ import {
   usePinnedProjectIds,
   usePinProject,
   useUnpinProject,
+  isProjectAccessDeniedError,
 } from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
 import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
@@ -82,6 +84,7 @@ import {
   useDeleteProjectAccessGrant,
 } from "../services/projectAccessGrantService";
 import ProjectMembersBar from "../components/project/ProjectMembersBar";
+import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -98,18 +101,25 @@ const SpecTasksPage: FC = () => {
   const projectId = router.params.id as string | undefined;
 
   // Fetch project data for breadcrumbs and title
-  const { data: project } = useGetProject(projectId || "", !!projectId);
+  const {
+    data: project,
+    isLoading: projectLoading,
+    error: projectError,
+  } = useGetProject(projectId || "", !!projectId);
+  const projectAccessDenied = isProjectAccessDeniedError(projectError);
+  const projectDependentQueriesEnabled =
+    !!projectId && !!project && !projectAccessDenied;
 
   // Fetch project repositories for display in topbar (filters out internal repos)
   const { data: projectRepositories = [] } = useGetProjectRepositories(
     projectId || "",
-    !!projectId,
+    projectDependentQueriesEnabled,
   );
 
   // Exploratory session hooks
   const { data: exploratorySessionData } = useGetProjectExploratorySession(
     projectId || "",
-    !!projectId,
+    projectDependentQueriesEnabled,
   );
   const startExploratorySessionMutation = useStartProjectExploratorySession(
     projectId || "",
@@ -145,7 +155,10 @@ const SpecTasksPage: FC = () => {
   const {
     data: startupScriptHistory,
     isSuccess: isStartupScriptHistoryLoaded,
-  } = useGetStartupScriptHistory(projectId || "", hasDefaultRepo);
+  } = useGetStartupScriptHistory(
+    projectId || "",
+    projectDependentQueriesEnabled && hasDefaultRepo,
+  );
   // Script is considered "not configured" if there's only 1 commit (the initial auto-generated script)
   const startupScriptNotConfigured =
     hasDefaultRepo && (startupScriptHistory?.length ?? 0) <= 1;
@@ -289,7 +302,7 @@ const SpecTasksPage: FC = () => {
       });
       return response.data || [];
     },
-    enabled: !!projectId && viewMode === "workspace",
+    enabled: projectDependentQueriesEnabled && viewMode === "workspace",
     refetchInterval: 3700, // 3.7s - prime to avoid sync with other polling
   });
 
@@ -513,7 +526,7 @@ const SpecTasksPage: FC = () => {
     projectId,
     0,
     5,
-    { enabled: !!projectId && !!projectManagerAppId },
+    { enabled: projectDependentQueriesEnabled && !!projectManagerAppId },
     projectManagerAppId,
   );
 
@@ -521,7 +534,8 @@ const SpecTasksPage: FC = () => {
 
   // Load the selected session details
   const { data: loadedSessionData } = useGetSession(selectedSessionId || "", {
-    enabled: !!selectedSessionId && chatPanelOpen,
+    enabled:
+      projectDependentQueriesEnabled && !!selectedSessionId && chatPanelOpen,
   });
 
   // When session data loads, set it as the chat session
@@ -645,8 +659,8 @@ const SpecTasksPage: FC = () => {
         return result;
       }
       return null;
-    } catch (err) {
-      snackbar.error("Failed to create access grant");
+    } catch (err: any) {
+      snackbar.error(err?.message || "Failed to create access grant");
       return null;
     }
   };
@@ -661,6 +675,60 @@ const SpecTasksPage: FC = () => {
       return false;
     }
   };
+
+  if (projectId && projectLoading) {
+    return (
+      <Page
+        breadcrumbTitle="Project"
+        orgBreadcrumbs={true}
+        showDrawerButton={true}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "60vh",
+          }}
+        >
+          <CircularProgress />
+        </Box>
+      </Page>
+    );
+  }
+
+  if (projectId && projectAccessDenied) {
+    return (
+      <Page
+        breadcrumbTitle="Project"
+        orgBreadcrumbs={true}
+        showDrawerButton={true}
+      >
+        <ProjectAccessDenied
+          projectId={projectId}
+          onBackToProjects={() => account.orgNavigate("projects")}
+        />
+      </Page>
+    );
+  }
+
+  if (projectId && projectError) {
+    return (
+      <Page
+        breadcrumbTitle="Project"
+        orgBreadcrumbs={true}
+        showDrawerButton={true}
+      >
+        <Box sx={{ p: 3 }}>
+          <Alert severity="error">
+            {projectError instanceof Error
+              ? projectError.message
+              : "Failed to load project"}
+          </Alert>
+        </Box>
+      </Page>
+    );
+  }
 
   return (
     <Page
@@ -835,6 +903,7 @@ const SpecTasksPage: FC = () => {
             <ProjectMembersBar
               currentUser={account.user}
               projectOwnerId={project?.user_id}
+              projectOwner={project?.user}
               projectId={projectId || ""}
               organizationId={project?.organization_id}
               accessGrants={accessGrants}

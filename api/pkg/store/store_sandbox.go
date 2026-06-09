@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -103,6 +104,84 @@ func (s *PostgresStore) UpdateSandboxInstanceStatus(ctx context.Context, id stri
 		Update("status", status).Error
 }
 
+// UpdateSandboxInstanceComputeState writes only the compute_state column
+// for the given row. Used by the compute.Manager reconciler to record
+// provider-driven lifecycle transitions (provisioning -> ready, etc.)
+// WITHOUT overwriting heartbeat-driven fields (status, last_seen,
+// active_sandboxes). Pairs with UpdateSandboxInstanceProviderID for
+// the post-Provision update flow.
+func (s *PostgresStore) UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Update("compute_state", computeState).Error
+}
+
+// UpdateSandboxInstanceProviderID writes only the provider_id column.
+// Called by compute.Manager.provisionOne after the upstream Provider
+// accepts a new request and returns its opaque ID. Doing it as a
+// targeted column update (rather than a full row save) avoids racing
+// the heartbeat path that may have written fresher status/last_seen
+// for this row in between.
+func (s *PostgresStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Update("provider_id", providerID).Error
+}
+
+// UpdateSandboxInstanceNetwork writes only the columns that describe
+// where the sandbox host is reachable: its IP address, hostname, and
+// the LastSeen timestamp that marks "we just heard from this host".
+//
+// Used by the auto-register bridge in ensureSandboxRegistered to
+// transition a Manager-provisioned row to a registered state without
+// reusing the full-row gorm.Save path. Save would have replaced every
+// column with the in-memory value loaded a few statements earlier,
+// stamping out any heartbeat columns (gpus, service_health,
+// profile_status, profile_progress, helix_version, desktop_versions)
+// the heartbeat goroutine may have updated in between.
+//
+// The bridge calls this alongside UpdateSandboxInstanceComputeState
+// and UpdateSandboxInstanceStatus; doing it as three targeted updates
+// is verbose but each is race-safe in isolation.
+func (s *PostgresStore) UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error {
+	updates := map[string]interface{}{
+		"last_seen": lastSeen,
+	}
+	if ipAddress != "" {
+		updates["ip_address"] = ipAddress
+	}
+	if hostname != "" {
+		updates["hostname"] = hostname
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
+// MarkSandboxInstanceOfflineIfStale flips a sandbox row to status="offline"
+// only when its current last_seen is older than `staleBefore`. This is a
+// compare-and-swap variant of UpdateSandboxInstanceStatus used by the
+// reaper to avoid racing a concurrent heartbeat: SELECT-then-UPDATE without
+// this guard can flip a now-healthy Runner back to offline when its
+// heartbeat lands between the reaper's query and its update.
+//
+// Returns the number of rows affected (0 = the row was refreshed by a
+// recent heartbeat, no transition; 1 = transition applied; ErrNotFound
+// only if the id no longer exists).
+func (s *PostgresStore) MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error) {
+	res := s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ? AND last_seen < ? AND status = ?", id, staleBefore, "online").
+		Update("status", "offline")
+	if res.Error != nil {
+		return 0, fmt.Errorf("error marking sandbox offline: %w", res.Error)
+	}
+	return res.RowsAffected, nil
+}
+
 // IncrementSandboxContainerCount increments the active container count
 func (s *PostgresStore) IncrementSandboxContainerCount(ctx context.Context, id string) error {
 	return s.gdb.WithContext(ctx).
@@ -145,9 +224,15 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 
 // FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
 // Returns nil if no suitable sandbox host is found.
+//
+// Uses config.DefaultSandboxDispatchStaleThreshold (90s) as the dispatch
+// staleness filter. The Runner-side heartbeat cadence is 30s (see
+// cmd/sandbox-heartbeat/main.go:27 `HeartbeatInterval`), so 90s = 3
+// heartbeat intervals: a Runner that misses one beat stays selectable;
+// missing two-or-more excludes it from new dispatch. The reaper uses the
+// looser SandboxStaleThreshold for UI/reporting state.
 func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
-	// Get sandboxes that are online and have sent heartbeat in the last 2 minutes
-	staleThreshold := time.Now().Add(-2 * time.Minute)
+	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).
 		Where("status = ? AND last_seen > ?", "online", staleThreshold).

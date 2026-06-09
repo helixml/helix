@@ -16,6 +16,7 @@ type PlanningPromptData struct {
 	Guidelines         string // Formatted guidelines section (includes header if non-empty)
 	KoditSection       string // Dynamic MCP tool documentation from kodit (empty when disabled)
 	RepositorySection  string // Available repositories section (local + Kodit repos)
+	AttachmentsSection string // User-attached files section (empty when no attachments)
 	TaskDirName        string // Directory name for task (e.g., "0042-add-dark-mode")
 	ProjectID          string
 	TaskType           string
@@ -46,12 +47,34 @@ ALL work happens in /home/retro/work/. No other paths.
 - /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
 - /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
 {{.RepositorySection}}
-## Your Task Directory
+{{.AttachmentsSection}}## Your Task Directory
 
 Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ (directory already exists):
 1. requirements.md - User stories + acceptance criteria
 2. design.md - Architecture + key decisions
 3. tasks.md - Checklist of implementation tasks using [ ] format
+
+## CRITICAL: Title Format
+
+Each of the three files MUST start with an H1 in this exact format:
+
+- requirements.md → ` + "`# Requirements: <Descriptive Title>`" + `
+- design.md       → ` + "`# Design: <Descriptive Title>`" + `
+- tasks.md        → ` + "`# Implementation Tasks: <Descriptive Title>`" + `
+
+Use the SAME ` + "`<Descriptive Title>`" + ` across all three files. The descriptive title
+must summarise the actual subject of the task (e.g. "Add Dark Mode Toggle"),
+not the type of document and not a section name.
+
+GOOD: ` + "`# Requirements: Add Dark Mode Toggle to Settings Page`" + `
+BAD:  ` + "`# Requirements`" + `              ← no descriptive title, breaks downstream naming
+BAD:  ` + "`# Background`" + `                ← wrong document-type prefix
+BAD:  ` + "`# Requirements: Background`" + `  ← describes the section, not the task
+
+**Why this matters:** the title from ` + "`requirements.md`" + ` is parsed and used
+for the spec-task name displayed in the UI and for the eventual git feature
+branch name. A missing or generic title produces a meaningless branch name
+(e.g. ` + "`feature/NNNNNN-background`" + `) and a meaningless task in the UI.
 
 ## CRITICAL: Don't Over-Engineer
 
@@ -79,7 +102,7 @@ git pull origin helix-specs --rebase && git push origin helix-specs
 ## tasks.md Format
 
 ` + "```markdown" + `
-# Implementation Tasks
+# Implementation Tasks: <Descriptive Title>
 
 - [ ] First task
 - [ ] Second task
@@ -151,13 +174,56 @@ Tell the user the design is ready for review. The backend detects your push and 
 **Project ID:** {{.ProjectID}} | **Type:** {{.TaskType}} | **Priority:** {{.Priority}}
 `))
 
+// BuildAttachmentsSection builds a markdown section pointing the agent at user-uploaded
+// attachment files for the task. Files are checked into the helix-specs branch under
+// design/tasks/<taskDirName>/attachments/, so they appear in the agent's workspace at
+// /home/retro/work/helix-specs/design/tasks/<taskDirName>/attachments/.
+// Returns empty string when there are no attachments (so the planning prompt stays clean).
+func BuildAttachmentsSection(attachments []*types.SpecTaskAttachment, taskDirName string) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Attachments\n\n")
+	b.WriteString(fmt.Sprintf("The user attached %d file(s) for context. They are in your workspace at:\n\n", len(attachments)))
+	for _, a := range attachments {
+		path := fmt.Sprintf("/home/retro/work/helix-specs/design/tasks/%s/attachments/%s", taskDirName, a.Filename)
+		line := fmt.Sprintf("- `%s` (%s, %s)", path, a.MimeType, humanSize(a.SizeBytes))
+		if a.Caption != "" {
+			line += fmt.Sprintf(" — %q", a.Caption)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n**Read or view them BEFORE asking clarifying questions.** They are evidence of the bug or feature, not decoration. For images, the Read tool can view PNG/JPG/GIF/WebP directly.\n\n")
+	return b.String()
+}
+
+// humanSize renders a byte count compactly: "248 KB", "1.2 MB".
+func humanSize(n int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * 1024
+	)
+	switch {
+	case n >= mb:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
+	case n >= kb:
+		return fmt.Sprintf("%d KB", n/kb)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
 // BuildPlanningPrompt creates the planning phase prompt for the Zed agent.
 // This is the canonical planning prompt - used by both:
 // - SpecDrivenTaskService.StartSpecGeneration (explicit user action)
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // repoSection is the pre-built repository access section (from BuildRepositorySection)
-func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection, repoSection string) string {
+// attachmentsSection is the pre-built attachments section (from BuildAttachmentsSection)
+func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection, repoSection, attachmentsSection string) string {
 	// Use DesignDocPath if set (new human-readable format), fall back to task ID
 	taskDirName := task.DesignDocPath
 	if taskDirName == "" {
@@ -240,6 +306,7 @@ contain everything learned during the original implementation - use this knowled
 		Guidelines:         guidelinesSection,
 		KoditSection:       koditSection,
 		RepositorySection:  repoSection,
+		AttachmentsSection: attachmentsSection,
 		ClonedTaskPreamble: clonedTaskPreamble,
 		TaskDirName:        taskDirName,
 		ProjectID:          task.ProjectID,

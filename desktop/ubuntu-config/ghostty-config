@@ -36,3 +36,9 @@ confirm-close-surface = false
 keybind = performable:ctrl+c=copy_to_clipboard
 # Paste on Ctrl+V (which is Command+V for macOS users via XKB remap)
 keybind = ctrl+v=paste_from_clipboard
+
+# Follow the system color scheme (light/dark mode).
+# Ghostty switches palettes live when the freedesktop color-scheme changes,
+# and `window-theme = auto` re-styles the GTK window chrome to match.
+theme = light:Catppuccin Latte,dark:Catppuccin Mocha
+window-theme = auto

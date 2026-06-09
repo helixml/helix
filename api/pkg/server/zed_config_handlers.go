@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/goose"
 	modelPkg "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
@@ -272,13 +275,31 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
-	// Build CodeAgentConfig from the spec task's zed_external assistant (if any)
+	// Build CodeAgentConfig from whichever app drives this session's
+	// runtime. Mirrors getAgentNameForSession's source order: spec
+	// task's HelixAppID first, then session.ParentApp — so any
+	// zed_external session opened via /sessions/chat against a
+	// claude_code (or other custom-runtime) agent ships the full
+	// CodeAgentConfig, not just an "agent_name". Previously only the
+	// spec-task path was covered.
 	var codeAgentConfig *types.CodeAgentConfig
+	var sessionProjectID = session.Metadata.ProjectID
 	if session.Metadata.SpecTaskID != "" {
-		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
-			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
-				codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL)
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
+			if specTask.ProjectID != "" {
+				sessionProjectID = specTask.ProjectID
 			}
+			if specTask.HelixAppID != "" {
+				if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
+					codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
+					apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
+				}
+			}
+		}
+	}
+	if codeAgentConfig == nil && session.ParentApp != "" {
+		if app, err := apiServer.Store.GetApp(ctx, session.ParentApp); err == nil {
+			codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
 		}
 	}
 
@@ -488,17 +509,35 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 	agentName := "zed-agent" // Default to Zed's built-in agent
 
-	if session.Metadata.SpecTaskID == "" {
-		return agentName
+	// Resolve the app whose code_agent_runtime drives this session's
+	// runtime choice. Two sources, in order:
+	//   - spec task's HelixAppID, for spec-task-driven sessions
+	//   - session.ParentApp, for any direct /sessions/chat caller that
+	//     opens a session against an agent app (e.g. helix-org's
+	//     embedded Spawner). Previously the function early-returned
+	//     "zed-agent" for non-spec-task sessions, ignoring the parent
+	//     app's CodeAgentRuntime entirely — so a claude_code agent
+	//     opened via /sessions/chat got told "you're zed-agent" and
+	//     fell through to the Anthropic proxy.
+	var (
+		runtimeApp *types.App
+		source     string
+	)
+	if session.Metadata.SpecTaskID != "" {
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
+			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
+				runtimeApp = app
+				source = "spec_task"
+			}
+		}
 	}
-
-	specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-	if err != nil || specTask.HelixAppID == "" {
-		return agentName
+	if runtimeApp == nil && session.ParentApp != "" {
+		if app, err := apiServer.Store.GetApp(ctx, session.ParentApp); err == nil {
+			runtimeApp = app
+			source = "parent_app"
+		}
 	}
-
-	specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
-	if err != nil {
+	if runtimeApp == nil {
 		return agentName
 	}
 
@@ -512,15 +551,16 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		}
 	}
 
-	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, specTaskApp, sandboxAPIURL)
+	codeAgentConfig := apiServer.buildCodeAgentConfig(ctx, runtimeApp, sandboxAPIURL, "")
 	if codeAgentConfig != nil {
 		agentName = codeAgentConfig.AgentName
 		log.Info().
 			Str("session_id", session.ID).
-			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("source", source).
+			Str("app_id", runtimeApp.ID).
 			Str("agent_name", agentName).
 			Str("runtime", string(codeAgentConfig.Runtime)).
-			Msg("Using code agent config from spec task")
+			Msg("Using code agent config")
 	}
 
 	return agentName
@@ -528,7 +568,12 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 // buildCodeAgentConfig creates a CodeAgentConfig from the app's zed_external assistant configuration.
 // Returns nil if no zed_external assistant is found.
-func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *types.App, helixURL string) *types.CodeAgentConfig {
+//
+// projectID, when non-empty, is used by the Goose runtime to resolve recipe
+// repo URLs to absolute container paths via the project's attached
+// GitRepositories. Pass "" when the caller has no project context (e.g.
+// non-spec-task sessions); recipes will simply not be wired up.
+func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *types.App, helixURL string, projectID string) *types.CodeAgentConfig {
 	// Find the assistant with AgentType = zed_external
 	for _, assistant := range app.Config.Helix.Assistants {
 		if assistant.AgentType == types.AgentTypeZedExternal {
@@ -547,7 +592,13 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 			if err != nil {
 				log.Warn().Err(err).Str("app_id", app.ID).Msg("buildCodeAgentConfig: provider snapshot unavailable; model prefix may not match agent.default_model")
 			}
-			return apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
+			cfg := apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
+			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeGooseCode && projectID != "" && len(assistant.GooseRecipes) > 0 {
+				if err := apiServer.resolveGooseRecipesIntoConfig(ctx, app, &assistant, projectID, cfg); err != nil {
+					log.Warn().Err(err).Str("app_id", app.ID).Str("project_id", projectID).Msg("buildCodeAgentConfig: failed to resolve goose recipes; slash commands will be unavailable in this session")
+				}
+			}
+			return cfg
 		}
 	}
 	return nil
@@ -673,6 +724,188 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: maxOutputTokens,
 	}
+}
+
+// resolveGooseRecipesIntoConfig populates cfg.GooseRecipes (and
+// GooseRecipeRootDir) by resolving the assistant's recipe repo URL against
+// the project's attached GitRepositories. Recipes whose source files are
+// missing on disk are skipped with a warn-level log — `goose acp` silently
+// drops unparseable slash_commands entries, so leaving them in the config
+// would produce a confusing partial state.
+func (apiServer *HelixAPIServer) resolveGooseRecipesIntoConfig(ctx context.Context, app *types.App, assistant *types.AssistantConfig, projectID string, cfg *types.CodeAgentConfig) error {
+	if len(assistant.GooseRecipes) == 0 {
+		return nil
+	}
+
+	// Find the recipe repo. When GooseRecipeRepoURL is set we look it up
+	// directly; otherwise fall back to the project's primary repository.
+	var repo *types.GitRepository
+	if assistant.GooseRecipeRepoURL != "" {
+		r, err := apiServer.Store.GetGitRepositoryByExternalURL(ctx, app.OrganizationID, assistant.GooseRecipeRepoURL)
+		if err != nil {
+			return fmt.Errorf("recipe repo %s not found: %w", assistant.GooseRecipeRepoURL, err)
+		}
+		repo = r
+	} else {
+		project, err := apiServer.Store.GetProject(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("project %s not found: %w", projectID, err)
+		}
+		if project.DefaultRepoID == "" {
+			return fmt.Errorf("project %s has no primary repository", projectID)
+		}
+		r, err := apiServer.Store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err != nil {
+			return fmt.Errorf("primary repo %s not found: %w", project.DefaultRepoID, err)
+		}
+		repo = r
+	}
+
+	if repo.LocalPath == "" {
+		// Repo hasn't been cloned yet — recipes will appear on the next
+		// session start after the clone completes. Log and continue.
+		return fmt.Errorf("recipe repo %s not yet cloned (LocalPath empty)", repo.ID)
+	}
+
+	cfg.GooseRecipeRootDir = repo.LocalPath
+	resolved := make([]types.CodeAgentGooseRecipe, 0, len(assistant.GooseRecipes))
+	for _, r := range assistant.GooseRecipes {
+		// `filepath.Clean` defends against absolute paths or ".." escapes
+		// even though applyProject already rejects them — defence in depth
+		// for recipes added via direct DB/API writes that bypassed the
+		// apply handler.
+		clean := filepath.Clean(r.Path)
+		if strings.HasPrefix(clean, "..") || strings.HasPrefix(clean, "/") {
+			log.Warn().Str("recipe", r.Name).Str("path", r.Path).Msg("skipping goose recipe with unsafe path")
+			continue
+		}
+		abs := filepath.Join(repo.LocalPath, clean)
+		resolved = append(resolved, types.CodeAgentGooseRecipe{Name: r.Name, Path: abs})
+	}
+	cfg.GooseRecipes = resolved
+	return nil
+}
+
+// applySpecTaskGooseRecipe loads the spec-task's selected recipe file, bakes
+// parameter values into it, and writes the result onto cfg.GooseBakedRecipe.
+// The daemon will write the baked YAML to ${XDG_CONFIG_HOME}/goose/baked-recipes/
+// and register a single slash_command for it, so the agent's first instruction
+// can be `/<recipe-name>` to fire it.
+//
+// No-op when the spec task has no recipe selected, when the agent isn't goose,
+// or when the named recipe isn't part of the agent's GooseRecipes (e.g. the
+// recipe was removed from the project YAML between task creation and now).
+func (apiServer *HelixAPIServer) applySpecTaskGooseRecipe(ctx context.Context, specTask *types.SpecTask, cfg *types.CodeAgentConfig) {
+	if specTask == nil || cfg == nil {
+		return
+	}
+	if cfg.Runtime != types.CodeAgentRuntimeGooseCode {
+		return
+	}
+	if specTask.GooseRecipeName == "" {
+		return
+	}
+
+	var sourcePath string
+	for _, r := range cfg.GooseRecipes {
+		if r.Name == specTask.GooseRecipeName {
+			sourcePath = r.Path
+			break
+		}
+	}
+	if sourcePath == "" {
+		log.Warn().Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("spec-task references a goose recipe not declared on the agent; baking skipped")
+		return
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		log.Warn().Err(err).Str("recipe_path", sourcePath).Msg("failed to read goose recipe source for baking")
+		return
+	}
+
+	// Resolve file-typed parameters: the user supplied an attachment
+	// filename on the spec-task; we need to substitute the absolute path
+	// where that attachment lives inside the agent's workspace (committed
+	// to the helix-specs branch at /home/retro/work/helix-specs/design/
+	// tasks/<dir>/attachments/<filename>).
+	params, err := apiServer.resolveGooseRecipeFileParams(ctx, specTask, content)
+	if err != nil {
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to resolve file params for goose recipe; baking skipped")
+		return
+	}
+
+	baked, err := goose.Bake(content, params)
+	if err != nil {
+		log.Warn().Err(err).Str("spec_task_id", specTask.ID).Str("recipe", specTask.GooseRecipeName).Msg("failed to bake goose recipe; falling back to unbaked")
+		return
+	}
+
+	cfg.GooseBakedRecipe = &types.CodeAgentBakedRecipe{
+		Name:    specTask.GooseRecipeName,
+		Content: baked,
+	}
+}
+
+// resolveGooseRecipeFileParams returns a copy of specTask.GooseRecipeParams
+// with values for file-typed parameters rewritten from "<filename>" to the
+// absolute path where the spec-task's attachment lives inside the agent's
+// workspace. Non-file parameters pass through unchanged. The recipe is
+// re-parsed (cheap, the file is already in memory) to discover which params
+// are file-typed — we deliberately don't trust the frontend to tell us.
+func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Context, specTask *types.SpecTask, recipeContent []byte) (map[string]string, error) {
+	out := make(map[string]string, len(specTask.GooseRecipeParams))
+	for k, v := range specTask.GooseRecipeParams {
+		out[k] = v
+	}
+
+	recipe, err := goose.Parse(recipeContent)
+	if err != nil {
+		// Caller will surface the same parse error from Bake; just pass the
+		// raw params through and let Bake fail with its own message.
+		return out, nil
+	}
+
+	var fileParamKeys []string
+	for _, p := range recipe.Parameters {
+		if p.InputType == "file" {
+			fileParamKeys = append(fileParamKeys, p.Key)
+		}
+	}
+	if len(fileParamKeys) == 0 {
+		return out, nil
+	}
+
+	attachments, err := apiServer.Store.ListSpecTaskAttachments(ctx, specTask.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list spec-task attachments: %w", err)
+	}
+	byName := make(map[string]*types.SpecTaskAttachment, len(attachments))
+	for _, a := range attachments {
+		byName[a.Filename] = a
+	}
+
+	// Mirror services.spec_task_prompts.go: DesignDocPath is the canonical
+	// task directory; ID is the legacy fallback for old tasks.
+	taskDirName := specTask.DesignDocPath
+	if taskDirName == "" {
+		taskDirName = specTask.ID
+	}
+
+	for _, key := range fileParamKeys {
+		filename := strings.TrimSpace(out[key])
+		if filename == "" {
+			// Optional file param, no value supplied — leave it for Bake's
+			// required-param validation to handle.
+			continue
+		}
+		if _, ok := byName[filename]; !ok {
+			return nil, fmt.Errorf("recipe file parameter %q references attachment %q which is not uploaded on this spec task", key, filename)
+		}
+		out[key] = fmt.Sprintf("/home/retro/work/helix-specs/design/tasks/%s/attachments/%s", taskDirName, filename)
+	}
+
+	return out, nil
 }
 
 // getProviderSnapshot returns a ProviderRef snapshot of every provider

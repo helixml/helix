@@ -155,6 +155,39 @@ if (embedToken) {
     })
     window.WebSocket = PatchedWebSocket
   }
+
+  // EventSource (SSE) also cannot carry custom headers. Append ?access_token=
+  // for same-origin connections so the helix-org SSE endpoint authenticates
+  // correctly when the page is loaded via the ?access_token= embed flow.
+  if (typeof window !== 'undefined' && typeof window.EventSource === 'function') {
+    const OrigEventSource = window.EventSource
+    const PatchedEventSource = function (
+      this: EventSource,
+      url: string | URL,
+      init?: EventSourceInit,
+    ) {
+      let finalUrl: string | URL = url
+      try {
+        const urlStr = typeof url === 'string' ? url : url.toString()
+        const u = new URL(urlStr, window.location.origin)
+        const sameHost = u.host === window.location.host
+        if (sameHost && !u.searchParams.has('access_token')) {
+          u.searchParams.set('access_token', embedToken)
+          finalUrl = u.toString()
+        }
+      } catch {
+        // ignore — pass through unmodified
+      }
+      return new OrigEventSource(finalUrl, init)
+    } as unknown as typeof EventSource
+    PatchedEventSource.prototype = OrigEventSource.prototype
+    Object.defineProperties(PatchedEventSource, {
+      CONNECTING: { value: OrigEventSource.CONNECTING },
+      OPEN: { value: OrigEventSource.OPEN },
+      CLOSED: { value: OrigEventSource.CLOSED },
+    })
+    window.EventSource = PatchedEventSource
+  }
 }
 
 // Add interceptors to the Api client's axios instance
@@ -173,11 +206,14 @@ axios.interceptors.request.use(csrfInterceptor)
 // with the actual error message from the backend response body. This ensures that
 // catch blocks using `error.message` show the real error, not just the status code.
 const enhanceErrorMessage = (error: any) => {
-  if (error.response?.data && typeof error.response.data === 'string') {
-    const body = error.response.data.trim()
+  const data = error.response?.data
+  if (data && typeof data === 'string') {
+    const body = data.trim()
     if (body.length > 0 && body.length < 1000 && !body.startsWith('<!')) {
       error.message = body
     }
+  } else if (data && typeof data === 'object' && typeof data.message === 'string' && data.message.length > 0) {
+    error.message = data.message
   }
   return Promise.reject(error)
 }

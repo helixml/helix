@@ -189,13 +189,19 @@ func (s *PostgresStore) GetOAuthConnection(ctx context.Context, id string) (*typ
 	return &connection, nil
 }
 
-// GetOAuthConnectionByUserAndProvider gets a connection by user ID and provider ID
+// GetOAuthConnectionByUserAndProvider gets a connection by user ID and provider ID.
+// When duplicate rows exist (the historical re-auth flow creates a
+// new row rather than updating the existing one), prefer the
+// most-recently-updated connection so consumers see the freshest
+// token — i.e. the one whose org-level access matches what the
+// operator just approved on GitHub.
 func (s *PostgresStore) GetOAuthConnectionByUserAndProvider(ctx context.Context, userID, providerID string) (*types.OAuthConnection, error) {
 	var connection types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
 		Preload("Provider").
 		Where("user_id = ? AND provider_id = ? AND deleted_at IS NULL", userID, providerID).
+		Order("updated_at DESC").
 		First(&connection).Error
 
 	if err != nil {

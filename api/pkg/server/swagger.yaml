@@ -1,4 +1,443 @@
 definitions:
+  api.AddWorkerParentRequest:
+    properties:
+      parent_id:
+        type: string
+    type: object
+  api.CreateRoleRequest:
+    properties:
+      content:
+        type: string
+      id:
+        type: string
+      streams:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  api.CreateStreamRequest:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      transport:
+        $ref: '#/definitions/api.TransportRequestField'
+    type: object
+  api.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  api.EventCard:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      from:
+        type: string
+      has_message:
+        type: boolean
+      id:
+        type: string
+      message_body:
+        type: string
+      source:
+        type: string
+      stream_id:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
+  api.GitHubInstallationStatus:
+    properties:
+      app_exists:
+        description: |-
+          AppExists is true when a Helix GitHub App has been created/registered
+          for this org (a github_app ServiceConnection exists), even if not yet
+          installed on any repo. Drives the gate's create-vs-install branch.
+        type: boolean
+      install_url:
+        description: |-
+          InstallURL is where the New Stream gate sends the user to install the
+          app (https://github.com/apps/<slug>/installations/new). Populated from
+          the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
+        type: string
+      installed:
+        description: |-
+          Installed is true when the Helix GitHub App has an installation for
+          this org (a github_app ServiceConnection with an installation id).
+        type: boolean
+      manage_url:
+        description: |-
+          ManageURL is the app's developer-settings page on GitHub
+          (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+          permissions, repos, and delete the app. Empty when the owner is unknown
+          (e.g. a BYO app configured without it).
+        type: string
+    type: object
+  api.GitHubManifestStartResponse:
+    properties:
+      manifest:
+        type: string
+      post_url:
+        type: string
+      state:
+        type: string
+    type: object
+  api.GitHubRepoDTO:
+    properties:
+      full_name:
+        type: string
+      private:
+        type: boolean
+    type: object
+  api.GitHubReposResponse:
+    properties:
+      repos:
+        items:
+          $ref: '#/definitions/api.GitHubRepoDTO'
+        type: array
+      source:
+        description: |-
+          Source identifies which token paid for this list — useful
+          when debugging "I can't see repo X" reports.
+        type: string
+    type: object
+  api.GitHubWebhookStatusResponse:
+    properties:
+      active:
+        type: boolean
+      detail:
+        description: Detail explains a "unknown" state (and is empty otherwise).
+        type: string
+      payload_url:
+        type: string
+      state:
+        description: |-
+          State is one of:
+            "installed" — a webhook for this stream's payload URL exists on the repo
+            "missing"   — GitHub was reachable and has no such webhook (needs install)
+            "unknown"   — couldn't determine (no repo / no public URL / no creds /
+                          GitHub error); see Detail. The UI falls back to stored state.
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
+  api.HireWorkerRequest:
+    properties:
+      id:
+        type: string
+      identity_content:
+        type: string
+      kind:
+        type: string
+      parent_id:
+        type: string
+      role_id:
+        type: string
+    type: object
+  api.HireWorkerResponse:
+    properties:
+      activation_id:
+        type: string
+      id:
+        type: string
+    type: object
+  api.InstallGitHubWebhookResponse:
+    properties:
+      payload_url:
+        type: string
+      warning:
+        description: |-
+          Warning is a non-fatal message about the just-installed
+          webhook — e.g. "SERVER_URL is a loopback address so GitHub's
+          servers can't actually deliver to this URL". The webhook IS
+          installed on GitHub; the warning just tells the operator
+          what needs fixing on their side for deliveries to flow.
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
+  api.OrgOverview:
+    properties:
+      groups:
+        items:
+          $ref: '#/definitions/api.RoleGroup'
+        type: array
+      roles:
+        items:
+          $ref: '#/definitions/api.RoleBadge'
+        type: array
+    type: object
+  api.PublishRequest:
+    properties:
+      body:
+        type: string
+      subject:
+        type: string
+      to:
+        items:
+          type: string
+        type: array
+    type: object
+  api.PublishResponse:
+    properties:
+      event_id:
+        type: string
+    type: object
+  api.RoleBadge:
+    properties:
+      id:
+        type: string
+    type: object
+  api.RoleDTO:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      streams:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
+  api.RoleGroup:
+    properties:
+      role_id:
+        type: string
+      workers:
+        items:
+          $ref: '#/definitions/api.WorkerBadge'
+        type: array
+    type: object
+  api.SetSettingRequest:
+    properties:
+      value:
+        type: string
+    type: object
+  api.SettingsResponse:
+    properties:
+      db_path:
+        type: string
+      envs_dir:
+        type: string
+      owner:
+        type: string
+      public_url:
+        type: string
+      specs:
+        items:
+          $ref: '#/definitions/api.SettingsSpecDTO'
+        type: array
+    type: object
+  api.SettingsSpecDTO:
+    properties:
+      configured:
+        type: boolean
+      description:
+        type: string
+      key:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+      value:
+        type: string
+    type: object
+  api.StreamDTO:
+    properties:
+      can_publish:
+        type: boolean
+      config:
+        additionalProperties: true
+        type: object
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      disable_reason:
+        type: string
+      effective_public_url:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      recent_events:
+        items:
+          $ref: '#/definitions/api.EventCard'
+        type: array
+      subscribers:
+        items:
+          type: string
+        type: array
+    type: object
+  api.StreamsResponse:
+    properties:
+      recent:
+        items:
+          $ref: '#/definitions/api.EventCard'
+        type: array
+      streams:
+        items:
+          $ref: '#/definitions/api.StreamDTO'
+        type: array
+    type: object
+  api.SubscribeWorkerRequest:
+    properties:
+      stream_id:
+        type: string
+    type: object
+  api.ToolDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  api.TransportRequestField:
+    properties:
+      config:
+        additionalProperties: true
+        type: object
+      kind:
+        type: string
+    type: object
+  api.UpdateRoleRequest:
+    properties:
+      content:
+        type: string
+      streams:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  api.UpdateStreamRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      transport:
+        $ref: '#/definitions/api.TransportRequestField'
+    type: object
+  api.UpdateWorkerIdentityRequest:
+    properties:
+      identity:
+        type: string
+    type: object
+  api.UpdateWorkerRoleRequest:
+    properties:
+      content:
+        type: string
+    type: object
+  api.WorkerActivateDTO:
+    properties:
+      activation_id:
+        type: string
+      agent_app_id:
+        type: string
+      project_id:
+        type: string
+      session_id:
+        type: string
+    type: object
+  api.WorkerBadge:
+    properties:
+      id:
+        type: string
+      kind:
+        type: string
+    type: object
+  api.WorkerChatDTO:
+    properties:
+      agent_app_id:
+        type: string
+      project_id:
+        type: string
+    type: object
+  api.WorkerDTO:
+    properties:
+      id:
+        type: string
+      identity_content:
+        type: string
+      kind:
+        type: string
+      organization_id:
+        type: string
+      parent_ids:
+        items:
+          type: string
+        type: array
+      role_id:
+        type: string
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  api.WorkerDetailDTO:
+    properties:
+      agent_app_id:
+        description: AgentAppID + ProjectID — see WorkerChatDTO comments.
+        type: string
+      project_id:
+        type: string
+      role:
+        allOf:
+        - $ref: '#/definitions/api.RoleDTO'
+        description: Role this Worker holds (nil if the role row is gone).
+      worker:
+        $ref: '#/definitions/api.WorkerDTO'
+    type: object
+  api.WorkerSubscriptionDTO:
+    properties:
+      created_at:
+        type: string
+      stream_id:
+        type: string
+    type: object
+  api.WorkerSubscriptionsResponse:
+    properties:
+      subscriptions:
+        items:
+          $ref: '#/definitions/api.WorkerSubscriptionDTO'
+        type: array
+      worker_id:
+        type: string
+    type: object
   filestore.Config:
     properties:
       folders:
@@ -92,6 +531,94 @@ definitions:
     - RuntimeDiffusers
     - RuntimeAxolotl
     - RuntimeVLLM
+  github_com_mark3labs_mcp-go_mcp.Icon:
+    properties:
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
+        type: string
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
+        type: string
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  github_com_mark3labs_mcp-go_mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Icon'
+        type: array
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
+    type: object
+  goose.RecipeParameter:
+    properties:
+      default:
+        type: string
+      description:
+        type: string
+      input_type:
+        type: string
+      key:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      requirement:
+        type: string
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -135,27 +662,6 @@ definitions:
     - DevContainerTypeSway
     - DevContainerTypeUbuntu
     - DevContainerTypeHeadless
-  hydra.GPUInfo:
-    properties:
-      index:
-        type: integer
-      memory_free_bytes:
-        type: integer
-      memory_total_bytes:
-        type: integer
-      memory_used_bytes:
-        type: integer
-      name:
-        type: string
-      temperature_celsius:
-        type: integer
-      utilization_percent:
-        description: GPU core utilization
-        type: integer
-      vendor:
-        description: '"nvidia", "amd", "intel"'
-        type: string
-    type: object
   hydra.ListSandboxCommandsResponse:
     properties:
       commands:
@@ -218,37 +724,6 @@ definitions:
       size:
         type: integer
     type: object
-  mcp.Icon:
-    properties:
-      mimeType:
-        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
-        type: string
-      sizes:
-        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
-        items:
-          type: string
-        type: array
-      src:
-        description: URI pointing to the icon resource (HTTPS URL or data URI)
-        type: string
-    type: object
-  mcp.Meta:
-    properties:
-      additionalFields:
-        additionalProperties: {}
-        description: |-
-          AdditionalFields are any fields present in the Meta that are not
-          otherwise defined in the protocol.
-        type: object
-      progressToken:
-        description: |-
-          If specified, the caller is requesting out-of-band progress
-          notifications for this request (as represented by
-          notifications/progress). The value of this parameter is an
-          opaque token that will be attached to any subsequent
-          notifications. The receiver is not obligated to provide these
-          notifications.
-    type: object
   mcp.TaskSupport:
     enum:
     - forbidden
@@ -259,46 +734,6 @@ definitions:
     - TaskSupportForbidden
     - TaskSupportOptional
     - TaskSupportRequired
-  mcp.Tool:
-    properties:
-      _meta:
-        allOf:
-        - $ref: '#/definitions/mcp.Meta'
-        description: Meta is a metadata object that is reserved by MCP for storing
-          additional information.
-      annotations:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolAnnotation'
-        description: Optional properties describing tool behavior
-      defer_loading:
-        description: Support for deferred loading
-        type: boolean
-      description:
-        description: A human-readable description of the tool.
-        type: string
-      execution:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolExecution'
-        description: Execution describes execution behavior for the tool
-      icons:
-        description: Icons provides visual identifiers for the tool
-        items:
-          $ref: '#/definitions/mcp.Icon'
-        type: array
-      inputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolInputSchema'
-        description: A JSON Schema object defining the expected parameters for the
-          tool.
-      name:
-        description: The name of the tool.
-        type: string
-      outputSchema:
-        allOf:
-        - $ref: '#/definitions/mcp.ToolOutputSchema'
-        description: A JSON Schema object defining the expected output returned by
-          the tool .
-    type: object
   mcp.ToolAnnotation:
     properties:
       destructiveHint:
@@ -870,6 +1305,22 @@ definitions:
       severity:
         type: string
     type: object
+  server.ActivateTrialRequest:
+    properties:
+      credits:
+        type: number
+      days:
+        type: integer
+    type: object
+  server.ActivateTrialResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
+    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       dev_containers:
@@ -878,7 +1329,7 @@ definitions:
         type: array
       gpus:
         items:
-          $ref: '#/definitions/hydra.GPUInfo'
+          $ref: '#/definitions/server.GPUInfoWithSandbox'
         type: array
       message:
         type: string
@@ -1111,6 +1562,45 @@ definitions:
         type: string
       url:
         type: string
+    type: object
+  server.GPUInfoWithSandbox:
+    properties:
+      index:
+        type: integer
+      memory_free_bytes:
+        type: integer
+      memory_total_bytes:
+        type: integer
+      memory_used_bytes:
+        type: integer
+      name:
+        type: string
+      sandbox_id:
+        type: string
+      temperature_celsius:
+        type: integer
+      utilization_percent:
+        description: GPU core utilization
+        type: integer
+      vendor:
+        description: '"nvidia", "amd", "intel"'
+        type: string
+    type: object
+  server.GrantCreditsRequest:
+    properties:
+      credits:
+        type: number
+      org_id:
+        type: string
+    type: object
+  server.GrantCreditsResponse:
+    properties:
+      org_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
@@ -1761,6 +2251,15 @@ definitions:
       organization_name:
         type: string
     type: object
+  server.OwnedOrgSummary:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   server.PhaseProgress:
     properties:
       agent:
@@ -1782,6 +2281,27 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  server.ProjectGooseRecipe:
+    properties:
+      description:
+        type: string
+      error:
+        description: |-
+          Error, when non-empty, indicates that the recipe was declared on the
+          agent but couldn't be loaded — repo not cloned yet, file missing,
+          YAML malformed, etc. The UI surfaces this so the user can fix the
+          project YAML before creating a task that would silently fall back to
+          vanilla goose.
+        type: string
+      name:
+        type: string
+      parameters:
+        items:
+          $ref: '#/definitions/goose.RecipeParameter'
+        type: array
+      title:
+        type: string
     type: object
   server.PromptPinRequest:
     properties:
@@ -2234,7 +2754,7 @@ definitions:
     properties:
       message:
         type: string
-      statusCode:
+      status_code:
         type: integer
     type: object
   types.APIError:
@@ -2311,11 +2831,36 @@ definitions:
     - ActionUseAction
   types.AddOrganizationMemberRequest:
     properties:
+      app_id:
+        description: |-
+          AppID + GrantRoles are optional and only meaningful when the
+          request creates an invitation (because the email doesn't match an
+          existing user). They tell the server which app to attach the
+          invitation to, so the access grant can be materialised when the
+          invitee accepts. When set, the invitation will also be filtered
+          to this app in the access-management list.
+        type: string
+      grant_roles:
+        items:
+          type: string
+        type: array
       role:
         $ref: '#/definitions/types.OrganizationRole'
       user_reference:
         description: Either user ID or user email
         type: string
+    type: object
+  types.AddOrganizationMemberResponse:
+    properties:
+      invitation:
+        $ref: '#/definitions/types.OrganizationInvitation'
+      invited:
+        description: |-
+          Invited is true when no user exists yet and an invitation row was
+          created instead of a membership.
+        type: boolean
+      membership:
+        $ref: '#/definitions/types.OrganizationMembership'
     type: object
   types.AddTeamMemberRequest:
     properties:
@@ -2652,6 +3197,20 @@ definitions:
         type: string
       generation_model_provider:
         type: string
+      goose_recipe_repo_url:
+        description: |-
+          GooseRecipeRepoURL is the external git URL of the attached repository
+          that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+          Resolved against attached GitRepositories at sandbox-start time.
+          Empty means recipes are looked up under the primary repository.
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes are the project-declared Goose recipes (slash-command name
+          + repo-relative path to the recipe YAML).
+        items:
+          $ref: '#/definitions/types.AssistantGooseRecipe'
+        type: array
       id:
         type: string
       image:
@@ -2762,6 +3321,13 @@ definitions:
       template_example:
         type: string
     type: object
+  types.AssistantGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.AssistantKnowledge:
     properties:
       description:
@@ -2833,7 +3399,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: |-
@@ -2927,6 +3493,8 @@ definitions:
         description: Denormalized for display without joins
         type: string
       snoozed_until:
+        type: string
+      spec_task_description:
         type: string
       spec_task_id:
         type: string
@@ -3499,6 +4067,15 @@ definitions:
       task_id:
         type: string
     type: object
+  types.CodeAgentBakedRecipe:
+    properties:
+      content:
+        description: Content is the substituted recipe YAML (full file content).
+        type: string
+      name:
+        description: Name is the slash-command slug (no leading slash).
+        type: string
+    type: object
   types.CodeAgentConfig:
     properties:
       agent_name:
@@ -3512,6 +4089,29 @@ definitions:
       base_url:
         description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
         type: string
+      goose_baked_recipe:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentBakedRecipe'
+        description: |-
+          GooseBakedRecipe, when set, holds a single recipe with parameters
+          pre-substituted, used by Phase 2b spec-task automation. The daemon
+          writes it to disk and registers a single slash_command so an initial
+          "/<slug>" prompt fires the recipe.
+      goose_recipe_root_dir:
+        description: |-
+          GooseRecipeRootDir is the absolute container path to the root of the
+          recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+          resolve relative paths correctly).
+        type: string
+      goose_recipes:
+        description: |-
+          GooseRecipes lists project-declared Goose recipes with absolute paths
+          resolved inside the desktop container. Only set when Runtime is
+          goose_code; consumed by settings-sync-daemon to write the goose
+          slash_commands config.
+        items:
+          $ref: '#/definitions/types.CodeAgentGooseRecipe'
+        type: array
       max_output_tokens:
         description: |-
           MaxOutputTokens is the model's max completion tokens
@@ -3544,6 +4144,13 @@ definitions:
     x-enum-varnames:
     - CodeAgentCredentialTypeAPIKey
     - CodeAgentCredentialTypeSubscription
+  types.CodeAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.CodeAgentRuntime:
     enum:
     - zed_agent
@@ -3551,6 +4158,7 @@ definitions:
     - claude_code
     - gemini_cli
     - codex_cli
+    - goose_code
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
@@ -3558,6 +4166,7 @@ definitions:
     - CodeAgentRuntimeClaudeCode
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
+    - CodeAgentRuntimeGooseCode
   types.CommentQueueStatusResponse:
     properties:
       agent_session_id:
@@ -3635,6 +4244,37 @@ definitions:
         type: string
       user_reference:
         description: User ID or email
+        type: string
+    type: object
+  types.CreateAccessGrantResponse:
+    properties:
+      added_to_organization:
+        type: boolean
+      created_at:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: If granted to an organization
+        type: string
+      resource_id:
+        description: App ID, Knowledge ID, etc
+        type: string
+      roles:
+        items:
+          $ref: '#/definitions/types.Role'
+        type: array
+      team_id:
+        description: If granted to a team
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
+      user_id:
+        description: If granted to a user
         type: string
     type: object
   types.CreateBranchRequest:
@@ -3798,6 +4438,18 @@ definitions:
         items:
           type: string
         type: array
+      goose_recipe_name:
+        description: |-
+          Goose recipe selection (only meaningful when the chosen agent's runtime
+          is goose_code). GooseRecipeName must match one of the agent's declared
+          recipes; GooseRecipeParams are substituted into the recipe at session
+          start. Recipes declared on the agent but not selected here are still
+          available as runtime slash-commands inside the desktop.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
@@ -4901,6 +5553,7 @@ definitions:
     - editing
     - complete
     - error
+    - interrupted
     type: string
     x-enum-varnames:
     - InteractionStateNone
@@ -4908,6 +5561,7 @@ definitions:
     - InteractionStateEditing
     - InteractionStateComplete
     - InteractionStateError
+    - InteractionStateInterrupted
   types.Item:
     properties:
       b64_json:
@@ -5763,6 +6417,124 @@ definitions:
       wallet:
         $ref: '#/definitions/types.Wallet'
     type: object
+  types.OrgUsageSummaryResponse:
+    properties:
+      active_apps:
+        type: integer
+      active_projects:
+        type: integer
+      active_sessions:
+        type: integer
+      active_users:
+        type: integer
+      apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_apps:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      export_users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      filter_apps:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_models:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_projects:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_users:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      model_time_series:
+        items:
+          $ref: '#/definitions/types.UsageModelTimeSeries'
+        type: array
+      models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      project_models:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      projects:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      projects_total:
+        type: integer
+      sessions:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      sessions_total:
+        type: integer
+      tasks:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      tasks_total:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      users_total:
+        type: integer
+    type: object
+  types.OrgUserLookupResponse:
+    properties:
+      email:
+        type: string
+      exists:
+        description: a Helix user account exists with this email
+        type: boolean
+      full_name:
+        type: string
+      invitation_id:
+        type: string
+      is_invited:
+        description: |-
+          IsInvited — a pending invitation exists for this email in the queried
+          org. Used by the invite UI to disable the "Send invitation" button so
+          admins don't accidentally double-invite.
+        type: boolean
+      is_member:
+        description: user is also a member of the queried org
+        type: boolean
+      user_id:
+        type: string
+    type: object
   types.Organization:
     properties:
       auto_join_domain:
@@ -5818,6 +6590,38 @@ definitions:
         items:
           $ref: '#/definitions/types.Team'
         type: array
+      updated_at:
+        type: string
+    type: object
+  types.OrganizationInvitation:
+    properties:
+      app_id:
+        description: |-
+          AppID + GrantRoles record the optional access-grant context. When an
+          invitation is sent from a project/app's access management dialog,
+          we store the resource id and the role names the inviter chose, so
+          that consuming the invitation at register time can also materialise
+          the access grant — the invitee then shows up in the project access
+          list immediately, exactly as if they had been added directly.
+        type: string
+      created_at:
+        type: string
+      email:
+        description: Normalised to lowercase
+        type: string
+      grant_roles:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      invited_by:
+        description: User ID of the inviter
+        type: string
+      organization_id:
+        type: string
+      role:
+        $ref: '#/definitions/types.OrganizationRole'
       updated_at:
         type: string
     type: object
@@ -6103,6 +6907,10 @@ definitions:
         type: array
       updated_at:
         type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
       user_id:
         type: string
     type: object
@@ -6118,12 +6926,30 @@ definitions:
         description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
         type: string
     type: object
+  types.ProjectAgentGoose:
+    properties:
+      recipe_repo_url:
+        type: string
+      recipes:
+        items:
+          $ref: '#/definitions/types.ProjectAgentGooseRecipe'
+        type: array
+    type: object
+  types.ProjectAgentGooseRecipe:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   types.ProjectAgentSpec:
     properties:
       credentials:
         type: string
       display:
         $ref: '#/definitions/types.ProjectAgentDisplay'
+      goose:
+        $ref: '#/definitions/types.ProjectAgentGoose'
       model:
         type: string
       name:
@@ -6644,6 +7470,17 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.PublicInvitationInfo:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      organization_display_name:
+        type: string
+      organization_name:
+        type: string
+    type: object
   types.PullRequest:
     properties:
       author:
@@ -6814,6 +7651,10 @@ definitions:
       active_headless_sandboxes:
         type: integer
       max_concurrent_desktops:
+        description: |-
+          MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+          organisation when the session has an org, per user otherwise.
+          -1 = unlimited.
         type: integer
       max_desktop_sandboxes:
         type: integer
@@ -7348,6 +8189,14 @@ definitions:
       active_sandboxes:
         description: Sandbox capacity
         type: integer
+      compute_state:
+        description: |-
+          ComputeState tracks the provider's view of the host's provisioning
+          lifecycle. Distinct from Status (which is the heartbeat-derived
+          online/offline/degraded view). Values: "provisioning" | "ready" |
+          "terminating" | "terminated" | "failed". See compute.State for
+          the canonical enum. Empty for self-registered hosts.
+        type: string
       created:
         type: string
       desktop_versions:
@@ -7406,6 +8255,31 @@ definitions:
         description: |-
           ProfileStatus tracks the compose stack lifecycle:
           "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+        type: string
+      provider:
+        description: |-
+          Provider is the Name() of the compute.Provider that owns this host.
+          E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+        type: string
+      provider_id:
+        description: |-
+          ProviderID is the upstream system's opaque identifier for this
+          host (e.g. a YellowDog work-requirement YDID). Forms a composite
+          index with Provider so the reconciler can look hosts up cheaply.
+        type: string
+      provider_metadata:
+        additionalProperties:
+          type: string
+        description: |-
+          ProviderMetadata is provider-specific opaque data for
+          reconciliation, debugging, and admin display. Examples for YD:
+          worker-pool ID, compute requirement ID, region, public IP.
+        type: object
+      provisioned_at:
+        description: |-
+          ProvisionedAt is when Helix asked the provider to bring this host
+          up. Earlier than Created (which is the first heartbeat). Nil for
+          self-registered hosts.
         type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
@@ -7485,8 +8359,6 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
-      active_concurrent_desktops:
-        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -7507,8 +8379,6 @@ definitions:
       edition:
         description: '"mac-desktop", "server", "cloud", etc.'
         type: string
-      eval_user_id:
-        type: string
       filestore_prefix:
         type: string
       google_analytics_frontend:
@@ -7518,9 +8388,12 @@ definitions:
         type: boolean
       latest_version:
         type: string
-      license:
-        $ref: '#/definitions/types.FrontendLicenseInfo'
       max_concurrent_desktops:
+        description: |-
+          MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+          organisation when the session has an org, per user otherwise.
+          -1 = unlimited. Note: /config is unauthenticated, so this is the
+          Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
       organizations_create_enabled_for_non_admins:
         type: boolean
@@ -7543,6 +8416,17 @@ definitions:
       rudderstack_write_key:
         type: string
       sentry_dsn_frontend:
+        type: string
+      server_url:
+        description: |-
+          ServerURL is the operator-configured public origin for this helix
+          instance (env SERVER_URL → WebServer.URL). Empty when not
+          configured; the frontend then falls back to
+          `window.location.origin`. The github-stream New Stream dialog
+          uses this to surface a webhook URL that's actually reachable by
+          GitHub — `window.location.origin` is wrong whenever the user is
+          hitting the app via localhost / a dev port that GitHub can't
+          reach.
         type: string
       stripe_enabled:
         description: Stripe top-ups enabled
@@ -8318,6 +9202,20 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -8474,6 +9372,35 @@ definitions:
     properties:
       archived:
         type: boolean
+    type: object
+  types.SpecTaskAttachment:
+    properties:
+      caption:
+        description: optional user note
+        type: string
+      committed_sha:
+        description: helix-specs commit hash once staged
+        type: string
+      created_at:
+        type: string
+      filename:
+        description: original filename, sanitised
+        type: string
+      id:
+        description: att_01k...
+        type: string
+      mime_type:
+        type: string
+      project_id:
+        description: denormalised for fast authz
+        type: string
+      size_bytes:
+        type: integer
+      spec_task_id:
+        type: string
+      user_id:
+        description: who uploaded
+        type: string
     type: object
   types.SpecTaskDesignReview:
     properties:
@@ -8964,6 +9891,20 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      goose_recipe_name:
+        description: |-
+          Goose recipe binding (Phase 2b). When the parent project's agent uses
+          the goose_code runtime and the user picked a recipe at task-creation
+          time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+          GooseRecipeParams holds the parameter values to substitute. The Helix
+          API bakes these into a CodeAgentBakedRecipe and pushes it to the
+          settings-sync-daemon, which writes a single slash_command pointing at
+          the substituted recipe YAML. Empty when no recipe was selected.
+        type: string
+      goose_recipe_params:
+        additionalProperties:
+          type: string
+        type: object
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
@@ -9331,8 +10272,6 @@ definitions:
         type: string
       max_concurrent_desktop_sandboxes:
         type: integer
-      max_concurrent_desktops:
-        type: integer
       max_concurrent_headless_sandboxes:
         type: integer
       optimus_generation_model:
@@ -9402,9 +10341,6 @@ definitions:
         description: Kodit vision embedding model configuration
         type: string
       max_concurrent_desktop_sandboxes:
-        type: integer
-      max_concurrent_desktops:
-        description: Per user
         type: integer
       max_concurrent_headless_sandboxes:
         type: integer
@@ -9717,7 +10653,7 @@ definitions:
         type: array
       tools:
         items:
-          $ref: '#/definitions/mcp.Tool'
+          $ref: '#/definitions/github_com_mark3labs_mcp-go_mcp.Tool'
         type: array
       transport:
         description: '"http" (default, Streamable HTTP) or "sse" (legacy SSE transport)'
@@ -10053,11 +10989,113 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.UsageBreakdownRow:
+    properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
+      completion_cost:
+        type: number
+      completion_tokens:
+        type: integer
+      email:
+        type: string
+      ended_at:
+        type: string
+      id:
+        type: string
+      interaction_id:
+        type: string
+      last_activity_at:
+        type: string
+      latency_ms:
+        type: number
+      model:
+        type: string
+      name:
+        type: string
+      prompt_cost:
+        type: number
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      request_size_bytes:
+        type: integer
+      response_size_bytes:
+        type: integer
+      session_count:
+        type: integer
+      session_id:
+        type: string
+      started_at:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
+        type: integer
+      unique_apps:
+        type: integer
+      unique_projects:
+        type: integer
+      unique_sessions:
+        type: integer
+      unique_users:
+        type: integer
+      username:
+        type: string
+    type: object
+  types.UsageFilterOption:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      username:
+        type: string
+    type: object
+  types.UsageModelTimeSeries:
+    properties:
+      id:
+        type: string
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+    type: object
   types.User:
     properties:
       admin:
         description: if the ID of the user is contained in the env setting
         type: boolean
+      alpha_features:
+        description: |-
+          AlphaFeatures lists the feature flags this user has been granted
+          access to. Server-enforced via requireFeature middleware — the
+          frontend uses it only to decide whether to render the entry
+          point. Granted per-user via SQL (no deploy).
+        items:
+          type: string
+        type: array
       app_id:
         description: if the token is associated with an app
         type: string
@@ -10090,6 +11128,14 @@ definitions:
       organization_id:
         description: Organization this API key is scoped to (ephemeral keys)
         type: string
+      pending_admin_credits_on_first_org:
+        description: |-
+          PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+          /admin/users/{id}/credits endpoint when the user has no owned org yet.
+          Consumed by consumeUserAdminCredits on first owned org, then cleared.
+          Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+          without entangling the grant with trial-state UI or revocation flows.
+        type: number
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -10108,6 +11154,23 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.TokenType'
         description: none, runner. keycloak, api_key
+      trial_credits_on_first_org:
+        type: number
+      trial_days_on_first_org:
+        description: |-
+          Trial intent stashed by admin before the user has created their first org.
+          Consumed by wallet creation on first owned org, then cleared.
+        type: integer
+      trial_ends_at:
+        type: integer
+      trial_org_id:
+        type: string
+      trial_status:
+        description: |-
+          Transient trial-display fields populated by the admin users list when
+          ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+          explicitly populated (json:"...,omitempty").
+        type: string
       type:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
@@ -10153,6 +11216,26 @@ definitions:
       top_p:
         type: number
     type: object
+  types.UserConfig:
+    properties:
+      color_scheme:
+        description: |-
+          ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+          Empty string means follow OS preference. Propagated to the GNOME desktop
+          (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+          by this user.
+        type: string
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
+      stripe_customer_id:
+        type: string
+      stripe_subscription_active:
+        type: boolean
+      stripe_subscription_id:
+        type: string
+    type: object
   types.UserGuidelinesResponse:
     properties:
       guidelines:
@@ -10193,6 +11276,10 @@ definitions:
     properties:
       admin:
         type: boolean
+      alpha_features:
+        items:
+          type: string
+        type: array
       email:
         type: string
       id:
@@ -10233,6 +11320,20 @@ definitions:
         type: integer
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.UserStatus:
+    properties:
+      admin:
+        type: boolean
+      config:
+        $ref: '#/definitions/types.UserConfig'
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      slug:
+        description: User slug for GitHub-style URLs
+        type: string
+      user:
+        type: string
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -10956,6 +12057,64 @@ paths:
       summary: Approve a user (Admin only)
       tags:
       - users
+  /api/v1/admin/users/{id}/credits:
+    post:
+      consumes:
+      - application/json
+      description: Adds credits to the wallet of an explicitly chosen organisation
+        the user owns, or stashes the grant on the user when they own no organisations
+        yet (the grant is applied to their first owned org on creation). Works regardless
+        of subscription state.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Credits to grant (must be > 0) and the target org_id (required
+          iff user owns ≥1 orgs)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.GrantCreditsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.GrantCreditsResponse'
+      security:
+      - BearerAuth: []
+      summary: Grant credits to a user (Admin, cloud only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/owned-orgs:
+    get:
+      description: Returns the organisations the target user is the owner of, sorted
+        by creation time ascending. Used by the admin "Grant credits" dialog to populate
+        its org picker.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.OwnedOrgSummary'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List a user's owned organisations (Admin, cloud only)
+      tags:
+      - users
   /api/v1/admin/users/{id}/password:
     put:
       consumes:
@@ -10995,6 +12154,59 @@ paths:
       security:
       - BearerAuth: []
       summary: Reset a user's password (Admin only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/trial-activate:
+    delete:
+      description: Clears any stashed trial intent on the user and cancels the Stripe
+        subscription on the user's oldest owned org if it is currently in a trialing
+        state. Paid (active) subscriptions are never cancelled.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ActivateTrialResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke an admin-granted trial (Admin, cloud only)
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Stash a trial intent on the user, or immediately create a Stripe
+        trial subscription on the user's oldest-owned org. Days defaults to 90; credits
+        are taken verbatim from the request (0 means no admin top-up beyond what Stripe's
+        subscription invoice contributes).
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Trial parameters (days, credits)
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/server.ActivateTrialRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ActivateTrialResponse'
+      security:
+      - BearerAuth: []
+      summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
   /api/v1/api_keys:
@@ -14747,6 +15959,19 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/invitations/{id}/info:
+    get:
+      description: Unauthenticated. Returns the invited email and organization display
+        name so the registration page can pre-fill the form. The invitation ID itself
+        acts as the secret token (same threat model as password-reset tokens).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PublicInvitationInfo'
+      summary: Look up basic info for an invitation by id
+      tags:
+      - organizations
   /api/v1/knowledge:
     get:
       responses:
@@ -15439,9 +16664,63 @@ paths:
       summary: Get organization guidelines history
       tags:
       - Organizations
+  /api/v1/organizations/{id}/invitations:
+    get:
+      description: List pending invitations for users who haven't joined the org yet.
+        Use the optional `app_id` query parameter to filter to invitations sent from
+        a specific project/app's access management dialog.
+      parameters:
+      - description: Filter invitations by the app/project they were sent from
+        in: query
+        name: app_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrganizationInvitation'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List pending organization invitations
+      tags:
+      - organizations
+    post:
+      description: Create a pending invitation for a non-Helix user. When they register
+        with this email they will automatically join the organization.
+      parameters:
+      - description: Request body with user_reference (email) and role.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AddOrganizationMemberRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.OrganizationInvitation'
+      security:
+      - BearerAuth: []
+      summary: Invite a user to the organization by email
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/invitations/{invitation_id}:
+    delete:
+      description: Revoke a pending invitation by ID
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Revoke a pending organization invitation
+      tags:
+      - organizations
   /api/v1/organizations/{id}/members:
     get:
-      description: List members of an organization
+      description: List members of an organization, including pending invitations
+        as placeholder rows (user_id starts with "inv_").
       responses:
         "200":
           description: OK
@@ -15455,7 +16734,9 @@ paths:
       tags:
       - organizations
     post:
-      description: Add a member to an organization
+      description: Add a member to an organization. When the user_reference is an
+        email that doesn't match any existing user, a pending invitation is created
+        instead (and an invitation email sent if email is configured).
       parameters:
       - description: Request body with user email to add.
         in: body
@@ -15464,10 +16745,10 @@ paths:
         schema:
           $ref: '#/definitions/types.AddOrganizationMemberRequest'
       responses:
-        "200":
-          description: OK
+        "201":
+          description: Created
           schema:
-            $ref: '#/definitions/types.OrganizationMembership'
+            $ref: '#/definitions/types.AddOrganizationMemberResponse'
       security:
       - BearerAuth: []
       summary: Add an organization member
@@ -15631,6 +16912,28 @@ paths:
       security:
       - BearerAuth: []
       summary: Add a new member to a team
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/users/lookup:
+    get:
+      description: Returns whether a user account exists for the given email, and
+        whether they are already a member of this organization. Used by the invite
+        UI to choose between "send invitation", "add to org", or "add to project"
+        CTAs without revealing arbitrary user information.
+      parameters:
+      - description: Email to look up
+        in: query
+        name: email
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrgUserLookupResponse'
+      security:
+      - BearerAuth: []
+      summary: Look up a user by email within the context of an organization
       tags:
       - organizations
   /api/v1/organizations/{org_id}/sandboxes:
@@ -16155,6 +17458,902 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/orgs/{org}/github/app-installation:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubInstallationStatus'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: GitHub App install status for the org'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/github/app-manifest:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubManifestStartResponse'
+        "412":
+          description: manifest flow not wired
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: start the GitHub App manifest (create) flow'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/github/repos:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubReposResponse'
+        "412":
+          description: no GitHub token configured
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list GitHub repos accessible to the org''s connected token'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/github/webhook:
+    post:
+      parameters:
+      - description: Raw GitHub webhook delivery
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: Delivery accepted but no matching streams
+        "204":
+          description: Delivery accepted and fanned out
+        "401":
+          description: Bad or missing X-Hub-Signature-256
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: transport.github not configured
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 'Helix-org: inbound GitHub webhook'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/overview:
+    get:
+      description: Returns roles + workers grouped by role for the helix-org React
+        Overview page.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.OrgOverview'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get org overview'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/roles:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.RoleDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list roles'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.RoleDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a role'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/roles/{id}:
+    delete:
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a role (cascade-fires its workers)'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.RoleDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get a role'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch fields
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateRoleRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.RoleDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update a role'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/settings:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SettingsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list settings'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/settings/{key}:
+    delete:
+      parameters:
+      - description: Setting key
+        in: path
+        name: key
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a setting'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Setting key
+        in: path
+        name: key
+        required: true
+        type: string
+      - description: Setting value (raw JSON per spec type)
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.SetSettingRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: set a setting'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.StreamsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list streams'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Stream spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateStreamRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.StreamDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}:
+    delete:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a stream'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.StreamDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get a stream'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Stream patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateStreamRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.StreamDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/events:
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'SSE: event: message / data: [EventCard,...]'
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: SSE stream of events for one stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/github/install-webhook:
+    post:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InstallGitHubWebhookResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "412":
+          description: pre-conditions not met
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: GitHub API call failed
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: auto-install the webhook for a github stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/github/webhook-status:
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitHubWebhookStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: live webhook status for a github stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/publish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message body+optional subject/to
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.PublishRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.PublishResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: publish a message to a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/tools:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.ToolDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list available MCP tools'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.WorkerDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list workers'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      description: Create a Worker in the given Position. Wraps the hire_worker MCP
+        tool so REST + chat hires share semantics (env dir, activation stream, hire
+        dispatch).
+      parameters:
+      - description: Hire request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.HireWorkerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.HireWorkerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: hire worker'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}:
+    delete:
+      description: 'Delete a Worker. Cascades: stops sessions, deletes the Helix project
+        + agent app, clears runtime state, deletes subscriptions + env dir
+        + env row, then the worker row. Activations are preserved as audit.'
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: fire worker'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerDetailDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get worker detail'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/activate:
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.WorkerActivateDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: manually trigger a worker activation'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/chat:
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerChatDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: provision a per-worker chat app'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/identity:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New identity content
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateWorkerIdentityRequest'
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update worker identity'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/parents:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Worker ID (the report)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Manager worker id
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.AddWorkerParentRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: add a worker reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/parents/{parent_id}:
+    delete:
+      parameters:
+      - description: Worker ID (the report)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Manager worker id
+        in: path
+        name: parent_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: remove a worker reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/role:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New role content
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateWorkerRoleRequest'
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update worker role'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/subscriptions:
+    get:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerSubscriptionsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a worker''s subscriptions'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: stream to subscribe to
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.SubscribeWorkerRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkerSubscriptionDTO'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.WorkerSubscriptionDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: subscribe a worker to a stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}:
+    delete:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Stream ID
+        in: path
+        name: stream_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: unsubscribe a worker from a stream'
+      tags:
+      - HelixOrg
   /api/v1/projects:
     get:
       consumes:
@@ -16367,7 +18566,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.AccessGrant'
+            $ref: '#/definitions/types.CreateAccessGrantResponse'
       security:
       - BearerAuth: []
       summary: Grant access to a project to a team or organization member
@@ -16672,6 +18871,46 @@ paths:
       security:
       - BearerAuth: []
       summary: Start project exploratory session
+      tags:
+      - Projects
+  /api/v1/projects/{id}/goose-recipes:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        Returns the parsed Goose recipes declared on the project's
+        default agent, including each recipe's parameter schema so
+        the spec-task creation form can render dynamic inputs.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ProjectGooseRecipe'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List Goose recipes available to a project
       tags:
       - Projects
   /api/v1/projects/{id}/guidelines-history:
@@ -19548,11 +21787,15 @@ paths:
   /api/v1/sessions/{id}/restart-agent:
     post:
       description: |-
-        Clears the dead acp_thread_id on the session and resets crashed prompts
-        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
-        back to pending. The next dispatch sends with empty acp_thread_id, causing
-        Zed to create a fresh thread + Claude Agent process. Requires the session
-        to be an external Zed agent. Returns the count of prompts that were reset.
+        Tears down the half-dead desktop container and brings up a fresh one
+        via the same resume path used by /sessions/{id}/resume. The session's
+        ZedThreadID is preserved, so Zed reloads the existing thread from the
+        persistent threads.db in the workspace volume and the underlying agent
+        (claude-code, qwen, etc.) reloads its session from disk — prior
+        conversation context is restored. Crashed prompts are reset to pending
+        and the queue is kicked so they re-dispatch on the new container.
+        Requires the session to be an external Zed agent. Returns the count of
+        prompts that were reset.
       parameters:
       - description: Session ID
         in: path
@@ -19589,7 +21832,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Restart Zed thread after a Claude Agent crash
+      summary: Restart the external agent after an in-container crash
       tags:
       - Sessions
   /api/v1/sessions/{id}/resume:
@@ -20597,6 +22840,130 @@ paths:
       summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments:
+    get:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskAttachment'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List attachments for a spec task
+      tags:
+      - spec-driven-tasks
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one or more files (images, PDFs, text) to be made available
+        to the agent.
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Files to attach (multipart form data, field 'files')
+        in: formData
+        name: files
+        required: true
+        type: file
+      - description: Optional caption for the attachment (single file uploads only)
+        in: formData
+        name: caption
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskAttachment'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Upload attachments for a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments/{attId}:
+    delete:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete a spec task attachment
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/attachments/{attId}/content:
+    get:
+      parameters:
+      - description: Spec task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Attachment ID
+        in: path
+        name: attId
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Stream the bytes of a spec task attachment
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/clone:
     post:
       consumes:
@@ -21107,6 +23474,22 @@ paths:
       summary: Get sample repository types
       tags:
       - specs
+  /api/v1/status:
+    get:
+      description: |-
+        Per-user status: credits, admin flag, slug, user config, plus the
+        licence payload (moved here from /api/v1/config so it is not
+        disclosed unauthenticated).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatus'
+      security:
+      - BearerAuth: []
+      summary: Get user status
+      tags:
+      - config
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription
@@ -21442,6 +23825,114 @@ paths:
       security:
       - BearerAuth: []
       summary: Get daily usage
+      tags:
+      - usage
+  /api/v1/usage/org-summary:
+    get:
+      consumes:
+      - application/json
+      description: Get organization usage summary with breakdowns by user, project,
+        app, session, task/model, and model/provider
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: User ID
+        in: query
+        name: user_id
+        type: string
+      - description: Project ID
+        in: query
+        name: project_id
+        type: string
+      - description: App ID
+        in: query
+        name: app_id
+        type: string
+      - description: Session ID
+        in: query
+        name: session_id
+        type: string
+      - description: Provider
+        in: query
+        name: provider
+        type: string
+      - description: Model
+        in: query
+        name: model
+        type: string
+      - description: User search
+        in: query
+        name: user_search
+        type: string
+      - description: User page size
+        in: query
+        name: user_limit
+        type: integer
+      - description: User page offset
+        in: query
+        name: user_offset
+        type: integer
+      - description: Project page size
+        in: query
+        name: project_limit
+        type: integer
+      - description: Project page offset
+        in: query
+        name: project_offset
+        type: integer
+      - description: Task page size
+        in: query
+        name: task_limit
+        type: integer
+      - description: Task page offset
+        in: query
+        name: task_offset
+        type: integer
+      - description: Session page size
+        in: query
+        name: session_limit
+        type: integer
+      - description: Session page offset
+        in: query
+        name: session_offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OrgUsageSummaryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization usage summary
       tags:
       - usage
   /api/v1/users:

@@ -103,6 +103,15 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
+**Experimental desktop pulls.** The sandbox startup script
+(`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
+(`helix-ubuntu`) on every container start. Experimental desktops
+(`helix-sway`, `helix-zorin`, `helix-xfce`, `helix-kde`) are gated behind
+the `HELIX_EXPERIMENTAL_DESKTOPS` env var (space-separated, default
+empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
+to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
+Docker the first time someone launches a sway desktop session.
+
 ### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
 
 `sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
@@ -204,6 +213,16 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
+
+## helix-org design philosophy
+
+Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.
+
+- **Prefer data and text over code.** If a feature can be expressed as a Role/Position prompt edit, a scope value, or a tool description, do that before adding Go logic.
+- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead.
+- **No workflow in code.** Tools do exactly one thing. Code does not orchestrate multi-step sequences on behalf of an agent — it does not subscribe Workers, auto-create related records, or chain calls. Orchestration lives in the prompt. The one exception is structural derivation: `Role.Tools` is the live MCP surface for every Worker filling a Position bound to that Role — editing the Role changes its Workers' capabilities, because the Role *is* the capability. That isn't orchestration, it's the Role meaning what it says. `Role.Streams` stays prompt-driven (the hiring manager calls `create_stream` and `subscribe` explicitly). When reviewing a tool, ask: "is the code making a decision the agent should be making?" If yes, remove it.
+- **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
+- **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
 
 ## Dev Environment (Helix-in-Helix)
 

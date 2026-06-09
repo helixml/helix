@@ -1013,6 +1013,94 @@
                 }
             }
         },
+        "/api/v1/admin/users/{id}/credits": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Grant credits to a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.GrantCreditsRequest"
+                            }
+                        }
+                    },
+                    "description": "Credits to grant (must be > 0) and the target org_id (required iff user owns ≥1 orgs)",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.GrantCreditsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/users/{id}/owned-orgs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin \"Grant credits\" dialog to populate its org picker.",
+                "tags": [
+                    "users"
+                ],
+                "summary": "List a user's owned organisations (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/server.OwnedOrgSummary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}/password": {
             "put": {
                 "security": [
@@ -1084,6 +1172,88 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/users/{id}/trial-activate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Activate a trial for a user (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.ActivateTrialRequest"
+                            }
+                        }
+                    },
+                    "description": "Trial parameters (days, credits)"
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ActivateTrialResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Revoke an admin-granted trial (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ActivateTrialResponse"
                                 }
                             }
                         }
@@ -8220,6 +8390,27 @@
                 }
             }
         },
+        "/api/v1/invitations/{id}/info": {
+            "get": {
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up basic info for an invitation by id",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.PublicInvitationInfo"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
@@ -9526,6 +9717,99 @@
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List pending organization invitations",
+                "parameters": [
+                    {
+                        "description": "Filter invitations by the app/project they were sent from",
+                        "name": "app_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.OrganizationInvitation"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Invite a user to the organization by email",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.AddOrganizationMemberRequest"
+                            }
+                        }
+                    },
+                    "description": "Request body with user_reference (email) and role.",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.OrganizationInvitation"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a pending invitation by ID",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Revoke a pending organization invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -9533,7 +9817,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List members of an organization",
+                "description": "List members of an organization, including pending invitations as placeholder rows (user_id starts with \"inv_\").",
                 "tags": [
                     "organizations"
                 ],
@@ -9560,7 +9844,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Add a member to an organization",
+                "description": "Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).",
                 "tags": [
                     "organizations"
                 ],
@@ -9577,12 +9861,12 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "201": {
+                        "description": "Created",
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/types.OrganizationMembership"
+                                    "$ref": "#/components/schemas/types.AddOrganizationMemberResponse"
                                 }
                             }
                         }
@@ -9848,6 +10132,43 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.TeamMembership"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/users/lookup": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between \"send invitation\", \"add to org\", or \"add to project\" CTAs without revealing arbitrary user information.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up a user by email within the context of an organization",
+                "parameters": [
+                    {
+                        "description": "Email to look up",
+                        "name": "email",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.OrgUserLookupResponse"
                                 }
                             }
                         }
@@ -10803,6 +11124,1700 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/github/app-installation": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: GitHub App install status for the org",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.GitHubInstallationStatus"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/app-manifest": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: start the GitHub App manifest (create) flow",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.GitHubManifestStartResponse"
+                                }
+                            }
+                        }
+                    },
+                    "412": {
+                        "description": "manifest flow not wired",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/repos": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list GitHub repos accessible to the org's connected token",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.GitHubReposResponse"
+                                }
+                            }
+                        }
+                    },
+                    "412": {
+                        "description": "no GitHub token configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/webhook": {
+            "post": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: inbound GitHub webhook",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "description": "Raw GitHub webhook delivery",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Delivery accepted but no matching streams"
+                    },
+                    "204": {
+                        "description": "Delivery accepted and fanned out"
+                    },
+                    "401": {
+                        "description": "Bad or missing X-Hub-Signature-256",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "transport.github not configured",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/overview": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns roles + workers grouped by role for the helix-org React Overview page.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get org overview",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.OrgOverview"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/roles": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list roles",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/api.RoleDTO"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a role",
+                "parameters": [
+                    {
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.CreateRoleRequest"
+                            }
+                        }
+                    },
+                    "description": "Role spec",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.RoleDTO"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/roles/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a role",
+                "parameters": [
+                    {
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Role ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.RoleDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a role",
+                "parameters": [
+                    {
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Role ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpdateRoleRequest"
+                            }
+                        }
+                    },
+                    "description": "Patch fields",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.RoleDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a role (cascade-fires its workers)",
+                "parameters": [
+                    {
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Role ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/settings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.SettingsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/settings/{key}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: set a setting",
+                "parameters": [
+                    {
+                        "description": "Setting key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.SetSettingRequest"
+                            }
+                        }
+                    },
+                    "description": "Setting value (raw JSON per spec type)",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a setting",
+                "parameters": [
+                    {
+                        "description": "Setting key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list streams",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.StreamsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a stream",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.CreateStreamRequest"
+                            }
+                        }
+                    },
+                    "description": "Stream spec",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.StreamDTO"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.StreamDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpdateStreamRequest"
+                            }
+                        }
+                    },
+                    "description": "Stream patch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.StreamDTO"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: SSE stream of events for one stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE: event: message / data: [EventCard,...]",
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/github/install-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: auto-install the webhook for a github stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.InstallGitHubWebhookResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "412": {
+                        "description": "pre-conditions not met",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "GitHub API call failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/github/webhook-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: live webhook status for a github stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.GitHubWebhookStatusResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/publish": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: publish a message to a stream",
+                "parameters": [
+                    {
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.PublishRequest"
+                            }
+                        }
+                    },
+                    "description": "Message body+optional subject/to",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.PublishResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/tools": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list available MCP tools",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/api.ToolDTO"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list workers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/api.WorkerDTO"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: hire worker",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.HireWorkerRequest"
+                            }
+                        }
+                    },
+                    "description": "Hire request",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.HireWorkerResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get worker detail",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerDetailDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: fire worker",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/activate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: manually trigger a worker activation",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerActivateDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: provision a per-worker chat app",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerChatDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/identity": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update worker identity",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpdateWorkerIdentityRequest"
+                            }
+                        }
+                    },
+                    "description": "New identity content",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/parents": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: add a worker reporting line (manager)",
+                "parameters": [
+                    {
+                        "description": "Worker ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.AddWorkerParentRequest"
+                            }
+                        }
+                    },
+                    "description": "Manager worker id",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove a worker reporting line (manager)",
+                "parameters": [
+                    {
+                        "description": "Worker ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Manager worker id",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/role": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update worker role",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpdateWorkerRoleRequest"
+                            }
+                        }
+                    },
+                    "description": "New role content",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a worker's subscriptions",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerSubscriptionsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe a worker to a stream",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.SubscribeWorkerRequest"
+                            }
+                        }
+                    },
+                    "description": "stream to subscribe to",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerSubscriptionDTO"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerSubscriptionDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe a worker from a stream",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Stream ID",
+                        "name": "stream_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects": {
             "get": {
                 "security": [
@@ -11318,7 +13333,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/types.AccessGrant"
+                                    "$ref": "#/components/schemas/types.CreateAccessGrantResponse"
                                 }
                             }
                         }
@@ -11879,6 +13894,76 @@
                                     "type": "object",
                                     "additionalProperties": {
                                         "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/goose-recipes": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the parsed Goose recipes declared on the project's\ndefault agent, including each recipe's parameter schema so\nthe spec-task creation form can render dynamic inputs.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List Goose recipes available to a project",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/server.ProjectGooseRecipe"
                                     }
                                 }
                             }
@@ -17242,11 +19327,11 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears the dead acp_thread_id on the session and resets crashed prompts\n(those marked by MarkPromptAsCrashed when the Claude Agent process exited)\nback to pending. The next dispatch sends with empty acp_thread_id, causing\nZed to create a fresh thread + Claude Agent process. Requires the session\nto be an external Zed agent. Returns the count of prompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the same resume path used by /sessions/{id}/resume. The session's\nZedThreadID is preserved, so Zed reloads the existing thread from the\npersistent threads.db in the workspace volume and the underlying agent\n(claude-code, qwen, etc.) reloads its session from disk — prior\nconversation context is restored. Crashed prompts are reset to pending\nand the queue is kicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "tags": [
                     "Sessions"
                 ],
-                "summary": "Restart Zed thread after a Claude Agent crash",
+                "summary": "Restart the external agent after an in-container crash",
                 "parameters": [
                     {
                         "description": "Session ID",
@@ -19331,6 +21416,241 @@
                 }
             }
         },
+        "/api/v1/spec-tasks/{taskId}/attachments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List attachments for a spec task",
+                "parameters": [
+                    {
+                        "description": "Spec task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.SpecTaskAttachment"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload one or more files (images, PDFs, text) to be made available to the agent.",
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Upload attachments for a spec task",
+                "parameters": [
+                    {
+                        "description": "Spec task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "files": {
+                                        "description": "Files to attach (multipart form data, field 'files')",
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "caption": {
+                                        "description": "Optional caption for the attachment (single file uploads only)",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "files"
+                                ]
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.SpecTaskAttachment"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/attachments/{attId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Delete a spec task attachment",
+                "parameters": [
+                    {
+                        "description": "Spec task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Attachment ID",
+                        "name": "attId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/attachments/{attId}/content": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Stream the bytes of a spec task attachment",
+                "parameters": [
+                    {
+                        "description": "Spec task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Attachment ID",
+                        "name": "attId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}/clone": {
             "post": {
                 "security": [
@@ -20138,6 +22458,32 @@
                 }
             }
         },
+        "/api/v1/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per-user status: credits, admin flag, slug, user config, plus the\nlicence payload (moved here from /api/v1/config so it is not\ndisclosed unauthenticated).",
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get user status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.UserStatus"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/subscription/manage": {
             "post": {
                 "security": [
@@ -20738,6 +23084,219 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/usage/org-summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider",
+                "tags": [
+                    "usage"
+                ],
+                "summary": "Get organization usage summary",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Provider",
+                        "name": "provider",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Model",
+                        "name": "model",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User search",
+                        "name": "user_search",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User page size",
+                        "name": "user_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "User page offset",
+                        "name": "user_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Project page size",
+                        "name": "project_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Project page offset",
+                        "name": "project_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Task page size",
+                        "name": "task_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Task page offset",
+                        "name": "task_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Session page size",
+                        "name": "session_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Session page offset",
+                        "name": "session_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.OrgUsageSummaryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -22011,6 +24570,644 @@
             }
         },
         "schemas": {
+            "api.AddWorkerParentRequest": {
+                "type": "object",
+                "properties": {
+                    "parent_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.CreateRoleRequest": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "streams": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "api.CreateStreamRequest": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "transport": {
+                        "$ref": "#/components/schemas/api.TransportRequestField"
+                    }
+                }
+            },
+            "api.ErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.EventCard": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "has_message": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "message_body": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "stream_id": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.GitHubInstallationStatus": {
+                "type": "object",
+                "properties": {
+                    "app_exists": {
+                        "description": "AppExists is true when a Helix GitHub App has been created/registered\nfor this org (a github_app ServiceConnection exists), even if not yet\ninstalled on any repo. Drives the gate's create-vs-install branch.",
+                        "type": "boolean"
+                    },
+                    "install_url": {
+                        "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/<slug>/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
+                        "type": "string"
+                    },
+                    "installed": {
+                        "description": "Installed is true when the Helix GitHub App has an installation for\nthis org (a github_app ServiceConnection with an installation id).",
+                        "type": "boolean"
+                    },
+                    "manage_url": {
+                        "description": "ManageURL is the app's developer-settings page on GitHub\n(github.com/organizations/<owner>/settings/apps/<slug>) — where you edit\npermissions, repos, and delete the app. Empty when the owner is unknown\n(e.g. a BYO app configured without it).",
+                        "type": "string"
+                    }
+                }
+            },
+            "api.GitHubManifestStartResponse": {
+                "type": "object",
+                "properties": {
+                    "manifest": {
+                        "type": "string"
+                    },
+                    "post_url": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.GitHubRepoDTO": {
+                "type": "object",
+                "properties": {
+                    "full_name": {
+                        "type": "string"
+                    },
+                    "private": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "api.GitHubReposResponse": {
+                "type": "object",
+                "properties": {
+                    "repos": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.GitHubRepoDTO"
+                        }
+                    },
+                    "source": {
+                        "description": "Source identifies which token paid for this list — useful\nwhen debugging \"I can't see repo X\" reports.",
+                        "type": "string"
+                    }
+                }
+            },
+            "api.GitHubWebhookStatusResponse": {
+                "type": "object",
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "detail": {
+                        "description": "Detail explains a \"unknown\" state (and is empty otherwise).",
+                        "type": "string"
+                    },
+                    "payload_url": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "description": "State is one of:\n  \"installed\" — a webhook for this stream's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
+                        "type": "string"
+                    },
+                    "webhook_html_url": {
+                        "type": "string"
+                    },
+                    "webhook_id": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "api.HireWorkerRequest": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "identity_content": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "parent_id": {
+                        "type": "string"
+                    },
+                    "role_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.HireWorkerResponse": {
+                "type": "object",
+                "properties": {
+                    "activation_id": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.InstallGitHubWebhookResponse": {
+                "type": "object",
+                "properties": {
+                    "payload_url": {
+                        "type": "string"
+                    },
+                    "warning": {
+                        "description": "Warning is a non-fatal message about the just-installed\nwebhook — e.g. \"SERVER_URL is a loopback address so GitHub's\nservers can't actually deliver to this URL\". The webhook IS\ninstalled on GitHub; the warning just tells the operator\nwhat needs fixing on their side for deliveries to flow.",
+                        "type": "string"
+                    },
+                    "webhook_html_url": {
+                        "type": "string"
+                    },
+                    "webhook_id": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "api.OrgOverview": {
+                "type": "object",
+                "properties": {
+                    "groups": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.RoleGroup"
+                        }
+                    },
+                    "roles": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.RoleBadge"
+                        }
+                    }
+                }
+            },
+            "api.PublishRequest": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "api.PublishResponse": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.RoleBadge": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.RoleDTO": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "streams": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.RoleGroup": {
+                "type": "object",
+                "properties": {
+                    "role_id": {
+                        "type": "string"
+                    },
+                    "workers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.WorkerBadge"
+                        }
+                    }
+                }
+            },
+            "api.SetSettingRequest": {
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.SettingsResponse": {
+                "type": "object",
+                "properties": {
+                    "db_path": {
+                        "type": "string"
+                    },
+                    "envs_dir": {
+                        "type": "string"
+                    },
+                    "owner": {
+                        "type": "string"
+                    },
+                    "public_url": {
+                        "type": "string"
+                    },
+                    "specs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.SettingsSpecDTO"
+                        }
+                    }
+                }
+            },
+            "api.SettingsSpecDTO": {
+                "type": "object",
+                "properties": {
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.StreamDTO": {
+                "type": "object",
+                "properties": {
+                    "can_publish": {
+                        "type": "boolean"
+                    },
+                    "config": {
+                        "type": "object",
+                        "additionalProperties": true
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "disable_reason": {
+                        "type": "string"
+                    },
+                    "effective_public_url": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "recent_events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.EventCard"
+                        }
+                    },
+                    "subscribers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "api.StreamsResponse": {
+                "type": "object",
+                "properties": {
+                    "recent": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.EventCard"
+                        }
+                    },
+                    "streams": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.StreamDTO"
+                        }
+                    }
+                }
+            },
+            "api.SubscribeWorkerRequest": {
+                "type": "object",
+                "properties": {
+                    "stream_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.ToolDTO": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.TransportRequestField": {
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "additionalProperties": true
+                    },
+                    "kind": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.UpdateRoleRequest": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "streams": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "api.UpdateStreamRequest": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "transport": {
+                        "$ref": "#/components/schemas/api.TransportRequestField"
+                    }
+                }
+            },
+            "api.UpdateWorkerIdentityRequest": {
+                "type": "object",
+                "properties": {
+                    "identity": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.UpdateWorkerRoleRequest": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.WorkerActivateDTO": {
+                "type": "object",
+                "properties": {
+                    "activation_id": {
+                        "type": "string"
+                    },
+                    "agent_app_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.WorkerBadge": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.WorkerChatDTO": {
+                "type": "object",
+                "properties": {
+                    "agent_app_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.WorkerDTO": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "identity_content": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "parent_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "role_id": {
+                        "type": "string"
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "api.WorkerDetailDTO": {
+                "type": "object",
+                "properties": {
+                    "agent_app_id": {
+                        "description": "AgentAppID + ProjectID — see WorkerChatDTO comments.",
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "description": "Role this Worker holds (nil if the role row is gone).",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/api.RoleDTO"
+                            }
+                        ]
+                    },
+                    "worker": {
+                        "$ref": "#/components/schemas/api.WorkerDTO"
+                    }
+                }
+            },
+            "api.WorkerSubscriptionDTO": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "stream_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.WorkerSubscriptionsResponse": {
+                "type": "object",
+                "properties": {
+                    "subscriptions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.WorkerSubscriptionDTO"
+                        }
+                    },
+                    "worker_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "filestore.Config": {
                 "type": "object",
                 "properties": {
@@ -22141,6 +25338,129 @@
                     "RuntimeVLLM"
                 ]
             },
+            "github_com_mark3labs_mcp-go_mcp.Icon": {
+                "type": "object",
+                "properties": {
+                    "mimeType": {
+                        "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
+                        "type": "string"
+                    },
+                    "sizes": {
+                        "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "src": {
+                        "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
+                        "type": "string"
+                    }
+                }
+            },
+            "github_com_mark3labs_mcp-go_mcp.Meta": {
+                "type": "object",
+                "properties": {
+                    "additionalFields": {
+                        "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "progressToken": {
+                        "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
+                    }
+                }
+            },
+            "github_com_mark3labs_mcp-go_mcp.Tool": {
+                "type": "object",
+                "properties": {
+                    "_meta": {
+                        "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/github_com_mark3labs_mcp-go_mcp.Meta"
+                            }
+                        ]
+                    },
+                    "annotations": {
+                        "description": "Optional properties describing tool behavior",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/mcp.ToolAnnotation"
+                            }
+                        ]
+                    },
+                    "defer_loading": {
+                        "description": "Support for deferred loading",
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "description": "A human-readable description of the tool.",
+                        "type": "string"
+                    },
+                    "execution": {
+                        "description": "Execution describes execution behavior for the tool",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/mcp.ToolExecution"
+                            }
+                        ]
+                    },
+                    "icons": {
+                        "description": "Icons provides visual identifiers for the tool",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/github_com_mark3labs_mcp-go_mcp.Icon"
+                        }
+                    },
+                    "inputSchema": {
+                        "description": "A JSON Schema object defining the expected parameters for the tool.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/mcp.ToolInputSchema"
+                            }
+                        ]
+                    },
+                    "name": {
+                        "description": "The name of the tool.",
+                        "type": "string"
+                    },
+                    "outputSchema": {
+                        "description": "A JSON Schema object defining the expected output returned by the tool .",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/mcp.ToolOutputSchema"
+                            }
+                        ]
+                    }
+                }
+            },
+            "goose.RecipeParameter": {
+                "type": "object",
+                "properties": {
+                    "default": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "input_type": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "requirement": {
+                        "type": "string"
+                    }
+                }
+            },
             "gorm.DeletedAt": {
                 "type": "object",
                 "properties": {
@@ -22199,37 +25519,6 @@
                     "DevContainerTypeUbuntu",
                     "DevContainerTypeHeadless"
                 ]
-            },
-            "hydra.GPUInfo": {
-                "type": "object",
-                "properties": {
-                    "index": {
-                        "type": "integer"
-                    },
-                    "memory_free_bytes": {
-                        "type": "integer"
-                    },
-                    "memory_total_bytes": {
-                        "type": "integer"
-                    },
-                    "memory_used_bytes": {
-                        "type": "integer"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "temperature_celsius": {
-                        "type": "integer"
-                    },
-                    "utilization_percent": {
-                        "description": "GPU core utilization",
-                        "type": "integer"
-                    },
-                    "vendor": {
-                        "description": "\"nvidia\", \"amd\", \"intel\"",
-                        "type": "string"
-                    }
-                }
             },
             "hydra.ListSandboxCommandsResponse": {
                 "type": "object",
@@ -22326,39 +25615,6 @@
                     }
                 }
             },
-            "mcp.Icon": {
-                "type": "object",
-                "properties": {
-                    "mimeType": {
-                        "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
-                        "type": "string"
-                    },
-                    "sizes": {
-                        "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    },
-                    "src": {
-                        "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
-                        "type": "string"
-                    }
-                }
-            },
-            "mcp.Meta": {
-                "type": "object",
-                "properties": {
-                    "additionalFields": {
-                        "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
-                        "type": "object",
-                        "additionalProperties": {}
-                    },
-                    "progressToken": {
-                        "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
-                    }
-                }
-            },
             "mcp.TaskSupport": {
                 "type": "string",
                 "enum": [
@@ -22371,70 +25627,6 @@
                     "TaskSupportOptional",
                     "TaskSupportRequired"
                 ]
-            },
-            "mcp.Tool": {
-                "type": "object",
-                "properties": {
-                    "_meta": {
-                        "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/mcp.Meta"
-                            }
-                        ]
-                    },
-                    "annotations": {
-                        "description": "Optional properties describing tool behavior",
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/mcp.ToolAnnotation"
-                            }
-                        ]
-                    },
-                    "defer_loading": {
-                        "description": "Support for deferred loading",
-                        "type": "boolean"
-                    },
-                    "description": {
-                        "description": "A human-readable description of the tool.",
-                        "type": "string"
-                    },
-                    "execution": {
-                        "description": "Execution describes execution behavior for the tool",
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/mcp.ToolExecution"
-                            }
-                        ]
-                    },
-                    "icons": {
-                        "description": "Icons provides visual identifiers for the tool",
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/mcp.Icon"
-                        }
-                    },
-                    "inputSchema": {
-                        "description": "A JSON Schema object defining the expected parameters for the tool.",
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/mcp.ToolInputSchema"
-                            }
-                        ]
-                    },
-                    "name": {
-                        "description": "The name of the tool.",
-                        "type": "string"
-                    },
-                    "outputSchema": {
-                        "description": "A JSON Schema object defining the expected output returned by the tool .",
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/mcp.ToolOutputSchema"
-                            }
-                        ]
-                    }
-                }
             },
             "mcp.ToolAnnotation": {
                 "type": "object",
@@ -23187,6 +26379,31 @@
                     }
                 }
             },
+            "server.ActivateTrialRequest": {
+                "type": "object",
+                "properties": {
+                    "credits": {
+                        "type": "number"
+                    },
+                    "days": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "server.ActivateTrialResponse": {
+                "type": "object",
+                "properties": {
+                    "org_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "user": {
+                        "$ref": "#/components/schemas/types.User"
+                    }
+                }
+            },
             "server.AgentSandboxesDebugResponse": {
                 "type": "object",
                 "properties": {
@@ -23199,7 +26416,7 @@
                     "gpus": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/hydra.GPUInfo"
+                            "$ref": "#/components/schemas/server.GPUInfoWithSandbox"
                         }
                     },
                     "message": {
@@ -23554,6 +26771,65 @@
                     },
                     "url": {
                         "type": "string"
+                    }
+                }
+            },
+            "server.GPUInfoWithSandbox": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer"
+                    },
+                    "memory_free_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_total_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_used_bytes": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "sandbox_id": {
+                        "type": "string"
+                    },
+                    "temperature_celsius": {
+                        "type": "integer"
+                    },
+                    "utilization_percent": {
+                        "description": "GPU core utilization",
+                        "type": "integer"
+                    },
+                    "vendor": {
+                        "description": "\"nvidia\", \"amd\", \"intel\"",
+                        "type": "string"
+                    }
+                }
+            },
+            "server.GrantCreditsRequest": {
+                "type": "object",
+                "properties": {
+                    "credits": {
+                        "type": "number"
+                    },
+                    "org_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.GrantCreditsResponse": {
+                "type": "object",
+                "properties": {
+                    "org_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "user": {
+                        "$ref": "#/components/schemas/types.User"
                     }
                 }
             },
@@ -24556,6 +27832,20 @@
                     }
                 }
             },
+            "server.OwnedOrgSummary": {
+                "type": "object",
+                "properties": {
+                    "display_name": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.PhaseProgress": {
                 "type": "object",
                 "properties": {
@@ -24587,6 +27877,30 @@
                         "items": {
                             "type": "string"
                         }
+                    }
+                }
+            },
+            "server.ProjectGooseRecipe": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "description": "Error, when non-empty, indicates that the recipe was declared on the\nagent but couldn't be loaded — repo not cloned yet, file missing,\nYAML malformed, etc. The UI surfaces this so the user can fix the\nproject YAML before creating a task that would silently fall back to\nvanilla goose.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "parameters": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/goose.RecipeParameter"
+                        }
+                    },
+                    "title": {
+                        "type": "string"
                     }
                 }
             },
@@ -25239,7 +28553,7 @@
                     "message": {
                         "type": "string"
                     },
-                    "statusCode": {
+                    "status_code": {
                         "type": "integer"
                     }
                 }
@@ -25349,12 +28663,37 @@
             "types.AddOrganizationMemberRequest": {
                 "type": "object",
                 "properties": {
+                    "app_id": {
+                        "description": "AppID + GrantRoles are optional and only meaningful when the\nrequest creates an invitation (because the email doesn't match an\nexisting user). They tell the server which app to attach the\ninvitation to, so the access grant can be materialised when the\ninvitee accepts. When set, the invitation will also be filtered\nto this app in the access-management list.",
+                        "type": "string"
+                    },
+                    "grant_roles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "role": {
                         "$ref": "#/components/schemas/types.OrganizationRole"
                     },
                     "user_reference": {
                         "description": "Either user ID or user email",
                         "type": "string"
+                    }
+                }
+            },
+            "types.AddOrganizationMemberResponse": {
+                "type": "object",
+                "properties": {
+                    "invitation": {
+                        "$ref": "#/components/schemas/types.OrganizationInvitation"
+                    },
+                    "invited": {
+                        "description": "Invited is true when no user exists yet and an invitation row was\ncreated instead of a membership.",
+                        "type": "boolean"
+                    },
+                    "membership": {
+                        "$ref": "#/components/schemas/types.OrganizationMembership"
                     }
                 }
             },
@@ -25832,6 +29171,17 @@
                     "generation_model_provider": {
                         "type": "string"
                     },
+                    "goose_recipe_repo_url": {
+                        "description": "GooseRecipeRepoURL is the external git URL of the attached repository\nthat holds the project's Goose recipes (e.g. https://github.com/foo/bar).\nResolved against attached GitRepositories at sandbox-start time.\nEmpty means recipes are looked up under the primary repository.",
+                        "type": "string"
+                    },
+                    "goose_recipes": {
+                        "description": "GooseRecipes are the project-declared Goose recipes (slash-command name\n+ repo-relative path to the recipe YAML).",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.AssistantGooseRecipe"
+                        }
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -25974,6 +29324,17 @@
                     }
                 }
             },
+            "types.AssistantGooseRecipe": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.AssistantKnowledge": {
                 "type": "object",
                 "properties": {
@@ -26058,7 +29419,7 @@
                     "tools": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/mcp.Tool"
+                            "$ref": "#/components/schemas/github_com_mark3labs_mcp-go_mcp.Tool"
                         }
                     },
                     "transport": {
@@ -26195,6 +29556,9 @@
                         "type": "string"
                     },
                     "snoozed_until": {
+                        "type": "string"
+                    },
+                    "spec_task_description": {
                         "type": "string"
                     },
                     "spec_task_id": {
@@ -27006,6 +30370,19 @@
                     }
                 }
             },
+            "types.CodeAgentBakedRecipe": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "description": "Content is the substituted recipe YAML (full file content).",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is the slash-command slug (no leading slash).",
+                        "type": "string"
+                    }
+                }
+            },
             "types.CodeAgentConfig": {
                 "type": "object",
                 "properties": {
@@ -27020,6 +30397,25 @@
                     "base_url": {
                         "description": "BaseURL is the Helix proxy endpoint URL (e.g., \"https://helix.example.com/v1\")",
                         "type": "string"
+                    },
+                    "goose_baked_recipe": {
+                        "description": "GooseBakedRecipe, when set, holds a single recipe with parameters\npre-substituted, used by Phase 2b spec-task automation. The daemon\nwrites it to disk and registers a single slash_command so an initial\n\"/<slug>\" prompt fires the recipe.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.CodeAgentBakedRecipe"
+                            }
+                        ]
+                    },
+                    "goose_recipe_root_dir": {
+                        "description": "GooseRecipeRootDir is the absolute container path to the root of the\nrecipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments\nresolve relative paths correctly).",
+                        "type": "string"
+                    },
+                    "goose_recipes": {
+                        "description": "GooseRecipes lists project-declared Goose recipes with absolute paths\nresolved inside the desktop container. Only set when Runtime is\ngoose_code; consumed by settings-sync-daemon to write the goose\nslash_commands config.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.CodeAgentGooseRecipe"
+                        }
                     },
                     "max_output_tokens": {
                         "description": "MaxOutputTokens is the model's max completion tokens\nLooked up from model_info.json, 0 if not found",
@@ -27058,6 +30454,17 @@
                     "CodeAgentCredentialTypeSubscription"
                 ]
             },
+            "types.CodeAgentGooseRecipe": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.CodeAgentRuntime": {
                 "type": "string",
                 "enum": [
@@ -27065,14 +30472,16 @@
                     "qwen_code",
                     "claude_code",
                     "gemini_cli",
-                    "codex_cli"
+                    "codex_cli",
+                    "goose_code"
                 ],
                 "x-enum-varnames": [
                     "CodeAgentRuntimeZedAgent",
                     "CodeAgentRuntimeQwenCode",
                     "CodeAgentRuntimeClaudeCode",
                     "CodeAgentRuntimeGeminiCLI",
-                    "CodeAgentRuntimeCodexCLI"
+                    "CodeAgentRuntimeCodexCLI",
+                    "CodeAgentRuntimeGooseCode"
                 ]
             },
             "types.CommentQueueStatusResponse": {
@@ -27188,6 +30597,53 @@
                     },
                     "user_reference": {
                         "description": "User ID or email",
+                        "type": "string"
+                    }
+                }
+            },
+            "types.CreateAccessGrantResponse": {
+                "type": "object",
+                "properties": {
+                    "added_to_organization": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "description": "If granted to an organization",
+                        "type": "string"
+                    },
+                    "resource_id": {
+                        "description": "App ID, Knowledge ID, etc",
+                        "type": "string"
+                    },
+                    "roles": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.Role"
+                        }
+                    },
+                    "team_id": {
+                        "description": "If granted to a team",
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    },
+                    "user": {
+                        "description": "Populated by the server if UserID is set",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.User"
+                            }
+                        ]
+                    },
+                    "user_id": {
+                        "description": "If granted to a user",
                         "type": "string"
                     }
                 }
@@ -27415,6 +30871,16 @@
                         "description": "Optional: IDs of tasks this task depends on",
                         "type": "array",
                         "items": {
+                            "type": "string"
+                        }
+                    },
+                    "goose_recipe_name": {
+                        "description": "Goose recipe selection (only meaningful when the chosen agent's runtime\nis goose_code). GooseRecipeName must match one of the agent's declared\nrecipes; GooseRecipeParams are substituted into the recipe at session\nstart. Recipes declared on the agent but not selected here are still\navailable as runtime slash-commands inside the desktop.",
+                        "type": "string"
+                    },
+                    "goose_recipe_params": {
+                        "type": "object",
+                        "additionalProperties": {
                             "type": "string"
                         }
                     },
@@ -28951,14 +32417,16 @@
                     "waiting",
                     "editing",
                     "complete",
-                    "error"
+                    "error",
+                    "interrupted"
                 ],
                 "x-enum-varnames": [
                     "InteractionStateNone",
                     "InteractionStateWaiting",
                     "InteractionStateEditing",
                     "InteractionStateComplete",
-                    "InteractionStateError"
+                    "InteractionStateError",
+                    "InteractionStateInterrupted"
                 ]
             },
             "types.Item": {
@@ -30181,6 +33649,178 @@
                     }
                 }
             },
+            "types.OrgUsageSummaryResponse": {
+                "type": "object",
+                "properties": {
+                    "active_apps": {
+                        "type": "integer"
+                    },
+                    "active_projects": {
+                        "type": "integer"
+                    },
+                    "active_sessions": {
+                        "type": "integer"
+                    },
+                    "active_users": {
+                        "type": "integer"
+                    },
+                    "apps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_apps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_sessions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "export_users": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "filter_apps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageFilterOption"
+                        }
+                    },
+                    "filter_models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageFilterOption"
+                        }
+                    },
+                    "filter_projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageFilterOption"
+                        }
+                    },
+                    "filter_users": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageFilterOption"
+                        }
+                    },
+                    "metrics": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.AggregatedUsageMetric"
+                        }
+                    },
+                    "model_time_series": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageModelTimeSeries"
+                        }
+                    },
+                    "models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "project_models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "projects_total": {
+                        "type": "integer"
+                    },
+                    "sessions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "sessions_total": {
+                        "type": "integer"
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "tasks_total": {
+                        "type": "integer"
+                    },
+                    "users": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "users_total": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.OrgUserLookupResponse": {
+                "type": "object",
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "exists": {
+                        "description": "a Helix user account exists with this email",
+                        "type": "boolean"
+                    },
+                    "full_name": {
+                        "type": "string"
+                    },
+                    "invitation_id": {
+                        "type": "string"
+                    },
+                    "is_invited": {
+                        "description": "IsInvited — a pending invitation exists for this email in the queried\norg. Used by the invite UI to disable the \"Send invitation\" button so\nadmins don't accidentally double-invite.",
+                        "type": "boolean"
+                    },
+                    "is_member": {
+                        "description": "user is also a member of the queried org",
+                        "type": "boolean"
+                    },
+                    "user_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.Organization": {
                 "type": "object",
                 "properties": {
@@ -30251,6 +33891,44 @@
                         "items": {
                             "$ref": "#/components/schemas/types.Team"
                         }
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.OrganizationInvitation": {
+                "type": "object",
+                "properties": {
+                    "app_id": {
+                        "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "description": "Normalised to lowercase",
+                        "type": "string"
+                    },
+                    "grant_roles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "invited_by": {
+                        "description": "User ID of the inviter",
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/types.OrganizationRole"
                     },
                     "updated_at": {
                         "type": "string"
@@ -30648,6 +34326,14 @@
                     "updated_at": {
                         "type": "string"
                     },
+                    "user": {
+                        "description": "Populated by the server if UserID is set",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.User"
+                            }
+                        ]
+                    },
                     "user_id": {
                         "type": "string"
                     }
@@ -30670,6 +34356,31 @@
                     }
                 }
             },
+            "types.ProjectAgentGoose": {
+                "type": "object",
+                "properties": {
+                    "recipe_repo_url": {
+                        "type": "string"
+                    },
+                    "recipes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ProjectAgentGooseRecipe"
+                        }
+                    }
+                }
+            },
+            "types.ProjectAgentGooseRecipe": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.ProjectAgentSpec": {
                 "type": "object",
                 "properties": {
@@ -30678,6 +34389,9 @@
                     },
                     "display": {
                         "$ref": "#/components/schemas/types.ProjectAgentDisplay"
+                    },
+                    "goose": {
+                        "$ref": "#/components/schemas/types.ProjectAgentGoose"
                     },
                     "model": {
                         "type": "string"
@@ -31429,6 +35143,23 @@
                     "ProviderEndpointTypeTeam"
                 ]
             },
+            "types.PublicInvitationInfo": {
+                "type": "object",
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "organization_display_name": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.PullRequest": {
                 "type": "object",
                 "properties": {
@@ -31664,6 +35395,7 @@
                         "type": "integer"
                     },
                     "max_concurrent_desktops": {
+                        "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited.",
                         "type": "integer"
                     },
                     "max_desktop_sandboxes": {
@@ -32372,6 +36104,10 @@
                         "description": "Sandbox capacity",
                         "type": "integer"
                     },
+                    "compute_state": {
+                        "description": "ComputeState tracks the provider's view of the host's provisioning\nlifecycle. Distinct from Status (which is the heartbeat-derived\nonline/offline/degraded view). Values: \"provisioning\" | \"ready\" |\n\"terminating\" | \"terminated\" | \"failed\". See compute.State for\nthe canonical enum. Empty for self-registered hosts.",
+                        "type": "string"
+                    },
                     "created": {
                         "type": "string"
                     },
@@ -32432,6 +36168,25 @@
                     },
                     "profile_status": {
                         "description": "ProfileStatus tracks the compose stack lifecycle:\n\"\" | \"assigning\" | \"pulling\" | \"starting\" | \"running\" | \"failed\".",
+                        "type": "string"
+                    },
+                    "provider": {
+                        "description": "Provider is the Name() of the compute.Provider that owns this host.\nE.g. \"yellowdog\", \"gcp\", \"lambda\". Empty for self-registered hosts.",
+                        "type": "string"
+                    },
+                    "provider_id": {
+                        "description": "ProviderID is the upstream system's opaque identifier for this\nhost (e.g. a YellowDog work-requirement YDID). Forms a composite\nindex with Provider so the reconciler can look hosts up cheaply.",
+                        "type": "string"
+                    },
+                    "provider_metadata": {
+                        "description": "ProviderMetadata is provider-specific opaque data for\nreconciliation, debugging, and admin display. Examples for YD:\nworker-pool ID, compute requirement ID, region, public IP.",
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "provisioned_at": {
+                        "description": "ProvisionedAt is when Helix asked the provider to bring this host\nup. Earlier than Created (which is the first heartbeat). Nil for\nself-registered hosts.",
                         "type": "string"
                     },
                     "render_node": {
@@ -32536,9 +36291,6 @@
             "types.ServerConfigForFrontend": {
                 "type": "object",
                 "properties": {
-                    "active_concurrent_desktops": {
-                        "type": "integer"
-                    },
                     "apps_enabled": {
                         "type": "boolean"
                     },
@@ -32563,9 +36315,6 @@
                         "description": "\"mac-desktop\", \"server\", \"cloud\", etc.",
                         "type": "string"
                     },
-                    "eval_user_id": {
-                        "type": "string"
-                    },
                     "filestore_prefix": {
                         "type": "string"
                     },
@@ -32579,10 +36328,8 @@
                     "latest_version": {
                         "type": "string"
                     },
-                    "license": {
-                        "$ref": "#/components/schemas/types.FrontendLicenseInfo"
-                    },
                     "max_concurrent_desktops": {
+                        "description": "MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per\norganisation when the session has an org, per user otherwise.\n-1 = unlimited. Note: /config is unauthenticated, so this is the\nFree-tier floor; real enforcement uses the resolved per-user/per-org cap.",
                         "type": "integer"
                     },
                     "organizations_create_enabled_for_non_admins": {
@@ -32607,6 +36354,10 @@
                         "type": "string"
                     },
                     "sentry_dsn_frontend": {
+                        "type": "string"
+                    },
+                    "server_url": {
+                        "description": "ServerURL is the operator-configured public origin for this helix\ninstance (env SERVER_URL → WebServer.URL). Empty when not\nconfigured; the frontend then falls back to\n`window.location.origin`. The github-stream New Stream dialog\nuses this to surface a webhook URL that's actually reachable by\nGitHub — `window.location.origin` is wrong whenever the user is\nhitting the app via localhost / a dev port that GitHub can't\nreach.",
                         "type": "string"
                     },
                     "stripe_enabled": {
@@ -33688,6 +37439,16 @@
                         "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                         "type": "string"
                     },
+                    "goose_recipe_name": {
+                        "description": "Goose recipe binding (Phase 2b). When the parent project's agent uses\nthe goose_code runtime and the user picked a recipe at task-creation\ntime, GooseRecipeName names the AssistantGooseRecipe to invoke and\nGooseRecipeParams holds the parameter values to substitute. The Helix\nAPI bakes these into a CodeAgentBakedRecipe and pushes it to the\nsettings-sync-daemon, which writes a single slash_command pointing at\nthe substituted recipe YAML. Empty when no recipe was selected.",
+                        "type": "string"
+                    },
+                    "goose_recipe_params": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
                     "helix_app_id": {
                         "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
                         "type": "string"
@@ -33892,6 +37653,47 @@
                 "properties": {
                     "archived": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "types.SpecTaskAttachment": {
+                "type": "object",
+                "properties": {
+                    "caption": {
+                        "description": "optional user note",
+                        "type": "string"
+                    },
+                    "committed_sha": {
+                        "description": "helix-specs commit hash once staged",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "filename": {
+                        "description": "original filename, sanitised",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "att_01k...",
+                        "type": "string"
+                    },
+                    "mime_type": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "description": "denormalised for fast authz",
+                        "type": "string"
+                    },
+                    "size_bytes": {
+                        "type": "integer"
+                    },
+                    "spec_task_id": {
+                        "type": "string"
+                    },
+                    "user_id": {
+                        "description": "who uploaded",
+                        "type": "string"
                     }
                 }
             },
@@ -34554,6 +38356,16 @@
                         "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                         "type": "string"
                     },
+                    "goose_recipe_name": {
+                        "description": "Goose recipe binding (Phase 2b). When the parent project's agent uses\nthe goose_code runtime and the user picked a recipe at task-creation\ntime, GooseRecipeName names the AssistantGooseRecipe to invoke and\nGooseRecipeParams holds the parameter values to substitute. The Helix\nAPI bakes these into a CodeAgentBakedRecipe and pushes it to the\nsettings-sync-daemon, which writes a single slash_command pointing at\nthe substituted recipe YAML. Empty when no recipe was selected.",
+                        "type": "string"
+                    },
+                    "goose_recipe_params": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
                     "helix_app_id": {
                         "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
                         "type": "string"
@@ -35057,9 +38869,6 @@
                     "max_concurrent_desktop_sandboxes": {
                         "type": "integer"
                     },
-                    "max_concurrent_desktops": {
-                        "type": "integer"
-                    },
                     "max_concurrent_headless_sandboxes": {
                         "type": "integer"
                     },
@@ -35159,10 +38968,6 @@
                         "type": "string"
                     },
                     "max_concurrent_desktop_sandboxes": {
-                        "type": "integer"
-                    },
-                    "max_concurrent_desktops": {
-                        "description": "Per user",
                         "type": "integer"
                     },
                     "max_concurrent_headless_sandboxes": {
@@ -35610,7 +39415,7 @@
                     "tools": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/mcp.Tool"
+                            "$ref": "#/components/schemas/github_com_mark3labs_mcp-go_mcp.Tool"
                         }
                     },
                     "transport": {
@@ -36095,12 +39900,160 @@
                     }
                 }
             },
+            "types.UsageBreakdownRow": {
+                "type": "object",
+                "properties": {
+                    "cache_read_cost": {
+                        "type": "number"
+                    },
+                    "cache_read_tokens": {
+                        "type": "integer"
+                    },
+                    "cache_write_cost": {
+                        "type": "number"
+                    },
+                    "cache_write_tokens": {
+                        "type": "integer"
+                    },
+                    "completion_cost": {
+                        "type": "number"
+                    },
+                    "completion_tokens": {
+                        "type": "integer"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "ended_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "interaction_id": {
+                        "type": "string"
+                    },
+                    "last_activity_at": {
+                        "type": "string"
+                    },
+                    "latency_ms": {
+                        "type": "number"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "prompt_cost": {
+                        "type": "number"
+                    },
+                    "prompt_tokens": {
+                        "type": "integer"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "request_size_bytes": {
+                        "type": "integer"
+                    },
+                    "response_size_bytes": {
+                        "type": "integer"
+                    },
+                    "session_count": {
+                        "type": "integer"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    },
+                    "total_cost": {
+                        "type": "number"
+                    },
+                    "total_requests": {
+                        "type": "integer"
+                    },
+                    "total_tokens": {
+                        "type": "integer"
+                    },
+                    "unique_apps": {
+                        "type": "integer"
+                    },
+                    "unique_projects": {
+                        "type": "integer"
+                    },
+                    "unique_sessions": {
+                        "type": "integer"
+                    },
+                    "unique_users": {
+                        "type": "integer"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.UsageFilterOption": {
+                "type": "object",
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.UsageModelTimeSeries": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "metrics": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.AggregatedUsageMetric"
+                        }
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.User": {
                 "type": "object",
                 "properties": {
                     "admin": {
                         "description": "if the ID of the user is contained in the env setting",
                         "type": "boolean"
+                    },
+                    "alpha_features": {
+                        "description": "AlphaFeatures lists the feature flags this user has been granted\naccess to. Server-enforced via requireFeature middleware — the\nfrontend uses it only to decide whether to render the entry\npoint. Granted per-user via SQL (no deploy).",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "app_id": {
                         "description": "if the token is associated with an app",
@@ -36145,6 +40098,10 @@
                         "description": "Organization this API key is scoped to (ephemeral keys)",
                         "type": "string"
                     },
+                    "pending_admin_credits_on_first_org": {
+                        "description": "PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the\n/admin/users/{id}/credits endpoint when the user has no owned org yet.\nConsumed by consumeUserAdminCredits on first owned org, then cleared.\nKept separate from TrialCreditsOnFirstOrg so admins can comp credits\nwithout entangling the grant with trial-state UI or revocation flows.",
+                        "type": "number"
+                    },
                     "project_id": {
                         "description": "When running in Helix Code sandbox",
                         "type": "string"
@@ -36171,6 +40128,23 @@
                                 "$ref": "#/components/schemas/types.TokenType"
                             }
                         ]
+                    },
+                    "trial_credits_on_first_org": {
+                        "type": "number"
+                    },
+                    "trial_days_on_first_org": {
+                        "description": "Trial intent stashed by admin before the user has created their first org.\nConsumed by wallet creation on first owned org, then cleared.",
+                        "type": "integer"
+                    },
+                    "trial_ends_at": {
+                        "type": "integer"
+                    },
+                    "trial_org_id": {
+                        "type": "string"
+                    },
+                    "trial_status": {
+                        "description": "Transient trial-display fields populated by the admin users list when\n?include=trial is set. Not persisted (gorm:\"-\") and not emitted unless\nexplicitly populated (json:\"...,omitempty\").",
+                        "type": "string"
                     },
                     "type": {
                         "description": "these are set by the keycloak user based on the token\nif it's an app token - the keycloak user is loaded from the owner of the app\nif it's a runner token - these values will be empty",
@@ -36229,6 +40203,30 @@
                     },
                     "top_p": {
                         "type": "number"
+                    }
+                }
+            },
+            "types.UserConfig": {
+                "type": "object",
+                "properties": {
+                    "color_scheme": {
+                        "description": "ColorScheme is the user's preferred UI color scheme: \"light\" or \"dark\".\nEmpty string means follow OS preference. Propagated to the GNOME desktop\n(gsettings color-scheme) and Zed editor inside spec-task sessions owned\nby this user.",
+                        "type": "string"
+                    },
+                    "pinned_project_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "stripe_customer_id": {
+                        "type": "string"
+                    },
+                    "stripe_subscription_active": {
+                        "type": "boolean"
+                    },
+                    "stripe_subscription_id": {
+                        "type": "string"
                     }
                 }
             },
@@ -36293,6 +40291,12 @@
                     "admin": {
                         "type": "boolean"
                     },
+                    "alpha_features": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "email": {
                         "type": "string"
                     },
@@ -36353,6 +40357,27 @@
                     },
                     "user": {
                         "$ref": "#/components/schemas/types.User"
+                    }
+                }
+            },
+            "types.UserStatus": {
+                "type": "object",
+                "properties": {
+                    "admin": {
+                        "type": "boolean"
+                    },
+                    "config": {
+                        "$ref": "#/components/schemas/types.UserConfig"
+                    },
+                    "license": {
+                        "$ref": "#/components/schemas/types.FrontendLicenseInfo"
+                    },
+                    "slug": {
+                        "description": "User slug for GitHub-style URLs",
+                        "type": "string"
+                    },
+                    "user": {
+                        "type": "string"
                     }
                 }
             },

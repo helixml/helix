@@ -12,10 +12,20 @@ import {
 } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/People';
 import { X, User } from 'lucide-react';
-import { TypesAccessGrant, TypesCreateAccessGrantRequest } from '../../api/api';
+import {
+  TypesAccessGrant,
+  TypesAction,
+  TypesCreateAccessGrantRequest,
+  TypesCreateAccessGrantResponse,
+  TypesEffect,
+  TypesResource,
+} from '../../api/api';
 import AccessManagement from '../app/AccessManagement';
 
 const MAX_VISIBLE_AVATARS = 3;
+
+type UserSummary = { full_name?: string; email?: string; id?: string; admin?: boolean };
+type ProjectOwnerSummary = { full_name?: string; email?: string; id?: string };
 
 interface MemberInfo {
   key: string;
@@ -103,10 +113,11 @@ interface InviteDialogProps {
   projectId: string;
   organizationId?: string;
   isOwnerOrAdmin: boolean;
-  currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
+  currentUser?: UserSummary;
   projectOwnerId?: string;
+  projectOwner?: ProjectOwnerSummary;
   accessGrants: TypesAccessGrant[];
-  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
+  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
 
@@ -118,6 +129,7 @@ const InviteDialog: FC<InviteDialogProps> = ({
   isOwnerOrAdmin,
   currentUser,
   projectOwnerId,
+  projectOwner,
   accessGrants,
   onCreateGrant,
   onDeleteGrant,
@@ -142,8 +154,10 @@ const InviteDialog: FC<InviteDialogProps> = ({
             accessGrants={accessGrants}
             isLoading={false}
             isReadOnly={!isOwnerOrAdmin}
+            organizationId={organizationId}
             currentUser={currentUser}
             projectOwnerId={projectOwnerId}
+            projectOwner={projectOwner}
             onCreateGrant={onCreateGrant}
             onDeleteGrant={onDeleteGrant}
           />
@@ -161,21 +175,48 @@ const InviteDialog: FC<InviteDialogProps> = ({
 };
 
 export interface ProjectMembersBarProps {
-  currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
+  currentUser?: UserSummary;
   projectOwnerId?: string;
+  projectOwner?: ProjectOwnerSummary;
   projectId: string;
   organizationId?: string;
   accessGrants: TypesAccessGrant[];
   inviteOpen: boolean;
   onOpenInvite: () => void;
   onCloseInvite: () => void;
-  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
+  onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
+}
+
+function grantAllowsAccessGrantManagement(grant: TypesAccessGrant): boolean {
+  return (grant.roles || []).some((role) => {
+    if (role.name?.toLowerCase() === 'admin') {
+      return true;
+    }
+
+    return (role.config?.rules || []).some((rule) => {
+      if (rule.effect !== TypesEffect.EffectAllow) {
+        return false;
+      }
+
+      const resources = rule.resource || [];
+      const actions = rule.actions || [];
+      const canManageAccessGrants = (
+        resources.includes(TypesResource.ResourceAccessGrants) ||
+        resources.includes(TypesResource.ResourceAny)
+      );
+      const canCreate = actions.includes(TypesAction.ActionCreate);
+      const canDelete = actions.includes(TypesAction.ActionDelete);
+
+      return canManageAccessGrants && canCreate && canDelete;
+    });
+  });
 }
 
 const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
   currentUser,
   projectOwnerId,
+  projectOwner,
   projectId,
   organizationId,
   accessGrants,
@@ -185,21 +226,31 @@ const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
   onCreateGrant,
   onDeleteGrant,
 }) => {
+  const ownerUser = projectOwner || (currentUser?.id === projectOwnerId ? currentUser : undefined);
+  const visibleAccessGrants = projectOwnerId
+    ? accessGrants.filter((grant) => grant.user_id !== projectOwnerId)
+    : accessGrants;
+  const hasPrimaryMember = !!projectOwnerId || !!currentUser?.id;
+
   // Build the list of visible avatars + placeholders
-  const totalPeople = 1 + accessGrants.length; // current user + grants
+  const totalPeople = (hasPrimaryMember ? 1 : 0) + visibleAccessGrants.length;
   const realCount = Math.min(MAX_VISIBLE_AVATARS, totalPeople);
   const placeholderCount = Math.max(0, MAX_VISIBLE_AVATARS - totalPeople);
   const overflowCount = Math.max(0, totalPeople - MAX_VISIBLE_AVATARS);
 
   const members: MemberInfo[] = [];
 
-  // Current user is always first
-  const userInitial = (currentUser?.full_name || currentUser?.email || '?')[0].toUpperCase();
-  members.push({ key: 'current-user', label: userInitial });
+  if (projectOwnerId) {
+    const ownerInitial = (ownerUser?.full_name || ownerUser?.email || '?')[0].toUpperCase();
+    members.push({ key: 'project-owner', label: ownerInitial });
+  } else if (currentUser?.id) {
+    const userInitial = (currentUser.full_name || currentUser.email || '?')[0].toUpperCase();
+    members.push({ key: 'current-user', label: userInitial });
+  }
 
   // Add grant users (up to remaining visible slots)
-  const grantSlots = realCount - 1; // minus the current user slot
-  accessGrants.slice(0, grantSlots).forEach((grant) => {
+  const grantSlots = hasPrimaryMember ? realCount - 1 : realCount;
+  visibleAccessGrants.slice(0, grantSlots).forEach((grant) => {
     const initial = (grant.user?.full_name || grant.user?.email || '?')[0].toUpperCase();
     members.push({ key: grant.id || `grant-${initial}`, label: initial });
   });
@@ -209,7 +260,10 @@ const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
     members.push({ key: `placeholder-${i}`, isPlaceholder: true, label: '' });
   }
 
-  const isOwnerOrAdmin = currentUser?.id === projectOwnerId || !!currentUser?.admin;
+  const currentUserCanManageAccess = !!currentUser?.id && accessGrants.some((grant) => {
+    return grant.user_id === currentUser.id && grantAllowsAccessGrantManagement(grant);
+  });
+  const isOwnerOrAdmin = currentUser?.id === projectOwnerId || !!currentUser?.admin || currentUserCanManageAccess;
 
   return (
     <>
@@ -226,6 +280,7 @@ const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
         isOwnerOrAdmin={isOwnerOrAdmin}
         currentUser={currentUser}
         projectOwnerId={projectOwnerId}
+        projectOwner={projectOwner}
         accessGrants={accessGrants}
         onCreateGrant={onCreateGrant}
         onDeleteGrant={onDeleteGrant}

@@ -23,10 +23,14 @@ import (
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listTeams(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	// Check if user has access to view teams
-	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgMember(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org member")
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
@@ -57,10 +61,14 @@ func (apiServer *HelixAPIServer) listTeams(rw http.ResponseWriter, r *http.Reque
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createTeam(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 
 	// Check if user has access to create teams (needs to be an owner)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
@@ -116,11 +124,15 @@ func (apiServer *HelixAPIServer) createTeam(rw http.ResponseWriter, r *http.Requ
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) updateTeam(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	teamID := mux.Vars(r)["team_id"]
 
 	// Check if user has access to update teams (needs to be an owner)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
@@ -169,11 +181,15 @@ func (apiServer *HelixAPIServer) updateTeam(rw http.ResponseWriter, r *http.Requ
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) deleteTeam(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	teamID := mux.Vars(r)["team_id"]
 
 	// Check if user has access to delete teams (needs to be an owner)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
@@ -211,11 +227,15 @@ func (apiServer *HelixAPIServer) deleteTeam(rw http.ResponseWriter, r *http.Requ
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listTeamMembers(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	teamID := mux.Vars(r)["team_id"]
 
 	// Check if user has access to view team members
-	_, err := apiServer.authorizeOrgMember(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgMember(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org member")
 		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
@@ -246,11 +266,15 @@ func (apiServer *HelixAPIServer) listTeamMembers(rw http.ResponseWriter, r *http
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	teamID := mux.Vars(r)["team_id"]
 
 	// Check if user has access to add members to the team (needs to be an owner)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
@@ -300,22 +324,19 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Check for existing membership
+	// Check for existing membership — if so, treat as no-op and return the existing row
 	existingMembership, err := apiServer.Store.GetTeamMembership(r.Context(), &store.GetTeamMembershipQuery{
 		TeamID: teamID,
 		UserID: newMember.ID,
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Err(err).Msg("error getting team membership")
-		if !errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// OK
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if existingMembership != nil {
-		http.Error(rw, "User already a member of the team", http.StatusBadRequest)
+		writeResponse(rw, existingMembership, http.StatusOK)
 		return
 	}
 
@@ -338,12 +359,16 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 
 func (apiServer *HelixAPIServer) removeTeamMember(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["id"]
+	orgID, err := apiServer.resolveOrgID(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
 	teamID := mux.Vars(r)["team_id"]
 	memberUserID := mux.Vars(r)["user_id"]
 
 	// Check if user has access to remove members from the team (needs to be an owner)
-	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
+	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)

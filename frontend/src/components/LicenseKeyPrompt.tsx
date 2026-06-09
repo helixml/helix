@@ -102,15 +102,15 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         From $199/year for individual developer licenses
       </Typography>
-      {account.serverConfig?.license && (
+      {account.license && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           License Expired! Organization:{" "}
-          {account.serverConfig.license.organization} | Valid Until:{" "}
+          {account.license.organization} | Valid Until:{" "}
           {new Date(
-            account.serverConfig.license.valid_until,
+            account.license.valid_until,
           ).toLocaleDateString()}{" "}
-          | Users: {account.serverConfig.license.limits?.users} | Machines:{" "}
-          {account.serverConfig.license.limits?.machines}
+          | Users: {account.license.limits?.users} | Machines:{" "}
+          {account.license.limits?.machines}
         </Alert>
       )}
       <Typography paragraph>

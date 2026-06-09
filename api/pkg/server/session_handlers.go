@@ -524,8 +524,16 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
-		if session.Owner != user.ID {
-			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		// Authorize via the unified session RBAC (org owner / project owner /
+		// project grant), NOT a strict owner-equality check. The read path
+		// (getSessionHandler) already uses authorizeUserToSession for ActionGet,
+		// so an org member who can VIEW a session could not chat into it — the
+		// inconsistency that left org-shared sessions (helix-org Worker "Human
+		// Desktop", team desktops) un-chattable by anyone but the literal owner,
+		// surfacing as a repeated 401 on POST /sessions/chat. ActionUpdate keeps
+		// read-only members from driving the agent.
+		if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+			http.Error(rw, err.Error(), http.StatusForbidden)
 			return
 		}
 
@@ -1641,13 +1649,15 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 		case <-ticker.C:
 			attemptCount++
 
-			// Check if any external Zed agent WebSocket connections exist
-			connections := s.externalAgentWSManager.listConnections()
-			log.Info().
-				Int("connection_count", len(connections)).
-				Interface("connections", connections).
-				Msg("🔍 [HELIX] Checking external agent connections")
-			if len(connections) > 0 {
+			// Check if THIS session's agent WebSocket has actually
+			// connected. The previous check looked at the global
+			// connection list (>0), which falsely returned ready as
+			// soon as any other session's agent was connected — so a
+			// brand-new session that hadn't yet dialed home got a
+			// premature "ready", and the immediately-following
+			// dispatch failed with "no external agent WebSocket
+			// connection". Per-session check fixes the race.
+			if _, ok := s.externalAgentWSManager.getConnection(sessionID); ok {
 				elapsed := time.Since(startTime)
 				log.Info().
 					Str("session_id", sessionID).
@@ -1888,7 +1898,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Str("user_id", user.ID).
 		Msg("Resume session request")
 
-	// Get the session to check if it's an external agent session
 	session, err := s.Controller.Options.Store.GetSession(ctx, id)
 	if err != nil {
 		log.Error().
@@ -1899,13 +1908,11 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
-	if err != nil {
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
-	// Check if this is an external agent session
 	if session.Metadata.AgentType != "zed_external" {
 		log.Warn().
 			Str("session_id", id).
@@ -1920,22 +1927,40 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Create a new ZedAgent request to restart the agent
-	// We need to get the spec task ID if this was a spec task session
+	result, err := s.resumeSessionInternal(ctx, user, session)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(result)
+}
+
+// resumeSessionInternal starts or restarts the external Zed agent container for an
+// existing session, preserving session.Metadata.ZedThreadID so the new container
+// reattaches to the existing thread on reconnect. Zed reloads the thread from the
+// persistent threads.db in the session's workspace volume, and the underlying agent
+// (claude-code, qwen, gemini, codex, etc.) reloads its own session state from the
+// same volume — so prior conversation context is preserved across restart.
+//
+// Callers must validate the session (auth, AgentType == "zed_external", executor
+// available) before invoking. Used by /sessions/{id}/resume (user clicks Resume
+// on a stopped session) and /sessions/{id}/restart-agent (user clicks Restart
+// after the in-container agent process crashed).
+func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.User, session *types.Session) (*types.SessionResumeResponse, error) {
+	id := session.ID
 	specTaskID := session.Metadata.SpecTaskID
 
-	// Build the ZedAgent config for resume
 	agent := &types.DesktopAgent{
 		SessionID:   id,
 		UserID:      user.ID,
 		Input:       "Resume session",
 		ProjectPath: "workspace",
 		SpecTaskID:  specTaskID,
-		// WorkDir left empty - sandbox uses its own storage
 	}
 
 	if specTaskID != "" {
-		// SpecTask session - get project from task
 		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
 			log.Warn().
@@ -1947,7 +1972,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			agent.OrganizationID = specTask.OrganizationID
 		}
 	} else if session.Metadata.ProjectID != "" {
-		// Exploratory session - get project from session metadata
 		agent.ProjectID = session.Metadata.ProjectID
 		agent.OrganizationID = session.OrganizationID
 		log.Info().
@@ -1961,10 +1985,8 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("failed to get project '%s': %s", agent.ProjectID, err.Error()), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("failed to get project '%s': %w", agent.ProjectID, err)
 	}
-	// If we have a project, load repositories and startup script
 
 	projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		ProjectID: agent.ProjectID,
@@ -1977,7 +1999,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			}
 		}
 
-		// Set primary repository: prefer project's configured default, fall back to first repo
 		primaryRepoID := project.DefaultRepoID
 		if primaryRepoID == "" {
 			primaryRepoID = projectRepos[0].ID
@@ -1985,8 +2006,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		agent.PrimaryRepositoryID = primaryRepoID
 	}
 
-	// Get display settings from app's ExternalAgentConfig (or use defaults)
-	// The app ID comes from session.ParentApp (the agent assigned to the session)
 	if session.ParentApp != "" {
 		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -1996,7 +2015,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
-			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
 			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
 			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
 			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
@@ -2026,30 +2044,24 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Str("spec_task_id", specTaskID).
 		Msg("Resuming external agent session")
 
-	// Start the external agent (this will create a new sandbox container)
 	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("session_id", id).
 			Msg("Failed to resume external agent")
-		http.Error(rw, fmt.Sprintf("failed to resume agent: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("failed to resume agent: %w", err)
 	}
 
 	// Re-fetch the session after StartDesktop to get updated metadata (SwayVersion, GPUVendor, etc.)
 	// StartDesktop updates the session in DB - using the stale session would overwrite those changes.
-	// Use a temporary variable so session is never overwritten with nil on error.
 	if refetched, refetchErr := s.Controller.Options.Store.GetSession(ctx, id); refetchErr != nil {
 		log.Error().
 			Err(refetchErr).
 			Str("session_id", id).
 			Msg("Failed to re-fetch session after StartDesktop")
-		// Continue with stale session — container is running, just metadata might be slightly stale
 	} else {
 		session = refetched
-		// Update session metadata with new container info (only if non-empty)
-		// Don't overwrite existing metadata with empty values from lobby reuse
 		if response.DevContainerID != "" {
 			session.Metadata.DevContainerID = response.DevContainerID
 		}
@@ -2061,7 +2073,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 				Err(updateErr).
 				Str("session_id", id).
 				Msg("Failed to update session metadata with new lobby info")
-			// Don't fail the request - the agent is running
 		}
 	}
 
@@ -2073,12 +2084,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	// If session has a ZedThreadID, send open_thread command to Zed
 	// This tells Zed to open the last thread in the AgentPanel UI
 	if session.Metadata.ZedThreadID != "" {
-		// Get the agent name from the session's code agent runtime
 		agentName := session.Metadata.CodeAgentRuntime.ZedAgentName()
 
 		go func() {
-			// Wait for Zed WebSocket to connect (typically takes 3-4 seconds)
-			// Retry mechanism: try multiple times with delays
 			maxRetries := 5
 			retryDelay := 2 * time.Second
 
@@ -2087,7 +2095,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID, agentName)
 				if err == nil {
-					// Success - command sent
 					log.Info().
 						Str("session_id", id).
 						Str("thread_id", session.Metadata.ZedThreadID).
@@ -2097,7 +2104,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 					return
 				}
 
-				// Log retry attempt
 				log.Warn().
 					Err(err).
 					Str("session_id", id).
@@ -2107,7 +2113,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 					Msg("Retrying open_thread command (WebSocket not connected yet)")
 			}
 
-			// All retries exhausted - log final failure
 			log.Error().
 				Str("session_id", id).
 				Str("thread_id", session.Metadata.ZedThreadID).
@@ -2116,16 +2121,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}()
 	}
 
-	// Return success response
-	result := types.SessionResumeResponse{
+	return &types.SessionResumeResponse{
 		SessionID:      id,
 		Status:         "resumed",
 		DevContainerID: response.DevContainerID,
 		ScreenshotURL:  response.ScreenshotURL,
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(result)
+	}, nil
 }
 
 // sendOpenThreadCommand sends an open_thread command to Zed via WebSocket
@@ -2310,12 +2311,16 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 }
 
 // restartCrashedAgentThread godoc
-// @Summary Restart Zed thread after a Claude Agent crash
-// @Description Clears the dead acp_thread_id on the session and resets crashed prompts
-// @Description (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
-// @Description back to pending. The next dispatch sends with empty acp_thread_id, causing
-// @Description Zed to create a fresh thread + Claude Agent process. Requires the session
-// @Description to be an external Zed agent. Returns the count of prompts that were reset.
+// @Summary Restart the external agent after an in-container crash
+// @Description Tears down the half-dead desktop container and brings up a fresh one
+// @Description via the same resume path used by /sessions/{id}/resume. The session's
+// @Description ZedThreadID is preserved, so Zed reloads the existing thread from the
+// @Description persistent threads.db in the workspace volume and the underlying agent
+// @Description (claude-code, qwen, etc.) reloads its session from disk — prior
+// @Description conversation context is restored. Crashed prompts are reset to pending
+// @Description and the queue is kicked so they re-dispatch on the new container.
+// @Description Requires the session to be an external Zed agent. Returns the count of
+// @Description prompts that were reset.
 // @Tags Sessions
 // @Produce json
 // @Param id path string true "Session ID"
@@ -2346,19 +2351,29 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	if session.Metadata.AgentType != "zed_external" {
 		return nil, system.NewHTTPError400("session does not have an external Zed agent")
 	}
+	if s.externalAgentExecutor == nil {
+		return nil, system.NewHTTPError500("external agent executor not available")
+	}
 
-	// Drop the dead acp_thread_id so the next dispatched chat_message goes out with
-	// an empty thread id; Zed treats that as "create a new thread" and spins up a
-	// fresh Claude Agent ACP wrapper. The dead thread is left in Zed's UI as a
-	// zombie until the desktop container restarts; cleaning it up actively would
-	// require a delete-thread RPC we don't have today and is out of scope for the
-	// crash-recovery path. Losing the dead thread's chat history is unavoidable —
-	// the wrapper process took it with it.
 	previousThreadID := session.Metadata.ZedThreadID
-	session.Metadata.ZedThreadID = ""
-	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to clear ZedThreadID for restart")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update session: %s", err.Error()))
+
+	// Tear down the half-dead container so the resume path below brings up a clean
+	// one — the in-container agent process has crashed but the surrounding Zed
+	// wrapper / container may still be running with stale state. StopDesktop is
+	// best-effort: if the container is already gone, that's fine; the workspace
+	// volume (which holds threads.db and the agent's session state) is preserved
+	// either way and will be remounted into the new container.
+	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("StopDesktop during crash-restart failed (continuing — container may already be gone)")
+	}
+
+	// Recreate the container via the shared resume path. ZedThreadID is preserved,
+	// so on reconnect Zed reloads the existing thread from threads.db and the
+	// agent (claude-code, qwen, gemini, codex, etc.) reloads its own session from
+	// the persistent workspace volume — full conversation context is restored.
+	if _, err := s.resumeSessionInternal(ctx, user, session); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resume session during crash-restart")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart agent: %s", err.Error()))
 	}
 
 	resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, sessionID)
@@ -2370,14 +2385,11 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	log.Info().
 		Str("session_id", sessionID).
 		Str("user_id", user.ID).
-		Str("previous_zed_thread_id", previousThreadID).
+		Str("zed_thread_id", previousThreadID).
 		Int("prompts_reset", resetCount).
-		Msg("🔄 [HELIX] User-triggered Restart after Claude Agent crash — cleared ZedThreadID and reset crashed prompts")
+		Msg("🔄 [HELIX] User-triggered Restart after agent crash — recreated container, preserved ZedThreadID, reset crashed prompts")
 
-	// Kick the queue so the reset prompts get dispatched promptly. If the agent is
-	// asleep, sendCommandToExternalAgent will trigger autoStartDevContainerForSession
-	// (the no-WS path from PR #2311 keeps the prompt in 'sending' for delivery via
-	// pickupWaitingInteraction once the container reconnects).
+	// Kick the queue so the reset prompts get dispatched on the new container.
 	go s.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return map[string]any{

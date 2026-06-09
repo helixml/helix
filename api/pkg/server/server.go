@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -31,17 +32,20 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
-	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/sandbox"
+	"github.com/helixml/helix/api/pkg/sandbox/compute"
+	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -81,9 +85,17 @@ type Options struct {
 // activeStreamProxy tracks a single active WebSocket proxy for deduplication.
 // When the same browser tab reconnects (same session + client_id), the previous
 // proxy is cancelled to prevent cascading duplicate connections.
+//
+// proxy is populated after NewResilientProxy is constructed so that a supersede
+// can send a clean WebSocket close frame (code 4000 "superseded") on the old
+// client connection before cancelling — otherwise the supersede manifests as a
+// raw TCP close (code 1006) which the browser indistinguishably treats as a
+// network failure and reconnects from, fueling a reconnect storm.
+// See design/2026-05-21-stream-reconnect-storm-root-cause.md.
 type activeStreamProxy struct {
 	proxySessionID string
 	cancel         context.CancelFunc
+	proxy          *proxy.ResilientProxy
 }
 
 type HelixAPIServer struct {
@@ -102,15 +114,15 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string   // Zed context_id -> Helix session_id mapping
-	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
+	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
 	// (interaction → prompt link is now persisted on Interaction.PromptID
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
-	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
+	externalAgentSessionMapping map[string]string      // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // agent_session_id -> timeout timer for current comment
@@ -154,14 +166,21 @@ type HelixAPIServer struct {
 	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
-	syncEventHook              SyncEventHook // optional test hook, nil in production
-	startTime          time.Time              // when the server started, for grace periods
-	modelFetchGroup    singleflight.Group     // deduplicates concurrent getProviderModels calls per cache key
+	syncEventHook              SyncEventHook      // optional test hook, nil in production
+	startTime                  time.Time          // when the server started, for grace periods
+	modelFetchGroup            singleflight.Group // deduplicates concurrent getProviderModels calls per cache key
 	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
 	activeStreamProxies   map[string]*activeStreamProxy
 	activeStreamProxiesMu sync.Mutex
 	// Sandboxes API: ephemeral user-created containers
 	sandboxController *sandbox.Controller
+
+	// computeManager pre-provisions sandbox HOSTS via a cloud
+	// compute.Provider (currently only yellowdog). Nil when
+	// HELIX_COMPUTE_PROVIDER is unset - in that case the legacy
+	// self-registered host path is the only way SandboxInstance rows
+	// get created. See api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
+	computeManager *compute.Manager
 }
 
 func NewServer(
@@ -313,25 +332,25 @@ func NewServer(
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
 	apiServer := &HelixAPIServer{
-		Cfg:                         cfg,
-		Store:                       store,
-		Stripe:                      stripe,
-		startTime:                   time.Now(),
-		quotaManager:                quotaManager,
-		Controller:                  appController,
-		Janitor:                     janitor,
-		gitRepositoryService:        gitRepositoryService,
-		externalAgentExecutor:       externalAgentExecutor,
-		externalAgentWSManager:      externalAgentWSManager,
-		externalAgentRunnerManager:  externalAgentRunnerManager,
-		contextMappings:             make(map[string]string),
+		Cfg:                        cfg,
+		Store:                      store,
+		Stripe:                     stripe,
+		startTime:                  time.Now(),
+		quotaManager:               quotaManager,
+		Controller:                 appController,
+		Janitor:                    janitor,
+		gitRepositoryService:       gitRepositoryService,
+		externalAgentExecutor:      externalAgentExecutor,
+		externalAgentWSManager:     externalAgentWSManager,
+		externalAgentRunnerManager: externalAgentRunnerManager,
+		contextMappings:            make(map[string]string),
 
 		requestToSessionMapping:     make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
-		sessionCommentTimeout:     make(map[string]*time.Timer),
-		requestToCommenterMapping: make(map[string]string),
+		sessionCommentTimeout:       make(map[string]*time.Timer),
+		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 		activeStreamProxies:         make(map[string]*activeStreamProxy),
@@ -343,10 +362,10 @@ func NewServer(
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 		},
-		knowledgeManager:  knowledgeManager,
-		skillManager:      skillManager,
-		inferenceRouter:   inferencerouter.NewRouter(),
-		pingService:       pingService,
+		knowledgeManager: knowledgeManager,
+		skillManager:     skillManager,
+		inferenceRouter:  inferencerouter.NewRouter(),
+		pingService:      pingService,
 		// Note: inferenceServer's router wired below post-construction
 		// (avoids order-of-init issues with the apiServer literal).
 		authenticator:     authenticator,
@@ -390,28 +409,43 @@ func NewServer(
 		"/data/workspaces/sandboxes",
 	)
 
+	// Bootstrap the compute subsystem (cloud-side host provisioning).
+	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving
+	// Helix on the legacy self-registered-host path. A non-nil error
+	// is fatal: better to fail boot than start with a misconfigured
+	// Manager that silently drops Provision calls.
+	computeManager, err := bootstrap.Bootstrap(cfg.Compute, store)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap compute subsystem: %w", err)
+	}
+	apiServer.computeManager = computeManager
+
 	// Sandbox-absorbs-runner: wire the inference router into the
 	// internal helix server so it picks sandboxes by model name. Safe
 	// to call even when no sandboxes are connected — the router returns
 	// ErrNoRunner and enqueueRequest falls back to the scheduler path.
 	if apiServer.inferenceServer != nil {
 		apiServer.inferenceServer.SetInferenceRouter(apiServer.inferenceRouter)
+		// Inference is dispatched to a sandbox over its RevDial tunnel, keyed
+		// by sandbox id — never by network host. Works for sandboxes on any
+		// network, including behind NAT.
+		apiServer.inferenceServer.SetDialer(apiServer.connman)
 	}
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{
-		ContextMappingsMutex:          &apiServer.contextMappingsMutex,
-		RequestToSessionMapping:       &apiServer.requestToSessionMapping,
-		RequestToInteractionMapping:   &apiServer.requestToInteractionMapping,
+		ContextMappingsMutex:        &apiServer.contextMappingsMutex,
+		RequestToSessionMapping:     &apiServer.requestToSessionMapping,
+		RequestToInteractionMapping: &apiServer.requestToInteractionMapping,
 	}
 
 	apiServer.Controller.SetExternalAgentHooks(controller.ExternalAgentHooks{
-		WaitForExternalAgentReady: apiServer.waitForExternalAgentReady,
-		GetAgentNameForSession:    apiServer.getAgentNameForSession,
-		SendCommand:               apiServer.sendCommandToExternalAgent,
-		StoreResponseChannel:      apiServer.storeResponseChannel,
-		CleanupResponseChannel:    apiServer.cleanupResponseChannel,
+		WaitForExternalAgentReady:    apiServer.waitForExternalAgentReady,
+		GetAgentNameForSession:       apiServer.getAgentNameForSession,
+		SendCommand:                  apiServer.sendCommandToExternalAgent,
+		StoreResponseChannel:         apiServer.storeResponseChannel,
+		CleanupResponseChannel:       apiServer.cleanupResponseChannel,
 		SetRequestInteractionMapping: contextMappings.SetRequestInteractionMapping,
-		SetRequestSessionMapping:  contextMappings.SetRequestSessionMapping,
+		SetRequestSessionMapping:     contextMappings.SetRequestSessionMapping,
 	})
 
 	// Initialize auth middleware with session manager for BFF authentication
@@ -520,10 +554,14 @@ func NewServer(
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
-	// Set the project secrets callback for injecting secrets as env vars into desktop containers
-	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
+	// Wire project-secret injection into HydraExecutor so every desktop container
+	// (spec task, exploratory session, resume) picks up project secrets without
+	// each caller having to remember.
+	externalAgentExecutor.SetProjectSecretsGetter(apiServer.GetProjectSecretsAsEnvVars)
+	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
+	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
 
 	// Initialize Attention Service for human-needed event notifications
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
@@ -650,6 +688,31 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
+	// Reap stale runner registrations: sandbox_instances rows whose
+	// last_seen is older than the stale-threshold get their status
+	// flipped to "offline" so the admin UI + the FindAvailable selector
+	// stop treating dead Runners as available. Thresholds configurable
+	// via HELIX_SANDBOX_REAPER_INTERVAL / HELIX_SANDBOX_STALE_THRESHOLD.
+	go apiServer.startSandboxInstanceReaper(
+		ctx,
+		apiServer.Cfg.SandboxReaperInterval,
+		apiServer.Cfg.SandboxStaleThreshold,
+	)
+
+	// Compute manager reconcile loop: brings sandbox hosts into
+	// existence via a cloud Provider (currently only YellowDog) and
+	// keeps the count at Floor. Nil when HELIX_COMPUTE_PROVIDER is
+	// unset - in that case Helix is fully on the legacy self-registered
+	// host path and no goroutine is started. Logged-and-skip rather
+	// than fatal so existing deployments are unaffected.
+	if apiServer.computeManager != nil {
+		go func() {
+			if err := apiServer.computeManager.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error().Err(err).Msg("compute manager Run exited with unexpected error")
+			}
+		}()
+	}
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
@@ -710,7 +773,7 @@ func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 	return true
 }
 
-func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
+func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {
@@ -741,6 +804,95 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// admin auth requires a user with admin flag
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
+
+	// helix-org alpha: embed the standalone helix-org HTTP surface as
+	// an in-process handler, gated per-user by the `helix-org` alpha
+	// feature. See design/2026-05-17-helix-org-saas-alpha.md.
+	//
+	// The MCP / webhook / org-graph / settings / streams JSON API lives
+	// at /api/v1/org/ and is consumed by the React pages at
+	// /helix-org/* (frontend/src/pages/HelixOrg*.tsx). Phase C of the
+	// UI migration deleted the htmx SSR that used to live at /ui/*.
+	if apiServer.Cfg.HelixOrgEnabled {
+		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+			LocalFSPath:          apiServer.Cfg.FileStore.LocalFSPath,
+			GitRepositoryService: apiServer.gitRepositoryService,
+			APIServer:            apiServer,
+		}, apiServer.Store); err != nil {
+			return nil, fmt.Errorf("initialise helix-org: %w", err)
+		} else if orgHandlers != nil {
+			// Stream-cron scheduler runs for the lifetime of ctx
+			// (ListenAndServe's). Logs its own errors; one bad fire
+			// can't kill the loop because fire() has panic recovery.
+			if orgHandlers.streamCron != nil {
+				go func() {
+					if err := orgHandlers.streamCron.Start(ctx); err != nil {
+						log.Error().Err(err).Msg("streamcron scheduler exited with error")
+					}
+				}()
+			}
+			// /api/v1/orgs/{org}/github/webhook — public, GitHub
+			// deliveries authenticate via HMAC of the per-org
+			// webhook_secret. Registered on the INSECURE router so
+			// the helix session-cookie / api-key auth doesn't 401
+			// inbound deliveries. Must be registered BEFORE the
+			// authRouter PathPrefix("/orgs/{org}/") so this exact
+			// path wins the match.
+			if orgHandlers.publicGitHubWebhook != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
+					Methods(http.MethodPost)
+			}
+			// Per-stream variant — operators paste this URL into a
+			// GitHub repo's webhook config when they want a 1:1
+			// mapping between a GitHub webhook and a helix stream
+			// (e.g. two streams for the same repo, each watching a
+			// different events whitelist). Insecure mount: GitHub
+			// deliveries authenticate via HMAC over the body, not a
+			// helix session.
+			if orgHandlers.publicGitHubWebhookForStream != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/streams/{stream_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+					Methods(http.MethodPost)
+			}
+			// GitHub App Manifest flow callbacks — top-level browser
+			// navigations from github.com (GET), so they must be on the
+			// insecure router (no session cookie / API key). The conversion
+			// callback authenticates via the encrypted ?state=. Registered
+			// before the authRouter /orgs/{org}/ prefix so these exact paths
+			// win the match.
+			if orgHandlers.publicGitHubManifestCallback != nil {
+				insecureRouter.
+					Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
+					Methods(http.MethodGet)
+			}
+
+			// /api/v1/orgs/{org}/* — per-tenant surface for the
+			// org-graph resources (chart, workers, roles, positions,
+			// streams, settings). withHelixOrgScope resolves {org}
+			// (slug or org_id) to a canonical orgID, authorises
+			// org-membership, bootstraps the tenant on first request,
+			// and stashes orgID on ctx so downstream handlers + the
+			// store layer scope to it. authRouter is a sub-mux of
+			// /api/v1, so paths registered against it are matched as
+			// full request paths.
+			authRouter.PathPrefix("/orgs/{org}/").Handler(
+				requireFeature(alphaFeatureHelixOrg)(
+					apiServer.withHelixOrgScope(orgHandlers.scope,
+						stripOrgScopedPrefix(orgHandlers.api),
+					),
+				),
+			)
+
+			// Expose helix-org's owner MCP through the standard Helix MCP
+			// gateway. Backend identifies tenants by URL prefix
+			// (/api/v1/mcp/helix-org/{org}/...) — the gateway already
+			// auth-checks the api_key via authRouter; the per-org
+			// backend layer resolves orgID from the request before
+			// dispatching to the handler.
+			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(apiServer, orgHandlers))
+		}
+	}
 
 	// Setup OAuth routes with the auth router (except for callback)
 	apiServer.setupOAuthRoutes(authRouter)
@@ -818,6 +970,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Usage
 	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getUsage)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/usage/org-summary", system.Wrapper(apiServer.getOrgUsageSummary)).Methods(http.MethodGet)
 
 	// Quotas
 	authRouter.HandleFunc("/quotas", apiServer.getQuotasHandler).Methods(http.MethodGet)
@@ -1029,15 +1182,23 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
-	// Agent Sandboxes debugging routes (admin only)
-	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
-	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
+	// Agent Sandboxes debugging routes (admin only). Registered on
+	// adminRouter so requireAdmin actually enforces the gate. Comment
+	// previously claimed "admin only" while the route sat on authRouter
+	// (any authenticated user) — this PR widens what the response
+	// includes (per-GPU sandbox_id), so the gap is closed at the same
+	// time. The /admin/... path prefix is required because adminRouter
+	// is a MatcherFunc subrouter, not a PathPrefix subrouter — see
+	// server.go:760.
+	adminRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
+	adminRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
 
 	// User auth, BFF
 	insecureRouter.HandleFunc("/auth/register", apiServer.register).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/invitations/{id}/info", apiServer.publicInvitationInfo).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
@@ -1063,6 +1224,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/members", apiServer.addOrganizationMember).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.removeOrganizationMember).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.updateOrganizationMember).Methods(http.MethodPut)
+	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.listOrganizationInvitations).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/invitations", apiServer.createOrganizationInvitationHandler).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/invitations/{invitation_id}", apiServer.deleteOrganizationInvitation).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{id}/users/lookup", apiServer.lookupOrgUser).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/guidelines-history", apiServer.getOrganizationGuidelinesHistory).Methods(http.MethodGet)
@@ -1109,6 +1274,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/admin/users/{id}", system.DefaultWrapper(apiServer.adminDeleteUser)).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/users/{id}/approve", system.DefaultWrapper(apiServer.adminApproveUser)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminActivateTrial)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminRevokeTrial)).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/admin/users/{id}/credits", system.DefaultWrapper(apiServer.adminGrantCredits)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/owned-orgs", system.DefaultWrapper(apiServer.listUserOwnedOrgs)).Methods(http.MethodGet)
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 
@@ -1127,6 +1296,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/runners/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/runners/{runner_id}/assign-profile", apiServer.assignRunnerProfile).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
+	// Live-tail of a runner's hydra-aggregated logs over WebSocket.
+	// See design/2026-05-29-admin-runner-logs.md.
+	// NOTE: adminRouter is auth-based, not path-based (MatcherFunc, no
+	// PathPrefix). Existing admin user routes hard-prefix `/admin/` so
+	// they live at /api/v1/admin/... — the runner-profile family above
+	// (`/runner-profiles`, `/runners/...`) lives at /api/v1/... and is
+	// an existing naming inconsistency. This new route follows the
+	// /admin/... convention to match the frontend's URL builder.
+	adminRouter.HandleFunc("/admin/runners/{runner_id}/logs", apiServer.streamAdminRunnerLogs).Methods(http.MethodGet)
 
 	// Runner-token-authenticated read paths so the sandbox-side compose-
 	// manager can fetch its own assignment + profile content using the
@@ -1322,6 +1500,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/repositories", system.Wrapper(apiServer.getProjectRepositories)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/goose-recipes", system.Wrapper(apiServer.listProjectGooseRecipes)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/primary", system.Wrapper(apiServer.setProjectPrimaryRepository)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/attach", system.Wrapper(apiServer.attachRepositoryToProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/detach", system.Wrapper(apiServer.detachRepositoryFromProject)).Methods(http.MethodPut)
@@ -1381,6 +1560,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/labels", apiServer.addSpecTaskLabel).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/labels/{label}", apiServer.removeSpecTaskLabel).Methods(http.MethodDelete)
+
+	// Spec task attachments (screenshots / documents)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments", apiServer.uploadSpecTaskAttachments).Methods(http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments", apiServer.listSpecTaskAttachments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/attachments/{attId}", apiServer.deleteSpecTaskAttachment).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/spec-tasks/{id}/usage", system.Wrapper(apiServer.getSpecTaskUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)
@@ -1490,6 +1674,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Public design docs viewer (no auth required if task.PublicDesignDocs is true)
 	subRouter.HandleFunc("/spec-tasks/{id}/view", apiServer.viewDesignDocsPublic).Methods(http.MethodGet)
 
+	// Attachment content endpoint — public if task.PublicDesignDocs is true,
+	// otherwise auth-gated by the handler itself. Mounted on the unauthenticated
+	// subrouter so anonymous reads work for public design docs.
+	subRouter.HandleFunc("/spec-tasks/{taskId}/attachments/{attId}/content", apiServer.getSpecTaskAttachmentContent).Methods(http.MethodGet)
+
 	// Sample repository routes
 	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/samples/initialize", apiServer.initializeSampleRepositories).Methods(http.MethodPost)
@@ -1498,7 +1687,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Initialize skills
 	log.Info().Msg("Loading YAML skills")
-	ctx := context.Background()
 	if err := apiServer.skillManager.LoadSkills(ctx); err != nil {
 		log.Error().Err(err).Msg("Failed to load skills, continuing without them")
 	}
@@ -2193,23 +2381,93 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 	}
 
 	for _, instance := range instances {
-		if instance.ID == sandboxID {
-			// Already registered - reset sandbox count and mark online
-			// This handles reconnects after crashes/restarts where stale counts remain
-			err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
-			if err != nil {
+		if instance.ID != sandboxID {
+			continue
+		}
+
+		// Manager-provisioned host registering for the FIRST time
+		// (ComputeState=provisioning), OR a Manager-provisioned host
+		// that the Manager marked failed but is now phoning home (e.g.
+		// the upstream task recovered after a transient HealthCheck
+		// failure). Both cases get the same forward-transition
+		// treatment: populate the network identity columns, flip
+		// Status to online, and move ComputeState to ready.
+		//
+		// Critically we do this via THREE targeted column updates
+		// instead of a full-row gorm.Save. Save would overwrite
+		// every column with the value `instance` had when we loaded
+		// it from ListSandboxInstances above - any column written by
+		// the heartbeat goroutine between our load and our Save
+		// (gpus, service_health, profile_status, profile_progress,
+		// helix_version, desktop_versions) would be stamped back to
+		// stale. The race window is small but real because the
+		// heartbeat goroutine often runs before the WS upgrade
+		// handler returns.
+		//
+		// Treating `failed` as a forward-transition recovery path
+		// closes a real recovery gap: a row that the Manager rolled
+		// forward to ComputeState=failed (due to a transient
+		// HealthCheck issue) would, on the host eventually phoning
+		// home, fall through to ResetSandboxOnReconnect - Status
+		// would flip to online but ComputeState stayed `failed`
+		// forever. `isAvailable()` returns false for `failed`, so
+		// the Manager would pre-warm a replacement even though this
+		// host was now serving.
+		switch compute.State(instance.ComputeState) {
+		case compute.StateProvisioning, compute.StateFailed:
+			now := time.Now()
+			hostname := fmt.Sprintf("sandbox-%s", sandboxID)
+			if err := apiServer.Store.UpdateSandboxInstanceComputeState(ctx, sandboxID, string(compute.StateReady)); err != nil {
 				log.Error().
 					Err(err).
 					Str("sandbox_id", sandboxID).
-					Msg("Failed to reset sandbox on reconnect")
-			} else {
-				log.Info().
-					Str("sandbox_id", sandboxID).
-					Int("previous_container_count", instance.ActiveSandboxes).
-					Msg("Reset sandbox on reconnect (cleared stale container count)")
+					Str("provider", instance.Provider).
+					Str("from_compute_state", instance.ComputeState).
+					Msg("Failed to bridge Manager-provisioned host registration (compute_state update)")
+				return
 			}
+			if err := apiServer.Store.UpdateSandboxInstanceStatus(ctx, sandboxID, "online"); err != nil {
+				log.Error().
+					Err(err).
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to bridge Manager-provisioned host registration (status update)")
+				return
+			}
+			if err := apiServer.Store.UpdateSandboxInstanceNetwork(ctx, sandboxID, remoteAddr, hostname, now); err != nil {
+				log.Error().
+					Err(err).
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to bridge Manager-provisioned host registration (network update)")
+				return
+			}
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Str("provider", instance.Provider).
+				Str("provider_id", instance.ProviderID).
+				Str("ip_address", remoteAddr).
+				Str("from_compute_state", instance.ComputeState).
+				Msg("Manager-provisioned host registered; transitioned compute_state -> ready")
 			return
 		}
+
+		// Reconnect of an already-registered host (either a legacy
+		// self-registered host coming back after a crash, or a
+		// Manager-provisioned host that has been online before and
+		// is now reconnecting). Reset stale counters and flip Status
+		// back to online via the existing reaper-safe path.
+		err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("sandbox_id", sandboxID).
+				Msg("Failed to reset sandbox on reconnect")
+		} else {
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Int("previous_container_count", instance.ActiveSandboxes).
+				Msg("Reset sandbox on reconnect (cleared stale container count)")
+		}
+		return
 	}
 
 	// Not registered - auto-register it

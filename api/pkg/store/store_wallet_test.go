@@ -453,6 +453,47 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_Positive() {
 	suite.Equal("test-top-up", transactions[0].TopUpID)
 }
 
+func (suite *WalletTestSuite) TestUpdateWalletBalance_TopUpIdempotency() {
+	userID := system.GenerateID()
+	wallet := &types.Wallet{
+		UserID:  userID,
+		Balance: 100.0,
+	}
+
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
+	suite.NoError(err)
+
+	paymentIntentID := "pi_" + system.GenerateID()
+	checkoutSessionID := "cs_" + system.GenerateID()
+
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+		TransactionType:         types.TransactionTypeTopUp,
+		StripePaymentIntentID:   paymentIntentID,
+		StripeCheckoutSessionID: checkoutSessionID,
+	})
+	suite.NoError(err)
+
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+		TransactionType:         types.TransactionTypeTopUp,
+		StripeCheckoutSessionID: checkoutSessionID,
+	})
+	suite.NoError(err)
+
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+		TransactionType:       types.TransactionTypeTopUp,
+		StripePaymentIntentID: paymentIntentID,
+	})
+	suite.NoError(err)
+
+	finalWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	suite.NoError(err)
+	suite.Equal(150.0, finalWallet.Balance)
+
+	topUps, err := suite.db.ListTopUps(suite.ctx, &ListTopUpsQuery{WalletID: createdWallet.ID})
+	suite.NoError(err)
+	suite.Len(topUps, 1)
+}
+
 func (suite *WalletTestSuite) TestUpdateWalletBalance_Negative() {
 	userID := system.GenerateID()
 	wallet := &types.Wallet{

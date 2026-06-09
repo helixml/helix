@@ -1,0 +1,66 @@
+# Implement a feature from an uploaded specification document.
+# Demonstrates a file param + string param + select param all together
+# — the most complete example of the spec-task parameter form.
+#
+# Drop a copy in your project repo at .goose/recipes/implement-from-spec.yaml
+# and reference it from project.yaml under spec.agent.goose.recipes.
+
+version: "1.0.0"
+title: "Implement from spec"
+description: "Read an uploaded specification document and implement it against the codebase."
+
+instructions: |
+  You are implementing a feature described in an external spec
+  document. Read the document end-to-end before touching the code.
+  Plan the work as a series of small, reviewable commits — not one
+  giant change.
+
+  - Stay strictly within the scope the spec defines. If the spec is
+    ambiguous, choose the smaller interpretation and call out the
+    ambiguity in the PR description.
+  - Match the `style` parameter:
+      - `minimal-diff` — change as little as possible; reuse existing
+        helpers; no refactors.
+      - `idiomatic` — write the change the way this codebase usually
+        does it; small adjacent cleanups are fine.
+      - `from-scratch` — design the feature anew; ignore prior
+        precedent in this area if it gets in the way.
+  - Tests are part of "done" — every behavioural change ships with a
+    test that would have failed before the change.
+
+prompt: |
+  Implement the spec at {{ spec_doc }} against the {{ target_area }}
+  area of the codebase, in **{{ style }}** style.
+
+  Steps:
+    1. Read the spec. Restate what it asks for in your own words.
+    2. Locate the relevant existing code in {{ target_area }}. Note
+       what's already in place vs what's missing.
+    3. Propose a plan (file-by-file). Wait for confirmation if
+       anything is unclear — don't guess.
+    4. Implement, commit-by-commit. Each commit should be reviewable
+       on its own.
+    5. Add tests covering the new behaviour.
+    6. Summarise the change in a PR description that maps back to
+       each section of the spec.
+
+parameters:
+  - key: spec_doc
+    input_type: file
+    requirement: required
+    description: "Specification document to implement (upload via task Attachments, then pick from dropdown)"
+  - key: target_area
+    input_type: string
+    requirement: required
+    description: "Subsystem or feature area the spec targets (e.g. 'auth middleware', 'spec-task UI')"
+  - key: style
+    requirement: required
+    description: "How aggressively to change things"
+    options:
+      - minimal-diff
+      - idiomatic
+      - from-scratch
+
+settings:
+  goose_provider: anthropic
+  goose_model: claude-sonnet-4-6

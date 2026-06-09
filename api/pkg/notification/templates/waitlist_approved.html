@@ -131,7 +131,11 @@
             <div class="welcome-text">
                 {{ if .FirstName }}<p>Hi {{ .FirstName }},</p>{{ end }}
                 <p>Great news! Your account has been approved and you now have full access to Helix.</p>
-                <p>Start building with AI — safer, faster, and smarter. Explore everything Helix has to offer and turn your vision into reality.</p>
+                {{ if gt .TrialDays 0 }}
+                <p><strong>You're on a {{ .TrialDays }}-day free trial.</strong> No credit card required — your organization is set up with trial credits so you can start using Helix immediately. We'll let you know before the trial ends so you can add a payment method to keep going.</p>
+                {{ else }}
+                <p>Start building with AI - safer, faster, and smarter. Explore everything Helix has to offer and turn your vision into reality.</p>
+                {{ end }}
             </div>
 
             <a href="{{ .AppURL }}" class="cta-button" target="_blank">

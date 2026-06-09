@@ -305,14 +305,17 @@ export default function useOrganizations(): IOrganizationTools {
     }
 
     try {
-      // Create a request to add a member to the organization
       const request = {
         user_reference: userReference,
-        role_id: role || 'member' // Default to 'member' if no role specified
+        role: (role || 'member') as TypesOrganizationRole,
       }
 
-      await api.getApiClient().v1OrganizationsMembersCreate(organizationId, request)
-      snackbar.success('Member added')
+      const response = await api.getApiClient().v1OrganizationsMembersCreate(organizationId, request)
+      if (response.data?.invited) {
+        snackbar.success(`Invitation sent to ${userReference}`)
+      } else {
+        snackbar.success('Member added')
+      }
       await loadOrganization(organizationId)
       return true
     } catch (error) {
@@ -323,6 +326,10 @@ export default function useOrganizations(): IOrganizationTools {
     }
   }, [])
 
+  // deleteMemberFromOrganization removes either a real member (user_id) or a
+  // pending invitation. We disambiguate by id prefix: invitation rows have
+  // ids starting with "oin_" (synthesised by the API as placeholder
+  // OrganizationMembership entries — see listOrganizationMembers).
   const deleteMemberFromOrganization = useCallback(async (organizationId: string, userId: string) => {
     if (!organizationId) {
       snackbar.error('No active organization')
@@ -330,8 +337,13 @@ export default function useOrganizations(): IOrganizationTools {
     }
 
     try {
-      await api.getApiClient().v1OrganizationsMembersDelete(organizationId, userId)
-      snackbar.success('Member removed')
+      if (userId.startsWith('oin_')) {
+        await api.getApiClient().v1OrganizationsInvitationsDelete(organizationId, userId)
+        snackbar.success('Invitation revoked')
+      } else {
+        await api.getApiClient().v1OrganizationsMembersDelete(organizationId, userId)
+        snackbar.success('Member removed')
+      }
       await loadOrganization(organizationId)
       return true
     } catch (error) {

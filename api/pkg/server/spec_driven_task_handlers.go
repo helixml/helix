@@ -70,7 +70,7 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 
 	// Authorize user to create task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, req.ProjectID, types.ActionCreate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -166,7 +166,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to get task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -219,7 +219,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to list tasks in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -432,7 +432,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to approve specs in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, existingTask.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -587,7 +587,7 @@ func (s *HelixAPIServer) getTaskSpecs(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to get specs in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -648,7 +648,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 
 	// Authorize user to get progress in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -720,7 +720,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 
 	// Authorize user to access the project
 	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -874,7 +874,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to start planning in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -998,7 +998,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Authorize user to update task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1017,7 +1017,6 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.TechnicalDesign = ""
 			task.ImplementationPlan = ""
 			task.DesignDocsPushedAt = nil
-			task.DesignDocPath = ""
 			task.SpecApprovedBy = ""
 			task.SpecApprovedAt = nil
 			task.SpecApproval = nil
@@ -1195,7 +1194,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Authorize user to delete task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1203,6 +1202,16 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	if !task.Archived {
 		http.Error(w, "task is not archived, please archive it before deleting", http.StatusBadRequest)
 		return
+	}
+
+	// Clean up attachment rows and the filestore prefix before deleting the task row
+	// itself. Best-effort: log and continue if either step fails so the task delete
+	// isn't blocked by orphaned blobs.
+	if err := s.Store.DeleteSpecTaskAttachmentsByTaskID(ctx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment rows for task")
+	}
+	if err := s.Controller.FilestoreSpecTaskAttachmentsDeleteAll(taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to delete attachment blobs for task")
 	}
 
 	// Delete the task
@@ -1266,7 +1275,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 	// Authorize user to archive task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1517,7 +1526,7 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 
 	// Authorize user to get board settings in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, project.ID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1562,7 +1571,7 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 
 	// Authorize user to update board settings in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, "default", types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 

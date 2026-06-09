@@ -6,14 +6,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// ListSecrets retrieves a list of secrets
-func (c *HelixClient) ListSecrets(ctx context.Context) ([]*types.Secret, error) {
+// SecretFilter filters the ListSecrets result. Empty filter returns
+// the caller's personal secrets.
+type SecretFilter struct {
+	OrganizationID string
+}
+
+// ListSecrets retrieves a list of secrets, optionally scoped to an organization.
+// Pass nil for personal secrets.
+func (c *HelixClient) ListSecrets(ctx context.Context, f *SecretFilter) ([]*types.Secret, error) {
+	path := "/secrets"
+	if f != nil && f.OrganizationID != "" {
+		path += "?organization_id=" + url.QueryEscape(f.OrganizationID)
+	}
+
 	var secrets []*types.Secret
-	err := c.makeRequest(ctx, http.MethodGet, "/secrets", nil, &secrets)
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &secrets)
 	if err != nil {
 		return nil, err
 	}

@@ -88,6 +88,12 @@ export class WebSocketStream {
   private pageVisible = true
   private visibilityHandler: (() => void) | null = null
 
+  // BFCache restore tracking - Safari (and Chrome/Firefox) put pages into the
+  // back/forward cache on navigation, which closes the WebSocket without firing
+  // onclose. Without a pageshow listener the component never knows the socket
+  // is dead, leading to a frozen viewer with stuck cursor and ignored clicks.
+  private bfcacheRestoreHandler: ((e: PageTransitionEvent) => void) | null = null
+
   // Cursor cache - maps cursor ID to blob URL (for revoking old blob URLs)
   private cursorCache = new Map<number, CursorImageData>()
   private cursorX = 0  // Current cursor X position from server
@@ -122,6 +128,12 @@ export class WebSocketStream {
   private rttSamples: number[] = []
   private currentRttMs = 0
   private encoderLatencyMs = 0  // Encoder pipeline latency from server (PTS to WebSocket send)
+  // Scheduler-jitter canary stats from server (synthetic 60Hz canary in desktop-bridge).
+  // Surfaces whether the desktop container's kernel scheduler is preempting userspace
+  // tasks — high values mean CPU contention is causing producer-side judder.
+  private schedulerJitterP50Ms = 0
+  private schedulerJitterP99Ms = 0
+  private schedulerJitterMaxMs = 0
   private pingIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly PING_INTERVAL_MS = 500   // Send ping every 500ms for faster RTT feedback
   private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
@@ -400,6 +412,7 @@ export class WebSocketStream {
     this.clearConnectionTimeout()
     this.connectionTimeoutId = setTimeout(() => {
       console.warn(`[WebSocketStream] Connection timeout (${this.CONNECTION_TIMEOUT_MS}ms), forcing reconnect`)
+      this.dispatchInfoEvent({ type: "connectionTimeout", timeoutMs: this.CONNECTION_TIMEOUT_MS })
       this.dispatchInfoEvent({ type: "error", message: "Connection timeout" })
       // Close the stuck WebSocket and trigger reconnection
       if (this.ws) {
@@ -476,6 +489,17 @@ export class WebSocketStream {
     })
     this.connected = false
 
+    // Application close code 4000 = "superseded": the server has replaced this
+    // connection with a newer one from the same browser tab. Do NOT reconnect —
+    // reconnecting just supersedes the server's new proxy, fueling a storm.
+    // The handover is intentional, treat it as an explicit close.
+    // See design/2026-05-21-stream-reconnect-storm-root-cause.md.
+    const isSuperseded = event.code === 4000
+    if (isSuperseded) {
+      console.log("[WebSocketStream] Connection superseded by server, suppressing reconnect")
+      this.closed = true
+    }
+
     // Clear connection stability timer if connection drops before stabilizing
     if (this.connectionStabilityTimer) {
       clearTimeout(this.connectionStabilityTimer)
@@ -495,14 +519,15 @@ export class WebSocketStream {
     // Stop event loop tracking
     this.stopEventLoopTracking()
 
-    this.dispatchInfoEvent({ type: "disconnected", code: event.code })
+    this.dispatchInfoEvent({ type: "disconnected", code: event.code, reason: event.reason, superseded: isSuperseded })
 
-    // Don't reconnect if explicitly closed
+    // Don't reconnect if explicitly closed (or if the server superseded us)
     if (this.closed) {
-      console.log("[WebSocketStream] Not reconnecting - stream was explicitly closed")
+      const abortReason = isSuperseded ? "superseded by server" : "explicitly closed"
+      console.log(`[WebSocketStream] Not reconnecting - ${abortReason}`)
       // Dispatch event so DesktopStreamViewer knows reconnection was skipped
       // This prevents the UI from getting stuck on "Reconnecting..." forever
-      this.dispatchInfoEvent({ type: "reconnectAborted", reason: "explicitly closed" })
+      this.dispatchInfoEvent({ type: "reconnectAborted", reason: abortReason, superseded: isSuperseded })
       return
     }
 
@@ -519,6 +544,15 @@ export class WebSocketStream {
       const baseDelay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000)
       const delay = baseDelay * (0.5 + Math.random() * 0.5)
       this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
+      // Surface the scheduled-reconnect to Stats-for-Nerds so we can tell from
+      // the log alone whether duplicate connect attempts are happening (e.g.
+      // WSStream backoff racing with a component-level reconnect call).
+      this.dispatchInfoEvent({
+        type: "reconnectScheduled",
+        attempt: this.reconnectAttempts,
+        maxAttempts: this.maxReconnectAttempts,
+        delayMs: Math.round(delay),
+      })
 
       console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
 
@@ -1328,8 +1362,13 @@ export class WebSocketStream {
   }
 
   private handlePong(data: Uint8Array) {
-    // Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
-    // Backward compatible: old servers send 21 bytes without encoder latency
+    // Extended Pong format:
+    //   type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2)
+    //   + schedulerP50Ms(2) + schedulerP99Ms(2) + schedulerMaxMs(2) = 29 bytes
+    // Backward compatible:
+    //   - 21 bytes: oldest format without encoder latency
+    //   - 23 bytes: with encoder latency, without scheduler canary
+    //   - 29 bytes: current — adds scheduler-jitter canary (p50/p99/max ms)
     if (data.length < 21) {
       console.warn("[WebSocketStream] Pong too short:", data.length)
       return
@@ -1363,6 +1402,12 @@ export class WebSocketStream {
     // Extract encoder latency if present (extended Pong format: 23 bytes)
     if (data.length >= 23) {
       this.encoderLatencyMs = view.getUint16(21, false)  // big-endian
+    }
+    // Extract scheduler-jitter canary stats if present (extended Pong format: 29 bytes)
+    if (data.length >= 29) {
+      this.schedulerJitterP50Ms = view.getUint16(23, false)
+      this.schedulerJitterP99Ms = view.getUint16(25, false)
+      this.schedulerJitterMaxMs = view.getUint16(27, false)
     }
     // Note: Removed console.debug here - was causing frame jitter (console ops block main thread)
 
@@ -1914,6 +1959,9 @@ export class WebSocketStream {
     height: number
     rttMs: number                    // Round-trip time in milliseconds
     encoderLatencyMs: number         // Server-side encoder latency (PTS to WebSocket send)
+    schedulerJitterP50Ms: number     // Server-side kernel-scheduler jitter, p50 (ms)
+    schedulerJitterP99Ms: number     // Server-side kernel-scheduler jitter, p99 (ms)
+    schedulerJitterMaxMs: number     // Server-side kernel-scheduler jitter, worst (ms)
     isHighLatency: boolean           // True if RTT exceeds threshold
     // Frame latency (measures actual delivery delay, not just RTT)
     frameLatencyMs: number           // How late frames are arriving based on PTS
@@ -1979,6 +2027,9 @@ export class WebSocketStream {
       height: this.streamerSize[1],
       rttMs: this.currentRttMs,
       encoderLatencyMs: this.encoderLatencyMs,
+      schedulerJitterP50Ms: this.schedulerJitterP50Ms,
+      schedulerJitterP99Ms: this.schedulerJitterP99Ms,
+      schedulerJitterMaxMs: this.schedulerJitterMaxMs,
       isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
       // Frame latency (the real measure of how delayed frames are)
       frameLatencyMs: this.currentFrameLatencyMs,
@@ -2116,10 +2167,24 @@ export class WebSocketStream {
         // Page just became visible again - reset lastMessageTime to avoid false stale detection
         // iOS suspends JS when page is hidden, so elapsed time includes suspension
         console.log("[WebSocketStream] Page became visible, resetting heartbeat timer")
+        this.dispatchInfoEvent({ type: "visibility", visible: true })
         this.lastMessageTime = Date.now()
+      } else if (!this.pageVisible && !wasHidden) {
+        this.dispatchInfoEvent({ type: "visibility", visible: false })
       }
     }
     document.addEventListener("visibilitychange", this.visibilityHandler)
+
+    // Recover after Safari/Chrome restores the page from the back/forward cache.
+    // The browser silently kills the WebSocket on BFCache entry; without this
+    // listener, the next user interaction sees a dead socket and a frozen viewer.
+    this.bfcacheRestoreHandler = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        console.log("[WebSocketStream] BFCache restored, force-reconnecting")
+        this.reconnect()
+      }
+    }
+    window.addEventListener("pageshow", this.bfcacheRestoreHandler)
 
     this.heartbeatIntervalId = setInterval(() => {
       if (!this.connected) return
@@ -2134,6 +2199,9 @@ export class WebSocketStream {
 
       if (elapsed > this.heartbeatTimeout) {
         console.warn(`[WebSocketStream] Stale connection detected (${elapsed}ms since last message), forcing reconnect`)
+        // Surface to Stats-for-Nerds so future incidents can be diagnosed from
+        // the log alone, without dev-tools console.
+        this.dispatchInfoEvent({ type: "heartbeatStale", elapsedMs: elapsed })
         this.dispatchInfoEvent({ type: "error", message: "Connection stale - no data received" })
 
         // Force close and trigger reconnection
@@ -2158,6 +2226,12 @@ export class WebSocketStream {
     if (this.visibilityHandler) {
       document.removeEventListener("visibilitychange", this.visibilityHandler)
       this.visibilityHandler = null
+    }
+
+    // Clean up BFCache pageshow listener
+    if (this.bfcacheRestoreHandler) {
+      window.removeEventListener("pageshow", this.bfcacheRestoreHandler)
+      this.bfcacheRestoreHandler = null
     }
   }
 

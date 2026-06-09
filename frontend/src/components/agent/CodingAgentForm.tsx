@@ -240,6 +240,14 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
               </Box>
             </MenuItem>
           )}
+          <MenuItem value="goose_code">
+            <Box>
+              <Typography variant="body2">Goose</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Open-source ACP agent from the Agentic AI Foundation (AAIF)
+              </Typography>
+            </Box>
+          </MenuItem>
         </Select>
       </FormControl>
 

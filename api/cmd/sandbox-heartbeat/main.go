@@ -17,8 +17,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/gpudetect"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -108,9 +108,11 @@ func readComposeManagerStatus() (status, errMsg string, health map[string]string
 }
 
 func main() {
-	// Setup logging
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+	// Match the control-plane console format (RFC3339 timestamp + level +
+	// caller). Writes to stderr so the heartbeat output doesn't mix with
+	// dataplane stdout streams. TTY detection in SetupLoggingTo strips ANSI
+	// colour codes when stderr is captured to a file.
+	system.SetupLoggingTo(os.Stderr)
 
 	// Get configuration from environment
 	apiURL := os.Getenv("HELIX_API_URL")

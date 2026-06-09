@@ -104,6 +104,23 @@ Apps:
   Alt + Shift + Return  Open terminal (alternative)
 
 
+## BROWSER STATE PERSISTS ACROSS SESSIONS
+
+Chrome's profile (tabs, history, bookmarks, extensions, saved passwords) lives
+on the persistent workspace volume at `~/work/.chrome-state`. When you stop and
+resume a session:
+
+- Your tabs come back automatically (Chrome's session restore is on).
+- If Chrome was running when the session ended, it auto-launches on
+  workspace 3 — no clicks needed.
+- If you closed Chrome before the session ended, it stays closed on the
+  next start.
+
+Heads up: Chrome on Linux uses `--password-store=basic`, so any passwords
+you let Chrome save are stored unencrypted on disk in the workspace
+volume — same trust boundary as your git credentials in `~/.git-credentials`.
+
+
 ## WHY ALT INSTEAD OF SUPER/CMD?
 
 When streaming through a browser, Super/Cmd keys are captured by your OS:

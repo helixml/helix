@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
@@ -81,6 +82,81 @@ type OrganizationMembership struct {
 type AddOrganizationMemberRequest struct {
 	UserReference string           `json:"user_reference"` // Either user ID or user email
 	Role          OrganizationRole `json:"role"`
+
+	// AppID + GrantRoles are optional and only meaningful when the
+	// request creates an invitation (because the email doesn't match an
+	// existing user). They tell the server which app to attach the
+	// invitation to, so the access grant can be materialised when the
+	// invitee accepts. When set, the invitation will also be filtered
+	// to this app in the access-management list.
+	AppID      string   `json:"app_id,omitempty"`
+	GrantRoles []string `json:"grant_roles,omitempty"`
+}
+
+// OrganizationInvitation - pending invitation for someone who is not yet a
+// Helix user. The invitation is consumed at registration time, creating an
+// OrganizationMembership with the recorded role and (optionally) an
+// AccessGrant on the resource the invitation was sent from.
+type OrganizationInvitation struct {
+	ID             string           `json:"id" gorm:"primaryKey"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+	OrganizationID string           `json:"organization_id" gorm:"index;not null"`
+	Email          string           `json:"email" gorm:"index;not null"` // Normalised to lowercase
+	Role           OrganizationRole `json:"role"`
+	InvitedBy      string           `json:"invited_by"` // User ID of the inviter
+
+	// AppID + GrantRoles record the optional access-grant context. When an
+	// invitation is sent from a project/app's access management dialog,
+	// we store the resource id and the role names the inviter chose, so
+	// that consuming the invitation at register time can also materialise
+	// the access grant — the invitee then shows up in the project access
+	// list immediately, exactly as if they had been added directly.
+	AppID      string         `json:"app_id,omitempty" gorm:"index"`
+	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
+}
+
+// AddOrganizationMemberResponse covers both the immediate-membership and
+// invitation-created paths so the frontend can distinguish them.
+type AddOrganizationMemberResponse struct {
+	Membership *OrganizationMembership `json:"membership,omitempty"`
+	Invitation *OrganizationInvitation `json:"invitation,omitempty"`
+	// Invited is true when no user exists yet and an invitation row was
+	// created instead of a membership.
+	Invited bool `json:"invited"`
+}
+
+// PublicInvitationInfo is the minimal, unauthenticated payload the
+// invitation-accept page reads to pre-fill the registration form. We
+// expose just the email (which the recipient already knows since the
+// invitation arrived in their inbox) and the org's display name (used
+// for "Join {OrgName}" framing). The invitation ID functions as the
+// secret — same threat model as a password-reset token.
+type PublicInvitationInfo struct {
+	ID                      string `json:"id"`
+	Email                   string `json:"email"`
+	OrganizationName        string `json:"organization_name"`
+	OrganizationDisplayName string `json:"organization_display_name"`
+}
+
+// OrgUserLookupResponse — returned by GET /organizations/{id}/users/lookup.
+// Powers the invite UI so it can show the right call-to-action ("Send
+// invitation" vs "Add to org" vs "Add to project") without first calling
+// the membership endpoint and observing which branch the server took.
+// We deliberately return only the bare minimum (id + display name) when a
+// user exists, never the full User row, to avoid leaking PII to org owners
+// who happen to know any email address.
+type OrgUserLookupResponse struct {
+	Email    string `json:"email"`
+	Exists   bool   `json:"exists"`    // a Helix user account exists with this email
+	IsMember bool   `json:"is_member"` // user is also a member of the queried org
+	// IsInvited — a pending invitation exists for this email in the queried
+	// org. Used by the invite UI to disable the "Send invitation" button so
+	// admins don't accidentally double-invite.
+	IsInvited    bool   `json:"is_invited"`
+	InvitationID string `json:"invitation_id,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
+	FullName     string `json:"full_name,omitempty"`
 }
 
 type AddTeamMemberRequest struct {
@@ -172,9 +248,34 @@ type User struct {
 
 	Waitlisted bool `json:"waitlisted"`
 
+	// Trial intent stashed by admin before the user has created their first org.
+	// Consumed by wallet creation on first owned org, then cleared.
+	TrialDaysOnFirstOrg    *int     `json:"trial_days_on_first_org,omitempty"`
+	TrialCreditsOnFirstOrg *float64 `json:"trial_credits_on_first_org,omitempty"`
+
+	// PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+	// /admin/users/{id}/credits endpoint when the user has no owned org yet.
+	// Consumed by consumeUserAdminCredits on first owned org, then cleared.
+	// Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+	// without entangling the grant with trial-state UI or revocation flows.
+	PendingAdminCreditsOnFirstOrg *float64 `json:"pending_admin_credits_on_first_org,omitempty"`
+
+	// Transient trial-display fields populated by the admin users list when
+	// ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+	// explicitly populated (json:"...,omitempty").
+	TrialStatus string `json:"trial_status,omitempty" gorm:"-"`
+	TrialOrgID  string `json:"trial_org_id,omitempty" gorm:"-"`
+	TrialEndsAt *int64 `json:"trial_ends_at,omitempty" gorm:"-"`
+
 	// LastSeenAt is the most recent time the user authenticated against the API.
 	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+
+	// AlphaFeatures lists the feature flags this user has been granted
+	// access to. Server-enforced via requireFeature middleware — the
+	// frontend uses it only to decide whether to render the entry
+	// point. Granted per-user via SQL (no deploy).
+	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
 }
 
 type UserSearchResponse struct {
@@ -197,6 +298,12 @@ type CreateAccessGrantRequest struct {
 	UserReference string   `json:"user_reference"` // User ID or email
 	TeamID        string   `json:"team_id"`        // Team ID
 	Roles         []string `json:"roles"`          // Role names
+}
+
+// CreateAccessGrantResponse wraps AccessGrant with metadata about side effects
+type CreateAccessGrantResponse struct {
+	AccessGrant
+	AddedToOrganization bool `json:"added_to_organization"`
 }
 
 // AccessGrant - grant access to a resource for a team or user. This allows users

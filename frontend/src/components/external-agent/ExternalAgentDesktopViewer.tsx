@@ -20,6 +20,7 @@ import EmbeddedSessionView from "../session/EmbeddedSessionView";
 import RobustPromptInput from "../common/RobustPromptInput";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import useApi from "../../hooks/useApi";
+import useLightTheme from "../../hooks/useLightTheme";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useStreaming } from "../../contexts/streaming";
 import { SESSION_TYPE_TEXT } from "../../types";
@@ -130,6 +131,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   sandboxMode = false,
 }) => {
   const api = useApi();
+  const lightTheme = useLightTheme();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const { NewInference, setCurrentSessionId } = useStreaming();
@@ -353,7 +355,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderColor: "divider",
             borderRadius: 1,
             overflow: "hidden",
-            backgroundColor: "#1a1a1a",
+            backgroundColor: lightTheme.panelColor,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -368,7 +370,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           ) : (
             <>
               <CircularProgress size={32} sx={{ color: 'primary.main' }} />
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
                 {startingTooLong ? "Desktop may have failed to start" : (statusMessage || "Starting Desktop...")}
               </Typography>
               {!sandboxMode && (
@@ -377,7 +379,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                   size="small"
                   onClick={handleStopFromStarting}
                   disabled={isStopping}
-                  sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+                  sx={{ mt: 1 }}
                 >
                   {isStopping ? "Stopping..." : "Stop"}
                 </Button>
@@ -402,7 +404,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderColor: "divider",
             borderRadius: 1,
             overflow: "hidden",
-            backgroundColor: "#1a1a1a",
+            backgroundColor: lightTheme.panelColor,
           }}
         >
           <Box
@@ -429,7 +431,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.3)",
+              backgroundColor: lightTheme.isLight ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.3)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -439,7 +441,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           >
             <Typography
               variant="body1"
-              sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+              sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
             >
               {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
             </Typography>
@@ -500,7 +502,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           borderColor: "divider",
           borderRadius: 1,
           overflow: "hidden",
-          backgroundColor: "#1a1a1a",
+          backgroundColor: lightTheme.panelColor,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -515,7 +517,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         ) : (
           <>
             <CircularProgress size={32} sx={{ color: 'primary.main' }} />
-            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
               {startingTooLong ? "Desktop may have failed to start — click Stop to retry" : (statusMessage || "Starting Desktop...")}
             </Typography>
             {!sandboxMode && (
@@ -524,7 +526,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 size="small"
                 onClick={handleStopFromStarting}
                 disabled={isStopping}
-                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+                sx={{ mt: 1 }}
               >
                 {isStopping ? "Stopping..." : "Stop"}
               </Button>
@@ -549,7 +551,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           borderColor: "divider",
           borderRadius: 1,
           overflow: "hidden",
-          backgroundColor: "#1a1a1a",
+          backgroundColor: lightTheme.panelColor,
         }}
       >
         <Box
@@ -579,12 +581,12 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             alignItems: "center",
             justifyContent: "center",
             gap: 2,
-            backgroundColor: "rgba(0,0,0,0.3)",
+            backgroundColor: lightTheme.isLight ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.3)",
           }}
         >
           <Typography
             variant="body1"
-            sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+            sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
           >
             {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
           </Typography>
@@ -666,14 +668,14 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 2,
-                backgroundColor: "rgba(0,0,0,0.7)",
+                backgroundColor: lightTheme.isLight ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.7)",
                 zIndex: 100,
               }}
             >
               <CircularProgress size={40} sx={{ color: "warning.main" }} />
               <Typography
                 variant="body1"
-                sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+                sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
               >
                 {isPaused ? (sandboxMode ? "Desktop Unavailable" : "Desktop Paused") : "Reconnecting..."}
               </Typography>

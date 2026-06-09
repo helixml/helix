@@ -584,6 +584,84 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Track previous appendText to detect changes
   const prevAppendTextRef = useRef<string | undefined>(undefined)
 
+  // Re-entrancy guard for the client-side queue pump below.
+  const processingRef = useRef(false)
+
+  // Backend queue processing only kicks in for spec-task composers: that path
+  // persists prompts via usePromptHistory and the server dispatches them once
+  // synced (keyed on spec_task_id). Plain external-agent sessions — the
+  // project "Human Desktop" (TeamDesktopPage) and org-worker chat — have no
+  // spec_task_id, so the composer must pump the queue itself by calling
+  // onSend, which the parent routes to streaming.NewInference → the running
+  // Zed agent. Without this fallback every queued message just sits forever as
+  // "Message queue (saved locally)" and the agent never sees it. (Regression
+  // from 53b336e01, which deleted the client-side pump on the assumption that
+  // the backend queue was always enabled.)
+  const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
+
+  const processQueue = useCallback(async () => {
+    // Spec-task sessions: the backend owns dispatch after sync.
+    if (backendQueueEnabled) return
+    // Prevent concurrent processing.
+    if (processingRef.current || !isOnline || disabled) return
+
+    // Interrupt-mode messages first, then queue-mode, each oldest-first.
+    const sortedQueue = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+      const aInterrupt = a.interrupt !== false
+      const bInterrupt = b.interrupt !== false
+      if (aInterrupt && !bInterrupt) return -1
+      if (!aInterrupt && bInterrupt) return 1
+      return a.timestamp - b.timestamp
+    })
+
+    // If editing, block the edited message and everything after it so ordering
+    // is preserved while the user revises.
+    let editingIndex = -1
+    if (editingId) {
+      editingIndex = sortedQueue.findIndex(m => m.id === editingId)
+    }
+
+    const nextToSend = sortedQueue.find((m, index) => {
+      if (m.id === sendingId) return false
+      if (m.status === 'sent') return false
+      if (editingIndex !== -1 && index >= editingIndex) return false
+      return true
+    })
+
+    if (!nextToSend) return
+
+    processingRef.current = true
+    setSendingId(nextToSend.id)
+
+    try {
+      // interrupt=true interrupts the agent's current turn; false queues after.
+      await onSend(nextToSend.content, nextToSend.interrupt !== false)
+      markAsSent(nextToSend.id)
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      markAsFailed(nextToSend.id)
+    } finally {
+      setSendingId(null)
+      processingRef.current = false
+    }
+  }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
+
+  // Pump the queue when messages are pending and we're online.
+  useEffect(() => {
+    if (isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
+      const timer = setTimeout(processQueue, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+
+  // Continue pumping after each send completes.
+  useEffect(() => {
+    if (!sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
+      const timer = setTimeout(processQueue, 300)
+      return () => clearTimeout(timer)
+    }
+  }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+
   // Handle prepending text from parent (e.g., uploaded file paths)
   useEffect(() => {
     if (appendText && appendText !== prevAppendTextRef.current) {
@@ -1142,7 +1220,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     <Box
       className="prompt-input-container"
       data-prompt-input="true"
-      sx={{ position: 'relative' }}
+      sx={{ position: 'relative', width: '100%', minWidth: 0 }}
     >
       {/* Queued messages display */}
       <Collapse in={showQueue && queuedMessages.length > 0}>
@@ -1427,6 +1505,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             alignItems: 'center',
             gap: 0.5,
             mt: 1,
+            flexWrap: 'wrap',
           }}
         >
           {/* History button */}

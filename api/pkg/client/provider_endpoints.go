@@ -6,14 +6,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// ListProviderEndpoints retrieves a list of provider endpoints for the authenticated user
-func (c *HelixClient) ListProviderEndpoints(ctx context.Context) ([]*types.ProviderEndpoint, error) {
+// ProviderEndpointFilter filters the ListProviderEndpoints result. Empty
+// filter returns the caller's personal provider endpoints plus any global ones.
+type ProviderEndpointFilter struct {
+	OrganizationID string
+}
+
+// ListProviderEndpoints retrieves provider endpoints, optionally scoped to an
+// organization. Pass nil for personal + global endpoints.
+//
+// Note: this hits /provider-endpoints which uses the legacy ?org_id= query
+// param (not ?organization_id= like the other org-scoped endpoints).
+func (c *HelixClient) ListProviderEndpoints(ctx context.Context, f *ProviderEndpointFilter) ([]*types.ProviderEndpoint, error) {
+	path := "/provider-endpoints"
+	if f != nil && f.OrganizationID != "" {
+		path += "?org_id=" + url.QueryEscape(f.OrganizationID)
+	}
+
 	var endpoints []*types.ProviderEndpoint
-	err := c.makeRequest(ctx, http.MethodGet, "/provider-endpoints", nil, &endpoints)
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &endpoints)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list provider endpoints: %w", err)
 	}

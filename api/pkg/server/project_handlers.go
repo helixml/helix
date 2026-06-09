@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,6 +55,7 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 	}
 
 	s.populateActiveAgentSessions(projects)
+	s.populateProjectOwners(r.Context(), projects)
 
 	return projects, nil
 }
@@ -72,6 +75,9 @@ func (s *HelixAPIServer) populateActiveAgentSessions(projects []*types.Project) 
 func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *types.User, orgRef string) ([]*types.Project, *system.HTTPError) {
 	org, err := s.lookupOrg(ctx, orgRef)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(err.Error())
+		}
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 	}
 
@@ -90,6 +96,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 
 	// Org owners see all projects
 	if orgMembership.Role == types.OrganizationRoleOwner {
+		s.populateProjectOwners(ctx, projects)
 		return projects, nil
 	}
 
@@ -102,7 +109,30 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		authorizedProjects = append(authorizedProjects, project)
 	}
 
+	s.populateProjectOwners(ctx, authorizedProjects)
 	return authorizedProjects, nil
+}
+
+func (s *HelixAPIServer) populateProjectOwners(ctx context.Context, projects []*types.Project) {
+	ownersByID := make(map[string]*types.User)
+	for _, project := range projects {
+		if project == nil || project.UserID == "" {
+			continue
+		}
+		owner, ok := ownersByID[project.UserID]
+		if !ok {
+			var err error
+			owner, err = s.Store.GetUser(ctx, &store.GetUserQuery{ID: project.UserID})
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", project.UserID).Str("project_id", project.ID).Msg("failed to populate project owner")
+				continue
+			}
+			ownersByID[project.UserID] = owner
+		}
+		if owner != nil {
+			project.User = *owner
+		}
+	}
 }
 
 // getProject godoc
@@ -260,6 +290,8 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		}
 	}
 
+	s.populateProjectOwners(r.Context(), []*types.Project{project})
+
 	return project, nil
 }
 
@@ -302,8 +334,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	if req.OrganizationID != "" {
-		// Check if user is a member of the organization
-		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
+		org, err := s.lookupOrg(r.Context(), req.OrganizationID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(err.Error())
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+		}
+		req.OrganizationID = org.ID
+
+		_, err = s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
@@ -312,6 +352,26 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	defaultApp, err := s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
+	}
+	if req.OrganizationID != "" && defaultApp.OrganizationID != "" && defaultApp.OrganizationID != req.OrganizationID {
+		return nil, system.NewHTTPError400("default app must be in the same organization as the project")
+	}
+	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("primary repository not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if primaryRepo.OrganizationID != req.OrganizationID {
+		return nil, system.NewHTTPError400("primary repository must be in the same organization as the project")
+	}
+	if err := s.authorizeUserToRepository(r.Context(), user, primaryRepo, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Deduplicate project name within the workspace (org or personal)
@@ -383,15 +443,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
-	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("project_id", created.ID).
-			Str("primary_repo_id", req.DefaultRepoID).
-			Msg("failed to get primary repository")
-		// Don't fail project creation - startup script can be added later
-	} else if primaryRepo.LocalPath != "" {
+	if primaryRepo.LocalPath != "" {
 		// Use WithExternalRepoWrite with lenient options - don't fail project creation
 		// if startup script sync/push fails. The utility still handles rollback on push failure.
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
@@ -1388,6 +1440,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			}
 
 			// Restart Zed agent with existing session
+			// (project secrets injected by HydraExecutor.StartDesktop)
 			zedAgent := &types.DesktopAgent{
 				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
@@ -1404,15 +1457,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				Resolution:          resolution,
 				ZoomLevel:           zoomLevel,
 				DesktopType:         desktopType,
-			}
-
-			// Inject project secrets as environment variables (matching spec task behavior)
-			projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-			if err != nil {
-				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory restart, continuing without them")
-			} else if len(projectSecrets) > 0 {
-				zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
 			}
 
 			// Add user's API token inside session lock via OnBeforeCreate hook
@@ -1553,6 +1597,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	// Create ZedAgent for team desktop
+	// (project secrets injected by HydraExecutor.StartDesktop)
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      project.OrganizationID,
 		SessionID:           createdSession.ID,
@@ -1569,15 +1614,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-	}
-
-	// Inject project secrets as environment variables (matching spec task behavior)
-	projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory session, continuing without them")
-	} else if len(projectSecrets) > 0 {
-		zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
 	}
 
 	// Add user's API token inside session lock via OnBeforeCreate hook
@@ -2733,8 +2769,12 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		// When omitted, a plain chat agent (helix_basic) is created.
 		agentType, codeRuntime := projectAgentRuntimeToTypes(agentSpec.Runtime)
 
-		var credType types.CodeAgentCredentialType
-		if agentSpec.Credentials == "subscription" {
+		// Default to api_key when the spec doesn't say otherwise. Only
+		// claude_code can legitimately carry "subscription"; everything else
+		// must be api_key so GenerateZedMCPConfig writes agent.default_model
+		// (start-zed-helix.sh greps for that literal key before launching Zed).
+		credType := types.CodeAgentCredentialTypeAPIKey
+		if agentSpec.Credentials == "subscription" && codeRuntime == types.CodeAgentRuntimeClaudeCode {
 			credType = types.CodeAgentCredentialTypeSubscription
 		}
 
@@ -2745,6 +2785,33 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			AgentType:               agentType,
 			CodeAgentRuntime:        codeRuntime,
 			CodeAgentCredentialType: credType,
+		}
+
+		if codeRuntime == types.CodeAgentRuntimeGooseCode && agentSpec.Goose != nil {
+			if httpErr := validateGooseAgentSpec(r.Context(), s.Store, orgID, resolvedRepos, agentSpec.Goose); httpErr != nil {
+				return nil, httpErr
+			}
+			assistant.GooseRecipeRepoURL = agentSpec.Goose.RecipeRepoURL
+			assistant.GooseRecipes = make([]types.AssistantGooseRecipe, len(agentSpec.Goose.Recipes))
+			for i, r := range agentSpec.Goose.Recipes {
+				assistant.GooseRecipes[i] = types.AssistantGooseRecipe{Name: r.Name, Path: r.Path}
+			}
+		}
+		// zed_external runs as an agent (IsAgentMode), and the Apps UI
+		// renders the model picker against generation_model / _provider —
+		// not the top-level model / provider. Without mirroring the apply
+		// spec into these fields too, the UI either shows blank or
+		// whatever stale value was left behind by a previous app config.
+		// Worse, the in-sandbox Zed config (GenerateZedMCPConfig) reads
+		// generation_model when the runtime is api_key, so leaving it
+		// empty means the agent boots with no model selected. Mirror the
+		// spec's Provider/Model into the generation_model_* fields when
+		// running zed_external; the smaller/reasoning slots stay empty
+		// (helix-org doesn't expose them — operators can set them in the
+		// Apps UI directly if they need a different split-brain model).
+		if agentType == types.AgentTypeZedExternal {
+			assistant.GenerationModel = agentSpec.Model
+			assistant.GenerationModelProvider = agentSpec.Provider
 		}
 		if agentSpec.Tools != nil {
 			assistant.WebSearch = types.AssistantWebSearch{Enabled: agentSpec.Tools.WebSearch}
@@ -2840,8 +2907,72 @@ func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgen
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGeminiCLI
 	case "codex_cli":
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeCodexCLI
+	case "goose_code":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGooseCode
 	default:
 		// "claude_code" or empty/unrecognised → Claude Code CLI (default)
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeClaudeCode
 	}
+}
+
+// validateGooseAgentSpec checks the agent.goose block from a project YAML
+// apply request: the recipe repo must be attached to the project (or
+// resolvable as an org-scoped repo); recipe names must be unique; recipe
+// paths must stay inside the repo (no ".." traversal).
+func validateGooseAgentSpec(ctx context.Context, st store.Store, orgID string, resolvedRepos []types.ProjectRepositorySpec, goose *types.ProjectAgentGoose) *system.HTTPError {
+	if goose == nil {
+		return nil
+	}
+
+	// Resolve recipe_repo_url to a project-attached repo (or the primary
+	// repo when omitted). The URL must match one of the project's attached
+	// repos verbatim — we don't auto-attach here.
+	if goose.RecipeRepoURL != "" {
+		attached := false
+		for _, r := range resolvedRepos {
+			if r.URL == goose.RecipeRepoURL {
+				attached = true
+				break
+			}
+		}
+		if !attached {
+			return system.NewHTTPError400(fmt.Sprintf(
+				"agent.goose.recipe_repo_url %q must also appear in the project's repositories list — attach the recipe repo to the project first",
+				goose.RecipeRepoURL,
+			))
+		}
+		// And the repo must already exist in the GitRepository table for
+		// this org; CreateGitRepository in the apply loop above will set
+		// it up if missing, so this check is mostly belt-and-braces for
+		// projects where the apply order matters.
+		if _, err := st.GetGitRepositoryByExternalURL(ctx, orgID, goose.RecipeRepoURL); err != nil && err != store.ErrNotFound {
+			return system.NewHTTPError500(fmt.Sprintf("failed to look up recipe repo %s: %v", goose.RecipeRepoURL, err))
+		}
+	} else if len(resolvedRepos) == 0 {
+		return system.NewHTTPError400("agent.goose.recipes requires at least one repository to be attached to the project, or agent.goose.recipe_repo_url to be set")
+	}
+
+	seen := make(map[string]bool, len(goose.Recipes))
+	for _, recipe := range goose.Recipes {
+		if recipe.Name == "" {
+			return system.NewHTTPError400("agent.goose.recipes: each recipe needs a non-empty name")
+		}
+		if recipe.Path == "" {
+			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes[%s]: path is required", recipe.Name))
+		}
+		if seen[recipe.Name] {
+			return system.NewHTTPError400(fmt.Sprintf("agent.goose.recipes: duplicate recipe name %q", recipe.Name))
+		}
+		seen[recipe.Name] = true
+
+		// Containment check — paths are repo-relative, must stay inside.
+		cleaned := filepath.Clean(recipe.Path)
+		if strings.HasPrefix(cleaned, "..") || strings.HasPrefix(cleaned, "/") || cleaned == "." {
+			return system.NewHTTPError400(fmt.Sprintf(
+				"agent.goose.recipes[%s]: path %q must be a relative path inside the recipe repo (no leading / or ..)",
+				recipe.Name, recipe.Path,
+			))
+		}
+	}
+	return nil
 }

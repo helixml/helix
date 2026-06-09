@@ -25,6 +25,8 @@ func TestCreateTeam_AutoAddCreatorAsMember(t *testing.T) {
 	userID := "user_1"
 	teamID := "team_456"
 
+	expectResolveOrganizationByID(mockStore, orgID)
+
 	gomock.InOrder(
 		mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 			OrganizationID: orgID,
@@ -72,6 +74,8 @@ func TestAddTeamMember_NonOwnerForbidden(t *testing.T) {
 	userID := "user_1"
 	teamID := "team_456"
 
+	expectResolveOrganizationByID(mockStore, orgID)
+
 	// User is a member, not an owner
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: orgID,
@@ -105,6 +109,8 @@ func TestRemoveTeamMember_NonOwnerForbidden(t *testing.T) {
 	userID := "user_1"
 	teamID := "team_456"
 	memberID := "user_2"
+
+	expectResolveOrganizationByID(mockStore, orgID)
 
 	// User is a member, not an owner
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{

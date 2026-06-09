@@ -27,6 +27,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +43,22 @@ import (
 // containing the Dialer's random unique ID.
 const dialerUniqParam = "revdial.dialer"
 
+// requestIDParam is the parameter name of the per-Dial request ID embedded
+// in the pickup URL. The listener echoes the URL verbatim when dialing back
+// (and when reporting pickup-failed), so the server can route the resulting
+// data connection / error to the specific Dial() that asked for it instead
+// of relying on a shared unbuffered channel.
+const requestIDParam = "revdial.req"
+
 // dialerPingInterval is used to ensure we are sending constant pings
 const dialerPingInterval = 18 * time.Second
+
+// dialResult is the outcome of a single Dial() — either a data connection
+// or a pickup-failed error from the listener.
+type dialResult struct {
+	conn net.Conn
+	err  error
+}
 
 // The Dialer can create new connections.
 type Dialer struct {
@@ -52,11 +67,16 @@ type Dialer struct {
 	uniqID     string
 	pickupPath string // path + uniqID: "/revdial?revdial.dialer="+uniqID
 
-	incomingConn chan net.Conn
-	pickupFailed chan error
-	connReady    chan bool
-	donec        chan struct{}
-	closeOnce    sync.Once
+	connReady chan string // sends per-Dial request IDs to serve()
+	donec     chan struct{}
+	closeOnce sync.Once
+
+	// requests maps each in-flight Dial()'s request ID to a buffered (cap 1)
+	// channel that receives its dialResult. The data connection arriving via
+	// ConnHandler (or an error via pickup-failed) is routed by request ID,
+	// so concurrent Dial()s never share a connection or step on each other.
+	requestsMu sync.Mutex
+	requests   map[string]chan dialResult
 }
 
 var (
@@ -72,13 +92,12 @@ var (
 // mounted.
 func NewDialer(c net.Conn, connPath string) *Dialer {
 	d := &Dialer{
-		path:         connPath,
-		uniqID:       newUniqID(),
-		conn:         c,
-		donec:        make(chan struct{}),
-		connReady:    make(chan bool),
-		incomingConn: make(chan net.Conn),
-		pickupFailed: make(chan error),
+		path:      connPath,
+		uniqID:    newUniqID(),
+		conn:      c,
+		donec:     make(chan struct{}),
+		connReady: make(chan string),
+		requests:  make(map[string]chan dialResult),
 	}
 
 	join := "?"
@@ -126,66 +145,120 @@ func (d *Dialer) close() {
 	d.unregister()
 	d.conn.Close()
 	close(d.donec)
+	// Wake up any in-flight Dial() callers so they don't block until ctx
+	// cancels. closing each result chan causes the receiver to read a zero
+	// dialResult, which Dial() interprets as "dialer closed".
+	d.requestsMu.Lock()
+	for id, ch := range d.requests {
+		close(ch)
+		delete(d.requests, id)
+	}
+	d.requestsMu.Unlock()
 }
 
 // Dial creates a new connection back to the Listener.
 func (d *Dialer) Dial(ctx context.Context) (net.Conn, error) {
-	// Drain any stale connections left over from previous timed-out Dial calls.
-	// When a Dial() times out, the sandbox may still dial back and deliver a
-	// connection via matchConn. Without draining, the next Dial() would pick up
-	// this stale (likely dead) connection instead of requesting a fresh one,
-	// causing cascading failures.
-	drained := 0
-	for {
-		select {
-		case c := <-d.incomingConn:
-			c.Close()
-			drained++
-		default:
-			goto doneDraining
-		}
-	}
-doneDraining:
-	if drained > 0 {
-		log.Printf("revdial.Dialer: drained %d stale connection(s)", drained)
+	requestID := newUniqID()
+	resultCh := make(chan dialResult, 1)
+
+	d.requestsMu.Lock()
+	d.requests[requestID] = resultCh
+	d.requestsMu.Unlock()
+
+	// Always remove the request from the map on exit. If a data connection
+	// arrives after we've given up (ctx cancellation, dialer close), the
+	// deliverConn path will close it because the request ID is no longer
+	// registered — no goroutine leak, no stale conn handed to a future Dial.
+	cleanup := func() {
+		d.requestsMu.Lock()
+		delete(d.requests, requestID)
+		d.requestsMu.Unlock()
 	}
 
-	// First, tell serve that we want a connection:
+	// Tell serve we want a connection. serve will emit conn-ready with a
+	// pickup path that embeds requestID, so the subsequent dial-back from
+	// the listener carries the same ID and ConnHandler can route it back.
 	select {
-	case d.connReady <- true:
+	case d.connReady <- requestID:
 	case <-d.donec:
+		cleanup()
 		return nil, errors.New("revdial.Dialer closed")
 	case <-ctx.Done():
+		cleanup()
 		return nil, ctx.Err()
 	}
 
-	// Then pick it up:
+	// Wait for THIS request's result.
 	select {
-	case c := <-d.incomingConn:
-		return c, nil
-	case err := <-d.pickupFailed:
-		return nil, err
+	case res, ok := <-resultCh:
+		cleanup()
+		if !ok {
+			return nil, errors.New("revdial.Dialer closed")
+		}
+		if res.err != nil {
+			return nil, res.err
+		}
+		return res.conn, nil
 	case <-d.donec:
+		cleanup()
 		return nil, errors.New("revdial.Dialer closed")
 	case <-ctx.Done():
+		cleanup()
 		return nil, ctx.Err()
 	}
 }
 
-// matchConnTimeout is the maximum time matchConn will wait for a Dial() call
-// to pick up a data connection. If no Dial() is waiting (e.g., the caller
-// timed out), the connection is closed to prevent phantom goroutine leaks.
-const matchConnTimeout = 30 * time.Second
-
-func (d *Dialer) matchConn(c net.Conn) {
-	select {
-	case d.incomingConn <- c:
-	case <-d.donec:
+// deliverConn routes an incoming data WebSocket to the Dial() that asked
+// for it, identified by the request ID parsed from the URL by ConnHandler.
+// If no Dial is waiting (caller already gave up), the connection is closed
+// to avoid leaking the upgraded WebSocket.
+func (d *Dialer) deliverConn(requestID string, c net.Conn) {
+	d.requestsMu.Lock()
+	ch, ok := d.requests[requestID]
+	d.requestsMu.Unlock()
+	if !ok {
 		c.Close()
-	case <-time.After(matchConnTimeout):
-		c.Close()
-		log.Printf("revdial.Dialer: matchConn timed out after %v, closed orphaned data connection", matchConnTimeout)
+		return
 	}
+	select {
+	case ch <- dialResult{conn: c}:
+	default:
+		// The result chan is buffered with capacity 1; landing in the
+		// default branch means a result was already delivered for this
+		// request (shouldn't happen — defensive close to avoid leak).
+		c.Close()
+	}
+}
+
+// deliverErr routes a pickup-failed error to the Dial() that asked for it.
+func (d *Dialer) deliverErr(requestID string, err error) {
+	if requestID == "" {
+		return
+	}
+	d.requestsMu.Lock()
+	ch, ok := d.requests[requestID]
+	d.requestsMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- dialResult{err: err}:
+	default:
+	}
+}
+
+// extractRequestID pulls the request ID query parameter out of a pickup
+// path (which the listener echoes back in pickup-failed messages).
+func extractRequestID(path string) string {
+	i := strings.Index(path, "?")
+	if i < 0 {
+		return ""
+	}
+	q, err := url.ParseQuery(path[i+1:])
+	if err != nil {
+		return ""
+	}
+	return q.Get(requestIDParam)
 }
 
 // serve blocks and runs the control message loop, keeping the peer
@@ -207,12 +280,12 @@ func (d *Dialer) serve() error {
 			}
 			switch msg.Command {
 			case "pickup-failed":
-				err := fmt.Errorf("revdial listener failed to pick up connection: %v", msg.Err)
-				select {
-				case d.pickupFailed <- err:
-				case <-d.donec:
-					return
-				}
+				// The listener echoes the pickup path back, which carries
+				// the request ID we embedded when sending conn-ready. Route
+				// the error to that specific Dial() instead of broadcasting
+				// it to whichever caller happens to be waiting.
+				requestID := extractRequestID(msg.ConnPath)
+				d.deliverErr(requestID, fmt.Errorf("revdial listener failed to pick up connection: %v", msg.Err))
 			}
 		}
 	}()
@@ -225,12 +298,16 @@ func (d *Dialer) serve() error {
 		select {
 		case <-t.C:
 			continue
-		case <-d.connReady:
+		case requestID := <-d.connReady:
 			t.Stop()
+			// Embed the per-Dial request ID in the pickup URL so the
+			// listener's dial-back identifies which Dial() to satisfy.
+			pickupPath := d.pickupPath + "&" + requestIDParam + "=" + requestID
 			if err := d.sendMessage(controlMsg{
 				Command:  "conn-ready",
-				ConnPath: d.pickupPath,
+				ConnPath: pickupPath,
 			}); err != nil {
+				d.deliverErr(requestID, err)
 				return err
 			}
 		case <-d.donec:
@@ -440,6 +517,7 @@ func (fakeAddr) String() string  { return "revdialconn" }
 func ConnHandler(upgrader websocket.Upgrader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dialerUniq := r.FormValue(dialerUniqParam)
+		requestID := r.FormValue(requestIDParam)
 
 		dmapMu.Lock()
 		d, ok := dialers[dialerUniq]
@@ -455,6 +533,9 @@ func ConnHandler(upgrader websocket.Upgrader) http.Handler {
 			return
 		}
 
-		d.matchConn(wsconnadapter.New(wsConn))
+		// deliverConn returns immediately: it either hands the WebSocket
+		// to the waiting Dial() (buffered chan) or closes it. No more
+		// 30s matchConn block holding an HTTP handler goroutine.
+		d.deliverConn(requestID, wsconnadapter.New(wsConn))
 	})
 }

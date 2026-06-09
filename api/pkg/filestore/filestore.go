@@ -64,3 +64,9 @@ func GetUserPrefix(filestorePrefix, userID string) string {
 func GetAppPrefix(filestorePrefix, appID string) string {
 	return filepath.Join(filestorePrefix, "apps", appID)
 }
+
+// GetSpecTaskAttachmentsPrefix returns the filestore path for a SpecTask's attachments:
+// {filestorePrefix}/spec-tasks/{taskID}/attachments
+func GetSpecTaskAttachmentsPrefix(filestorePrefix, specTaskID string) string {
+	return filepath.Join(filestorePrefix, "spec-tasks", specTaskID, "attachments")
+}

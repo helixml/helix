@@ -32,7 +32,7 @@ type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID
 
 type SpecTaskOrchestrator struct {
 	store                 store.Store
-	gitService            *GitRepositoryService
+	gitService            GitService
 	specTaskService       *SpecDrivenTaskService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
@@ -55,10 +55,22 @@ type ContainerExecutor interface {
 	GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error)
 }
 
+// GitService is the subset of GitRepositoryService that the orchestrator uses.
+// Extracted so PR-poll logic can be unit-tested with a mocked git backend.
+// *GitRepositoryService satisfies this interface in production.
+type GitService interface {
+	GetPullRequest(ctx context.Context, repoID, prID string) (*types.PullRequest, error)
+	GetCIStatus(ctx context.Context, repoID, prID, headSHA string) (*types.CIStatus, error)
+	ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error)
+	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
+	IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error)
+	IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error)
+}
+
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
 	store store.Store,
-	gitService *GitRepositoryService,
+	gitService GitService,
 	specTaskService *SpecDrivenTaskService,
 	containerExecutor ContainerExecutor, // Executor for external agent containers
 ) *SpecTaskOrchestrator {
@@ -565,7 +577,33 @@ func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *t
 			task.DesignDocsPushedAt = &now
 		}
 
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+
+		// The git-push path (git_http_server) emits specs_pushed via commit hash;
+		// this orchestrator path also needs to notify. Use task ID as the
+		// idempotency qualifier so repeated polls don't duplicate, and so a
+		// race with the git-push path (which uses commit hash) still produces
+		// at most one notification per situation.
+		if o.attentionService != nil {
+			go func(t *types.SpecTask) {
+				_, err := o.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventSpecsPushed,
+					t,
+					t.ID,
+					nil,
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", t.ID).
+						Msg("Failed to emit specs_pushed attention event from orchestrator")
+				}
+			}(task)
+		}
+
+		return nil
 	}
 
 	return nil
@@ -747,7 +785,14 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
 				Msg("Failed to get pull request status, skipping")
-			allClosed = false // Can't confirm it's closed
+			// Can't confirm either state. Symmetric: must clear BOTH flags,
+			// otherwise a poll where every PR errors leaves allMerged at its
+			// `true` default and the task wrongly transitions to Done.
+			// Pod restarts (cold DNS/TLS/token caches) and transient GitLab
+			// 5xx/429/404s are realistic triggers for "all PRs error in one
+			// cycle". See design/2026-05-26-pr-merge-error-symmetry.md.
+			allMerged = false
+			allClosed = false
 			continue
 		}
 
@@ -940,8 +985,13 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 
 	log.Debug().Int("count", len(eligibleTasks)).Msg("Checking tasks for external PR activity")
 
+	// prsByRepo memoizes ListPullRequests results across this poll cycle so
+	// that N tasks all referencing the same upstream repo (e.g. helixml/helix)
+	// hit the GitHub API once per repo, not once per task. Combined with the
+	// service-level cache this keeps us well under the 5000 req/hr quota.
+	prsByRepo := make(map[string][]*types.PullRequest)
 	for _, task := range eligibleTasks {
-		err := o.checkTaskForExternalPRActivity(ctx, task)
+		err := o.checkTaskForExternalPRActivity(ctx, task, prsByRepo)
 		if err != nil {
 			// Don't spam logs for deleted projects
 			if isDeletedProjectError(err) {
@@ -959,8 +1009,10 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 	}
 }
 
-// checkTaskForExternalPRActivity checks a single task for external PR activity
-func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask) error {
+// checkTaskForExternalPRActivity checks a single task for external PR activity.
+// prsByRepo is a per-cycle memo: callers should pass the same map across all
+// tasks in a poll cycle so PR lists for a given repo are fetched at most once.
+func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask, prsByRepo map[string][]*types.PullRequest) error {
 	project, err := o.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		return fmt.Errorf("failed to get project: %w", err)
@@ -982,11 +1034,19 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 			continue
 		}
 
-		// Check for open or merged PRs on this branch
-		prs, err := o.gitService.ListPullRequests(ctx, repo.ID)
-		if err != nil {
-			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
-			continue
+		// Reuse the per-cycle memo if we've already listed this repo's PRs
+		// for an earlier task in this batch.
+		prs, cached := prsByRepo[repo.ID]
+		if !cached {
+			prs, err = o.gitService.ListPullRequests(ctx, repo.ID)
+			if err != nil {
+				log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
+				// Memoize the empty result too so a failing repo is only
+				// attempted once per cycle.
+				prsByRepo[repo.ID] = nil
+				continue
+			}
+			prsByRepo[repo.ID] = prs
 		}
 
 		for _, pr := range prs {

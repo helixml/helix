@@ -4,27 +4,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli"
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 func newListCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "list",
-		Short:   "List all projects",
+	var orgFlag string
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List projects in an organization",
+		Long: `List projects in an organization.
+
+Projects are organization-scoped. If --org is omitted and you belong to a
+single org, that org is used; if you belong to multiple, you will be
+prompted. The HELIX_ORG environment variable is also honoured.`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			apiClient, err := client.NewClientFromEnv()
+			if err != nil {
+				return fmt.Errorf("failed to create API client: %w", err)
+			}
+
+			orgID, err := cli.ResolveOrganizationInteractive(ctx, apiClient, orgFlag)
+			if err != nil {
+				return err
+			}
+
 			apiURL := getAPIURL()
 			token := getToken()
 
-			req, err := http.NewRequest("GET", apiURL+"/api/v1/projects", nil)
+			q := url.Values{}
+			q.Set("organization_id", orgID)
+			endpoint := apiURL + "/api/v1/projects?" + q.Encode()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
 
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			httpClient := &http.Client{}
+			resp, err := httpClient.Do(req)
 			if err != nil {
 				return fmt.Errorf("failed to list projects: %w", err)
 			}
@@ -61,6 +87,9 @@ func newListCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
+	return cmd
 }
 
 type Project struct {

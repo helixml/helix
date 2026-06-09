@@ -9,6 +9,286 @@
  * ---------------------------------------------------------------
  */
 
+export interface ApiAddWorkerParentRequest {
+  parent_id?: string;
+}
+
+export interface ApiCreateRoleRequest {
+  content?: string;
+  id?: string;
+  streams?: string[];
+  tools?: string[];
+}
+
+export interface ApiCreateStreamRequest {
+  description?: string;
+  id?: string;
+  name?: string;
+  transport?: ApiTransportRequestField;
+}
+
+export interface ApiErrorResponse {
+  error?: string;
+}
+
+export interface ApiEventCard {
+  body?: string;
+  created_at?: string;
+  from?: string;
+  has_message?: boolean;
+  id?: string;
+  message_body?: string;
+  source?: string;
+  stream_id?: string;
+  subject?: string;
+  to?: string;
+}
+
+export interface ApiGitHubInstallationStatus {
+  /**
+   * AppExists is true when a Helix GitHub App has been created/registered
+   * for this org (a github_app ServiceConnection exists), even if not yet
+   * installed on any repo. Drives the gate's create-vs-install branch.
+   */
+  app_exists?: boolean;
+  /**
+   * InstallURL is where the New Stream gate sends the user to install the
+   * app (https://github.com/apps/<slug>/installations/new). Populated from
+   * the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
+   */
+  install_url?: string;
+  /**
+   * Installed is true when the Helix GitHub App has an installation for
+   * this org (a github_app ServiceConnection with an installation id).
+   */
+  installed?: boolean;
+  /**
+   * ManageURL is the app's developer-settings page on GitHub
+   * (github.com/organizations/<owner>/settings/apps/<slug>) — where you edit
+   * permissions, repos, and delete the app. Empty when the owner is unknown
+   * (e.g. a BYO app configured without it).
+   */
+  manage_url?: string;
+}
+
+export interface ApiGitHubManifestStartResponse {
+  manifest?: string;
+  post_url?: string;
+  state?: string;
+}
+
+export interface ApiGitHubRepoDTO {
+  full_name?: string;
+  private?: boolean;
+}
+
+export interface ApiGitHubReposResponse {
+  repos?: ApiGitHubRepoDTO[];
+  /**
+   * Source identifies which token paid for this list — useful
+   * when debugging "I can't see repo X" reports.
+   */
+  source?: string;
+}
+
+export interface ApiGitHubWebhookStatusResponse {
+  active?: boolean;
+  /** Detail explains a "unknown" state (and is empty otherwise). */
+  detail?: string;
+  payload_url?: string;
+  /**
+   * State is one of:
+   *   "installed" — a webhook for this stream's payload URL exists on the repo
+   *   "missing"   — GitHub was reachable and has no such webhook (needs install)
+   *   "unknown"   — couldn't determine (no repo / no public URL / no creds /
+   *                 GitHub error); see Detail. The UI falls back to stored state.
+   */
+  state?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
+export interface ApiHireWorkerRequest {
+  id?: string;
+  identity_content?: string;
+  kind?: string;
+  parent_id?: string;
+  role_id?: string;
+}
+
+export interface ApiHireWorkerResponse {
+  activation_id?: string;
+  id?: string;
+}
+
+export interface ApiInstallGitHubWebhookResponse {
+  payload_url?: string;
+  /**
+   * Warning is a non-fatal message about the just-installed
+   * webhook — e.g. "SERVER_URL is a loopback address so GitHub's
+   * servers can't actually deliver to this URL". The webhook IS
+   * installed on GitHub; the warning just tells the operator
+   * what needs fixing on their side for deliveries to flow.
+   */
+  warning?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
+export interface ApiOrgOverview {
+  groups?: ApiRoleGroup[];
+  roles?: ApiRoleBadge[];
+}
+
+export interface ApiPublishRequest {
+  body?: string;
+  subject?: string;
+  to?: string[];
+}
+
+export interface ApiPublishResponse {
+  event_id?: string;
+}
+
+export interface ApiRoleBadge {
+  id?: string;
+}
+
+export interface ApiRoleDTO {
+  content?: string;
+  created_at?: string;
+  id?: string;
+  streams?: string[];
+  tools?: string[];
+  updated_at?: string;
+}
+
+export interface ApiRoleGroup {
+  role_id?: string;
+  workers?: ApiWorkerBadge[];
+}
+
+export interface ApiSetSettingRequest {
+  value?: string;
+}
+
+export interface ApiSettingsResponse {
+  db_path?: string;
+  envs_dir?: string;
+  owner?: string;
+  public_url?: string;
+  specs?: ApiSettingsSpecDTO[];
+}
+
+export interface ApiSettingsSpecDTO {
+  configured?: boolean;
+  description?: string;
+  key?: string;
+  required?: boolean;
+  type?: string;
+  value?: string;
+}
+
+export interface ApiStreamDTO {
+  can_publish?: boolean;
+  config?: Record<string, any>;
+  created_at?: string;
+  created_by?: string;
+  description?: string;
+  disable_reason?: string;
+  effective_public_url?: string;
+  id?: string;
+  kind?: string;
+  name?: string;
+  recent_events?: ApiEventCard[];
+  subscribers?: string[];
+}
+
+export interface ApiStreamsResponse {
+  recent?: ApiEventCard[];
+  streams?: ApiStreamDTO[];
+}
+
+export interface ApiSubscribeWorkerRequest {
+  stream_id?: string;
+}
+
+export interface ApiToolDTO {
+  description?: string;
+  name?: string;
+}
+
+export interface ApiTransportRequestField {
+  config?: Record<string, any>;
+  kind?: string;
+}
+
+export interface ApiUpdateRoleRequest {
+  content?: string;
+  streams?: string[];
+  tools?: string[];
+}
+
+export interface ApiUpdateStreamRequest {
+  description?: string;
+  name?: string;
+  transport?: ApiTransportRequestField;
+}
+
+export interface ApiUpdateWorkerIdentityRequest {
+  identity?: string;
+}
+
+export interface ApiUpdateWorkerRoleRequest {
+  content?: string;
+}
+
+export interface ApiWorkerActivateDTO {
+  activation_id?: string;
+  agent_app_id?: string;
+  project_id?: string;
+  session_id?: string;
+}
+
+export interface ApiWorkerBadge {
+  id?: string;
+  kind?: string;
+}
+
+export interface ApiWorkerChatDTO {
+  agent_app_id?: string;
+  project_id?: string;
+}
+
+export interface ApiWorkerDTO {
+  id?: string;
+  identity_content?: string;
+  kind?: string;
+  organization_id?: string;
+  parent_ids?: string[];
+  role_id?: string;
+  tools?: string[];
+}
+
+export interface ApiWorkerDetailDTO {
+  /** AgentAppID + ProjectID — see WorkerChatDTO comments. */
+  agent_app_id?: string;
+  project_id?: string;
+  /** Role this Worker holds (nil if the role row is gone). */
+  role?: ApiRoleDTO;
+  worker?: ApiWorkerDTO;
+}
+
+export interface ApiWorkerSubscriptionDTO {
+  created_at?: string;
+  stream_id?: string;
+}
+
+export interface ApiWorkerSubscriptionsResponse {
+  subscriptions?: ApiWorkerSubscriptionDTO[];
+  worker_id?: string;
+}
+
 export interface FilestoreConfig {
   folders?: FilestoreFolder[];
   /**
@@ -69,6 +349,62 @@ export enum GithubComHelixmlHelixApiPkgTypesRuntime {
   RuntimeVLLM = "vllm",
 }
 
+export interface GithubComMark3LabsMcpGoMcpIcon {
+  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
+  mimeType?: string;
+  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
+  sizes?: string[];
+  /** URI pointing to the icon resource (HTTPS URL or data URI) */
+  src?: string;
+}
+
+export interface GithubComMark3LabsMcpGoMcpMeta {
+  /**
+   * AdditionalFields are any fields present in the Meta that are not
+   * otherwise defined in the protocol.
+   */
+  additionalFields?: Record<string, any>;
+  /**
+   * If specified, the caller is requesting out-of-band progress
+   * notifications for this request (as represented by
+   * notifications/progress). The value of this parameter is an
+   * opaque token that will be attached to any subsequent
+   * notifications. The receiver is not obligated to provide these
+   * notifications.
+   */
+  progressToken?: any;
+}
+
+export interface GithubComMark3LabsMcpGoMcpTool {
+  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
+  _meta?: GithubComMark3LabsMcpGoMcpMeta;
+  /** Optional properties describing tool behavior */
+  annotations?: McpToolAnnotation;
+  /** Support for deferred loading */
+  defer_loading?: boolean;
+  /** A human-readable description of the tool. */
+  description?: string;
+  /** Execution describes execution behavior for the tool */
+  execution?: McpToolExecution;
+  /** Icons provides visual identifiers for the tool */
+  icons?: GithubComMark3LabsMcpGoMcpIcon[];
+  /** A JSON Schema object defining the expected parameters for the tool. */
+  inputSchema?: McpToolInputSchema;
+  /** The name of the tool. */
+  name?: string;
+  /** A JSON Schema object defining the expected output returned by the tool . */
+  outputSchema?: McpToolOutputSchema;
+}
+
+export interface GooseRecipeParameter {
+  default?: string;
+  description?: string;
+  input_type?: string;
+  key?: string;
+  options?: string[];
+  requirement?: string;
+}
+
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -92,19 +428,6 @@ export enum HydraDevContainerType {
   DevContainerTypeSway = "sway",
   DevContainerTypeUbuntu = "ubuntu",
   DevContainerTypeHeadless = "headless",
-}
-
-export interface HydraGPUInfo {
-  index?: number;
-  memory_free_bytes?: number;
-  memory_total_bytes?: number;
-  memory_used_bytes?: number;
-  name?: string;
-  temperature_celsius?: number;
-  /** GPU core utilization */
-  utilization_percent?: number;
-  /** "nvidia", "amd", "intel" */
-  vendor?: string;
 }
 
 export interface HydraListSandboxCommandsResponse {
@@ -141,57 +464,10 @@ export interface HydraSandboxFileEntry {
   size?: number;
 }
 
-export interface McpIcon {
-  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
-  mimeType?: string;
-  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
-  sizes?: string[];
-  /** URI pointing to the icon resource (HTTPS URL or data URI) */
-  src?: string;
-}
-
-export interface McpMeta {
-  /**
-   * AdditionalFields are any fields present in the Meta that are not
-   * otherwise defined in the protocol.
-   */
-  additionalFields?: Record<string, any>;
-  /**
-   * If specified, the caller is requesting out-of-band progress
-   * notifications for this request (as represented by
-   * notifications/progress). The value of this parameter is an
-   * opaque token that will be attached to any subsequent
-   * notifications. The receiver is not obligated to provide these
-   * notifications.
-   */
-  progressToken?: any;
-}
-
 export enum McpTaskSupport {
   TaskSupportForbidden = "forbidden",
   TaskSupportOptional = "optional",
   TaskSupportRequired = "required",
-}
-
-export interface McpTool {
-  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
-  _meta?: McpMeta;
-  /** Optional properties describing tool behavior */
-  annotations?: McpToolAnnotation;
-  /** Support for deferred loading */
-  defer_loading?: boolean;
-  /** A human-readable description of the tool. */
-  description?: string;
-  /** Execution describes execution behavior for the tool */
-  execution?: McpToolExecution;
-  /** Icons provides visual identifiers for the tool */
-  icons?: McpIcon[];
-  /** A JSON Schema object defining the expected parameters for the tool. */
-  inputSchema?: McpToolInputSchema;
-  /** The name of the tool. */
-  name?: string;
-  /** A JSON Schema object defining the expected output returned by the tool . */
-  outputSchema?: McpToolOutputSchema;
 }
 
 export interface McpToolAnnotation {
@@ -577,9 +853,20 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
+export interface ServerActivateTrialRequest {
+  credits?: number;
+  days?: number;
+}
+
+export interface ServerActivateTrialResponse {
+  org_id?: string;
+  status?: string;
+  user?: TypesUser;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
-  gpus?: HydraGPUInfo[];
+  gpus?: ServerGPUInfoWithSandbox[];
   message?: string;
   sandboxes?: ServerSandboxInstanceInfo[];
 }
@@ -718,6 +1005,31 @@ export interface ServerExposedPort {
   /** "active", "inactive" */
   status?: string;
   url?: string;
+}
+
+export interface ServerGPUInfoWithSandbox {
+  index?: number;
+  memory_free_bytes?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  name?: string;
+  sandbox_id?: string;
+  temperature_celsius?: number;
+  /** GPU core utilization */
+  utilization_percent?: number;
+  /** "nvidia", "amd", "intel" */
+  vendor?: string;
+}
+
+export interface ServerGrantCreditsRequest {
+  credits?: number;
+  org_id?: string;
+}
+
+export interface ServerGrantCreditsResponse {
+  org_id?: string;
+  status?: string;
+  user?: TypesUser;
 }
 
 export interface ServerInitializeSampleRepositoriesRequest {
@@ -1094,6 +1406,12 @@ export interface ServerOrganizationDomainInfo {
   organization_name?: string;
 }
 
+export interface ServerOwnedOrgSummary {
+  display_name?: string;
+  id?: string;
+  name?: string;
+}
+
 export interface ServerPhaseProgress {
   agent?: string;
   completed_at?: string;
@@ -1105,6 +1423,21 @@ export interface ServerPhaseProgress {
 
 export interface ServerPinnedProjectsResponse {
   pinned_project_ids?: string[];
+}
+
+export interface ServerProjectGooseRecipe {
+  description?: string;
+  /**
+   * Error, when non-empty, indicates that the recipe was declared on the
+   * agent but couldn't be loaded — repo not cloned yet, file missing,
+   * YAML malformed, etc. The UI surfaces this so the user can fix the
+   * project YAML before creating a task that would silently fall back to
+   * vanilla goose.
+   */
+  error?: string;
+  name?: string;
+  parameters?: GooseRecipeParameter[];
+  title?: string;
 }
 
 export interface ServerPromptPinRequest {
@@ -1391,7 +1724,7 @@ export enum StripeSubscriptionStatus {
 
 export interface SystemHTTPError {
   message?: string;
-  statusCode?: number;
+  status_code?: number;
 }
 
 export interface TypesAPIError {
@@ -1438,9 +1771,29 @@ export enum TypesAction {
 }
 
 export interface TypesAddOrganizationMemberRequest {
+  /**
+   * AppID + GrantRoles are optional and only meaningful when the
+   * request creates an invitation (because the email doesn't match an
+   * existing user). They tell the server which app to attach the
+   * invitation to, so the access grant can be materialised when the
+   * invitee accepts. When set, the invitation will also be filtered
+   * to this app in the access-management list.
+   */
+  app_id?: string;
+  grant_roles?: string[];
   role?: TypesOrganizationRole;
   /** Either user ID or user email */
   user_reference?: string;
+}
+
+export interface TypesAddOrganizationMemberResponse {
+  invitation?: TypesOrganizationInvitation;
+  /**
+   * Invited is true when no user exists yet and an invitation row was
+   * created instead of a membership.
+   */
+  invited?: boolean;
+  membership?: TypesOrganizationMembership;
 }
 
 export interface TypesAddTeamMemberRequest {
@@ -1642,6 +1995,18 @@ export interface TypesAssistantConfig {
   frequency_penalty?: number;
   generation_model?: string;
   generation_model_provider?: string;
+  /**
+   * GooseRecipeRepoURL is the external git URL of the attached repository
+   * that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+   * Resolved against attached GitRepositories at sandbox-start time.
+   * Empty means recipes are looked up under the primary repository.
+   */
+  goose_recipe_repo_url?: string;
+  /**
+   * GooseRecipes are the project-declared Goose recipes (slash-command name
+   * + repo-relative path to the recipe YAML).
+   */
+  goose_recipes?: TypesAssistantGooseRecipe[];
   id?: string;
   image?: string;
   /** Defaults to 4 */
@@ -1707,6 +2072,11 @@ export interface TypesAssistantEmail {
   template_example?: string;
 }
 
+export interface TypesAssistantGooseRecipe {
+  name?: string;
+  path?: string;
+}
+
 export interface TypesAssistantKnowledge {
   /**
    * Description of the knowledge, will be used in the prompt
@@ -1757,7 +2127,7 @@ export interface TypesAssistantMCP {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
-  tools?: McpTool[];
+  tools?: GithubComMark3LabsMcpGoMcpTool[];
   /**
    * Transport type: "http" (default, Streamable HTTP), "sse" (legacy SSE), or "stdio" (command execution)
    * For stdio transport, use Command/Args/Env fields instead of URL
@@ -1811,6 +2181,7 @@ export interface TypesAttentionEvent {
   /** Denormalized for display without joins */
   project_name?: string;
   snoozed_until?: string;
+  spec_task_description?: string;
   spec_task_id?: string;
   spec_task_name?: string;
   title?: string;
@@ -2146,6 +2517,13 @@ export interface TypesCloneTaskResult {
   task_id?: string;
 }
 
+export interface TypesCodeAgentBakedRecipe {
+  /** Content is the substituted recipe YAML (full file content). */
+  content?: string;
+  /** Name is the slash-command slug (no leading slash). */
+  name?: string;
+}
+
 export interface TypesCodeAgentConfig {
   /** AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code") */
   agent_name?: string;
@@ -2153,6 +2531,26 @@ export interface TypesCodeAgentConfig {
   api_type?: string;
   /** BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1") */
   base_url?: string;
+  /**
+   * GooseBakedRecipe, when set, holds a single recipe with parameters
+   * pre-substituted, used by Phase 2b spec-task automation. The daemon
+   * writes it to disk and registers a single slash_command so an initial
+   * "/<slug>" prompt fires the recipe.
+   */
+  goose_baked_recipe?: TypesCodeAgentBakedRecipe;
+  /**
+   * GooseRecipeRootDir is the absolute container path to the root of the
+   * recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+   * resolve relative paths correctly).
+   */
+  goose_recipe_root_dir?: string;
+  /**
+   * GooseRecipes lists project-declared Goose recipes with absolute paths
+   * resolved inside the desktop container. Only set when Runtime is
+   * goose_code; consumed by settings-sync-daemon to write the goose
+   * slash_commands config.
+   */
+  goose_recipes?: TypesCodeAgentGooseRecipe[];
   /**
    * MaxOutputTokens is the model's max completion tokens
    * Looked up from model_info.json, 0 if not found
@@ -2176,12 +2574,18 @@ export enum TypesCodeAgentCredentialType {
   CodeAgentCredentialTypeSubscription = "subscription",
 }
 
+export interface TypesCodeAgentGooseRecipe {
+  name?: string;
+  path?: string;
+}
+
 export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeZedAgent = "zed_agent",
   CodeAgentRuntimeQwenCode = "qwen_code",
   CodeAgentRuntimeClaudeCode = "claude_code",
   CodeAgentRuntimeGeminiCLI = "gemini_cli",
   CodeAgentRuntimeCodexCLI = "codex_cli",
+  CodeAgentRuntimeGooseCode = "goose_code",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2233,6 +2637,24 @@ export interface TypesCreateAccessGrantRequest {
   team_id?: string;
   /** User ID or email */
   user_reference?: string;
+}
+
+export interface TypesCreateAccessGrantResponse {
+  added_to_organization?: boolean;
+  created_at?: string;
+  id?: string;
+  /** If granted to an organization */
+  organization_id?: string;
+  /** App ID, Knowledge ID, etc */
+  resource_id?: string;
+  roles?: TypesRole[];
+  /** If granted to a team */
+  team_id?: string;
+  updated_at?: string;
+  /** Populated by the server if UserID is set */
+  user?: TypesUser;
+  /** If granted to a user */
+  user_id?: string;
 }
 
 export interface TypesCreateBranchRequest {
@@ -2340,6 +2762,15 @@ export interface TypesCreateTaskRequest {
   branch_prefix?: string;
   /** Optional: IDs of tasks this task depends on */
   depends_on?: string[];
+  /**
+   * Goose recipe selection (only meaningful when the chosen agent's runtime
+   * is goose_code). GooseRecipeName must match one of the agent's declared
+   * recipes; GooseRecipeParams are substituted into the recipe at session
+   * start. Recipes declared on the agent but not selected here are still
+   * available as runtime slash-commands inside the desktop.
+   */
+  goose_recipe_name?: string;
+  goose_recipe_params?: Record<string, string>;
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
@@ -3534,6 +3965,53 @@ export interface TypesOrgDetails {
   wallet?: TypesWallet;
 }
 
+export interface TypesOrgUsageSummaryResponse {
+  active_apps?: number;
+  active_projects?: number;
+  active_sessions?: number;
+  active_users?: number;
+  apps?: TypesUsageBreakdownRow[];
+  export_apps?: TypesUsageBreakdownRow[];
+  export_models?: TypesUsageBreakdownRow[];
+  export_projects?: TypesUsageBreakdownRow[];
+  export_sessions?: TypesUsageBreakdownRow[];
+  export_tasks?: TypesUsageBreakdownRow[];
+  export_users?: TypesUsageBreakdownRow[];
+  filter_apps?: TypesUsageFilterOption[];
+  filter_models?: TypesUsageFilterOption[];
+  filter_projects?: TypesUsageFilterOption[];
+  filter_users?: TypesUsageFilterOption[];
+  metrics?: TypesAggregatedUsageMetric[];
+  model_time_series?: TypesUsageModelTimeSeries[];
+  models?: TypesUsageBreakdownRow[];
+  project_models?: TypesUsageBreakdownRow[];
+  projects?: TypesUsageBreakdownRow[];
+  projects_total?: number;
+  sessions?: TypesUsageBreakdownRow[];
+  sessions_total?: number;
+  tasks?: TypesUsageBreakdownRow[];
+  tasks_total?: number;
+  users?: TypesUsageBreakdownRow[];
+  users_total?: number;
+}
+
+export interface TypesOrgUserLookupResponse {
+  email?: string;
+  /** a Helix user account exists with this email */
+  exists?: boolean;
+  full_name?: string;
+  invitation_id?: string;
+  /**
+   * IsInvited — a pending invitation exists for this email in the queried
+   * org. Used by the invite UI to disable the "Send invitation" button so
+   * admins don't accidentally double-invite.
+   */
+  is_invited?: boolean;
+  /** user is also a member of the queried org */
+  is_member?: boolean;
+  user_id?: string;
+}
+
 export interface TypesOrganization {
   /**
    * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
@@ -3566,6 +4044,28 @@ export interface TypesOrganization {
   roles?: TypesRole[];
   /** Teams in the organization */
   teams?: TypesTeam[];
+  updated_at?: string;
+}
+
+export interface TypesOrganizationInvitation {
+  /**
+   * AppID + GrantRoles record the optional access-grant context. When an
+   * invitation is sent from a project/app's access management dialog,
+   * we store the resource id and the role names the inviter chose, so
+   * that consuming the invitation at register time can also materialise
+   * the access grant — the invitee then shows up in the project access
+   * list immediately, exactly as if they had been added directly.
+   */
+  app_id?: string;
+  created_at?: string;
+  /** Normalised to lowercase */
+  email?: string;
+  grant_roles?: string[];
+  id?: string;
+  /** User ID of the inviter */
+  invited_by?: string;
+  organization_id?: string;
+  role?: TypesOrganizationRole;
   updated_at?: string;
 }
 
@@ -3749,6 +4249,8 @@ export interface TypesProject {
   status?: string;
   technologies?: string[];
   updated_at?: string;
+  /** Populated by the server if UserID is set */
+  user?: TypesUser;
   user_id?: string;
 }
 
@@ -3761,9 +4263,20 @@ export interface TypesProjectAgentDisplay {
   resolution?: string;
 }
 
+export interface TypesProjectAgentGoose {
+  recipe_repo_url?: string;
+  recipes?: TypesProjectAgentGooseRecipe[];
+}
+
+export interface TypesProjectAgentGooseRecipe {
+  name?: string;
+  path?: string;
+}
+
 export interface TypesProjectAgentSpec {
   credentials?: string;
   display?: TypesProjectAgentDisplay;
+  goose?: TypesProjectAgentGoose;
   model?: string;
   name?: string;
   provider?: string;
@@ -4078,6 +4591,13 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeTeam = "team",
 }
 
+export interface TypesPublicInvitationInfo {
+  email?: string;
+  id?: string;
+  organization_display_name?: string;
+  organization_name?: string;
+}
+
 export interface TypesPullRequest {
   author?: string;
   created_at?: string;
@@ -4184,6 +4704,11 @@ export interface TypesQuotaResponse {
    */
   active_desktop_sandboxes?: number;
   active_headless_sandboxes?: number;
+  /**
+   * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+   * organisation when the session has an org, per user otherwise.
+   * -1 = unlimited.
+   */
   max_concurrent_desktops?: number;
   max_desktop_sandboxes?: number;
   max_headless_sandboxes?: number;
@@ -4515,6 +5040,14 @@ export interface TypesSandboxInstance {
   active_profile_id?: string;
   /** Sandbox capacity */
   active_sandboxes?: number;
+  /**
+   * ComputeState tracks the provider's view of the host's provisioning
+   * lifecycle. Distinct from Status (which is the heartbeat-derived
+   * online/offline/degraded view). Values: "provisioning" | "ready" |
+   * "terminating" | "terminated" | "failed". See compute.State for
+   * the canonical enum. Empty for self-registered hosts.
+   */
+  compute_state?: string;
   created?: string;
   /**
    * Desktop image versions available on this sandbox
@@ -4557,6 +5090,29 @@ export interface TypesSandboxInstance {
    * "" | "assigning" | "pulling" | "starting" | "running" | "failed".
    */
   profile_status?: string;
+  /**
+   * Provider is the Name() of the compute.Provider that owns this host.
+   * E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+   */
+  provider?: string;
+  /**
+   * ProviderID is the upstream system's opaque identifier for this
+   * host (e.g. a YellowDog work-requirement YDID). Forms a composite
+   * index with Provider so the reconciler can look hosts up cheaply.
+   */
+  provider_id?: string;
+  /**
+   * ProviderMetadata is provider-specific opaque data for
+   * reconciliation, debugging, and admin display. Examples for YD:
+   * worker-pool ID, compute requirement ID, region, public IP.
+   */
+  provider_metadata?: Record<string, string>;
+  /**
+   * ProvisionedAt is when Helix asked the provider to bring this host
+   * up. Earlier than Created (which is the first heartbeat). Nil for
+   * self-registered hosts.
+   */
+  provisioned_at?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   /**
@@ -4604,7 +5160,6 @@ export interface TypesSecret {
 }
 
 export interface TypesServerConfigForFrontend {
-  active_concurrent_desktops?: number;
   apps_enabled?: boolean;
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
@@ -4619,13 +5174,17 @@ export interface TypesServerConfigForFrontend {
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
   edition?: string;
-  eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
   /** Whether any global AI provider with enabled chat models exists */
   has_providers?: boolean;
   latest_version?: string;
-  license?: TypesFrontendLicenseInfo;
+  /**
+   * MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+   * organisation when the session has an org, per user otherwise.
+   * -1 = unlimited. Note: /config is unauthenticated, so this is the
+   * Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
+   */
   max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
@@ -4643,6 +5202,17 @@ export interface TypesServerConfigForFrontend {
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
+  /**
+   * ServerURL is the operator-configured public origin for this helix
+   * instance (env SERVER_URL → WebServer.URL). Empty when not
+   * configured; the frontend then falls back to
+   * `window.location.origin`. The github-stream New Stream dialog
+   * uses this to surface a webhook URL that's actually reachable by
+   * GitHub — `window.location.origin` is wrong whenever the user is
+   * hitting the app via localhost / a dev port that GitHub can't
+   * reach.
+   */
+  server_url?: string;
   /** Stripe top-ups enabled */
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
@@ -5121,6 +5691,17 @@ export interface TypesSpecTask {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * Goose recipe binding (Phase 2b). When the parent project's agent uses
+   * the goose_code runtime and the user picked a recipe at task-creation
+   * time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+   * GooseRecipeParams holds the parameter values to substitute. The Helix
+   * API bakes these into a CodeAgentBakedRecipe and pushes it to the
+   * settings-sync-daemon, which writes a single slash_command pointing at
+   * the substituted recipe YAML. Empty when no recipe was selected.
+   */
+  goose_recipe_name?: string;
+  goose_recipe_params?: Record<string, string>;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
@@ -5218,6 +5799,25 @@ export interface TypesSpecTask {
 
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
+}
+
+export interface TypesSpecTaskAttachment {
+  /** optional user note */
+  caption?: string;
+  /** helix-specs commit hash once staged */
+  committed_sha?: string;
+  created_at?: string;
+  /** original filename, sanitised */
+  filename?: string;
+  /** att_01k... */
+  id?: string;
+  mime_type?: string;
+  /** denormalised for fast authz */
+  project_id?: string;
+  size_bytes?: number;
+  spec_task_id?: string;
+  /** who uploaded */
+  user_id?: string;
 }
 
 export interface TypesSpecTaskDesignReview {
@@ -5487,6 +6087,17 @@ export interface TypesSpecTaskWithProject {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * Goose recipe binding (Phase 2b). When the parent project's agent uses
+   * the goose_code runtime and the user picked a recipe at task-creation
+   * time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+   * GooseRecipeParams holds the parameter values to substitute. The Helix
+   * API bakes these into a CodeAgentBakedRecipe and pushes it to the
+   * settings-sync-daemon, which writes a single slash_command pointing at
+   * the substituted recipe YAML. Empty when no recipe was selected.
+   */
+  goose_recipe_name?: string;
+  goose_recipe_params?: Record<string, string>;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
@@ -5709,7 +6320,6 @@ export interface TypesSystemSettingsRequest {
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
-  max_concurrent_desktops?: number;
   max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -5749,8 +6359,6 @@ export interface TypesSystemSettingsResponse {
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
-  /** Per user */
-  max_concurrent_desktops?: number;
   max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -5936,7 +6544,7 @@ export interface TypesToolMCPClientConfig {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
-  tools?: McpTool[];
+  tools?: GithubComMark3LabsMcpGoMcpTool[];
   /** "http" (default, Streamable HTTP) or "sse" (legacy SSE transport) */
   transport?: string;
   url?: string;
@@ -6146,9 +6754,66 @@ export interface TypesUsage {
   total_tokens?: number;
 }
 
+export interface TypesUsageBreakdownRow {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
+  completion_cost?: number;
+  completion_tokens?: number;
+  email?: string;
+  ended_at?: string;
+  id?: string;
+  interaction_id?: string;
+  last_activity_at?: string;
+  latency_ms?: number;
+  model?: string;
+  name?: string;
+  prompt_cost?: number;
+  prompt_tokens?: number;
+  provider?: string;
+  request_size_bytes?: number;
+  response_size_bytes?: number;
+  session_count?: number;
+  session_id?: string;
+  started_at?: string;
+  total_cost?: number;
+  total_requests?: number;
+  total_tokens?: number;
+  unique_apps?: number;
+  unique_projects?: number;
+  unique_sessions?: number;
+  unique_users?: number;
+  username?: string;
+}
+
+export interface TypesUsageFilterOption {
+  email?: string;
+  id?: string;
+  model?: string;
+  name?: string;
+  provider?: string;
+  username?: string;
+}
+
+export interface TypesUsageModelTimeSeries {
+  id?: string;
+  metrics?: TypesAggregatedUsageMetric[];
+  model?: string;
+  name?: string;
+  provider?: string;
+}
+
 export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
+  /**
+   * AlphaFeatures lists the feature flags this user has been granted
+   * access to. Server-enforced via requireFeature middleware — the
+   * frontend uses it only to decide whether to render the entry
+   * point. Granted per-user via SQL (no deploy).
+   */
+  alpha_features?: string[];
   /** if the token is associated with an app */
   app_id?: string;
   auth_provider?: TypesAuthProvider;
@@ -6169,6 +6834,14 @@ export interface TypesUser {
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
+  /**
+   * PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
+   * /admin/users/{id}/credits endpoint when the user has no owned org yet.
+   * Consumed by consumeUserAdminCredits on first owned org, then cleared.
+   * Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
+   * without entangling the grant with trial-state UI or revocation flows.
+   */
+  pending_admin_credits_on_first_org?: number;
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -6180,6 +6853,20 @@ export interface TypesUser {
   token?: string;
   /** none, runner. keycloak, api_key */
   token_type?: TypesTokenType;
+  trial_credits_on_first_org?: number;
+  /**
+   * Trial intent stashed by admin before the user has created their first org.
+   * Consumed by wallet creation on first owned org, then cleared.
+   */
+  trial_days_on_first_org?: number;
+  trial_ends_at?: number;
+  trial_org_id?: string;
+  /**
+   * Transient trial-display fields populated by the admin users list when
+   * ?include=trial is set. Not persisted (gorm:"-") and not emitted unless
+   * explicitly populated (json:"...,omitempty").
+   */
+  trial_status?: string;
   /**
    * these are set by the keycloak user based on the token
    * if it's an app token - the keycloak user is loaded from the owner of the app
@@ -6213,6 +6900,20 @@ export interface TypesUserChatSettings {
   top_p?: number;
 }
 
+export interface TypesUserConfig {
+  /**
+   * ColorScheme is the user's preferred UI color scheme: "light" or "dark".
+   * Empty string means follow OS preference. Propagated to the GNOME desktop
+   * (gsettings color-scheme) and Zed editor inside spec-task sessions owned
+   * by this user.
+   */
+  color_scheme?: string;
+  pinned_project_ids?: string[];
+  stripe_customer_id?: string;
+  stripe_subscription_active?: boolean;
+  stripe_subscription_id?: string;
+}
+
 export interface TypesUserGuidelinesResponse {
   guidelines?: string;
   guidelines_updated_at?: string;
@@ -6236,6 +6937,7 @@ export interface TypesUserModelUsage {
 
 export interface TypesUserResponse {
   admin?: boolean;
+  alpha_features?: string[];
   email?: string;
   id?: string;
   name?: string;
@@ -6257,6 +6959,15 @@ export interface TypesUserStatsResponse {
   projects_count?: number;
   spec_tasks_count?: number;
   user?: TypesUser;
+}
+
+export interface TypesUserStatus {
+  admin?: boolean;
+  config?: TypesUserConfig;
+  license?: TypesFrontendLicenseInfo;
+  /** User slug for GitHub-style URLs */
+  slug?: string;
+  user?: string;
 }
 
 export interface TypesUserTokenUsageResponse {
@@ -6862,6 +7573,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.
+     *
+     * @tags users
+     * @name V1AdminUsersCreditsCreate
+     * @summary Grant credits to a user (Admin, cloud only)
+     * @request POST:/api/v1/admin/users/{id}/credits
+     * @secure
+     */
+    v1AdminUsersCreditsCreate: (id: string, request: ServerGrantCreditsRequest, params: RequestParams = {}) =>
+      this.request<ServerGrantCreditsResponse, any>({
+        path: `/api/v1/admin/users/${id}/credits`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin "Grant credits" dialog to populate its org picker.
+     *
+     * @tags users
+     * @name V1AdminUsersOwnedOrgsDetail
+     * @summary List a user's owned organisations (Admin, cloud only)
+     * @request GET:/api/v1/admin/users/{id}/owned-orgs
+     * @secure
+     */
+    v1AdminUsersOwnedOrgsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerOwnedOrgSummary[], any>({
+        path: `/api/v1/admin/users/${id}/owned-orgs`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Reset the password for any user. Only admins can use this endpoint.
      *
      * @tags users
@@ -6874,6 +7623,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/password`,
         method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Clears any stashed trial intent on the user and cancels the Stripe subscription on the user's oldest owned org if it is currently in a trialing state. Paid (active) subscriptions are never cancelled.
+     *
+     * @tags users
+     * @name V1AdminUsersTrialActivateDelete
+     * @summary Revoke an admin-granted trial (Admin, cloud only)
+     * @request DELETE:/api/v1/admin/users/{id}/trial-activate
+     * @secure
+     */
+    v1AdminUsersTrialActivateDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerActivateTrialResponse, any>({
+        path: `/api/v1/admin/users/${id}/trial-activate`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
+     *
+     * @tags users
+     * @name V1AdminUsersTrialActivateCreate
+     * @summary Activate a trial for a user (Admin, cloud only)
+     * @request POST:/api/v1/admin/users/{id}/trial-activate
+     * @secure
+     */
+    v1AdminUsersTrialActivateCreate: (id: string, request: ServerActivateTrialRequest, params: RequestParams = {}) =>
+      this.request<ServerActivateTrialResponse, any>({
+        path: `/api/v1/admin/users/${id}/trial-activate`,
+        method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
@@ -9550,6 +10337,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).
+     *
+     * @tags organizations
+     * @name V1InvitationsInfoDetail
+     * @summary Look up basic info for an invitation by id
+     * @request GET:/api/v1/invitations/{id}/info
+     */
+    v1InvitationsInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesPublicInvitationInfo, any>({
+        path: `/api/v1/invitations/${id}/info`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -10167,7 +10969,72 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List members of an organization
+     * @description List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsDetail
+     * @summary List pending organization invitations
+     * @request GET:/api/v1/organizations/{id}/invitations
+     * @secure
+     */
+    v1OrganizationsInvitationsDetail: (
+      id: string,
+      query?: {
+        /** Filter invitations by the app/project they were sent from */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrganizationInvitation[], any>({
+        path: `/api/v1/organizations/${id}/invitations`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsCreate
+     * @summary Invite a user to the organization by email
+     * @request POST:/api/v1/organizations/{id}/invitations
+     * @secure
+     */
+    v1OrganizationsInvitationsCreate: (
+      id: string,
+      request: TypesAddOrganizationMemberRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrganizationInvitation, any>({
+        path: `/api/v1/organizations/${id}/invitations`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Revoke a pending invitation by ID
+     *
+     * @tags organizations
+     * @name V1OrganizationsInvitationsDelete
+     * @summary Revoke a pending organization invitation
+     * @request DELETE:/api/v1/organizations/{id}/invitations/{invitation_id}
+     * @secure
+     */
+    v1OrganizationsInvitationsDelete: (id: string, invitationId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/invitations/${invitationId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List members of an organization, including pending invitations as placeholder rows (user_id starts with "inv_").
      *
      * @tags organizations
      * @name V1OrganizationsMembersDetail
@@ -10184,7 +11051,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Add a member to an organization
+     * @description Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).
      *
      * @tags organizations
      * @name V1OrganizationsMembersCreate
@@ -10197,7 +11064,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesAddOrganizationMemberRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesOrganizationMembership, any>({
+      this.request<TypesAddOrganizationMemberResponse, any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "POST",
         body: request,
@@ -10382,6 +11249,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between "send invitation", "add to org", or "add to project" CTAs without revealing arbitrary user information.
+     *
+     * @tags organizations
+     * @name V1OrganizationsUsersLookupDetail
+     * @summary Look up a user by email within the context of an organization
+     * @request GET:/api/v1/organizations/{id}/users/lookup
+     * @secure
+     */
+    v1OrganizationsUsersLookupDetail: (
+      id: string,
+      query: {
+        /** Email to look up */
+        email: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgUserLookupResponse, any>({
+        path: `/api/v1/organizations/${id}/users/lookup`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 
@@ -10802,6 +11694,686 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubAppInstallationDetail
+     * @summary Helix-org: GitHub App install status for the org
+     * @request GET:/api/v1/orgs/{org}/github/app-installation
+     * @secure
+     */
+    v1OrgsGithubAppInstallationDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubInstallationStatus, any>({
+        path: `/api/v1/orgs/${org}/github/app-installation`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubAppManifestCreate
+     * @summary Helix-org: start the GitHub App manifest (create) flow
+     * @request POST:/api/v1/orgs/{org}/github/app-manifest
+     * @secure
+     */
+    v1OrgsGithubAppManifestCreate: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubManifestStartResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/app-manifest`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubReposDetail
+     * @summary Helix-org: list GitHub repos accessible to the org's connected token
+     * @request GET:/api/v1/orgs/{org}/github/repos
+     * @secure
+     */
+    v1OrgsGithubReposDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubReposResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/repos`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsGithubWebhookCreate
+     * @summary Helix-org: inbound GitHub webhook
+     * @request POST:/api/v1/orgs/{org}/github/webhook
+     */
+    v1OrgsGithubWebhookCreate: (org: string, payload: object, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/github/webhook`,
+        method: "POST",
+        body: payload,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns roles + workers grouped by role for the helix-org React Overview page.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsOverviewDetail
+     * @summary Helix-org: get org overview
+     * @request GET:/api/v1/orgs/{org}/overview
+     * @secure
+     */
+    v1OrgsOverviewDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiOrgOverview, any>({
+        path: `/api/v1/orgs/${org}/overview`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsRolesDetail
+     * @summary Helix-org: list roles
+     * @request GET:/api/v1/orgs/{org}/roles
+     * @secure
+     */
+    v1OrgsRolesDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiRoleDTO[], any>({
+        path: `/api/v1/orgs/${org}/roles`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsRolesCreate
+     * @summary Helix-org: create a role
+     * @request POST:/api/v1/orgs/{org}/roles
+     * @secure
+     */
+    v1OrgsRolesCreate: (org: string, payload: ApiCreateRoleRequest, params: RequestParams = {}) =>
+      this.request<ApiRoleDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/roles`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsRolesDelete
+     * @summary Helix-org: delete a role (cascade-fires its workers)
+     * @request DELETE:/api/v1/orgs/{org}/roles/{id}
+     * @secure
+     */
+    v1OrgsRolesDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/roles/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsRolesDetail2
+     * @summary Helix-org: get a role
+     * @request GET:/api/v1/orgs/{org}/roles/{id}
+     * @originalName v1OrgsRolesDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsRolesDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiRoleDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/roles/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsRolesUpdate
+     * @summary Helix-org: update a role
+     * @request PUT:/api/v1/orgs/{org}/roles/{id}
+     * @secure
+     */
+    v1OrgsRolesUpdate: (org: string, id: string, payload: ApiUpdateRoleRequest, params: RequestParams = {}) =>
+      this.request<ApiRoleDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/roles/${id}`,
+        method: "PUT",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsSettingsDetail
+     * @summary Helix-org: list settings
+     * @request GET:/api/v1/orgs/{org}/settings
+     * @secure
+     */
+    v1OrgsSettingsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiSettingsResponse, any>({
+        path: `/api/v1/orgs/${org}/settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsSettingsDelete
+     * @summary Helix-org: delete a setting
+     * @request DELETE:/api/v1/orgs/{org}/settings/{key}
+     * @secure
+     */
+    v1OrgsSettingsDelete: (key: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/settings/${key}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsSettingsUpdate
+     * @summary Helix-org: set a setting
+     * @request PUT:/api/v1/orgs/{org}/settings/{key}
+     * @secure
+     */
+    v1OrgsSettingsUpdate: (key: string, org: string, payload: ApiSetSettingRequest, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/settings/${key}`,
+        method: "PUT",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsDetail
+     * @summary Helix-org: list streams
+     * @request GET:/api/v1/orgs/{org}/streams
+     * @secure
+     */
+    v1OrgsStreamsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiStreamsResponse, any>({
+        path: `/api/v1/orgs/${org}/streams`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsCreate
+     * @summary Helix-org: create a stream
+     * @request POST:/api/v1/orgs/{org}/streams
+     * @secure
+     */
+    v1OrgsStreamsCreate: (org: string, payload: ApiCreateStreamRequest, params: RequestParams = {}) =>
+      this.request<ApiStreamDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsDelete
+     * @summary Helix-org: delete a stream
+     * @request DELETE:/api/v1/orgs/{org}/streams/{id}
+     * @secure
+     */
+    v1OrgsStreamsDelete: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsDetail2
+     * @summary Helix-org: get a stream
+     * @request GET:/api/v1/orgs/{org}/streams/{id}
+     * @originalName v1OrgsStreamsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsStreamsDetail2: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiStreamDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsUpdate
+     * @summary Helix-org: update a stream
+     * @request PUT:/api/v1/orgs/{org}/streams/{id}
+     * @secure
+     */
+    v1OrgsStreamsUpdate: (id: string, org: string, payload: ApiUpdateStreamRequest, params: RequestParams = {}) =>
+      this.request<ApiStreamDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}`,
+        method: "PUT",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsEventsDetail
+     * @summary Helix-org: SSE stream of events for one stream
+     * @request GET:/api/v1/orgs/{org}/streams/{id}/events
+     * @secure
+     */
+    v1OrgsStreamsEventsDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/orgs/${org}/streams/${id}/events`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsGithubInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a github stream
+     * @request POST:/api/v1/orgs/{org}/streams/{id}/github/install-webhook
+     * @secure
+     */
+    v1OrgsStreamsGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/github/install-webhook`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsGithubWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a github stream
+     * @request GET:/api/v1/orgs/{org}/streams/{id}/github/webhook-status
+     * @secure
+     */
+    v1OrgsStreamsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/github/webhook-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsPublishCreate
+     * @summary Helix-org: publish a message to a stream
+     * @request POST:/api/v1/orgs/{org}/streams/{id}/publish
+     * @secure
+     */
+    v1OrgsStreamsPublishCreate: (id: string, org: string, payload: ApiPublishRequest, params: RequestParams = {}) =>
+      this.request<ApiPublishResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/publish`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsToolsDetail
+     * @summary Helix-org: list available MCP tools
+     * @request GET:/api/v1/orgs/{org}/tools
+     * @secure
+     */
+    v1OrgsToolsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiToolDTO[], any>({
+        path: `/api/v1/orgs/${org}/tools`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersDetail
+     * @summary Helix-org: list workers
+     * @request GET:/api/v1/orgs/{org}/workers
+     * @secure
+     */
+    v1OrgsWorkersDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerDTO[], any>({
+        path: `/api/v1/orgs/${org}/workers`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersCreate
+     * @summary Helix-org: hire worker
+     * @request POST:/api/v1/orgs/{org}/workers
+     * @secure
+     */
+    v1OrgsWorkersCreate: (org: string, payload: ApiHireWorkerRequest, params: RequestParams = {}) =>
+      this.request<ApiHireWorkerResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + grants + env dir + env row, then the worker row. Activations are preserved as audit.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersDelete
+     * @summary Helix-org: fire worker
+     * @request DELETE:/api/v1/orgs/{org}/workers/{id}
+     * @secure
+     */
+    v1OrgsWorkersDelete: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersDetail2
+     * @summary Helix-org: get worker detail
+     * @request GET:/api/v1/orgs/{org}/workers/{id}
+     * @originalName v1OrgsWorkersDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsWorkersDetail2: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerDetailDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersActivateCreate
+     * @summary Helix-org: manually trigger a worker activation
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/activate
+     * @secure
+     */
+    v1OrgsWorkersActivateCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/activate`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersChatCreate
+     * @summary Helix-org: provision a per-worker chat app
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/chat
+     * @secure
+     */
+    v1OrgsWorkersChatCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerChatDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/chat`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersIdentityCreate
+     * @summary Helix-org: update worker identity
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/identity
+     * @secure
+     */
+    v1OrgsWorkersIdentityCreate: (
+      id: string,
+      org: string,
+      payload: ApiUpdateWorkerIdentityRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/identity`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersParentsCreate
+     * @summary Helix-org: add a worker reporting line (manager)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/parents
+     * @secure
+     */
+    v1OrgsWorkersParentsCreate: (
+      id: string,
+      org: string,
+      payload: ApiAddWorkerParentRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/parents`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersParentsDelete
+     * @summary Helix-org: remove a worker reporting line (manager)
+     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}
+     * @secure
+     */
+    v1OrgsWorkersParentsDelete: (id: string, parentId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/parents/${parentId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersRoleCreate
+     * @summary Helix-org: update worker role
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/role
+     * @secure
+     */
+    v1OrgsWorkersRoleCreate: (
+      id: string,
+      org: string,
+      payload: ApiUpdateWorkerRoleRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/role`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersSubscriptionsDetail
+     * @summary Helix-org: list a worker's subscriptions
+     * @request GET:/api/v1/orgs/{org}/workers/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsWorkersSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerSubscriptionsResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersSubscriptionsCreate
+     * @summary Helix-org: subscribe a worker to a stream
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsWorkersSubscriptionsCreate: (
+      id: string,
+      org: string,
+      payload: ApiSubscribeWorkerRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiWorkerSubscriptionDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersSubscriptionsDelete
+     * @summary Helix-org: unsubscribe a worker from a stream
+     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}
+     * @secure
+     */
+    v1OrgsWorkersSubscriptionsDelete: (id: string, streamId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions/${streamId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get all projects for the current user
      *
      * @tags Projects
@@ -10932,7 +12504,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant, any>({
+      this.request<TypesCreateAccessGrantResponse, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "POST",
         body: request,
@@ -11104,6 +12676,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the parsed Goose recipes declared on the project's default agent, including each recipe's parameter schema so the spec-task creation form can render dynamic inputs.
+     *
+     * @tags Projects
+     * @name V1ProjectsGooseRecipesDetail
+     * @summary List Goose recipes available to a project
+     * @request GET:/api/v1/projects/{id}/goose-recipes
+     * @secure
+     */
+    v1ProjectsGooseRecipesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerProjectGooseRecipe[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/goose-recipes`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -13030,11 +14621,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Clears the dead acp_thread_id on the session and resets crashed prompts (those marked by MarkPromptAsCrashed when the Claude Agent process exited) back to pending. The next dispatch sends with empty acp_thread_id, causing Zed to create a fresh thread + Claude Agent process. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     * @description Tears down the half-dead desktop container and brings up a fresh one via the same resume path used by /sessions/{id}/resume. The session's ZedThreadID is preserved, so Zed reloads the existing thread from the persistent threads.db in the workspace volume and the underlying agent (claude-code, qwen, etc.) reloads its session from disk — prior conversation context is restored. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
      *
      * @tags Sessions
      * @name V1SessionsRestartAgentCreate
-     * @summary Restart Zed thread after a Claude Agent crash
+     * @summary Restart the external agent after an in-container crash
      * @request POST:/api/v1/sessions/{id}/restart-agent
      * @secure
      */
@@ -13673,6 +15264,87 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsDetail
+     * @summary List attachments for a spec task
+     * @request GET:/api/v1/spec-tasks/{taskId}/attachments
+     * @secure
+     */
+    v1SpecTasksAttachmentsDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskAttachment[], any>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one or more files (images, PDFs, text) to be made available to the agent.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsCreate
+     * @summary Upload attachments for a spec task
+     * @request POST:/api/v1/spec-tasks/{taskId}/attachments
+     * @secure
+     */
+    v1SpecTasksAttachmentsCreate: (
+      taskId: string,
+      data: {
+        /** Files to attach (multipart form data, field 'files') */
+        files: File;
+        /** Optional caption for the attachment (single file uploads only) */
+        caption?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskAttachment[], TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsDelete
+     * @summary Delete a spec task attachment
+     * @request DELETE:/api/v1/spec-tasks/{taskId}/attachments/{attId}
+     * @secure
+     */
+    v1SpecTasksAttachmentsDelete: (taskId: string, attId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments/${attId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksAttachmentsContentDetail
+     * @summary Stream the bytes of a spec task attachment
+     * @request GET:/api/v1/spec-tasks/{taskId}/attachments/{attId}/content
+     * @secure
+     */
+    v1SpecTasksAttachmentsContentDetail: (taskId: string, attId: string, params: RequestParams = {}) =>
+      this.request<File, any>({
+        path: `/api/v1/spec-tasks/${taskId}/attachments/${attId}/content`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Clone a spec task (with its prompt, spec, and plan) to other projects
      *
      * @tags SpecTasks
@@ -13991,6 +15663,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Per-user status: credits, admin flag, slug, user config, plus the licence payload (moved here from /api/v1/config so it is not disclosed unauthenticated).
+     *
+     * @tags config
+     * @name V1StatusList
+     * @summary Get user status
+     * @request GET:/api/v1/status
+     * @secure
+     */
+    v1StatusList: (params: RequestParams = {}) =>
+      this.request<TypesUserStatus, any>({
+        path: `/api/v1/status`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Manage a subscription
      *
      * @tags wallets
@@ -14263,6 +15952,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
         path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get organization usage summary with breakdowns by user, project, app, session, task/model, and model/provider
+     *
+     * @tags usage
+     * @name V1UsageOrgSummaryList
+     * @summary Get organization usage summary
+     * @request GET:/api/v1/usage/org-summary
+     * @secure
+     */
+    v1UsageOrgSummaryList: (
+      query: {
+        /** Organization ID */
+        org_id: string;
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** User ID */
+        user_id?: string;
+        /** Project ID */
+        project_id?: string;
+        /** App ID */
+        app_id?: string;
+        /** Session ID */
+        session_id?: string;
+        /** Provider */
+        provider?: string;
+        /** Model */
+        model?: string;
+        /** User search */
+        user_search?: string;
+        /** User page size */
+        user_limit?: number;
+        /** User page offset */
+        user_offset?: number;
+        /** Project page size */
+        project_limit?: number;
+        /** Project page offset */
+        project_offset?: number;
+        /** Task page size */
+        task_limit?: number;
+        /** Task page offset */
+        task_offset?: number;
+        /** Session page size */
+        session_limit?: number;
+        /** Session page offset */
+        session_offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgUsageSummaryResponse, SystemHTTPError>({
+        path: `/api/v1/usage/org-summary`,
         method: "GET",
         query: query,
         secure: true,

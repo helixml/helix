@@ -122,6 +122,32 @@ type ProjectAgentSpec struct {
 	Credentials string               `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 	Tools       *ProjectAgentTools   `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Display     *ProjectAgentDisplay `json:"display,omitempty" yaml:"display,omitempty"`
+	Goose       *ProjectAgentGoose   `json:"goose,omitempty" yaml:"goose,omitempty"`
+}
+
+// ProjectAgentGoose configures the Goose code agent for a project: which
+// attached git repository holds the recipes, and which recipe files to expose
+// as slash commands inside the Goose thread (Phase 2a) plus selectable
+// per-recipe agents for spec tasks (Phase 2b).
+//
+// The RecipeRepoURL is the upstream URL the user attached the recipe repo
+// under (e.g. https://github.com/foo/bar). It is resolved against the
+// project's attached GitRepository rows at apply time; the YAML never
+// references Helix-internal repo IDs, so it stays portable across
+// deployments. When omitted, recipes are looked up under the project's
+// primary repository's local checkout.
+type ProjectAgentGoose struct {
+	RecipeRepoURL string                    `json:"recipe_repo_url,omitempty" yaml:"recipe_repo_url,omitempty"`
+	Recipes       []ProjectAgentGooseRecipe `json:"recipes,omitempty" yaml:"recipes,omitempty"`
+}
+
+// ProjectAgentGooseRecipe declares a single Goose recipe available to the
+// project. Name is the slash-command slug (no leading slash); Path is the
+// repo-relative path to the recipe YAML inside the resolved RecipeRepoURL
+// mirror (or the primary repo when RecipeRepoURL is empty).
+type ProjectAgentGooseRecipe struct {
+	Name string `json:"name" yaml:"name"`
+	Path string `json:"path" yaml:"path"`
 }
 
 // ProjectAgentTools lists the built-in tools to enable for the project agent.
@@ -174,6 +200,7 @@ type Project struct {
 	Name           string   `json:"name" gorm:"index"` // Indexed for search prefix matching
 	Description    string   `json:"description"`
 	UserID         string   `json:"user_id" gorm:"index"`
+	User           User     `json:"user" gorm:"-"` // Populated by the server if UserID is set
 	OrganizationID string   `json:"organization_id" gorm:"index"`
 	GitHubRepoURL  string   `json:"github_repo_url"`
 	DefaultBranch  string   `json:"default_branch"`

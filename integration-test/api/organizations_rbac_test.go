@@ -1,8 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -153,6 +158,185 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 	suite.userNonMemberAPIKey = userNonMemberAPIKey
 }
 
+func (suite *OrganizationsRBACTestSuite) TestOrganizationMemberAndTeamRoutesAcceptOrgSlug() {
+	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+
+	resp, err := ownerClient.AddOrganizationMember(suite.ctx, suite.organization.Name, &types.AddOrganizationMemberRequest{
+		UserReference: suite.userNonMember.ID,
+		Role:          types.OrganizationRoleMember,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Membership, "existing user should produce a membership, not an invitation")
+	suite.Require().Equal(suite.organization.ID, resp.Membership.OrganizationID)
+
+	team, err := ownerClient.CreateTeam(suite.ctx, suite.organization.Name, &types.CreateTeamRequest{
+		Name: "slug-route-team-" + uuid.New().String(),
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(suite.organization.ID, team.OrganizationID)
+
+	teamMembership, err := ownerClient.AddTeamMember(suite.ctx, suite.organization.Name, team.ID, &types.AddTeamMemberRequest{
+		UserReference: suite.userNonMember.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(suite.organization.ID, teamMembership.OrganizationID)
+
+	nonMemberClient, err := getAPIClient(suite.userNonMemberAPIKey)
+	suite.Require().NoError(err)
+	teams, err := nonMemberClient.ListTeams(suite.ctx, suite.organization.Name)
+	suite.Require().NoError(err)
+	suite.Require().True(containsTeam(teams, team.ID), "new org member should be able to list teams via org slug")
+}
+
+func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAccess() {
+	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+
+	defaultApp, err := ownerClient.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "project-rbac-agent-" + uuid.New().String(),
+				Description: "project rbac test agent",
+				Assistants: []types.AssistantConfig{{
+					Name:  "assistant",
+					Model: "openai/gpt-oss-20b",
+				}},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+
+	projectRepo := suite.createTestRepository("project-repo", suite.userOrgOwner.ID)
+	directReadRepo := suite.createTestRepository("direct-read-repo", suite.userOrgOwner.ID)
+	directWriteRepo := suite.createTestRepository("direct-write-repo", suite.userOrgOwner.ID)
+
+	var project types.Project
+	status, body := apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, "/projects", &types.ProjectCreateRequest{
+		OrganizationID:    suite.organization.Name,
+		Name:              "project-rbac-" + uuid.New().String(),
+		Description:       "private project",
+		DefaultRepoID:     projectRepo.ID,
+		DefaultHelixAppID: defaultApp.ID,
+	}, &project)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().Equal(suite.organization.ID, project.OrganizationID)
+
+	memberReadKey := suite.userMember2APIKey
+	memberWriteKey := suite.userMember1APIKey
+	memberNoGrantKey := suite.userMember3APIKey
+
+	suite.assertProjectVisible(memberReadKey, project.ID, false)
+	suite.assertProjectVisible(memberNoGrantKey, project.ID, false)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/spec-tasks?project_id="+url.QueryEscape(project.ID), nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/projects/"+project.ID+"/tasks-progress", nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/projects/"+project.ID+"/tasks-usage", nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/projects/"+project.ID+"/labels", nil, nil)
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, _ = apiJSON(suite.T(), suite.userNonMemberAPIKey, http.MethodGet, "/projects?organization_id="+url.QueryEscape(suite.organization.ID), nil, &[]*types.Project{})
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	var grantResp types.CreateAccessGrantResponse
+	status, body = apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, fmt.Sprintf("/projects/%s/access-grants", project.ID), &types.CreateAccessGrantRequest{
+		UserReference: suite.userMember2.ID,
+		Roles:         []string{"read"},
+	}, &grantResp)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.False(grantResp.AddedToOrganization)
+
+	status, body = apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, fmt.Sprintf("/projects/%s/access-grants", project.ID), &types.CreateAccessGrantRequest{
+		UserReference: suite.userMember1.ID,
+		Roles:         []string{"write"},
+	}, &grantResp)
+	suite.Require().Equal(http.StatusOK, status, body)
+
+	suite.assertProjectVisible(memberReadKey, project.ID, true)
+	suite.assertProjectVisible(memberWriteKey, project.ID, true)
+	suite.assertProjectVisible(memberNoGrantKey, project.ID, false)
+
+	newDescription := "read user should not update"
+	status, _ = apiJSON(suite.T(), memberReadKey, http.MethodPut, "/projects/"+project.ID, &types.ProjectUpdateRequest{
+		Description: &newDescription,
+	}, &types.Project{})
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	newDescription = "write user can update"
+	status, body = apiJSON(suite.T(), memberWriteKey, http.MethodPut, "/projects/"+project.ID, &types.ProjectUpdateRequest{
+		Description: &newDescription,
+	}, &types.Project{})
+	suite.Require().Equal(http.StatusOK, status, body)
+
+	var projectRepos []*types.GitRepository
+	status, body = apiJSON(suite.T(), memberReadKey, http.MethodGet, "/projects/"+project.ID+"/repositories", nil, &projectRepos)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().True(containsRepository(projectRepos, projectRepo.ID), "project read grant should expose attached repositories")
+
+	var repo types.GitRepository
+	status, body = apiJSON(suite.T(), memberReadKey, http.MethodGet, "/git/repositories/"+projectRepo.ID, nil, &repo)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().Equal(projectRepo.ID, repo.ID)
+
+	status, _ = apiJSON(suite.T(), memberReadKey, http.MethodPut, "/git/repositories/"+projectRepo.ID, &types.GitRepositoryUpdateRequest{
+		Description: "project read user should not update inherited repo",
+	}, &types.GitRepository{})
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, body = apiJSON(suite.T(), memberWriteKey, http.MethodPut, "/git/repositories/"+projectRepo.ID, &types.GitRepositoryUpdateRequest{
+		Description: "project write user can update inherited repo",
+	}, &repo)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().Equal("project write user can update inherited repo", repo.Description)
+
+	status, _ = apiJSON(suite.T(), memberNoGrantKey, http.MethodGet, "/git/repositories/"+projectRepo.ID, nil, &types.GitRepository{})
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	var repos []*types.GitRepository
+	status, body = apiJSON(suite.T(), memberReadKey, http.MethodGet, "/git/repositories?organization_id="+url.QueryEscape(suite.organization.ID), nil, &repos)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().True(containsRepository(repos, projectRepo.ID), "org repo list should include project-inherited repo")
+	suite.Require().False(containsRepository(repos, directReadRepo.ID), "org repo list must hide repos without direct or project access")
+
+	status, _ = apiJSON(suite.T(), memberReadKey, http.MethodGet, "/git/repositories/"+directReadRepo.ID, nil, &types.GitRepository{})
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	var directGrant types.AccessGrant
+	status, body = apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, fmt.Sprintf("/git/repositories/%s/access-grants", directReadRepo.ID), &types.CreateAccessGrantRequest{
+		UserReference: suite.userMember2.ID,
+		Roles:         []string{"read"},
+	}, &directGrant)
+	suite.Require().Equal(http.StatusOK, status, body)
+
+	status, body = apiJSON(suite.T(), memberReadKey, http.MethodGet, "/git/repositories/"+directReadRepo.ID, nil, &repo)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().Equal(directReadRepo.ID, repo.ID)
+
+	status, _ = apiJSON(suite.T(), memberReadKey, http.MethodPut, "/git/repositories/"+directReadRepo.ID, &types.GitRepositoryUpdateRequest{
+		Description: "read user should not update direct repo",
+	}, &types.GitRepository{})
+	suite.Require().Equal(http.StatusForbidden, status)
+
+	status, body = apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, fmt.Sprintf("/git/repositories/%s/access-grants", directWriteRepo.ID), &types.CreateAccessGrantRequest{
+		UserReference: suite.userMember1.ID,
+		Roles:         []string{"write"},
+	}, &directGrant)
+	suite.Require().Equal(http.StatusOK, status, body)
+
+	status, body = apiJSON(suite.T(), memberWriteKey, http.MethodPut, "/git/repositories/"+directWriteRepo.ID, &types.GitRepositoryUpdateRequest{
+		Description: "write user can update direct repo",
+	}, &repo)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().Equal("write user can update direct repo", repo.Description)
+}
+
 func (suite *OrganizationsRBACTestSuite) TestNonMemberCannotCreateApp() {
 	// Create the app as userMember1
 	userNonMemberClient, err := getAPIClient(suite.userNonMemberAPIKey)
@@ -175,6 +359,112 @@ func (suite *OrganizationsRBACTestSuite) TestNonMemberCannotCreateApp() {
 	})
 	suite.Require().Error(err)
 	suite.Nil(app)
+}
+
+func (suite *OrganizationsRBACTestSuite) createTestRepository(namePrefix, ownerID string) *types.GitRepository {
+	suite.T().Helper()
+
+	var repo types.GitRepository
+	status, body := apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, "/git/repositories", &types.GitRepositoryCreateRequest{
+		Name:           namePrefix + "-" + uuid.New().String(),
+		Description:    "rbac integration test repository",
+		RepoType:       types.GitRepositoryTypeCode,
+		OwnerID:        ownerID,
+		OrganizationID: suite.organization.ID,
+		DefaultBranch:  "main",
+		InitialFiles: map[string]string{
+			"README.md": "# RBAC integration test repository\n",
+		},
+		Metadata: map[string]interface{}{},
+	}, &repo)
+	suite.Require().Equal(http.StatusCreated, status, body)
+	return &repo
+}
+
+func (suite *OrganizationsRBACTestSuite) assertProjectVisible(apiKey, projectID string, visible bool) {
+	suite.T().Helper()
+
+	var projects []*types.Project
+	status, body := apiJSON(suite.T(), apiKey, http.MethodGet, "/projects?organization_id="+url.QueryEscape(suite.organization.ID), nil, &projects)
+	suite.Require().Equal(http.StatusOK, status, body)
+	suite.Require().Equal(visible, containsProject(projects, projectID))
+
+	var project types.Project
+	status, _ = apiJSON(suite.T(), apiKey, http.MethodGet, "/projects/"+projectID, nil, &project)
+	if visible {
+		suite.Require().Equal(http.StatusOK, status)
+		suite.Require().Equal(projectID, project.ID)
+	} else {
+		suite.Require().Equal(http.StatusForbidden, status)
+	}
+}
+
+func apiJSON(t *testing.T, apiKey, method, path string, body any, out any) (int, string) {
+	t.Helper()
+
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal request body: %v", err)
+		}
+		reader = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), method, "http://localhost:8080/api/v1"+path, reader)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("perform request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && out != nil && len(responseBody) > 0 {
+		if err := json.Unmarshal(responseBody, out); err != nil {
+			t.Fatalf("unmarshal response body %q: %v", string(responseBody), err)
+		}
+	}
+
+	return resp.StatusCode, string(responseBody)
+}
+
+func containsProject(projects []*types.Project, id string) bool {
+	for _, project := range projects {
+		if project.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRepository(repos []*types.GitRepository, id string) bool {
+	for _, repo := range repos {
+		if repo.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTeam(teams []*types.Team, id string) bool {
+	for _, team := range teams {
+		if team.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // TestAppAccessControls - tests various RBAC controls for apps

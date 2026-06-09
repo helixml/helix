@@ -4,6 +4,7 @@ import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
 
 import Session from './pages/Session'
+import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
 import Apps from './pages/Apps'
 import Providers from './pages/Providers'
 import Orgs from './pages/Orgs'
@@ -13,6 +14,7 @@ import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
 import OrgApiKeys from './pages/OrgApiKeys'
 import OrgBilling from './components/orgs/OrgBilling'
+import OrgUsage from './components/orgs/OrgUsage'
 import App from './pages/App'
 import Create from './pages/Create'
 import Home from './pages/Home'
@@ -43,6 +45,14 @@ import Onboarding from './pages/Onboarding'
 import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
+import HelixOrgChart from './pages/HelixOrgChart'
+import HelixOrgRoles from './pages/HelixOrgRoles'
+import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
+import HelixOrgSettings from './pages/HelixOrgSettings'
+import HelixOrgStreams from './pages/HelixOrgStreams'
+import HelixOrgStreamDetail from './pages/HelixOrgStreamDetail'
+import HelixOrgWorkers from './pages/HelixOrgWorkers'
+import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -347,14 +357,36 @@ const routes: IApplicationRoute[] = [
     <Orgs />
   ),
 }, {
-  name: 'org_settings',
-  path: '/orgs/:org_id/settings',
+  name: 'org_general',
+  path: '/orgs/:org_id/general',
   meta: {
     drawer: true,
     menu: 'orgs',
   },
   render: () => (
     <OrgSettings />
+  ),
+}, {
+  // Backward compat: redirect /settings to /general
+  name: 'org_settings',
+  path: '/orgs/:org_id/settings',
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_general', { org_id: params.org_id })
+    }, [])
+    return null
+  },
+}, {
+  name: 'org_usage',
+  path: '/orgs/:org_id/usage',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgUsage />
   ),
 }, {
   name: 'org_people',
@@ -494,6 +526,73 @@ const routes: IApplicationRoute[] = [
     title: 'Login',
   },
   render: () => <Login />,
+}, {
+  // Standalone live-tail of one Runner's hydra-aggregated logs. Opened from
+  // the admin "Runner Logs" card via target="_blank". No drawer / no nav,
+  // so the viewer takes the full viewport. Admin auth still applies via
+  // the standard cookie session.
+  name: 'admin_runner_logs',
+  path: '/admin/runner-logs/:runner_id',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Runner Logs',
+  },
+  render: () => <AdminRunnerLogsPage />,
+}, {
+  // helix-org alpha — Other resources (workers, roles, streams,
+  // settings) are operated via MCP tools / API; the overview is the
+  // visual entry point.
+  name: 'helix_org_root',
+  path: '/orgs/:org_id/helix-org',
+  meta: { drawer: true, title: 'Helix Org' },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('helix_org_chart', { org_id: params.org_id })
+    }, [params.org_id])
+    return null
+  },
+}, {
+  name: 'helix_org_chart',
+  path: '/orgs/:org_id/helix-org/chart',
+  meta: { drawer: true, title: 'Helix Org · Chart' },
+  render: () => <HelixOrgChart />,
+}, {
+  name: 'helix_org_roles',
+  path: '/orgs/:org_id/helix-org/roles',
+  meta: { drawer: true, title: 'Helix Org · Roles' },
+  render: () => <HelixOrgRoles />,
+}, {
+  name: 'helix_org_role_detail',
+  path: '/orgs/:org_id/helix-org/roles/:role_id',
+  meta: { drawer: true, title: 'Helix Org · Role' },
+  render: () => <HelixOrgRoleDetail />,
+}, {
+  name: 'helix_org_workers',
+  path: '/orgs/:org_id/helix-org/workers',
+  meta: { drawer: true, title: 'Helix Org · Workers' },
+  render: () => <HelixOrgWorkers />,
+}, {
+  name: 'helix_org_worker_detail',
+  path: '/orgs/:org_id/helix-org/workers/:worker_id',
+  meta: { drawer: true, title: 'Helix Org · Worker' },
+  render: () => <HelixOrgWorkerDetail />,
+}, {
+  name: 'helix_org_settings',
+  path: '/orgs/:org_id/helix-org/settings',
+  meta: { drawer: true, title: 'Helix Org · Settings' },
+  render: () => <HelixOrgSettings />,
+}, {
+  name: 'helix_org_streams',
+  path: '/orgs/:org_id/helix-org/streams',
+  meta: { drawer: true, title: 'Helix Org · Streams' },
+  render: () => <HelixOrgStreams />,
+}, {
+  name: 'helix_org_stream_detail',
+  path: '/orgs/:org_id/helix-org/streams/:stream_id',
+  meta: { drawer: true, title: 'Helix Org · Stream' },
+  render: () => <HelixOrgStreamDetail />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

@@ -26,6 +26,7 @@ import {
   FileQuestionMark,
   MessageCircle,
   Kanban,
+  Network,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -327,6 +328,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
   }
 
+  const handleHelixOrgClick = () => {
+    if (currentOrgSlug) {
+      router.navigate('helix_org_chart', { org_id: currentOrgSlug })
+    }
+  }
+
   const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
   }
@@ -376,6 +383,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     postNavigateTo()
   }
 
+  const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
+
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
@@ -386,6 +395,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: handleProjectsClick,
         label: "Projects",
       },
+      // Helix Org overview. Alpha-gated: only rendered for users granted
+      // the 'helix-org' alpha_features flag. Slots in right under
+      // Projects so it sits with the other primary org-level surfaces.
+      ...(helixOrgEnabled ? [{
+        icon: <Network size={NAV_BUTTON_SIZE} />,
+        tooltip: "View org chart",
+        isActive: router.name.startsWith('helix_org'),
+        onClick: handleHelixOrgClick,
+        label: "Org",
+      }] : []),
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
@@ -443,21 +462,32 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       })
     }
 
-    // Add org settings button when we have an org context
+    // Add org settings button when we have an org context.
+    // Highlights for any of the grouped admin pages (general, members,
+    // cost, access), and lands on General by default since that's the
+    // canonical "settings" leaf.
     if (currentOrgSlug) {
       baseButtons.push(
         {
           icon: <Settings size={NAV_BUTTON_SIZE} />,
           tooltip: "Organization settings",
-          isActive: isActive('org_people'),
-          onClick: () => orgNavigateTo('org_people', { org_id: currentOrgSlug }),
+          isActive: isActive([
+            'org_general',
+            'org_settings',
+            'org_people',
+            'org_teams',
+            'org_billing',
+            'org_usage',
+            'org_api_keys',
+          ]),
+          onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
         }
       )
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
+  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled, helixOrgEnabled, router.name])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
@@ -1179,7 +1209,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                       ? 'transparent'
                       : currentOrgSlug === org.name
                         ? 'rgba(0, 229, 255, 0.15)'
-                        : lightTheme.highlightColor,
+                        : 'rgba(0, 229, 255, 0.08)',
                 },
               }}
             >

@@ -174,27 +174,41 @@ func (g *GitRepo) ListBranches() ([]string, error) {
 	return branches, nil
 }
 
-// FindTaskDirInBranch finds the directory for a specific task in the helix-specs branch.
-// Searches for either DesignDocPath or task ID in the directory structure.
+// FindTaskDirInBranch returns the helix-specs path for a spec task's
+// design-doc directory.
+//
+// When designDocPath is set (the modern path, populated for every task
+// created since the human-readable directory format landed), the answer
+// is structural: tasks live at `design/tasks/<designDocPath>` and
+// nothing else needs to be true. Computing it directly is faster and —
+// critically — independent of which files happen to be in the branch
+// at the moment we look.
+//
+// The previous implementation walked the tree and returned the parent
+// directory of the first filename containing designDocPath. That broke
+// the moment https://github.com/helixml/helix/pull/2449 added attachment
+// uploads: an attachment landing at
+// `design/tasks/<dir>/attachments/image.jpg` *before* the agent's first
+// docs push made the walk return `design/tasks/<dir>/attachments` as
+// the task root. ReadDesignDocs then looked for `requirements.md`
+// inside `attachments/`, found nothing, and left
+// spec_task_design_reviews.requirements_spec / .technical_design /
+// .implementation_plan empty — the UI showed "No requirements
+// specification available" even though the .md files were already
+// pushed at the correct path.
+//
+// The taskID-based fallback is kept for legacy rows whose
+// designDocPath is empty (pre-dating the format switch). Those rows
+// never had an attachments/ subdir to trip the walk.
 func (g *GitRepo) FindTaskDirInBranch(branchName, designDocPath, taskID string) (string, error) {
+	if designDocPath != "" {
+		return "design/tasks/" + designDocPath, nil
+	}
+
 	files, err := g.ListFilesInBranch(branchName)
 	if err != nil {
 		return "", err
 	}
-
-	// First try DesignDocPath (new human-readable format)
-	if designDocPath != "" {
-		for _, file := range files {
-			if strings.Contains(file, designDocPath) {
-				parts := strings.Split(file, "/")
-				if len(parts) >= 2 {
-					return strings.Join(parts[:len(parts)-1], "/"), nil
-				}
-			}
-		}
-	}
-
-	// Fall back to taskID for backwards compatibility
 	for _, file := range files {
 		if strings.Contains(file, taskID) {
 			parts := strings.Split(file, "/")

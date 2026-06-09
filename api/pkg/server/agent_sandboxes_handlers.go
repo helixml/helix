@@ -18,8 +18,16 @@ import (
 type AgentSandboxesDebugResponse struct {
 	Message       string                    `json:"message"`
 	Sandboxes     []SandboxInstanceInfo     `json:"sandboxes,omitempty"`
-	GPUs          []hydra.GPUInfo           `json:"gpus,omitempty"`
+	GPUs          []GPUInfoWithSandbox      `json:"gpus,omitempty"`
 	DevContainers []DevContainerWithClients `json:"dev_containers,omitempty"`
+}
+
+// GPUInfoWithSandbox tags a Runner's GPU info with the sandbox_id it belongs
+// to so the admin UI can filter the aggregated list when a specific Runner
+// is selected in the sandbox dropdown.
+type GPUInfoWithSandbox struct {
+	hydra.GPUInfo
+	SandboxID string `json:"sandbox_id"`
 }
 
 // SandboxInstanceInfo represents a running sandbox instance
@@ -134,7 +142,7 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	}
 
 	// Aggregate GPU info and dev containers from all sandboxes
-	var allGPUs []hydra.GPUInfo
+	var allGPUs []GPUInfoWithSandbox
 	var allDevContainers []DevContainerWithClients
 
 	for _, sb := range sandboxes {
@@ -152,10 +160,14 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		stats, err := hydraClient.GetSystemStats(ctxTimeout)
 		cancel()
 		if err == nil && stats != nil {
-			// Add GPUs (avoid duplicates by checking first)
+			// Tag each GPU with its owning sandbox so the admin UI can
+			// filter the aggregated list when a specific Runner is
+			// selected in the dropdown.
 			for _, gpu := range stats.GPUs {
-				// For now, just append (could add dedup logic if needed)
-				allGPUs = append(allGPUs, gpu)
+				allGPUs = append(allGPUs, GPUInfoWithSandbox{
+					GPUInfo:   gpu,
+					SandboxID: sb.ID,
+				})
 			}
 		}
 

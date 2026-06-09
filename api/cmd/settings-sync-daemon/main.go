@@ -65,9 +65,27 @@ type CodeAgentConfig struct {
 	AgentName       string `json:"agent_name"`
 	BaseURL         string `json:"base_url"`
 	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code"
+	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code" or "goose_code"
 	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
 	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+
+	// Goose-specific fields (only populated when Runtime == "goose_code").
+	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
+	GooseRecipeRootDir string            `json:"goose_recipe_root_dir,omitempty"`
+	GooseBakedRecipe   *GooseBakedRecipe `json:"goose_baked_recipe,omitempty"`
+}
+
+// GooseRecipe maps a slash-command name to a recipe YAML on disk (container path).
+type GooseRecipe struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// GooseBakedRecipe is a fully-substituted recipe YAML that the daemon writes to
+// a temp file and registers as a single slash_command.
+type GooseBakedRecipe struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
 // AvailableModel represents a model entry for IDE model configuration.
@@ -209,12 +227,164 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			"claude-acp": claudeACPConfig,
 		}
 
+	case "goose_code":
+		// Goose: Uses the `goose acp` command as a custom agent_server.
+		// LLM provider/model are passed via GOOSE_PROVIDER + GOOSE_MODEL,
+		// and provider-specific *_API_KEY / *_BASE_URL env vars override
+		// goose's config file at startup.
+		// Phase 2 will add per-recipe agent_servers entries on top of this
+		// plain entry; for now we always emit one "goose" entry.
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		env := map[string]interface{}{}
+
+		// Map Helix APIType → goose provider + env var names. Goose
+		// natively supports multiple providers, so unlike Qwen we don't
+		// shoehorn everything through OPENAI_*.
+		var gooseProvider string
+		switch d.codeAgentConfig.APIType {
+		case "anthropic":
+			gooseProvider = "anthropic"
+			if baseURL != "" {
+				env["ANTHROPIC_BASE_URL"] = baseURL
+			}
+			if d.userAPIKey != "" {
+				env["ANTHROPIC_API_KEY"] = d.userAPIKey
+			}
+		case "openai", "azure_openai", "":
+			// Default to openai for any OpenAI-compatible API.
+			gooseProvider = "openai"
+			if baseURL != "" {
+				env["OPENAI_BASE_URL"] = baseURL
+			}
+			if d.userAPIKey != "" {
+				env["OPENAI_API_KEY"] = d.userAPIKey
+			}
+		default:
+			// Unknown APIType — treat as OpenAI-compatible and log so
+			// operators can see what happened.
+			log.Printf("goose_code: unknown api_type %q, defaulting to openai provider",
+				d.codeAgentConfig.APIType)
+			gooseProvider = "openai"
+			if baseURL != "" {
+				env["OPENAI_BASE_URL"] = baseURL
+			}
+			if d.userAPIKey != "" {
+				env["OPENAI_API_KEY"] = d.userAPIKey
+			}
+		}
+
+		env["GOOSE_PROVIDER"] = gooseProvider
+		if d.codeAgentConfig.Model != "" {
+			env["GOOSE_MODEL"] = d.codeAgentConfig.Model
+		}
+
+		// Set GOOSE_RECIPE_PATH so subrecipes and fragments referenced by
+		// project recipes resolve relative paths against the recipe repo
+		// root rather than goose's default cwd.
+		if d.codeAgentConfig.GooseRecipeRootDir != "" {
+			env["GOOSE_RECIPE_PATH"] = d.codeAgentConfig.GooseRecipeRootDir
+		}
+
+		// Use a per-session XDG_CONFIG_HOME so the goose config we write
+		// doesn't trample any user-level config that may also live under
+		// ~/.config. goose uses XDG via etcetera::choose_app_strategy.
+		xdgConfig := "/home/retro/.config/helix-goose"
+		env["XDG_CONFIG_HOME"] = xdgConfig
+
+		if err := d.writeGooseConfig(xdgConfig); err != nil {
+			log.Printf("goose_code: failed to write config.yaml: %v", err)
+		}
+
+		log.Printf("Using goose_code runtime: provider=%s, model=%s, base_url=%s, recipes=%d, baked=%v",
+			gooseProvider, d.codeAgentConfig.Model, baseURL,
+			len(d.codeAgentConfig.GooseRecipes), d.codeAgentConfig.GooseBakedRecipe != nil)
+
+		return map[string]interface{}{
+			"goose": map[string]interface{}{
+				"name":    "goose",
+				"type":    "custom",
+				"command": "goose",
+				"args":    []string{"acp"},
+				"env":     env,
+			},
+		}
+
 	default: // "zed_agent" or empty (default)
 		// Zed Agent: Uses Zed's built-in agent panel - no agent_servers needed
 		// The container env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) are set by wolf_executor
 		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
 		return nil
 	}
+}
+
+// writeGooseConfig writes ${xdgConfigHome}/goose/config.yaml so the goose acp
+// process picks up our slash_commands. We use a dedicated XDG_CONFIG_HOME
+// (set on the agent_servers env) to avoid clobbering any user-level goose
+// config — goose resolves config via etcetera::choose_app_strategy which
+// honours XDG_CONFIG_HOME on Linux.
+//
+// Two sources contribute slash_commands:
+//   - GooseRecipes: project-declared recipes (Phase 2a).
+//   - GooseBakedRecipe: a single recipe with parameters pre-substituted by the
+//     API for a spec-task (Phase 2b). Written to a stable per-session path so
+//     the recipe survives daemon restarts within the session.
+func (d *SettingsDaemon) writeGooseConfig(xdgConfigHome string) error {
+	configDir := filepath.Join(xdgConfigHome, "goose")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", configDir, err)
+	}
+
+	type slashCommand struct {
+		Command    string `yaml:"command"`
+		RecipePath string `yaml:"recipe_path"`
+	}
+
+	var slashCommands []slashCommand
+	for _, r := range d.codeAgentConfig.GooseRecipes {
+		if r.Name == "" || r.Path == "" {
+			continue
+		}
+		slashCommands = append(slashCommands, slashCommand{
+			Command:    r.Name,
+			RecipePath: r.Path,
+		})
+	}
+
+	if baked := d.codeAgentConfig.GooseBakedRecipe; baked != nil && baked.Name != "" && baked.Content != "" {
+		bakedDir := filepath.Join(xdgConfigHome, "goose", "baked-recipes")
+		if err := os.MkdirAll(bakedDir, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", bakedDir, err)
+		}
+		bakedPath := filepath.Join(bakedDir, baked.Name+".yaml")
+		if err := os.WriteFile(bakedPath, []byte(baked.Content), 0o644); err != nil {
+			return fmt.Errorf("write baked recipe %s: %w", bakedPath, err)
+		}
+		slashCommands = append(slashCommands, slashCommand{
+			Command:    baked.Name,
+			RecipePath: bakedPath,
+		})
+	}
+
+	// goose config.yaml is plain YAML; we hand-render to avoid pulling a
+	// yaml dep into this binary. Keys are stable and don't need quoting.
+	var buf bytes.Buffer
+	buf.WriteString("# Generated by helix settings-sync-daemon. Do not edit by hand.\n")
+	if len(slashCommands) == 0 {
+		buf.WriteString("slash_commands: []\n")
+	} else {
+		buf.WriteString("slash_commands:\n")
+		for _, sc := range slashCommands {
+			fmt.Fprintf(&buf, "  - command: %q\n", sc.Command)
+			fmt.Fprintf(&buf, "    recipe_path: %q\n", sc.RecipePath)
+		}
+	}
+
+	configPath := filepath.Join(configDir, "config.yaml")
+	if err := os.WriteFile(configPath, buf.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", configPath, err)
+	}
+	log.Printf("goose_code: wrote %s with %d slash_commands", configPath, len(slashCommands))
+	return nil
 }
 
 // rewriteLocalhostURL replaces localhost in a URL with our known-working API host.
@@ -781,8 +951,8 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if config.Agent != nil {
 		d.helixSettings["agent"] = config.Agent
 	}
-	if config.Theme != "" {
-		d.helixSettings["theme"] = config.Theme
+	if t := d.effectiveTheme(config.Theme); t != "" {
+		d.helixSettings["theme"] = t
 	}
 	injectAgentToolPermissions(d.helixSettings)
 
@@ -826,14 +996,15 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 // subscribeConfigEvents connects to the API's user websocket for this session and
 // triggers an immediate re-sync whenever a config_changed event arrives. Reconnects
-// forever on failure with a 5s backoff. Falls back to the 30s poll loop if the WS
-// is unreachable.
+// forever on failure with a 1s backoff. Falls back to the 30s poll loop if the WS
+// is unreachable. Pubsub events are not retained — the shorter backoff narrows
+// the window in which a config_changed publish can be missed.
 func (d *SettingsDaemon) subscribeConfigEvents() {
 	for {
 		if err := d.runConfigEventLoop(); err != nil {
-			log.Printf("config event WS disconnected: %v (reconnecting in 5s)", err)
+			log.Printf("config event WS disconnected: %v (reconnecting in 1s)", err)
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -869,6 +1040,14 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 	defer conn.Close()
 	log.Printf("config event WS connected (%s)", wsURL.String())
 
+	// Re-sync on every successful (re)connect so we pick up any config_changed
+	// publishes that happened while we were disconnected (pubsub doesn't
+	// retain). Without this we'd have to wait up to 30s for the polling
+	// fallback to repair state after a WS blip.
+	if err := d.syncFromHelix(); err != nil {
+		log.Printf("re-sync on WS connect failed: %v", err)
+	}
+
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -902,9 +1081,9 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 //   - gtk-theme (the actual rendered theme — without this, GTK3 apps + the
 //     shell stay on whatever was loaded at startup, so the desktop looks
 //     unchanged even when color-scheme says prefer-light)
-//   - desktop wallpaper (helix-logo is dark; swap to a Yaru light wallpaper
-//     in light mode so the desktop reads as actually light, not just
-//     "dark wallpaper with light app chrome")
+//   - desktop wallpaper — kept on the Helix logo in both modes; we set both
+//     picture-uri and picture-uri-dark so GNOME reads the right slot
+//     regardless of the active color scheme
 func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	colorScheme := "prefer-dark"
 	gtkTheme := "Yaru-dark"
@@ -912,7 +1091,6 @@ func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	if scheme == "light" {
 		colorScheme = "prefer-light"
 		gtkTheme = "Yaru"
-		wallpaper = "file:///usr/share/backgrounds/Questing_Quokka_Full_Light_3840x2160.png"
 	}
 
 	cmds := [][]string{
@@ -930,6 +1108,40 @@ func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s wallpaper=%s", colorScheme, gtkTheme, wallpaper)
 }
 
+// HELIX_MANAGED_THEMES are the Zed editor themes the daemon itself sets in
+// response to the session owner's color-scheme preference. An on-disk theme
+// in this set (or empty) is considered Helix-owned and may be overwritten on
+// the next sync; anything else is treated as a deliberate user choice (e.g.
+// the user picked "Solarized Dark" in Zed's UI) and preserved.
+var HELIX_MANAGED_THEMES = map[string]bool{
+	"One Light": true,
+	"Ayu Dark":  true,
+}
+
+// effectiveTheme decides which value to write to settings.json's "theme" key.
+// It returns apiTheme when the on-disk value is unset or one of the
+// Helix-managed themes; otherwise it returns the on-disk value, preserving
+// the user's manual Zed-UI choice. apiTheme=="" disables the assignment in
+// the caller (we don't want to delete an existing theme key).
+func (d *SettingsDaemon) effectiveTheme(apiTheme string) string {
+	if apiTheme == "" {
+		return ""
+	}
+	data, err := os.ReadFile(SettingsPath)
+	if err != nil {
+		return apiTheme // no existing settings, safe to write
+	}
+	var existing map[string]interface{}
+	if err := json.Unmarshal(data, &existing); err != nil {
+		return apiTheme // unparseable, treat as if missing
+	}
+	onDisk, ok := existing["theme"].(string)
+	if !ok || onDisk == "" || HELIX_MANAGED_THEMES[onDisk] {
+		return apiTheme
+	}
+	return onDisk
+}
+
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
 // Also includes deprecated fields that should be removed from settings
 var SECURITY_PROTECTED_FIELDS = map[string]bool{
@@ -939,12 +1151,15 @@ var SECURITY_PROTECTED_FIELDS = map[string]bool{
 	"external_sync": true, // Deprecated: Zed reads this from env vars, not settings.json
 }
 
-// USER_PREFERENCE_FIELDS are settings the daemon writes as initial defaults
-// but never overwrites once the user has changed them via Zed UI.
-// The on-disk value is always preserved in mergeSettings().
-var USER_PREFERENCE_FIELDS = map[string]bool{
-	"theme": true,
-}
+// USER_PREFERENCE_FIELDS used to hold "theme" so mergeSettings would always
+// preserve the on-disk value. That was the wrong model once Helix started
+// driving the theme from the user's color-scheme preference: it pinned the
+// stale value and made dark→light→dark fail (the second dark write was
+// silently overwritten by the on-disk "One Light"). Theme handling now lives
+// in HELIX_MANAGED_THEMES + effectiveTheme(), called from syncFromHelix and
+// checkHelixUpdates. Kept (empty) so the SECURITY_PROTECTED_FIELDS sibling
+// pattern stays obvious; remove if no field ever needs this behaviour again.
+var USER_PREFERENCE_FIELDS = map[string]bool{}
 
 // HELIX_MANAGED_AGENT_FIELDS lists keys under "agent" that Helix owns and that
 // user-side overrides (i.e. whatever Zed wrote to settings.json) must never
@@ -960,6 +1175,33 @@ var HELIX_MANAGED_AGENT_FIELDS = map[string]bool{
 	"inline_assistant_model": true,
 	"commit_message_model":   true,
 	"thread_summary_model":   true,
+}
+
+// HELIX_OWNED_CONTEXT_SERVERS lists context_server names whose configuration
+// Helix unconditionally owns. The names are the ones hardcoded in
+// api/pkg/external-agent/zed_config.go (chrome-devtools, helix-session,
+// helix-desktop) — i.e. servers that Helix sets up itself (not from a user's
+// project / app MCP config).
+//
+// Why: when these names already exist in the on-disk settings.json from a
+// previous run AND Helix updated their config in zed_config.go since then
+// (e.g. switched chrome-devtools from `npx chrome-devtools-mcp@latest` to
+// the global `/usr/bin/chrome-devtools-mcp` binary in PR #2418), the
+// daemon's deep-merge in `mergeSettings` would treat the on-disk entry as
+// a "user override" and let it win — leaving stale `npx`-based configs in
+// place forever, with the resulting 180s `chrome-devtools context server
+// failed to start: Context server request timeout` reported in
+// helix/design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md.
+//
+// User-configured MCPs (from app or project skills, e.g. drone-ci, github,
+// custom servers) are NOT in this set — those legitimately can be edited by
+// the user in their on-disk settings.json and should round-trip back to the
+// API as overrides. They're also keyed by user-chosen names that we can't
+// enumerate here.
+var HELIX_OWNED_CONTEXT_SERVERS = map[string]bool{
+	"chrome-devtools": true,
+	"helix-session":   true,
+	"helix-desktop":   true,
 }
 
 // helixDefaults returns the static Helix-owned settings that must be present
@@ -1031,14 +1273,33 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 		merged[k] = v
 	}
 
-	// Deep merge context_servers
+	// Deep merge context_servers — user entries win, EXCEPT for Helix-owned
+	// names where Helix's hardcoded definition unconditionally wins. Without
+	// the latter clause an on-disk settings.json from a previous run pins
+	// the OLD config (stale `npx chrome-devtools-mcp@latest` etc.) forever;
+	// see HELIX_OWNED_CONTEXT_SERVERS for the full reasoning.
 	if userServers, ok := user["context_servers"].(map[string]interface{}); ok {
 		if helixServers, ok := merged["context_servers"].(map[string]interface{}); ok {
 			for name, config := range userServers {
+				if HELIX_OWNED_CONTEXT_SERVERS[name] {
+					log.Printf("dropping user override for helix-owned context_server: %s", name)
+					continue
+				}
 				helixServers[name] = config
 			}
 		} else {
-			merged["context_servers"] = userServers
+			// No helix-side servers at all — adopt user's verbatim, but
+			// still strip helix-owned names so a later API roll-out
+			// adding them isn't pre-empted by a stale on-disk entry.
+			filtered := make(map[string]interface{}, len(userServers))
+			for name, config := range userServers {
+				if HELIX_OWNED_CONTEXT_SERVERS[name] {
+					log.Printf("dropping user override for helix-owned context_server: %s", name)
+					continue
+				}
+				filtered[name] = config
+			}
+			merged["context_servers"] = filtered
 		}
 	}
 
@@ -1126,12 +1387,21 @@ func mergeAgentBlock(helixAgent, userAgent interface{}) interface{} {
 func extractUserOverrides(current, helix map[string]interface{}) map[string]interface{} {
 	overrides := make(map[string]interface{})
 
-	// Deep diff context_servers (per-server)
+	// Deep diff context_servers (per-server). Helix-owned names are never
+	// captured as user overrides — Helix sets them itself in zed_config.go
+	// and any divergence on disk is stale state from a prior run, not a
+	// user customization. Without this guard the daemon would round-trip
+	// the stale value back to the API and the next sync would re-write it
+	// to disk, pinning the old config forever (see
+	// HELIX_OWNED_CONTEXT_SERVERS).
 	if currentServers, ok := current["context_servers"].(map[string]interface{}); ok {
 		helixServers, _ := helix["context_servers"].(map[string]interface{})
 		userServers := make(map[string]interface{})
 
 		for name, config := range currentServers {
+			if HELIX_OWNED_CONTEXT_SERVERS[name] {
+				continue
+			}
 			if helixConfig, inHelix := helixServers[name]; !inHelix {
 				userServers[name] = config
 			} else if !deepEqual(config, helixConfig) {
@@ -1163,7 +1433,11 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 	}
 
 	for k, v := range current {
-		if k == "context_servers" || k == "languages" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
+		// "theme" is a daemon-local decision (effectiveTheme reads on-disk
+		// directly each sync), so it must not be uploaded to the API as a
+		// user-side override — that would create a stale snapshot that
+		// replays back on the next sync.
+		if k == "context_servers" || k == "languages" || k == "theme" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
 			continue
 		}
 		if k == "agent" {
@@ -1411,8 +1685,13 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		return err
 	}
 
+	// Mirror GNOME on every poll — same call syncFromHelix makes. Idempotent
+	// (gsettings set to the existing value is a no-op) and load-bearing for
+	// the case where the WS subscriber missed a config_changed event during
+	// a reconnect: without this, GNOME stays on the old theme indefinitely.
+	d.applyGNOMEColorScheme(config.ColorScheme)
+
 	// Build new helix settings from defaults + API response
-	// Skip USER_PREFERENCE_FIELDS — those are read from disk, not the API
 	newHelixSettings := helixDefaults()
 	newHelixSettings["context_servers"] = config.ContextServers
 	if config.LanguageModels != nil {
@@ -1424,7 +1703,12 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if config.Agent != nil {
 		newHelixSettings["agent"] = config.Agent
 	}
-	// Note: theme is a USER_PREFERENCE_FIELD — not set here, preserved from disk in mergeSettings
+	// Theme is governed by HELIX_MANAGED_THEMES + effectiveTheme: write the
+	// API value when on-disk is unset or one of our managed themes; preserve
+	// the user's manually-picked theme otherwise.
+	if t := d.effectiveTheme(config.Theme); t != "" {
+		newHelixSettings["theme"] = t
+	}
 	injectAgentToolPermissions(newHelixSettings)
 
 	// Update Claude subscription availability and sync credentials

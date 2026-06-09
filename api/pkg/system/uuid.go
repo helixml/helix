@@ -51,6 +51,8 @@ const (
 	SandboxPrefix              = "sbx_"
 	SandboxCommandPrefix       = "sbcmd_"
 	RunnerProfilePrefix        = "rprof_"
+	SpecTaskAttachmentPrefix   = "att_"
+	OrgInvitationPrefix        = "oin_"
 )
 
 func GenerateUUID() string {
@@ -234,4 +236,12 @@ func GenerateSandboxCommandID() string {
 
 func GenerateRunnerProfileID() string {
 	return fmt.Sprintf("%s%s", RunnerProfilePrefix, newID())
+}
+
+func GenerateSpecTaskAttachmentID() string {
+	return fmt.Sprintf("%s%s", SpecTaskAttachmentPrefix, newID())
+}
+
+func GenerateOrgInvitationID() string {
+	return fmt.Sprintf("%s%s", OrgInvitationPrefix, newID())
 }

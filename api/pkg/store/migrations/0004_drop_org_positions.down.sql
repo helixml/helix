@@ -1,0 +1,5 @@
+-- No-op rollback. The position concept has been removed from the
+-- code; restoring the schema without restoring the application logic
+-- would leave the system in an unusable state. AutoMigrate will
+-- recreate the new-shape org_workers / org_subscriptions on next
+-- boot regardless of which direction this migration is pointed.

@@ -216,6 +216,14 @@ git add -A && git commit -m "chore(specs): update progress" && git push origin h
 
    If during implementation you discover follow-up work that should be its own task, use ` + "`propose_spec_task`" + ` to propose it before calling ` + "`mark_task_complete`" + `.
 
+## How Pushing Works (Read This Before Debugging Any Push Failure)
+
+` + "`origin`" + ` in every repo under ` + "`/home/retro/work/`" + ` points at the Helix-hosted intermediate git server over HTTPS. Credentials come from ` + "`~/.git-credentials`" + ` via the ` + "`store`" + ` credential helper. There is no SSH, no SSH agent, no SSH keys, and no GitHub CLI in this environment. The Helix API relays your pushes to the external GitHub/GitLab/ADO repo using the OAuth credential the user configured.
+
+**Do NOT run any of these to "debug" a push failure:** ` + "`gh`" + ` (any subcommand), ` + "`ssh-add`" + `, ` + "`ssh-keygen`" + `, ` + "`ssh-agent`" + `, ` + "`eval $(ssh-agent)`" + `, or anything that touches ` + "`~/.ssh/`" + `. None of those tools or files exist or apply here. Running them is a waste of turns and produces misleading output.
+
+If ` + "`git push`" + ` fails: paste the full verbatim stderr to the user in the chat, then stop. Do not guess at the cause, do not invent "SSH authentication issues" or "credential" explanations, and do not retry with alternative tools. The user (or a Helix engineer) will diagnose the underlying issue from the actual error message.
+
 {{if .KoditSection}}
 {{.KoditSection}}
 {{end}}## Visual Testing & Screenshots (For UI/Frontend Tasks)

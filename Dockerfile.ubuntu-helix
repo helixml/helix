@@ -17,6 +17,14 @@
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
 ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d638d35015c6353053121bd299d25943b875763321653884ba924
 
+# Goose CLI commit (kept in sync with sandbox-versions.txt GOOSE_COMMIT).
+# Pinned to a `main` SHA that includes PR #8925 (ACP slash-command
+# discovery), which is not yet in any tagged release (latest stable
+# v1.34.1 was cut before the merge). When goose ships a stable release
+# containing #8925, drop this build stage and switch back to the
+# upstream `download_cli.sh` install path.
+ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
+
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
@@ -171,6 +179,57 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
     else \
         touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6; \
     fi
+
+# ====================================================================
+# Goose CLI build stage
+# ====================================================================
+# Builds the `goose` binary from a pinned `main` commit. Required
+# because the slash-command-discovery feature (PR #8925) is on main
+# but not in any released tag yet. The default cargo features match
+# upstream's CI for non-vulkan/non-musl Linux builds. Telemetry is
+# disabled at runtime (see ~/.config/goose/profiles below).
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS goose-build
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
+
+ENV DEBIAN_FRONTEND=noninteractive
+# Build deps. The first block matches goose upstream CI
+# (.github/workflows/build-cli.yml "Install Linux build dependencies"
+# step, standard variant). The extras (libclang-dev, cmake) are needed
+# by the `local-inference` default feature: goose-cli pulls in
+# llama-cpp-sys, which uses bindgen (→ libclang) to generate Rust
+# bindings for llama.cpp, and CMake to build it. GitHub's ubuntu-22.04
+# runner has these pre-installed which is why upstream's CI doesn't
+# list them; our slim base image doesn't.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libdbus-1-dev \
+    libxcb1-dev \
+    libclang-dev \
+    cmake \
+    curl \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust 1.92 — matches goose's rust-toolchain.toml at the pinned commit.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.92.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /build
+ARG GOOSE_COMMIT
+RUN git clone https://github.com/aaif-goose/goose.git . && \
+    git checkout ${GOOSE_COMMIT}
+
+# Build with cargo cache mounts so re-builds at the same commit are
+# fast and so cache survives across GOOSE_COMMIT bumps.
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/target \
+    cargo build --release -p goose-cli --bin goose && \
+    cp target/release/goose /goose-binary && \
+    strip /goose-binary
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
@@ -780,6 +839,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
       "PromotionalTabsEnabled": false,
       "SyncDisabled": true,
       "PasswordManagerEnabled": true,
+      "RestoreOnStartup": 1,
       "BookmarkBarEnabled": false
     }' > /etc/chromium/policies/managed/helix.json
 
@@ -804,7 +864,7 @@ else
       "ImportHistory": false,
       "ImportSavedPasswords": false,
       "ImportSearchEngine": false,
-      "RestoreOnStartup": 5,
+      "RestoreOnStartup": 1,
       "PasswordManagerEnabled": true,
       "PrivacySandboxPromptEnabled": false,
       "PrivacySandboxAdTopicsEnabled": false,
@@ -884,8 +944,19 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
     echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
       > /etc/skel/.config/google-chrome/Default/Preferences
 
-# Install chrome-devtools-mcp globally and pre-build fontconfig cache
-RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+# Install MCP server packages globally so Zed and Claude Code can invoke them
+# by direct binary path (e.g. /usr/bin/chrome-devtools-mcp) instead of
+# `npx <pkg>@latest`. Going through npx hits the shared _npx cache, and when
+# Zed and Claude Code spawn in parallel against the same cache the install
+# dance ("reify mark retired" — rename node_modules/<pkg> → tmp, reinstall,
+# rename back) races and the JSON-RPC `initialize` never returns. Spec-task
+# logs then show `chrome-devtools context server failed to start: Context
+# server request timeout` (180s). Going via the global binary avoids npx
+# entirely and removes the contention.
+RUN npm install -g \
+        chrome-devtools-mcp@0.25.0 \
+        @modelcontextprotocol/server-github@2025.4.8 \
+    && fc-cache -f -v
 
 # URL capture script for Claude Code OAuth login flow.
 # When BROWSER=/usr/local/bin/helix-capture-browser, `claude auth login` writes
@@ -893,7 +964,15 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 # for this file and opens the URL in the user's native browser.
 COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
 COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
+# helix-npx — installed as /usr/local/bin/npx so it shadows the system
+# /usr/bin/npx via PATH order. Gives each `npx <pkg>` invocation its own
+# NPM_CONFIG_CACHE so parallel npx spawns (Zed + Claude both starting
+# the same MCP at session start, or two parallel agent sessions hitting
+# the same package) don't race in npm's `_npx/<hash>` rename dance.
+# Zed's own ACP-wrapper bootstrapping calls npm via absolute path so it
+# bypasses this shim.
+COPY desktop/shared/helix-npx.sh /usr/local/bin/npx
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper /usr/local/bin/npx
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
@@ -1011,6 +1090,7 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     DISABLE_TELEMETRY=1 \
     DISABLE_ERROR_REPORTING=1 \
     DISABLE_AUTOUPDATER=1 \
+    OTEL_SDK_DISABLED=true \
     NODE_TLS_REJECT_UNAUTHORIZED=0 \
     ZED_HTTP_INSECURE_TLS=1
 
@@ -1155,6 +1235,16 @@ WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
 RUN chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+
+# Goose CLI (built from $GOOSE_COMMIT in goose-build stage above).
+# Telemetry: OTEL_SDK_DISABLED=true is set in the ENV block above
+# (disables OpenTelemetry exporters globally — goose's telemetry
+# feature relies on OTel, so this is the kill switch).
+# Auto-update: goose's `update` command is user-invoked, not
+# automatic. The binary is pinned via GOOSE_COMMIT so any
+# user-triggered update would be overwritten by the next image build.
+COPY --from=goose-build /goose-binary /usr/local/bin/goose
+RUN chmod +x /usr/local/bin/goose
 
 WORKDIR /
 

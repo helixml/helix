@@ -10,13 +10,21 @@ import (
 )
 
 type KnowledgeFilter struct {
-	AppID string
+	AppID          string
+	OrganizationID string
 }
 
 func (c *HelixClient) ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error) {
 	path := "/knowledge"
+	params := url.Values{}
 	if f.AppID != "" {
-		path += "?app_id=" + f.AppID
+		params.Set("app_id", f.AppID)
+	}
+	if f.OrganizationID != "" {
+		params.Set("organization_id", f.OrganizationID)
+	}
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 
 	var knowledge []*types.Knowledge

@@ -46,6 +46,8 @@ services:
       # Encryption key for secrets at rest (SSH keys, PATs, etc.)
       - HELIX_ENCRYPTION_KEY=${HELIX_ENCRYPTION_KEY:-dev-encryption-key-do-not-use-in-prod}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
+      # Embedded helix-org alpha kill switch. Default off; set true to mount /ui/, /api/v1/org/, and the helix-org MCP backend.
+      - HELIX_ORG_ENABLED=${HELIX_ORG_ENABLED:-false}
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -115,6 +117,7 @@ services:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
+      - ./helix-org:/app/helix-org
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
@@ -248,6 +251,9 @@ services:
       - ZED_IMAGE=helix-sway:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
@@ -341,6 +347,9 @@ services:
       - ZED_IMAGE=helix-sway:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
@@ -432,6 +441,9 @@ services:
       - ZED_IMAGE=helix-sway:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
@@ -517,6 +529,9 @@ services:
       - ZED_IMAGE=helix-ubuntu:latest
       # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Pre-pull experimental desktop images at startup (space-separated, e.g. "sway zorin").
+      # Default empty: only production desktops (helix-ubuntu) are pulled on upgrade.
+      - HELIX_EXPERIMENTAL_DESKTOPS=${HELIX_EXPERIMENTAL_DESKTOPS:-}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # Container Docker path — ZFS-backed storage for per-session inner dockerd

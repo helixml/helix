@@ -20,7 +20,7 @@ func runningProfile(modelNames ...string) *types.RunnerProfile {
 func TestRouter_PickRunner_HappyPath(t *testing.T) {
 	r := NewRouter()
 	r.SetRunnerState(&RunnerState{
-		ID: "runner-a", URL: "http://a:8081", Status: "running",
+		ID: "runner-a", Status: "running",
 		ActiveProfile: runningProfile("qwen-7b"), LastSeen: time.Now(),
 	})
 	got, err := r.PickRunner("qwen-7b")

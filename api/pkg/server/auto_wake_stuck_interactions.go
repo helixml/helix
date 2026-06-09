@@ -122,14 +122,64 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// setupFailedSentinelPath is where helix-workspace-setup.sh writes a JSON
+// failure report on non-zero exit. Reading it from outside the container
+// lets us replace the generic "agent never connected" banner with the real
+// reason setup failed (e.g. a git clone 403, a missing dependency).
+const setupFailedSentinelPath = "/home/retro/.helix-setup-failed"
+
+// setupFailedSentinel matches the JSON shape written by
+// helix-workspace-setup.sh's cleanup_and_prompt trap.
+type setupFailedSentinel struct {
+	ExitCode int    `json:"exit_code"`
+	LogTail  string `json:"log_tail"`
+}
+
+// readSetupFailureSentinel pulls ~/.helix-setup-failed from the session's
+// dev container via hydra and returns its parsed contents. Returns nil if
+// the file isn't present, the container or sandbox aren't reachable, or the
+// JSON is malformed — every code path the caller hits when the sentinel
+// can't be read should fall back to the generic banner.
+func (apiServer *HelixAPIServer) readSetupFailureSentinel(ctx context.Context, sessionID, sandboxID string) *setupFailedSentinel {
+	if sandboxID == "" {
+		return nil
+	}
+	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
+	hydraClient := hydra.NewRevDialClient(apiServer.connman, hydraRunnerID)
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	data, err := hydraClient.ReadSandboxFile(ctxTimeout, sessionID, setupFailedSentinelPath)
+	if err != nil {
+		log.Debug().Err(err).
+			Str("session_id", sessionID).
+			Str("sandbox_id", sandboxID).
+			Msg("[AUTO_WAKE] No setup-failed sentinel found (or unreadable) — falling back to generic banner")
+		return nil
+	}
+	var parsed setupFailedSentinel
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Int("bytes", len(data)).
+			Msg("[AUTO_WAKE] Setup-failed sentinel present but unparseable; falling back to generic banner")
+		return nil
+	}
+	return &parsed
+}
 
 const (
 	// autoWakeScanInterval is how often the worker checks for stuck
@@ -162,6 +212,44 @@ const (
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
 	autoWakeMaxRetries = 2
+
+	// defaultColdStartGracePeriod is how long we wait for an in-flight
+	// container boot to bring up the dev container + Zed + claude-agent-acp
+	// before we count the wait against the cold-start retry budget.
+	//
+	// While the container boot is in progress, re-kicking
+	// `autoStartDevContainerForSession` is a no-op (StartDesktop holds a
+	// per-session lock and short-circuits with "Dev container already
+	// running" once the container is up) but still increments
+	// AutoWakeCount on every scan tick. With autoWakeMaxRetries=2 and
+	// ~10s ticks the budget burned in <90s, while a cold helix-ubuntu
+	// boot routinely takes 90–150s. Result: `state=error` ("Agent never
+	// connected after auto-wake cold-start retries") fired ~30s before
+	// WS actually connected.
+	//
+	// "Container boot in progress" means `ExternalAgentStatus` in
+	// {"starting", "running"}. StartDesktop flips status to "running" the
+	// moment desktop-bridge is reachable (~T+25s on cold boot) — long
+	// before Zed inside the container has finished initialising GNOME,
+	// launched claude-agent-acp, and dialled the external-agent
+	// WebSocket back to the API (typically T+90–120s). The gate has to
+	// cover both substates or it engages too early to matter.
+	//
+	// Witnessed:
+	//   - spt_01kreb7sevt5ecyagxhctv3ejh: container created T+18s,
+	//     retries exhausted T+93s, WS connected T+123s.
+	//   - spt_01ktnvz9y1grjqaaa1rq72z5tx: container + bridge ready T+25s
+	//     (status→"running"), retries exhausted T+89s, WS connected
+	//     T+98s. The original "starting"-only gate never engaged because
+	//     status flipped to "running" 64s before the budget was burned.
+	//
+	// 5 min covers the realistic boot envelope (ZFS clone of large
+	// snapshots, golden cache unpack, GNOME + Zed init, claude-agent-acp
+	// dial) with margin. After this we fall through to the normal
+	// retry-and-error path so genuinely-failed boots don't churn forever.
+	//
+	// Override at runtime with HELIX_COLD_START_GRACE_SECONDS.
+	defaultColdStartGracePeriod = 5 * time.Minute
 )
 
 // autoWakeStuckThreshold returns the configured stuck threshold.
@@ -175,6 +263,19 @@ func autoWakeStuckThreshold() time.Duration {
 		}
 	}
 	return defaultAutoWakeStuckThreshold
+}
+
+// coldStartGracePeriod returns how long an in-flight `StartDesktop` is
+// allowed to run before we count it against the cold-start retry budget.
+// Reads HELIX_COLD_START_GRACE_SECONDS so operators can dial it up on
+// slow disks (large ZFS clones, cold golden caches) without redeploying.
+func coldStartGracePeriod() time.Duration {
+	if raw := os.Getenv("HELIX_COLD_START_GRACE_SECONDS"); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return defaultColdStartGracePeriod
 }
 
 // startAutoWakeStuckInteractionsWorker launches the periodic scanner.
@@ -440,10 +541,88 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // from its in-memory copy). A Save here would race-clobber AutoWakeCount
 // back to a stale value, and the cap would never engage. See the file
 // header at lines 75-86 for the original incident on spt_01kq2308n428ss3wrm67ta6mjd.
+//
+// Container-state-aware retry budget: before bumping AutoWakeCount we look
+// at `session.Metadata.ExternalAgentStatus`. If the container is in any
+// active boot substate ("starting" or "running") and the interaction is
+// younger than the cold-start grace period, we skip without touching the
+// budget — the existing boot will either finish (Zed dials home and
+// pickupWaitingInteraction delivers) or trip the StartDesktop hard
+// timeout (20 min) and clear the status.
+//
+// Why "running" counts as "still booting" here: StartDesktop sets status
+// to "running" the moment the container exists and desktop-bridge is
+// reachable, which on a cold boot is ~T+25s. Zed itself doesn't dial
+// the external-agent WebSocket back to the API until GNOME has come up
+// and claude-agent-acp has launched (typically T+90–120s). The 60–90s
+// gap between "running" and a live WS is the dominant cold-start
+// failure mode the grace period exists to cover — gating on "starting"
+// alone never engaged for it (see spt_01ktnvz9y1grjqaaa1rq72z5tx).
+//
+// Re-kicking during this window only races against StartDesktop's
+// per-session lock (which short-circuits with "Dev container already
+// running") and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
+	// Load the session once for the two checks below: the
+	// StartDesktop-in-progress gate, and (on cap-exhaustion) the
+	// SandboxID lookup used to read the workspace-setup failure
+	// sentinel. Failing to load is non-fatal — fall through so a
+	// transient store error doesn't permanently disable cold-start.
+	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to load session for cold-start status check; proceeding with kick")
+		session = nil
+	}
+
+	// Skip if a container boot is genuinely in progress and we're still
+	// inside the grace period. Both "starting" and "running" count as
+	// in-progress here: see the function header for why the post-bridge,
+	// pre-WS substate ("running" with no live WS) is the case the grace
+	// period most often needs to cover.
+	if session != nil &&
+		(session.Metadata.ExternalAgentStatus == "starting" ||
+			session.Metadata.ExternalAgentStatus == "running") &&
+		time.Since(stuck.Created) < coldStartGracePeriod() {
+		log.Debug().
+			Str("interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Str("external_agent_status", session.Metadata.ExternalAgentStatus).
+			Dur("interaction_age", time.Since(stuck.Created)).
+			Dur("grace_period", coldStartGracePeriod()).
+			Msg("[AUTO_WAKE] Container boot in progress (no WS yet) — deferring cold-start kick (no budget burn)")
+		return
+	}
+
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
 		stuck.State = types.InteractionStateError
 		stuck.Error = "Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"
+		// Before giving up with the generic banner, see if the dev
+		// container's workspace-setup script wrote a failure sentinel.
+		// If it did, the real cause is in there (e.g. a clone 403) and
+		// the user deserves to see that instead of an infrastructure
+		// timeout. Reuses the session loaded at the top of this
+		// function — no extra store roundtrip (and no extra mock
+		// expectation in the cap-exhausted unit tests).
+		if session != nil {
+			if sentinel := apiServer.readSetupFailureSentinel(ctx, stuck.SessionID, session.SandboxID); sentinel != nil {
+				// Truncate aggressively: the Interaction.Error column
+				// renders inline in the UI. Full log lives in the
+				// container's ~/.helix-setup.log for follow-up.
+				const maxTail = 1200
+				tail := sentinel.LogTail
+				if len(tail) > maxTail {
+					tail = "…" + tail[len(tail)-maxTail:]
+				}
+				stuck.Error = fmt.Sprintf("Workspace setup failed (exit code %d): %s", sentinel.ExitCode, tail)
+				log.Info().
+					Str("interaction_id", stuck.ID).
+					Str("session_id", stuck.SessionID).
+					Int("exit_code", sentinel.ExitCode).
+					Msg("[AUTO_WAKE] Surfaced workspace setup failure from sentinel")
+			}
+		}
 		stuck.Updated = time.Now()
 		stuck.Completed = time.Now()
 		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {

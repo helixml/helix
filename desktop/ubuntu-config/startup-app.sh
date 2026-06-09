@@ -304,6 +304,43 @@ elif [ -x /zed-build/zed ]; then
   ) &
 fi
 
+# Chrome auto-relaunch + heartbeat. Mirrors the sway-session.sh logic — see
+# helix-workspace-setup.sh for the persistent profile symlink and the
+# Dockerfile for the RestoreOnStartup=1 policy that makes tabs come back.
+# A heartbeat loop touches the marker every 30s while Chrome is up and removes
+# it as soon as Chrome stops. We relaunch on next session start iff the marker
+# exists, meaning Chrome was still running when the previous container stopped.
+# Works for both Chrome (amd64) and Chromium (arm64) — google-chrome-stable is
+# symlinked to chromium on arm64.
+(
+    CHROME_MARKER="/home/retro/work/.chrome-state/.was-running"
+    CHROME_LOG="/tmp/chrome-autolaunch.log"
+    # Wait for wayland-0 so Chrome can connect to the compositor.
+    for i in \$(seq 1 60); do
+        [ -S "\${XDG_RUNTIME_DIR}/wayland-0" ] && break
+        sleep 1
+    done
+    if [ -f "\$CHROME_MARKER" ]; then
+        # Hard container kill can leave singleton locks behind.
+        rm -f /home/retro/work/.chrome-state/Singleton* 2>/dev/null || true
+        gow_log "[start] Auto-launching Chrome (marker present from previous session)"
+        echo "[\$(date -Is)] Auto-launching Chrome (marker present)" >> "\$CHROME_LOG"
+        WAYLAND_DISPLAY=wayland-0 google-chrome-stable >>"\$CHROME_LOG" 2>&1 &
+    else
+        gow_log "[start] Skipping Chrome auto-launch (no marker; was closed or never opened)"
+        echo "[\$(date -Is)] Skipping Chrome auto-launch (no marker)" >> "\$CHROME_LOG"
+    fi
+    while true; do
+        if pgrep -x chrome >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1; then
+            mkdir -p /home/retro/work/.chrome-state
+            touch "\$CHROME_MARKER"
+        else
+            rm -f "\$CHROME_MARKER" 2>/dev/null || true
+        fi
+        sleep 30
+    done
+) >/dev/null 2>&1 &
+
 gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
 
 # Enable experimental features for better frame pacing:

@@ -35,6 +35,12 @@ const SimpleTable: FC<{
   getActions?: {
     (row: Record<string, any>): JSX.Element,
   },
+  // Optional: return the HTML id to assign to each row. Used by pages
+  // that need to scroll a specific row into view via document.getElementById
+  // (e.g. the Streams list page when the chart deep-links to a stream).
+  getRowId?: {
+    (row: Record<string, any>): string | undefined,
+  },
 }> = ({
   authenticated = true,
   fields,
@@ -47,7 +53,8 @@ const SimpleTable: FC<{
   actionsFieldClassname,
   loading = false,
   onRowClick,
-  getActions, 
+  getActions,
+  getRowId,
 }) => {
 
   const table = (
@@ -105,6 +112,7 @@ const SimpleTable: FC<{
               }}
               tabIndex={-1}
               key={ i }
+              id={ getRowId?.(dataRow) }
             >
               {
                 fields.map((field, i) => {

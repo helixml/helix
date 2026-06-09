@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,25 +34,44 @@ type Server struct {
 	manager             *Manager
 	devContainerManager *DevContainerManager // Dev container management (desktop container lifecycle)
 	sandboxOps          *SandboxOps          // Sandboxes API: exec/files/terminal helpers
+	logBuffer           *LogBuffer           // In-memory ring of recent log lines for /logs ws endpoint
 	socketPath          string
 	listener            net.Listener
 	server              *http.Server
 	router              *mux.Router
 }
 
-// NewServer creates a new Hydra server
+// NewServer creates a new Hydra server with an internally-allocated log
+// buffer. Use NewServerWithLogBuffer when the caller wants to tee zerolog
+// output (or other line streams) into the same buffer the /logs WS endpoint
+// serves.
 func NewServer(manager *Manager, socketPath string) *Server {
+	return NewServerWithLogBuffer(manager, socketPath, NewLogBuffer(0))
+}
+
+// NewServerWithLogBuffer creates a Hydra server backed by the supplied log
+// buffer. Used by cmd/hydra so the logger can tee into the same buffer the
+// admin /logs WS endpoint exposes. logBuffer must not be nil.
+func NewServerWithLogBuffer(manager *Manager, socketPath string, logBuffer *LogBuffer) *Server {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath
 	}
+	if logBuffer == nil {
+		logBuffer = NewLogBuffer(0)
+	}
 
-	// Create dev container manager for desktop container lifecycle functionality
-	devContainerManager := NewDevContainerManager(manager)
+	// Shared log buffer captures hydra-aggregated runner output: inner
+	// container streams from DevContainerManager.streamContainerLogs plus
+	// (when teed via LogBufferWriter at construction time) hydra's own
+	// zerolog output. Exposed via /logs WS for admin live-tail through
+	// RevDial.
+	devContainerManager := NewDevContainerManagerWithLogBuffer(manager, logBuffer)
 
 	return &Server{
 		manager:             manager,
 		devContainerManager: devContainerManager,
 		sandboxOps:          NewSandboxOps(devContainerManager),
+		logBuffer:           logBuffer,
 		socketPath:          socketPath,
 	}
 }
@@ -168,6 +189,12 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Port proxy - forward HTTP requests to a port on the desktop container's network
 	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
 
+	// Inference proxy - forward OpenAI requests (chat/embeddings) to the local
+	// inference-proxy, which routes to the active profile's model containers.
+	// The API reaches this over the sandbox's outbound RevDial tunnel, so the
+	// sandbox needs no inbound network reachability.
+	api.PathPrefix("/inference/").HandlerFunc(s.handleInferenceProxy)
+
 	// Golden cache management
 	api.HandleFunc("/dev-containers/{session_id}/blkio", s.handleGetDevContainerBlkio).Methods("GET")
 
@@ -190,6 +217,10 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
+
+	// Aggregated runner logs (admin live-tail). WebSocket upgrade; clients
+	// receive a snapshot of recent lines then live-tail.
+	api.HandleFunc("/logs", s.handleLogs).Methods("GET")
 
 	// Version and route listing (for diagnosing version mismatches)
 	api.HandleFunc("/version", s.handleVersion).Methods("GET")
@@ -571,6 +602,43 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			break
 		}
 	}
+}
+
+// inferenceProxyAddr is the host:port of the local inference-proxy process
+// (same sandbox container). inference-proxy listens on 0.0.0.0:8090 by default;
+// hydra reaches it over loopback. Overridable for non-default deployments.
+func inferenceProxyAddr() string {
+	if v := strings.TrimSpace(os.Getenv("HELIX_INFERENCE_PROXY_ADDR")); v != "" {
+		return v
+	}
+	return "127.0.0.1:8090"
+}
+
+// handleInferenceProxy forwards an OpenAI request (arriving over the RevDial
+// tunnel under /api/v1/inference/*) to the local inference-proxy. The API server
+// reaches this endpoint via the sandbox's outbound tunnel, so the sandbox needs
+// no inbound reachability.
+//
+// FlushInterval -1 streams each write immediately, so SSE chat completions
+// arrive chunk-by-chunk rather than being buffered — important in this
+// double-proxy path (API -> hydra -> inference-proxy), matching how
+// anthropic.Proxy streams. Cancellation is bounded by r.Context(): when the API
+// side closes the tunnel conn (e.g. its dispatch deadline fires), this request's
+// context is cancelled and ReverseProxy aborts the upstream call.
+func (s *Server) handleInferenceProxy(w http.ResponseWriter, r *http.Request) {
+	const prefix = "/api/v1/inference"
+	r.URL.Path = strings.TrimPrefix(r.URL.Path, prefix)
+	if r.URL.Path == "" {
+		r.URL.Path = "/"
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: inferenceProxyAddr()})
+	proxy.FlushInterval = -1
+	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		log.Warn().Err(err).Str("path", req.URL.Path).Msg("Failed to proxy inference request")
+		http.Error(w, fmt.Sprintf("failed to connect to inference-proxy: %s", err), http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // handleDevContainerWebSocketProxy handles WebSocket upgrade requests to dev container ports

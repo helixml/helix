@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/datatypes"
 )
 
 type ListProjectsQuery struct {
@@ -15,7 +16,6 @@ type ListProjectsQuery struct {
 	OrganizationID string
 	IncludeStats   bool
 }
-
 
 type GetProjectsCountQuery struct {
 	UserID         string
@@ -56,8 +56,8 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
-	SessionRole            string          `json:"session_role"`      // Filter by session role (e.g. "job")
-	ExcludeRoles           []string        `json:"exclude_roles"`     // Exclude sessions with these roles
+	SessionRole            string          `json:"session_role"`  // Filter by session role (e.g. "job")
+	ExcludeRoles           []string        `json:"exclude_roles"` // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
 }
 
@@ -147,10 +147,12 @@ type ListUsersQuery struct {
 	Username  string          `json:"username"`
 	// Query is a free-text search matched (ILIKE) against email, username, and full_name.
 	// When set it is OR-combined and takes precedence over the separate Email/Username filters.
-	Query   string `json:"query"`
-	Page    int
-	PerPage int
-	Order   string // Defaults to Created Desc
+	Query string `json:"query"`
+	// Waitlisted filters on the user.waitlisted column when non-nil. Nil = no filter.
+	Waitlisted *bool `json:"waitlisted,omitempty"`
+	Page       int
+	PerPage    int
+	Order      string // Defaults to Created Desc
 }
 
 // SearchUsersQuery defines parameters for searching users with partial matching
@@ -175,8 +177,33 @@ type GetAggregatedUsageMetricsQuery struct {
 	OrganizationID   string
 	ProjectID        string
 	SpecTaskID       string
+	AppID            string
+	SessionID        string
+	Provider         string
+	Model            string
 	From             time.Time
 	To               time.Time
+}
+
+type GetOrgUsageSummaryQuery struct {
+	OrganizationID string
+	From           time.Time
+	To             time.Time
+	UserID         string
+	ProjectID      string
+	AppID          string
+	SessionID      string
+	Provider       string
+	Model          string
+	UserSearch     string
+	UserLimit      int
+	UserOffset     int
+	ProjectLimit   int
+	ProjectOffset  int
+	TaskLimit      int
+	TaskOffset     int
+	SessionLimit   int
+	SessionOffset  int
 }
 
 var _ Store = &PostgresStore{}
@@ -207,6 +234,12 @@ type Store interface {
 	UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
 	DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error
 	ListOrganizationMemberships(ctx context.Context, query *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error)
+
+	CreateOrganizationInvitation(ctx context.Context, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error)
+	GetOrganizationInvitation(ctx context.Context, q *GetOrganizationInvitationQuery) (*types.OrganizationInvitation, error)
+	ListOrganizationInvitations(ctx context.Context, query *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error)
+	DeleteOrganizationInvitation(ctx context.Context, id string) error
+	ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error)
 
 	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
 	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
@@ -245,9 +278,9 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 	ClearStaleStartingSessions(ctx context.Context) (int64, error)
-	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error)           // For cleanup on sandbox disconnect
-	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)               // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
-	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) // Returns one session per desktop that has had no interaction since idleSince
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
+	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
+	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
 
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
@@ -257,6 +290,20 @@ type Store interface {
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	// UpdateInteractionStreamingFields persists only the columns the
+	// websocket streaming layer owns: response content, the Zed message
+	// offset/id pair, and updated. It deliberately does NOT touch state,
+	// completed, or error so that a streaming flush cannot clobber a
+	// concurrent transition written by handleTurnCancelled /
+	// handleMessageCompleted. See the lost-update fix in
+	// websocket_external_agent_sync.go.
+	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
+	// from Waiting → Complete and sets completed=now. Returns true if the row
+	// was transitioned, false if the row was already in a terminal state (no
+	// change made). Used by the streaming transition handler so it cannot
+	// resurrect a cancelled or errored turn as falsely "complete".
+	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 	// ListStuckWaitingInteractions returns up to `limit` interactions that
@@ -451,6 +498,7 @@ type Store interface {
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error)
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
@@ -515,6 +563,14 @@ type Store interface {
 	AddSpecTaskLabel(ctx context.Context, taskID string, label string) error
 	RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error
 	SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error)
+
+	// spec-driven task attachments (user-uploaded screenshots/documents)
+	CreateSpecTaskAttachment(ctx context.Context, attachment *types.SpecTaskAttachment) error
+	GetSpecTaskAttachment(ctx context.Context, id string) (*types.SpecTaskAttachment, error)
+	UpdateSpecTaskAttachment(ctx context.Context, attachment *types.SpecTaskAttachment) error
+	DeleteSpecTaskAttachment(ctx context.Context, id string) error
+	ListSpecTaskAttachments(ctx context.Context, specTaskID string) ([]*types.SpecTaskAttachment, error)
+	DeleteSpecTaskAttachmentsByTaskID(ctx context.Context, specTaskID string) error
 
 	// spec-driven task work sessions
 	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
@@ -724,6 +780,10 @@ type Store interface {
 	ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error)
 	DeregisterSandboxInstance(ctx context.Context, id string) error
 	UpdateSandboxInstanceStatus(ctx context.Context, id string, status string) error
+	UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error
+	UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error
+	UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error
+	MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error)
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
