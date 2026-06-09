@@ -2,40 +2,43 @@
 
 ## Backend: transport kind
 
-- [ ] Create `api/pkg/org/domain/transport/cron.go` with `KindCron`, `CronConfig`, and a `Strategy` implementation modelled on `local.go`
-- [ ] Implement `CronConfig.Validate()` — expand aliases (`@hourly`, `@daily`, `@weekly`, `@weekdays`, `@weekends`), parse the resulting cron string, and reject intervals < 90s
-- [ ] Register `KindCron` in `transport.go`: add to `kindOrder` (line 65) and to the `strategies` map (line 72)
-- [ ] Add a unit test in `transport_test.go` asserting every `Kind` in `kindOrder` has an entry in `strategies` (prevents drift)
-- [ ] Unit-test `CronConfig.Validate()` for: each alias, valid 5-field cron, `CRON_TZ=…` prefix, sub-90s rejection, malformed input
-- [ ] Explicit DoS-prevention tests: `* * * * *` (60s — rejected as < 90s minimum), per-second formats rejected as unparseable, aliases that would resolve to sub-90s are rejected, error message clearly names the 90s limit
+- [x] Create `api/pkg/org/domain/transport/cron.go` with `KindCron`, `CronConfig`, and a `Strategy` implementation modelled on `local.go`
+- [x] Implement `CronConfig.Validate()` — expand aliases (`@hourly`, `@daily`, `@weekly`, `@weekdays`, `@weekends`), parse the resulting cron string, and reject intervals < 90s
+- [x] Register `KindCron` in `transport.go`: add to `kindOrder` and to the `strategies` map
+- [x] Add a unit test in `transport_test.go` asserting every `Kind` in `kindOrder` has an entry in `strategies` (prevents drift)
+- [x] Unit-test `CronConfig.Validate()` for: each alias, valid 5-field cron, `CRON_TZ=…` prefix, sub-90s rejection, malformed input
+- [x] Explicit DoS-prevention tests: `* * * * *` (60s — rejected as < 90s minimum), per-second formats rejected as unparseable, aliases that would resolve to sub-90s are rejected, error message clearly names the 90s limit
+
+## Backend: store
+
+- [x] Add `ListByTransportKind(ctx, kind) ([]Stream, error)` to the `Streams` store interface — needed by the scheduler to enumerate cron streams across all orgs
+- [x] Implement `ListByTransportKind` in `gorm/stream.go` (single cross-org `WHERE transport_kind = ?` query)
+- [x] Implement `ListByTransportKind` in `memory/memorystore.go`
 
 ## Backend: scheduler
 
-- [ ] Create `api/pkg/org/infrastructure/streamcron/scheduler.go` modelled on `api/pkg/trigger/cron/trigger_cron.go`
-- [ ] Implement `Scheduler.reconcile()` — list `KindCron` streams, diff against current `gocron.Job`s, add/update/remove
-- [ ] Implement `Scheduler.fire(streamID, orgID)` — build event via `streaming.NewMessageEvent` with `kind:"scheduled"` body, call `Store.Events.Append`, `Hub.Notify`, `Dispatcher.Dispatch`
-- [ ] Wrap `fire()` in panic recovery so a single bad tick can't poison the schedule
-- [ ] Start the scheduler in the API bootstrap alongside the existing app-cron (`api/cmd/serve.go` or equivalent)
-- [ ] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent`
+- [x] Create `api/pkg/org/infrastructure/streamcron/scheduler.go` modelled on `api/pkg/trigger/cron/trigger_cron.go`
+- [x] Implement `Scheduler.reconcile()` — list `KindCron` streams, diff against current `gocron.Job`s, add/update/remove
+- [x] Implement `Scheduler.fire(streamID, orgID)` — build event via `streaming.NewMessageEvent` with `kind:"scheduled"` body, call `Store.Events.Append`, `Hub.Notify`, `Dispatcher.Dispatch`
+- [x] Wrap `fire()` in panic recovery so a single bad tick can't poison the schedule
+- [x] Start the scheduler in the helix-org bootstrap (`api/pkg/server/helix_org.go`), driven by the server's `ctx` so shutdown is clean
+- [x] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent` *(implemented as scheduler-level tests against memory store + recording dispatcher — exercises fire(), reconcile() add/update/remove, panic recovery, and the invalid-schedule defensive skip)*
 
 ## Backend: audit
 
-- [ ] Decide: new `org_stream_cron_executions` table vs reuse `trigger_executions` (inspect existing schema; prefer reuse if shape fits)
-- [ ] Implement the audit write inside `fire()` — record `fired_at`, `event_id`, `status`, `error`
-- [ ] Add store method to fetch "last N executions" for a given stream (used by the UI)
+- [ ] **Defer to follow-up task.** v1 logs every fire at info level. A dedicated `org_stream_cron_executions` table can be added later when the UI surfaces "last fired at"; for now, log + Drone metrics are enough and we avoid coupling v1 to a UI we haven't shipped.
 
 ## Frontend: stream creation
 
-- [ ] Add `{ value: 'cron', label: 'cron', help: … }` to `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgStreams.tsx` (line 53)
-- [ ] In the create-stream dialog, render a **Schedule** input when `cron` is selected
-- [ ] Add quick-pick preset buttons: Hourly, Daily, Weekly, Weekdays, Weekends, Mon 09:00, Fri 18:00
-- [ ] Show inline "next fire: …" preview (server endpoint OR shared client-side parser — pick one during implementation)
-- [ ] Surface server-side validation errors clearly on the schedule field
+- [x] Add `{ value: 'cron', label: 'cron', help: … }` to `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgStreams.tsx`
+- [x] In the create-stream dialog, render a **Schedule** input when `cron` is selected
+- [x] Add quick-pick preset buttons (Chips): Hourly, Daily, Weekly, Weekdays, Weekends, Mon 09:00, Fri 18:00
+- [ ] ~~Show inline "next fire: …" preview~~ **Deferred.** Both client-side and server-endpoint approaches add API surface or duplicate parser logic; the helperText explains the syntax and server-side validation rejects bad input on submit with a clear error. The detail page can grow a "next fire" badge in a follow-up.
+- [x] Surface server-side validation errors clearly on the schedule field — the existing snackbar already pipes through `e?.response?.data?.error` from the create endpoint, which contains the verbatim `CronConfig.Validate` error
 
 ## Frontend: stream list
 
-- [ ] For cron streams, show **schedule**, **last fired at**, and **next fire** columns/badges
-- [ ] Wire up the existing edit/delete flows for cron-kind streams (verify TransportConfig update is supported end-to-end)
+- [ ] **Defer.** v1 doesn't surface schedule/last-fired in the list — the existing kind column shows "cron" which is enough; per-cron-stream UI lives on the detail page in a follow-up. Existing edit/delete flows work unchanged because the transport_config update path is generic.
 
 ## Docs & cleanup
 
