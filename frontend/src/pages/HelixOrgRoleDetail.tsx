@@ -25,7 +25,6 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -137,15 +136,17 @@ const HelixOrgRoleDetail: FC = () => {
     <Page
       breadcrumbTitle={roleId ?? 'Role'}
       orgBreadcrumbs={true}
+      orgBreadcrumbRouteName="helix_org_chart"
+      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
+      breadcrumbs={[{
+        title: 'Roles',
+        routeName: 'helix_org_roles',
+        params: { org_id: orgSlug ?? '' },
+        useOrgRouter: false,
+      }]}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <Stack direction="row" spacing={1}>
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => orgSlug && router.navigate('helix_org_roles', { org_id: orgSlug })}
-          >
-            Roles
-          </Button>
           <Button
             variant="contained"
             color="secondary"

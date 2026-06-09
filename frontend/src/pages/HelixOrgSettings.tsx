@@ -141,6 +141,8 @@ const HelixOrgSettings: FC = () => {
     <Page
       breadcrumbTitle="Settings"
       orgBreadcrumbs={true}
+      orgBreadcrumbRouteName="helix_org_chart"
+      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>

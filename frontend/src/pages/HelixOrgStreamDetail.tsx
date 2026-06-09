@@ -22,7 +22,6 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
@@ -95,10 +94,6 @@ const HelixOrgStreamDetail: FC = () => {
 
   const subscribers = stream?.subscribers ?? []
 
-  const backToList = () => {
-    if (orgSlug) router.navigate('helix_org_streams', { org_id: orgSlug })
-  }
-
   const formatTimestamp = (iso: string) => {
     if (!iso) return ''
     const d = new Date(iso)
@@ -110,16 +105,18 @@ const HelixOrgStreamDetail: FC = () => {
     <Page
       breadcrumbTitle={stream?.name || streamId || 'Stream'}
       orgBreadcrumbs={true}
+      orgBreadcrumbRouteName="helix_org_chart"
+      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
+      breadcrumbs={[{
+        title: 'Streams',
+        routeName: 'helix_org_streams',
+        params: { org_id: orgSlug ?? '' },
+        useOrgRouter: false,
+      }]}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Button startIcon={<ArrowBackIcon />} variant="text" onClick={backToList}>
-              Streams
-            </Button>
-          </Stack>
-
           {isLoading ? (
             <LoadingSpinner />
           ) : !stream ? (
