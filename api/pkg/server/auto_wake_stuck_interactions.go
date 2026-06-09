@@ -214,20 +214,34 @@ const (
 	autoWakeMaxRetries = 2
 
 	// defaultColdStartGracePeriod is how long we wait for an in-flight
-	// `StartDesktop` to bring up the dev container + Zed + claude-agent-acp
+	// container boot to bring up the dev container + Zed + claude-agent-acp
 	// before we count the wait against the cold-start retry budget.
 	//
-	// While `session.Metadata.ExternalAgentStatus == "starting"` the existing
-	// boot is in progress: re-kicking `autoStartDevContainerForSession` is
-	// a no-op (StartDesktop holds a per-session lock and bails when status
-	// is "running") but still increments AutoWakeCount on every scan tick.
-	// With autoWakeMaxRetries=2 and ~10s ticks the budget burned in <90s,
-	// while a cold helix-ubuntu boot routinely takes 90–150s. Result:
-	// `state=error` ("Agent never connected after auto-wake cold-start
-	// retries") fired ~30s before WS actually connected.
+	// While the container boot is in progress, re-kicking
+	// `autoStartDevContainerForSession` is a no-op (StartDesktop holds a
+	// per-session lock and short-circuits with "Dev container already
+	// running" once the container is up) but still increments
+	// AutoWakeCount on every scan tick. With autoWakeMaxRetries=2 and
+	// ~10s ticks the budget burned in <90s, while a cold helix-ubuntu
+	// boot routinely takes 90–150s. Result: `state=error` ("Agent never
+	// connected after auto-wake cold-start retries") fired ~30s before
+	// WS actually connected.
 	//
-	// Witnessed live on spt_01kreb7sevt5ecyagxhctv3ejh: container created
-	// at T+18s, retries exhausted at T+93s, WS connected at T+123s.
+	// "Container boot in progress" means `ExternalAgentStatus` in
+	// {"starting", "running"}. StartDesktop flips status to "running" the
+	// moment desktop-bridge is reachable (~T+25s on cold boot) — long
+	// before Zed inside the container has finished initialising GNOME,
+	// launched claude-agent-acp, and dialled the external-agent
+	// WebSocket back to the API (typically T+90–120s). The gate has to
+	// cover both substates or it engages too early to matter.
+	//
+	// Witnessed:
+	//   - spt_01kreb7sevt5ecyagxhctv3ejh: container created T+18s,
+	//     retries exhausted T+93s, WS connected T+123s.
+	//   - spt_01ktnvz9y1grjqaaa1rq72z5tx: container + bridge ready T+25s
+	//     (status→"running"), retries exhausted T+89s, WS connected
+	//     T+98s. The original "starting"-only gate never engaged because
+	//     status flipped to "running" 64s before the budget was burned.
 	//
 	// 5 min covers the realistic boot envelope (ZFS clone of large
 	// snapshots, golden cache unpack, GNOME + Zed init, claude-agent-acp
@@ -529,13 +543,25 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // header at lines 75-86 for the original incident on spt_01kq2308n428ss3wrm67ta6mjd.
 //
 // Container-state-aware retry budget: before bumping AutoWakeCount we look
-// at `session.Metadata.ExternalAgentStatus`. If a `StartDesktop` is already
-// in flight ("starting") and the interaction is younger than the cold-start
-// grace period, we skip without touching the budget — the existing boot
-// will either finish (Zed dials home and pickupWaitingInteraction delivers)
-// or trip the StartDesktop hard timeout (20 min) and clear the status.
-// Re-kicking during the boot window only races against the existing
-// per-session lock and burns retry budget for nothing.
+// at `session.Metadata.ExternalAgentStatus`. If the container is in any
+// active boot substate ("starting" or "running") and the interaction is
+// younger than the cold-start grace period, we skip without touching the
+// budget — the existing boot will either finish (Zed dials home and
+// pickupWaitingInteraction delivers) or trip the StartDesktop hard
+// timeout (20 min) and clear the status.
+//
+// Why "running" counts as "still booting" here: StartDesktop sets status
+// to "running" the moment the container exists and desktop-bridge is
+// reachable, which on a cold boot is ~T+25s. Zed itself doesn't dial
+// the external-agent WebSocket back to the API until GNOME has come up
+// and claude-agent-acp has launched (typically T+90–120s). The 60–90s
+// gap between "running" and a live WS is the dominant cold-start
+// failure mode the grace period exists to cover — gating on "starting"
+// alone never engaged for it (see spt_01ktnvz9y1grjqaaa1rq72z5tx).
+//
+// Re-kicking during this window only races against StartDesktop's
+// per-session lock (which short-circuits with "Dev container already
+// running") and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
 	// Load the session once for the two checks below: the
 	// StartDesktop-in-progress gate, and (on cap-exhaustion) the
@@ -550,17 +576,22 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		session = nil
 	}
 
-	// Skip if a StartDesktop is genuinely in progress and we're still
-	// inside the grace period.
+	// Skip if a container boot is genuinely in progress and we're still
+	// inside the grace period. Both "starting" and "running" count as
+	// in-progress here: see the function header for why the post-bridge,
+	// pre-WS substate ("running" with no live WS) is the case the grace
+	// period most often needs to cover.
 	if session != nil &&
-		session.Metadata.ExternalAgentStatus == "starting" &&
+		(session.Metadata.ExternalAgentStatus == "starting" ||
+			session.Metadata.ExternalAgentStatus == "running") &&
 		time.Since(stuck.Created) < coldStartGracePeriod() {
 		log.Debug().
 			Str("interaction_id", stuck.ID).
 			Str("session_id", stuck.SessionID).
+			Str("external_agent_status", session.Metadata.ExternalAgentStatus).
 			Dur("interaction_age", time.Since(stuck.Created)).
 			Dur("grace_period", coldStartGracePeriod()).
-			Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
+			Msg("[AUTO_WAKE] Container boot in progress (no WS yet) — deferring cold-start kick (no budget burn)")
 		return
 	}
 

@@ -51,6 +51,10 @@ type Service struct {
 	// collapses an ex-manager's team Stream when its last report just
 	// left. nil is a no-op (tests without topology wiring).
 	Topology *topology.Reconciler
+
+	// Mirror is the transcript mirror; Fire stops the fired Worker's
+	// subscription so it doesn't leak. nil is a no-op.
+	Mirror *helix.Mirror
 }
 
 // ErrOwnerProtected is returned by Fire when the caller targets the
@@ -115,6 +119,10 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	}
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
+
+	if s.Mirror != nil {
+		s.Mirror.Stop(id)
+	}
 
 	if s.Helix != nil && state.ProjectID != "" {
 		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {

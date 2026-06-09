@@ -137,12 +137,11 @@ func TestInProcSpawnerClient_StopExternalAgent_NoSession_ReturnsError(t *testing
 	require.Error(t, err)
 }
 
-// TODO: test for StartChatWithStatus. The streaming handler
-// `startChatSessionHandler` calls into the chat controller (LLM +
-// provider validation), which is non-trivial to satisfy from
-// memorystore in isolation — providers, model catalogue, controller
-// scheduler, etc. The structural adapter logic (sseCapture + SSE
-// parsing) is exercised end-to-end by the helix-org alpha sandbox
-// flow in the inner Helix; a focused unit test belongs in the
-// follow-up that stubs Controller.ChatCompletion / a fake
-// startChatSessionHandler entrypoint.
+// TODO: tests for StartSession / SendMessage. StartSession routes to
+// StartExternalAgentSession (starts a real dev container) and
+// SendMessage to sendSessionMessage (needs a connected external-agent
+// WS), both non-trivial to satisfy from memorystore in isolation. These
+// adapters are the same shared primitives the cron trigger and spec
+// tasks use, and are exercised end-to-end by the helix-org alpha sandbox
+// flow in the inner Helix; focused unit tests belong in a follow-up that
+// stubs the executor + WS manager.

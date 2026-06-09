@@ -29,23 +29,36 @@ type fakeHelixClient struct {
 	sendCalls      int32
 	outputCalls    int32
 	subscribeCalls int32
-	startSessionID string
-	sessionOwner   string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
-	startErr       error
-	sendErr        error
-	outputs        []types.SessionOutputResponse
-	updatesFactory func() <-chan types.WebsocketEvent
-	lastStartReq   StartChatRequest
-	lastSendSID    string
-	lastSendBody   string
+	startSessionID     string
+	sessionOwner       string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
+	exploratorySession string // returned by ExploratorySession; the mirror polls this to track the worker's current session
+	startErr        error
+	sendErr         error
+	outputs         []types.SessionOutputResponse
+	updatesFactory  func() <-chan types.WebsocketEvent
+	lastStartParams StartSessionParams
+	lastSendSID     string
+	lastSendBody    string
 }
 
-func (f *fakeHelixClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
+func (f *fakeHelixClient) StartSession(_ context.Context, params StartSessionParams) (string, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
-	f.lastStartReq = req
+	f.lastStartParams = params
 	f.mu.Unlock()
-	return types.Session{ID: f.startSessionID}, false, f.startErr
+	if f.startErr != nil {
+		return "", f.startErr
+	}
+	return f.startSessionID, nil
+}
+
+func (f *fakeHelixClient) SendMessage(_ context.Context, sessionID, prompt string) error {
+	atomic.AddInt32(&f.sendCalls, 1)
+	f.mu.Lock()
+	f.lastSendSID = sessionID
+	f.lastSendBody = prompt
+	f.mu.Unlock()
+	return f.sendErr
 }
 
 func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionOutputResponse, error) {
@@ -61,6 +74,20 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
 func (f *fakeHelixClient) SessionOwner(_ context.Context, _ string) (string, error) {
 	return f.sessionOwner, nil
+}
+
+// exploratorySession + setExploratory back the Mirror's session
+// resolver. The mirror polls this to track the worker as its session
+// changes; tests flip it to simulate session churn.
+func (f *fakeHelixClient) setExploratory(sid string) {
+	f.mu.Lock()
+	f.exploratorySession = sid
+	f.mu.Unlock()
+}
+func (f *fakeHelixClient) ExploratorySession(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.exploratorySession, nil
 }
 func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) {
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
@@ -131,13 +158,13 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
 		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentAppID)
 	}
-	// StartChat must point at the per-Worker project, not at any
+	// StartSession must point at the per-Worker project, not at any
 	// global one.
-	if fc.lastStartReq.ProjectID != "prj_test" {
-		t.Errorf("StartChat ProjectID = %q (want prj_test)", fc.lastStartReq.ProjectID)
+	if fc.lastStartParams.ProjectID != "prj_test" {
+		t.Errorf("StartSession ProjectID = %q (want prj_test)", fc.lastStartParams.ProjectID)
 	}
-	if fc.lastStartReq.AppID != "app_test" {
-		t.Errorf("StartChat AppID = %q (want app_test)", fc.lastStartReq.AppID)
+	if fc.lastStartParams.AppID != "app_test" {
+		t.Errorf("StartSession AppID = %q (want app_test)", fc.lastStartParams.AppID)
 	}
 }
 
@@ -240,16 +267,20 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	// The first StartChatWithStatus call (resume) carries the existing
-	// SessionID. The session pointer in the store must remain unchanged.
+	// A follow-up with a persisted session sends via SendMessage to the
+	// existing session — no fresh StartSession, no churn. The session
+	// pointer must remain unchanged.
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if fc.lastStartReq.SessionID != "ses_existing" {
-		t.Errorf("StartChatRequest.SessionID = %q (want ses_existing) — resume must target persisted session", fc.lastStartReq.SessionID)
+	if fc.lastSendSID != "ses_existing" {
+		t.Errorf("SendMessage sessionID = %q (want ses_existing) — follow-up must target persisted session", fc.lastSendSID)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartSession called %d times; a follow-up must reuse the session, not create a fresh one", got)
 	}
 	state, _ := LoadState(context.Background(), s, "org-test", wid)
 	if state.SessionID != "ses_existing" {
-		t.Errorf("session pointer changed to %q; resume must NOT open a fresh session", state.SessionID)
+		t.Errorf("session pointer changed to %q; follow-up must NOT open a fresh session", state.SessionID)
 	}
 }
 
@@ -288,56 +319,6 @@ type quotaFullFakeClient struct {
 
 func (f *quotaFullFakeClient) ServerStatus(_ context.Context) (ServerStatus, error) {
 	return ServerStatus{MaxConcurrentDesktops: 2, ActiveConcurrentDesktops: 2}, nil
-}
-
-// TestSpawnerColdStartReQueues verifies that when StartChatWithStatus
-// reports hadStreamErr=true on the fresh open, EnsureAndSend re-issues
-// the same prompt against the same session ID (belt-and-braces — the
-// original race that made this critical was fixed in Helix; this
-// retry is the fallback).
-func TestSpawnerColdStartReQueues(t *testing.T) {
-	t.Parallel()
-	s, wid := newHelixTestStore(t)
-	fc := &coldStartFakeClient{
-		fakeHelixClient: fakeHelixClient{
-			startSessionID: "ses_new",
-			outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-		},
-		hadWSError: true,
-	}
-	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
-	cfg.Client = fc
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	// Two StartChatWithStatus calls: the fresh open and the retry on
-	// the same session. (Cold-start retry replaced the older
-	// SendSessionMessage path in EnsureAndSend.)
-	if got := atomic.LoadInt32(&fc.startCalls); got < 2 {
-		t.Errorf("StartChat calls: %d (want >=2 — fresh open + cold-start retry)", got)
-	}
-	// Retry targets the freshly-opened session.
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	if fc.lastStartReq.SessionID != "ses_new" {
-		t.Errorf("retry SessionID = %q (want ses_new — retry on same session)", fc.lastStartReq.SessionID)
-	}
-}
-
-// coldStartFakeClient overrides StartChatWithStatus to return
-// hadWSError=true, simulating Helix's "no agent WS yet" race.
-type coldStartFakeClient struct {
-	fakeHelixClient
-	hadWSError bool
-}
-
-func (f *coldStartFakeClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
-	atomic.AddInt32(&f.startCalls, 1)
-	f.mu.Lock()
-	f.lastStartReq = req
-	f.mu.Unlock()
-	return types.Session{ID: f.startSessionID}, f.hadWSError, f.startErr
 }
 
 func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
@@ -401,7 +382,10 @@ type concurrencyClient struct {
 	peak     *int32
 }
 
-func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req StartChatRequest) (types.Session, bool, error) {
+// track records peak concurrency then blocks on the gate, so the test
+// can hold multiple activations in-flight at once and assert the
+// spawner's semaphore caps them.
+func (c *concurrencyClient) track() func() {
 	cur := atomic.AddInt32(c.inflight, 1)
 	for {
 		p := atomic.LoadInt32(c.peak)
@@ -409,9 +393,18 @@ func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req StartCh
 			break
 		}
 	}
-	defer atomic.AddInt32(c.inflight, -1)
 	<-c.gate
-	return c.inner.StartChatWithStatus(ctx, req)
+	return func() { atomic.AddInt32(c.inflight, -1) }
+}
+
+func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
+	defer c.track()()
+	return c.inner.StartSession(ctx, params)
+}
+
+func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
+	defer c.track()()
+	return c.inner.SendMessage(ctx, sessionID, prompt)
 }
 
 func (c *concurrencyClient) ServerStatus(ctx context.Context) (ServerStatus, error) {
@@ -430,54 +423,50 @@ func (c *concurrencyClient) SessionOwner(ctx context.Context, sid string) (strin
 	return c.inner.SessionOwner(ctx, sid)
 }
 
-// TestSpawnerPublishesTranscriptViaEntryStream verifies the bridge
-// subscribes via pubsub.GetSessionQueue, feeds frames through
-// EntryStream, and republishes settled events as activation Stream
-// events.
-func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
+// An activation Ensure()s the mirror, so a turn arriving on the session
+// AFTER the activation returns (e.g. inline chat) is still captured.
+func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
+	// Steady state: project + session persisted, so the activation
+	// resumes ses_y and the spawner Ensures the mirror up front.
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_y"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
 
 	ps := newFakePubSub()
 	fc := &fakeHelixClient{
-		startSessionID: "ses_y",
-		// The session is owned by a real user; helix publishes its
-		// updates to that owner's pubsub topic. The bridge must resolve
-		// the owner (via SessionOwner) and subscribe there — subscribing
-		// with an empty owner is the regression this test guards.
-		sessionOwner: "u-owner",
-		// Several waiting outputs so the bridge has time to consume
-		// the pubsub frames before pollUntilDone terminates.
-		outputs: []types.SessionOutputResponse{
-			{Status: "waiting"}, {Status: "waiting"}, {Status: "complete", Output: "ok"},
-		},
+		sessionOwner:       "u-owner",
+		exploratorySession: "ses_y",
+		outputs:            []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
 	cfg.PubSub = ps
-	cfg.PollInitial = 80 * time.Millisecond
-	cfg.ActivationTimeout = 2 * time.Second
-	// Unique IDs so each publishActivationEvent insert succeeds.
 	var idCounter int32
 	cfg.NewID = func() string { return fmt.Sprintf("e-%d", atomic.AddInt32(&idCounter, 1)) }
+	cfg.Mirror = NewMirror(context.Background(), MirrorConfig{
+		PubSub: ps, Snapshotter: NoopSessionPreamble{}, Client: fc,
+		ExploratorySession: fc.ExploratorySession,
+		Store:              s, Logger: cfg.Logger, NewID: cfg.NewID, Now: cfg.Now,
+		PollInterval: 15 * time.Millisecond,
+	})
 	sp := Spawner(cfg)
 
-	// Drive the activation in a goroutine so we can publish frames
-	// after the bridge has subscribed.
-	done := make(chan error, 1)
-	go func() {
-		done <- sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
-	}()
-
-	// Wait for the bridge to subscribe (handlers map populated).
-	deadline := time.Now().Add(2 * time.Second)
-	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
-	for time.Now().Before(deadline) {
-		if ps.handlerCount(topic) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+		t.Fatalf("spawn: %v", err)
 	}
 
+	// The activation has returned, but the spawner registered the worker
+	// with the mirror, which now tracks its session. A turn arriving on
+	// that session from another surface (the inline chat) must still be
+	// captured.
+	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
+	if !waitForHandlers(ps, topic, 1) {
+		t.Fatal("spawner did not leave a live mirror subscription for the session")
+	}
 	patch, _ := json.Marshal(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi there"},
 	}})
@@ -485,73 +474,38 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	complete, _ := json.Marshal(types.WebsocketEvent{Interaction: &types.Interaction{State: "complete"}})
 	ps.publish(t, topic, complete)
 
-	if err := <-done; err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-
-	events, err := s.Events.ListForStream(context.Background(), "org-test", activation.StreamID(wid), 100)
-	if err != nil {
-		t.Fatalf("list events: %v", err)
-	}
-	var sawAssistant bool
-	for _, e := range events {
-		msg, err := e.Message()
-		if err != nil {
-			continue
-		}
-		if strings.Contains(msg.Body, "assistant: hi there") {
-			sawAssistant = true
-		}
-	}
-	if !sawAssistant {
-		t.Fatalf("activation stream missing transcript line; events: %+v", events)
+	if !waitForSegment(t, s, wid, "assistant: hi there") {
+		t.Fatal("post-activation session turn not mirrored to the activation stream")
 	}
 }
 
-// TestSpawnerOpensFreshOnStaleSession: when the persisted session ID
-// resume fails (Helix reports hadStreamErr), the spawner opens a
-// fresh session and persists the new ID.
-func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
+// A follow-up must never churn to a fresh session: SendMessage is
+// fire-and-forget and Helix auto-resumes a downed desktop on the same
+// session, so the persisted pointer stays intact.
+func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_stale"); err != nil {
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	fc := &staleSessionFake{
-		fakeHelixClient: fakeHelixClient{
-			startSessionID: "ses_fresh",
-			outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-		},
+	fc := &fakeHelixClient{
+		startSessionID: "ses_should_not_be_used",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
-	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
-	cfg.Client = fc
-	sp := Spawner(cfg)
+	sp := Spawner(newHelixCfg(t, fc, s))
 	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, "org-test", wid)
-	if state.SessionID != "ses_fresh" {
-		t.Errorf("session pointer = %q, want ses_fresh (stale resume must fall through to fresh)", state.SessionID)
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartSession called %d times; a follow-up must never create a fresh session (no churn)", got)
 	}
-}
-
-// staleSessionFake reports hadStreamErr=true when a resume call is
-// made (SessionID != "") — simulating Helix's "session no longer
-// running" signal. Fresh opens (SessionID empty) succeed normally.
-type staleSessionFake struct {
-	fakeHelixClient
-}
-
-func (f *staleSessionFake) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
-	atomic.AddInt32(&f.startCalls, 1)
-	f.mu.Lock()
-	f.lastStartReq = req
-	f.mu.Unlock()
-	hadErr := req.SessionID != "" // resume path → "session no longer running"
-	return types.Session{ID: f.startSessionID}, hadErr, f.startErr
+	state, _ := LoadState(context.Background(), s, "org-test", wid)
+	if state.SessionID != "ses_existing" {
+		t.Errorf("session pointer = %q, want ses_existing (follow-up must keep the same session)", state.SessionID)
+	}
 }
 
 // TestSpawnerRecordsActivationRowOnSuccess pins B5.6 — the Spawner
