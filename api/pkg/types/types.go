@@ -125,6 +125,13 @@ const (
 	FeedbackDislike Feedback = "dislike"
 )
 
+// Interaction.Trigger values for synthetic system interactions that are
+// not user-initiated (those use the default empty string or app-trigger
+// names like "slack", "crisp"). Used by the fork-and-pause flow.
+const (
+	InteractionTriggerForkSeed = "fork_seed"
+)
+
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
 	messages := []openai.ChatCompletionMessage{}
 
@@ -451,6 +458,18 @@ type SessionMetadata struct {
 	AssistantID    string            `json:"assistant_id"`
 	AppQueryParams map[string]string `json:"app_query_params"`       // Passing through user defined app params
 	CallbackURL    string            `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
+
+	// Fork lineage — set on a session created by forking from a parent.
+	// See design/tasks/002081_kickoff-mid-session/design.md.
+	ParentSessionID       string    `json:"parent_session_id,omitempty"`
+	ForkedAt              time.Time `json:"forked_at,omitempty"`
+	ForkedAtInteractionID string    `json:"forked_at_interaction_id,omitempty"`
+
+	// Pause state — sessions cannot accept new messages while paused.
+	// PausedReason is the only producer in v1: "forked_to:<child_id>".
+	Paused       bool      `json:"paused,omitempty"`
+	PausedReason string    `json:"paused_reason,omitempty"`
+	PausedAt     time.Time `json:"paused_at,omitempty"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
