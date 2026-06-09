@@ -127,8 +127,44 @@ func TestNewProviderDefaults(t *testing.T) {
 func TestProviderName(t *testing.T) {
 	f := newFakeServer(t)
 	p := f.provider(t)
-	if got := p.Name(); got != "yellowdog" {
-		t.Fatalf("Name() = %q, want %q", got, "yellowdog")
+	// Provider.Name() composes the static kind with cfg.DeploymentTag
+	// so two Helix installations sharing a Postgres but using
+	// different deployment tags do not see each other's rows as owned.
+	// The fakeServer provider sets DeploymentTag="test-dep".
+	if got := p.Name(); got != "yellowdog-test-dep" {
+		t.Fatalf("Name() = %q, want %q", got, "yellowdog-test-dep")
+	}
+}
+
+func TestProviderNameDifferentDeploymentTags(t *testing.T) {
+	// Cross-tenancy regression guard: two Providers with the same
+	// kind but different deployment tags MUST report different
+	// Name()s, otherwise both would see each other's rows.
+	cfgA := Config{
+		APIKeyID: "k", APISecret: "s",
+		Namespace:     "n",
+		DeploymentTag: "prod",
+		WorkerTag:     "w",
+	}
+	cfgB := cfgA
+	cfgB.DeploymentTag = "staging"
+
+	a, err := NewProvider(cfgA)
+	if err != nil {
+		t.Fatalf("NewProvider A: %v", err)
+	}
+	b, err := NewProvider(cfgB)
+	if err != nil {
+		t.Fatalf("NewProvider B: %v", err)
+	}
+	if a.Name() == b.Name() {
+		t.Fatalf("same Name() across different deployment tags: %q", a.Name())
+	}
+	if a.Name() != "yellowdog-prod" {
+		t.Fatalf("expected yellowdog-prod, got %q", a.Name())
+	}
+	if b.Name() != "yellowdog-staging" {
+		t.Fatalf("expected yellowdog-staging, got %q", b.Name())
 	}
 }
 
@@ -162,7 +198,7 @@ func TestProvisionSubmitsWRThenAddsTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if h.ProviderName != "yellowdog" {
+	if h.ProviderName != "yellowdog-test-dep" {
 		t.Fatalf("wrong ProviderName: %q", h.ProviderName)
 	}
 	if h.ProviderID != "wr-123" {
