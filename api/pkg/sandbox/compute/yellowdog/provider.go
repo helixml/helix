@@ -83,13 +83,33 @@ type Config struct {
 	// if empty.
 	TaskType string
 
-	// TaskArguments is the positional argument vector passed to each
-	// task. Empty arguments default to a one-line shell that runs the
-	// helix-sandbox image - operators MUST override this in real
-	// deployments to pass HELIX_URL, RUNNER_TOKEN, image tag etc.
-	// Treated as opaque by this package; the script template/upload
-	// flow is out of scope here.
+	// TaskArguments overrides the positional argument vector passed
+	// to each task. Empty (the default) uses the per-task arguments
+	// constructed from HelixURL + RunnerToken + HelixImage, which is
+	// what production deployments want. Tests inject a custom vector
+	// to keep the task body shape simple.
 	TaskArguments []string
+
+	// HelixURL is the Helix control-plane URL the helix-sandbox
+	// container inside the YD task connects back to. Passed through
+	// to bash-script.sh as positional arg $1, which sets
+	// HELIX_API_URL on the docker-run invocation.
+	HelixURL string
+
+	// RunnerToken is the shared secret bash-script.sh injects into
+	// the helix-sandbox container as RUNNER_TOKEN env var. Same
+	// value as Helix's RUNNER_TOKEN config; we pass it through here
+	// rather than have the worker fetch it independently.
+	RunnerToken string
+
+	// HelixImage is the helix-sandbox container image tag. Passed
+	// as positional arg $3 to bash-script.sh, which docker-runs it.
+	HelixImage string
+
+	// BashScriptSource is the YD data-client URI bash-script.sh has
+	// been pre-uploaded to. The YD worker downloads from this source
+	// into local:bash-script.sh before invoking it.
+	BashScriptSource string
 
 	// HTTPClient overrides the default *http.Client. Tests inject
 	// an httptest-backed client. Nil falls back to http.DefaultClient.
@@ -244,9 +264,10 @@ func (p *Provider) Provision(ctx context.Context, spec compute.Spec) (*compute.H
 	task := taskPayload{
 		Name:        fmt.Sprintf("task-%d", time.Now().UnixNano()),
 		TaskType:    p.cfg.TaskType,
-		Arguments:   p.cfg.TaskArguments,
-		Environment: mergeLabels(spec.Labels, nil),
+		Arguments:   p.taskArguments(),
+		Environment: p.taskEnvironment(spec),
 		Timeout:     isoMinutes(p.cfg.TaskTimeout),
+		Inputs:      p.taskInputs(),
 	}
 	if err := p.addTask(ctx, tg.ID, &task); err != nil {
 		// Roll back the WR so we don't leak a stuck empty task group.
@@ -383,6 +404,81 @@ type taskPayload struct {
 	Arguments   []string          `json:"arguments,omitempty"`
 	Environment map[string]string `json:"environment,omitempty"`
 	Timeout     string            `json:"timeout,omitempty"`
+	Inputs      []taskInput       `json:"inputs,omitempty"`
+}
+
+// taskInput tells the YD worker to fetch a file from the data-client
+// and place it on the local filesystem before running the task. Used
+// to ship bash-script.sh to the worker without baking it into the
+// image. Mirrors the POC's config.toml taskDataInputs entries.
+type taskInput struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
+// taskArguments builds the positional argument vector passed to
+// bash-script.sh on the worker. Matches the POC's config.toml:
+//
+//	arguments = ["bash-script.sh", helix_url, runner_token, helix_image]
+//
+// Tests can pre-set cfg.TaskArguments to inject a deterministic
+// vector; production deployments leave it empty and let this method
+// construct the right shape from HelixURL/RunnerToken/HelixImage.
+func (p *Provider) taskArguments() []string {
+	if len(p.cfg.TaskArguments) > 0 {
+		return p.cfg.TaskArguments
+	}
+	if p.cfg.HelixURL == "" || p.cfg.RunnerToken == "" || p.cfg.HelixImage == "" {
+		// Returning empty produces a task that fails immediately on the
+		// worker - operator sees the failure in YD logs and notices the
+		// missing config. Better than silently submitting a task that
+		// happens to work for a few cycles then breaks.
+		return nil
+	}
+	return []string{
+		"bash-script.sh",
+		p.cfg.HelixURL,
+		p.cfg.RunnerToken,
+		p.cfg.HelixImage,
+	}
+}
+
+// taskEnvironment builds the env var map for the YD task. Two
+// load-bearing entries:
+//   - SANDBOX_INSTANCE_ID: bridges the pre-decided SandboxID
+//     from compute.Manager to the helix-sandbox container, so
+//     the container registers with the matching ID and the
+//     auto-register bridge can promote the existing row.
+//   - any other spec.Labels are passed through verbatim.
+//
+// bash-script.sh reads SANDBOX_INSTANCE_ID from its environment
+// and propagates it to the docker-run as -e SANDBOX_INSTANCE_ID=$ID.
+func (p *Provider) taskEnvironment(spec compute.Spec) map[string]string {
+	env := make(map[string]string, len(spec.Labels)+1)
+	for k, v := range spec.Labels {
+		env[k] = v
+	}
+	if id := spec.Labels["helix.sandbox_id"]; id != "" {
+		// The label key is the cross-package handoff between
+		// compute.Manager and yellowdog.Provider; the env var key
+		// is what bash-script.sh reads.
+		env["SANDBOX_INSTANCE_ID"] = id
+	}
+	return env
+}
+
+// taskInputs returns the data-client downloads the YD worker must
+// fetch before running the task. Today that's just bash-script.sh
+// at a fixed destination. In-Go script upload is a follow-up;
+// operators currently pre-upload during pool setup.
+func (p *Provider) taskInputs() []taskInput {
+	if p.cfg.BashScriptSource == "" {
+		return nil
+	}
+	return []taskInput{{
+		Source:      p.cfg.BashScriptSource,
+		Destination: "local:bash-script.sh",
+	}}
 }
 
 // --- HTTP helper methods (one per YD call we make) ----------------------
@@ -468,11 +564,19 @@ func (p *Provider) cancelWorkRequirement(ctx context.Context, id string, force b
 // collapse the differences (e.g. CANCELLING and CANCELLED both
 // become StateTerminating/StateTerminated).
 //
-// COMPLETED maps to StateTerminated rather than StateReady because
-// each WR runs exactly one task that brings up exactly one host:
-// when YD reports COMPLETED, the task has finished and the host
-// underneath it is gone. The "host is healthy and running" signal
-// comes from RUNNING, not COMPLETED.
+// RUNNING maps to StateProvisioning, NOT StateReady. YD reports
+// "RUNNING" the moment a WR is accepted by the scheduler - long
+// before any worker picks the task up, and well before helix-sandbox
+// has booted and phoned home. The only signal that the host is
+// actually serving is its WebSocket registration. The auto-register
+// bridge (server.ensureSandboxRegistered) is responsible for
+// transitioning ComputeState from provisioning to ready when that
+// happens. Surfaced live on 2026-06-09 when a row jumped to ready
+// after 15s despite no helix-sandbox container existing.
+//
+// COMPLETED maps to StateTerminated because each WR runs exactly one
+// task that brings up exactly one host: when YD reports COMPLETED,
+// the task has finished and the host underneath it is gone.
 //
 // Returns ("", false) for unknown statuses so the caller can decide
 // whether to treat that as failure or schema drift. Silently
@@ -482,7 +586,7 @@ func (p *Provider) cancelWorkRequirement(ctx context.Context, id string, force b
 func wrStatusToState(s string) (compute.State, bool) {
 	switch s {
 	case "RUNNING":
-		return compute.StateReady, true
+		return compute.StateProvisioning, true
 	case "HELD":
 		return compute.StateProvisioning, true
 	case "COMPLETED":
@@ -520,16 +624,3 @@ func isoMinutes(d time.Duration) string {
 	return fmt.Sprintf("PT%dM", mins)
 }
 
-func mergeLabels(a, b map[string]string) map[string]string {
-	if len(a) == 0 && len(b) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(a)+len(b))
-	for k, v := range a {
-		out[k] = v
-	}
-	for k, v := range b {
-		out[k] = v
-	}
-	return out
-}

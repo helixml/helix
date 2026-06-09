@@ -30,7 +30,14 @@ import (
 // are fatal: returning an error from here causes the API server to
 // fail fast at boot rather than start with a half-configured
 // Manager.
-func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager, error) {
+//
+// serverURL and runnerToken come from the wider ServerConfig
+// (cfg.WebServer.URL and cfg.WebServer.RunnerToken). Helix already
+// requires these for its own operation; we reuse them rather than
+// introduce parallel env vars. The Provider injects them into the
+// upstream task environment so helix-sandbox knows how to phone
+// home and how to authenticate.
+func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.SandboxStore) (*compute.Manager, error) {
 	if cfg.Provider == "" {
 		log.Info().Msg("HELIX_COMPUTE_PROVIDER unset; compute subsystem disabled (no Provider, no Manager, no reconcile)")
 		return nil, nil
@@ -63,7 +70,7 @@ func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager
 			Msg("compute: HELIX_COMPUTE_DEPLOYMENT_TAG auto-derived from provider namespace; set explicitly if multiple Helix installs share this YD namespace")
 	}
 
-	provider, err := buildProvider(cfg)
+	provider, err := buildProvider(cfg, serverURL, runnerToken)
 	if err != nil {
 		return nil, fmt.Errorf("build %q provider: %w", cfg.Provider, err)
 	}
@@ -110,7 +117,7 @@ func deriveDeploymentTag(cfg config.Compute) string {
 // buildProvider dispatches on cfg.Provider to construct the
 // appropriate concrete Provider. Add new providers here as
 // implementations land.
-func buildProvider(cfg config.Compute) (compute.Provider, error) {
+func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.Provider, error) {
 	switch cfg.Provider {
 	case "yellowdog":
 		// Auto-derive WorkerTag from Namespace when unset, matching
@@ -126,14 +133,18 @@ func buildProvider(cfg config.Compute) (compute.Provider, error) {
 				Msg("compute: HELIX_YD_WORKER_TAG auto-derived from namespace; override if your YD worker pool advertises a different tag")
 		}
 		return yellowdog.NewProvider(yellowdog.Config{
-			APIKeyID:      cfg.Yellowdog.APIKeyID,
-			APISecret:     cfg.Yellowdog.APISecret,
-			BaseURL:       cfg.Yellowdog.BaseURL,
-			Namespace:     cfg.Yellowdog.Namespace,
-			DeploymentTag: cfg.DeploymentTag,
-			WorkerTag:     workerTag,
-			TaskTimeout:   cfg.Yellowdog.TaskTimeout,
-			MaxRetries:    cfg.Yellowdog.MaxRetries,
+			APIKeyID:         cfg.Yellowdog.APIKeyID,
+			APISecret:        cfg.Yellowdog.APISecret,
+			BaseURL:          cfg.Yellowdog.BaseURL,
+			Namespace:        cfg.Yellowdog.Namespace,
+			DeploymentTag:    cfg.DeploymentTag,
+			WorkerTag:        workerTag,
+			TaskTimeout:      cfg.Yellowdog.TaskTimeout,
+			MaxRetries:       cfg.Yellowdog.MaxRetries,
+			HelixURL:         serverURL,
+			RunnerToken:      runnerToken,
+			HelixImage:       cfg.Yellowdog.HelixImage,
+			BashScriptSource: cfg.Yellowdog.BashScriptSource,
 		})
 	default:
 		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)
