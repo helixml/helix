@@ -38,6 +38,12 @@ const Page: React.FC<{
   breadcrumbs?: IPageBreadcrumb[],
   // this means to use the org router for the breadcrumbs
   orgBreadcrumbs?: boolean,
+  // when orgBreadcrumbs is on, the leading "org name" crumb is plain
+  // text by default. Pass these to turn it into a link (e.g. point it at
+  // the helix-org chart from the detail pages). Navigates via the plain
+  // router (not orgNavigate).
+  orgBreadcrumbRouteName?: string,
+  orgBreadcrumbRouteParams?: Record<string, any>,
   headerContent?: ReactNode,
   footerContent?: ReactNode,
   showDrawerButton?: boolean,
@@ -61,6 +67,8 @@ const Page: React.FC<{
   breadcrumbParent,
   breadcrumbs = [],
   orgBreadcrumbs = false,
+  orgBreadcrumbRouteName,
+  orgBreadcrumbRouteParams,
   headerContent = null,
   footerContent = null,
   showDrawerButton = true,
@@ -107,6 +115,10 @@ const Page: React.FC<{
     if(orgBreadcrumbs && account.organizationTools.organization) {
       useBreadcrumbTitles.unshift({
         title: account.organizationTools.organization?.name || '',
+        routeName: orgBreadcrumbRouteName,
+        params: orgBreadcrumbRouteParams,
+        // Navigate via the plain router when a route is supplied.
+        useOrgRouter: orgBreadcrumbRouteName ? false : undefined,
       })
     }
     // Only add parent breadcrumb if explicitly provided
