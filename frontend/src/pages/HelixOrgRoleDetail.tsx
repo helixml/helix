@@ -1,14 +1,16 @@
-// HelixOrgRoleDetail edits a single role end-to-end: markdown content,
-// tools (the role's MCP tool list), streams (inbound subscriptions). Lives at
+// HelixOrgRoleDetail edits a single role end-to-end: markdown content
+// and tools (the role's MCP tool list). Lives at
 // `/orgs/:org_id/helix-org/roles/:role_id` and is the destination
 // both the chart's role drawer and the Roles list link to.
 //
+// Stream subscriptions are NOT edited here — subscriptions are
+// worker-anchored (they live on the Worker, die when it's fired, and
+// aren't inherited by a new hire into the same Role), so they're
+// managed on the Worker detail page, not the Role.
+//
 // Markdown editing uses the in-tree Monaco editor (loaded everywhere
-// else via `components/widgets/MonacoEditor`). Tools and streams are
-// edited as comma-separated chips — the underlying API takes
-// `string[]` and the registry is small enough that a freeform input
-// beats a multi-select for the alpha; we can swap to a real
-// autocomplete once the catalogue stabilises.
+// else via `components/widgets/MonacoEditor`). Tools are edited via a
+// multi-select over the tool catalogue.
 
 import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
@@ -23,7 +25,6 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -33,6 +34,7 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -47,17 +49,13 @@ import {
 
 const OWNER_ROLE = 'r-owner'
 
-// parseList turns "foo, bar, baz" into ["foo", "bar", "baz"], dropping
-// empty entries. Used for both tools and streams.
-const parseList = (s: string): string[] =>
-  s.split(/[,\n]/).map((t) => t.trim()).filter((t) => t !== '')
-
 const HelixOrgRoleDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
   const roleId = router.params.role_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Roles', routeName: 'helix_org_roles' })
 
   const { data, isLoading } = useHelixOrgRole(roleId)
   const { data: toolCatalogue } = useListHelixOrgTools()
@@ -66,7 +64,6 @@ const HelixOrgRoleDetail: FC = () => {
 
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
-  const [streamsText, setStreamsText] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   // Seed local state when the role loads or the route changes.
@@ -74,10 +71,7 @@ const HelixOrgRoleDetail: FC = () => {
     if (!data) return
     setContent(data.content ?? '')
     setTools(data.tools ?? [])
-    setStreamsText((data.streams ?? []).join(', '))
   }, [data])
-
-  const streams = useMemo(() => parseList(streamsText), [streamsText])
 
   // The Autocomplete needs Option objects, but the role's tool list
   // is just a string[] of names. We render every catalogue
@@ -98,18 +92,19 @@ const HelixOrgRoleDetail: FC = () => {
     if (!data) return false
     if ((data.content ?? '') !== content) return true
     if ((data.tools ?? []).join(',') !== tools.join(',')) return true
-    if ((data.streams ?? []).join(',') !== streams.join(',')) return true
     return false
-  }, [data, content, tools, streams])
+  }, [data, content, tools])
 
   const handleSave = async () => {
     if (!roleId) return
     try {
+      // Streams are intentionally omitted — they're worker-anchored and
+      // managed on the Worker detail page. The backend preserves a
+      // Role's existing streams when the field is absent.
       await updateRole.mutateAsync({
         id: roleId,
         content,
         tools,
-        streams,
       })
       snackbar.success(`role ${roleId} saved`)
     } catch (err: any) {
@@ -142,16 +137,10 @@ const HelixOrgRoleDetail: FC = () => {
   return (
     <Page
       breadcrumbTitle={roleId ?? 'Role'}
-      orgBreadcrumbs={true}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <Stack direction="row" spacing={1}>
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => orgSlug && router.navigate('helix_org_roles', { org_id: orgSlug })}
-          >
-            Roles
-          </Button>
           <Button
             variant="contained"
             color="secondary"
@@ -263,25 +252,6 @@ const HelixOrgRoleDetail: FC = () => {
                   />
                 </Box>
 
-                <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Streams</Typography>
-                  <TextField
-                    fullWidth
-                    value={streamsText}
-                    onChange={(e) => setStreamsText(e.target.value)}
-                    placeholder="s-github-webhooks, s-postmark-inbound, … (comma- or newline-separated)"
-                    helperText="Inbound event streams the Workers in this role subscribe to."
-                    multiline
-                    minRows={2}
-                  />
-                  {streams.length > 0 && (
-                    <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 1 }}>
-                      {streams.map((s) => (
-                        <Chip key={s} label={s} size="small" sx={{ fontFamily: 'monospace' }} />
-                      ))}
-                    </Stack>
-                  )}
-                </Box>
               </Stack>
             </Grid>
 

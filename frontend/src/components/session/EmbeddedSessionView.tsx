@@ -54,6 +54,12 @@ import { SESSION_TYPE_TEXT } from "../../types";
 interface EmbeddedSessionViewProps {
   sessionId: string;
   onScrollToBottom?: () => void;
+  // When true, force the (otherwise persisted, globally-shared)
+  // auto-scroll preference ON when this view mounts. Surfaces that want
+  // the transcript to follow live output by default — e.g. the helix-org
+  // worker detail chat — opt in so a previously-toggled-OFF value doesn't
+  // leave the chat opening paused.
+  autoScrollOnMount?: boolean;
 }
 
 export interface EmbeddedSessionViewHandle {
@@ -86,7 +92,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom }, ref) => {
+>(({ sessionId, onScrollToBottom, autoScrollOnMount }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -100,6 +106,18 @@ const EmbeddedSessionView = forwardRef<
   useEffect(() => {
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
+
+  // Opt-in surfaces (autoScrollOnMount) want the transcript to follow
+  // live output regardless of a previously-persisted OFF value. Force
+  // the preference ON once on mount. Runs once — after that the toggle
+  // and scroll-up unlock behave normally.
+  useEffect(() => {
+    if (autoScrollOnMount && !autoScrollRef.current) {
+      autoScrollRef.current = true;
+      setAutoScroll(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // True when auto-scroll is OFF and new content has landed below the viewport.
   // Drives the "Jump to latest" pill.

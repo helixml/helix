@@ -1,12 +1,9 @@
-// GitHubStreamConfigFields is the Repository + Events + Branches form block
-// shared by the New Stream dialog and the per-stream Edit dialog.
-// It's intentionally headless: the parent owns the values + change
-// handlers so the dialog around it stays in control of submit
-// validation, snackbar wiring, etc.
-//
-// The Events and Branches editors are also exported on their own so the
-// New Stream dialog can pair them with its own repo *picker* (which lists
-// the bot's installation repos) instead of the plain repo text field here.
+// GitHub stream-config field building blocks. The Events and Branches
+// editors are headless (the parent owns values + change handlers) and
+// are composed alongside the shared GitHubRepoPicker by both the New
+// Stream dialog and the per-stream Edit form. Repository selection lives
+// in GitHubRepoPicker; event-type selection only appears at creation
+// (afterwards events are managed on GitHub's own webhook UI).
 
 import { FC } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
@@ -19,7 +16,6 @@ import Typography from '@mui/material/Typography'
 import {
   EventOption,
   GITHUB_EVENT_OPTIONS,
-  GITHUB_REPO_PATTERN,
   eventValue,
   isValidGitHubEvent,
 } from './githubStreamConstants'
@@ -141,44 +137,3 @@ export const GitHubBranchesField: FC<{ branches: string[]; onChange: (next: stri
     )}
   />
 )
-
-export interface GitHubStreamConfigFieldsProps {
-  repo: string
-  events: string[]
-  branches?: string[]
-  onRepoChange: (next: string) => void
-  onEventsChange: (next: string[]) => void
-  onBranchesChange?: (next: string[]) => void
-}
-
-export const GitHubStreamConfigFields: FC<GitHubStreamConfigFieldsProps> = ({
-  repo,
-  events,
-  branches = [],
-  onRepoChange,
-  onEventsChange,
-  onBranchesChange,
-}) => {
-  const repoError = repo.trim() === ''
-    ? ''
-    : (GITHUB_REPO_PATTERN.test(repo.trim()) ? '' : 'Must be `owner/name` (one slash, both halves non-empty).')
-
-  return (
-    <>
-      <TextField
-        label="Repository"
-        placeholder="helixml/helix"
-        value={repo}
-        onChange={(e) => onRepoChange(e.target.value)}
-        error={!!repoError}
-        helperText={repoError || 'GitHub `owner/name` (e.g. helixml/helix), or `owner/*` to match a whole org. Matched case-insensitively against repository.full_name in the payload.'}
-        fullWidth
-        size="small"
-      />
-      <GitHubEventsField events={events} onChange={onEventsChange} />
-      {onBranchesChange && <GitHubBranchesField branches={branches} onChange={onBranchesChange} />}
-    </>
-  )
-}
-
-export default GitHubStreamConfigFields

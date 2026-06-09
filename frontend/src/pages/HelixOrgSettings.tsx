@@ -37,6 +37,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import {
   SettingsSpecDTO,
   useDeleteHelixOrgSetting,
@@ -53,6 +54,15 @@ const FIRST_CLASS_KEYS = new Set<string>([
   'worker.credentials',
   'worker.provider',
   'worker.model',
+])
+
+// Keys we deliberately hide from the settings surface. transport.github
+// is auto-managed now: the Helix GitHub App provisions the webhook
+// secret (and the access token comes from the App installation), so
+// there's nothing for an operator to paste here. The key still exists
+// in the registry — it's just self-configured, not operator-facing.
+const HIDDEN_KEYS = new Set<string>([
+  'transport.github',
 ])
 
 // Allowed values for the two dropdown-only knobs. The server
@@ -89,6 +99,7 @@ const HelixOrgSettings: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const orgSlug = router.params.org_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useHelixOrgSettings()
   const { data: providers } = useHelixProviders()
@@ -131,7 +142,7 @@ const HelixOrgSettings: FC = () => {
   return (
     <Page
       breadcrumbTitle="Settings"
-      orgBreadcrumbs={true}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>
@@ -184,9 +195,9 @@ const HelixOrgSettings: FC = () => {
 
               <GitHubAppPanel />
 
-              {/* Generic spec rows — everything not in FIRST_CLASS_KEYS */}
+              {/* Generic spec rows — everything not first-class or hidden */}
               {(data?.specs ?? [])
-                .filter((s) => !FIRST_CLASS_KEYS.has(s.key))
+                .filter((s) => !FIRST_CLASS_KEYS.has(s.key) && !HIDDEN_KEYS.has(s.key))
                 .map((s) => <GenericSettingRow key={s.key} spec={s} />)}
             </>
           )}
@@ -388,8 +399,8 @@ const ModelRow: FC<{
 
 // GenericSettingRow renders any registry spec we don't have a
 // dedicated control for (helix.url, helix.api_key, worker.specs_mandate,
-// transport.github, …). Plain text input. Secrets are shown redacted
-// and must be re-entered to update.
+// …) and isn't in HIDDEN_KEYS. Plain text input. Secrets are shown
+// redacted and must be re-entered to update.
 const GenericSettingRow: FC<{ spec: SettingsSpecDTO }> = ({ spec }) => {
   const setMut = useSetHelixOrgSetting()
   const delMut = useDeleteHelixOrgSetting()
