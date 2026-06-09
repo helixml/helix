@@ -143,6 +143,45 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 	s.server.maybeAutoWake(context.Background(), stuck)
 }
 
+// TestSkipsBudgetWhileRunningButNoWS: regression for
+// spt_01ktnvz9y1grjqaaa1rq72z5tx. StartDesktop flips
+// ExternalAgentStatus to "running" as soon as the container +
+// desktop-bridge are reachable (~T+25s on cold boot), but Zed inside
+// the container doesn't dial the external-agent WebSocket back to the
+// API until GNOME + claude-agent-acp have come up (typically T+90–120s).
+// The grace-period gate has to defer during that "running, no WS" gap
+// or the worker burns the retry budget before Zed ever connects.
+func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
+	// Inside the 5-minute grace, comfortably past the 60s stuck threshold —
+	// the regime where the old "starting"-only gate fell through to the kick
+	// because status had already flipped to "running".
+	stuck := &types.Interaction{
+		ID:            "int-running",
+		SessionID:     "ses_running",
+		State:         types.InteractionStateWaiting,
+		PromptMessage: "do the thing",
+		Created:       time.Now().Add(-90 * time.Second),
+		AutoWakeCount: 0,
+	}
+
+	session := &types.Session{
+		ID:    "ses_running",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ProjectID:           "prj_x",
+			ExternalAgentStatus: "running",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_running").Return(session, nil).Times(1)
+
+	// IncrementInteractionAutoWakeCount and StartDesktop must NOT be called —
+	// gomock fails the test on unexpected calls. That's the whole point: the
+	// gate is supposed to defer without touching the budget.
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
 // TestKicksAfterColdStartGraceExpires: if a "starting" status persists
 // past the grace period, fall through to the normal kick + budget burn
 // path so a genuinely-stuck boot eventually surfaces as state=error
