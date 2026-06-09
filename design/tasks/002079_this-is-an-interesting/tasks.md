@@ -11,18 +11,18 @@
 
 ## Backend: store
 
-- [~] Add `ListByTransportKind(ctx, kind) ([]Stream, error)` to the `Streams` store interface — needed by the scheduler to enumerate cron streams across all orgs
-- [ ] Implement `ListByTransportKind` in `gorm/stream.go` (single cross-org `WHERE transport_kind = ?` query)
-- [ ] Implement `ListByTransportKind` in `memory/memorystore.go`
+- [x] Add `ListByTransportKind(ctx, kind) ([]Stream, error)` to the `Streams` store interface — needed by the scheduler to enumerate cron streams across all orgs
+- [x] Implement `ListByTransportKind` in `gorm/stream.go` (single cross-org `WHERE transport_kind = ?` query)
+- [x] Implement `ListByTransportKind` in `memory/memorystore.go`
 
 ## Backend: scheduler
 
-- [ ] Create `api/pkg/org/infrastructure/streamcron/scheduler.go` modelled on `api/pkg/trigger/cron/trigger_cron.go`
-- [ ] Implement `Scheduler.reconcile()` — list `KindCron` streams, diff against current `gocron.Job`s, add/update/remove
-- [ ] Implement `Scheduler.fire(streamID, orgID)` — build event via `streaming.NewMessageEvent` with `kind:"scheduled"` body, call `Store.Events.Append`, `Hub.Notify`, `Dispatcher.Dispatch`
-- [ ] Wrap `fire()` in panic recovery so a single bad tick can't poison the schedule
-- [ ] Start the scheduler in the helix-org bootstrap (`api/pkg/server/helix_org.go`), driven by the server's `ctx` so shutdown is clean
-- [ ] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent`
+- [x] Create `api/pkg/org/infrastructure/streamcron/scheduler.go` modelled on `api/pkg/trigger/cron/trigger_cron.go`
+- [x] Implement `Scheduler.reconcile()` — list `KindCron` streams, diff against current `gocron.Job`s, add/update/remove
+- [x] Implement `Scheduler.fire(streamID, orgID)` — build event via `streaming.NewMessageEvent` with `kind:"scheduled"` body, call `Store.Events.Append`, `Hub.Notify`, `Dispatcher.Dispatch`
+- [x] Wrap `fire()` in panic recovery so a single bad tick can't poison the schedule
+- [x] Start the scheduler in the helix-org bootstrap (`api/pkg/server/helix_org.go`), driven by the server's `ctx` so shutdown is clean
+- [~] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent`
 
 ## Backend: audit
 
