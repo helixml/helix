@@ -36,6 +36,7 @@ vi.mock('../services/helixOrgService', () => ({
   useHelixOrgWorker: (id: string | undefined) => mockUseHelixOrgWorker(id),
   useFireHelixOrgWorker: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateWorkerIdentity: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useActivateWorker: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useListHelixOrgStreams: () => ({ data: { streams: [] }, isLoading: false }),
   useListWorkerSubscriptions: () => ({ data: { subscriptions: [] }, isLoading: false }),
   useSubscribeWorker: () => ({ mutateAsync: vi.fn() }),

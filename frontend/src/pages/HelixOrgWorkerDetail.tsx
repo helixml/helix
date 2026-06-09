@@ -14,11 +14,15 @@
 // persisted via the workers/{id}/identity endpoint.
 
 import { FC, Key, useEffect, useMemo, useRef, useState } from 'react'
+import Accordion from '@mui/material/Accordion'
+import AccordionDetails from '@mui/material/AccordionDetails'
+import AccordionSummary from '@mui/material/AccordionSummary'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
+import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
 import Grid from '@mui/material/Grid'
@@ -27,7 +31,9 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SaveIcon from '@mui/icons-material/Save'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 
@@ -47,6 +53,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
+  useActivateWorker,
   useFireHelixOrgWorker,
   useHelixOrgWorker,
   useListHelixOrgStreams,
@@ -79,11 +86,13 @@ const HelixOrgWorkerDetail: FC = () => {
   })
   const streaming = useStreaming()
   const updateIdentity = useUpdateWorkerIdentity()
+  const activate = useActivateWorker()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
   const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
   const projectID = data?.project_id
+  const agentAppID = data?.agent_app_id
 
   // Editable identity markdown. Seeded from the worker every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
@@ -100,6 +109,20 @@ const HelixOrgWorkerDetail: FC = () => {
       snackbar.success('identity saved')
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save identity failed')
+    }
+  }
+
+  // handleRestartSession re-activates the Worker: the /activate endpoint
+  // re-attaches the helix-org MCP and brings a fresh agent session up.
+  // Destructive to in-flight work, so it's tucked behind the Advanced
+  // accordion with an explicit warning.
+  const handleRestartSession = async () => {
+    if (!workerId || activate.isPending) return
+    try {
+      await activate.mutateAsync(workerId)
+      snackbar.success('Agent session restart queued — it will come back up shortly')
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
     }
   }
 
@@ -175,6 +198,8 @@ const HelixOrgWorkerDetail: FC = () => {
     <Page
       breadcrumbTitle={workerId ?? 'Worker'}
       orgBreadcrumbs={true}
+      orgBreadcrumbRouteName="helix_org_chart"
+      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
       breadcrumbs={[{
         title: 'Workers',
         routeName: 'helix_org_workers',
@@ -187,6 +212,7 @@ const HelixOrgWorkerDetail: FC = () => {
         {isLoading || !worker ? (
           <LoadingSpinner />
         ) : (
+          <>
           <Grid container spacing={3}>
             <Grid item xs={12} md={9}>
               <Stack spacing={3}>
@@ -355,10 +381,28 @@ const HelixOrgWorkerDetail: FC = () => {
                   )}
                   {projectID && (
                     <Box>
-                      <Typography variant="caption" color="text.secondary">Project</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Project</Typography>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => orgSlug && router.navigate('org_project-specs', { org_id: orgSlug, id: projectID })}
+                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem', textTransform: 'none', justifyContent: 'flex-start', p: 0, minWidth: 0, wordBreak: 'break-all', textAlign: 'left' }}
+                      >
                         {projectID}
-                      </Typography>
+                      </Button>
+                    </Box>
+                  )}
+                  {agentAppID && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Agent</Typography>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => orgSlug && router.navigate('org_agent', { org_id: orgSlug, app_id: agentAppID })}
+                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem', textTransform: 'none', justifyContent: 'flex-start', p: 0, minWidth: 0, wordBreak: 'break-all', textAlign: 'left' }}
+                      >
+                        {agentAppID}
+                      </Button>
                     </Box>
                   )}
                   <Divider />
@@ -380,6 +424,42 @@ const HelixOrgWorkerDetail: FC = () => {
               </Paper>
             </Grid>
           </Grid>
+
+          {/* Advanced — collapsed by default. Houses destructive
+              maintenance actions kept out of the main flow. */}
+          <Accordion
+            disableGutters
+            elevation={0}
+            sx={{
+              mt: 3,
+              border: (theme) => `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: 1,
+              '&:before': { display: 'none' },
+              backgroundImage: 'none',
+            }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="subtitle2">Advanced</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1.5} alignItems="flex-start">
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={activate.isPending ? <CircularProgress size={16} color="inherit" /> : <RestartAltIcon />}
+                  onClick={handleRestartSession}
+                  disabled={activate.isPending}
+                >
+                  {activate.isPending ? 'Restarting…' : 'Restart agent session'}
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  Restarts the worker's agent session from scratch. Any in-progress work in
+                  the current session will be lost.
+                </Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+          </>
         )}
       </Container>
 
