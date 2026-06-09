@@ -30,6 +30,7 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubStreamConstants'
 
 import useAccount from '../hooks/useAccount'
@@ -51,6 +52,7 @@ const HelixOrgStreamDetail: FC = () => {
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
   const streamId = router.params.stream_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Streams', routeName: 'helix_org_streams' })
 
   const { data: stream, isLoading } = useHelixOrgStream(streamId)
   const updateStream = useUpdateHelixOrgStream()
@@ -104,15 +106,7 @@ const HelixOrgStreamDetail: FC = () => {
   return (
     <Page
       breadcrumbTitle={stream?.name || streamId || 'Stream'}
-      orgBreadcrumbs={true}
-      orgBreadcrumbRouteName="helix_org_chart"
-      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
-      breadcrumbs={[{
-        title: 'Streams',
-        routeName: 'helix_org_streams',
-        params: { org_id: orgSlug ?? '' },
-        useOrgRouter: false,
-      }]}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>

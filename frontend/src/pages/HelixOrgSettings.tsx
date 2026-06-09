@@ -37,6 +37,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import {
   SettingsSpecDTO,
   useDeleteHelixOrgSetting,
@@ -98,6 +99,7 @@ const HelixOrgSettings: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const orgSlug = router.params.org_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useHelixOrgSettings()
   const { data: providers } = useHelixProviders()
@@ -140,9 +142,7 @@ const HelixOrgSettings: FC = () => {
   return (
     <Page
       breadcrumbTitle="Settings"
-      orgBreadcrumbs={true}
-      orgBreadcrumbRouteName="helix_org_chart"
-      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>

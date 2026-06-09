@@ -34,6 +34,7 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -54,6 +55,7 @@ const HelixOrgRoleDetail: FC = () => {
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
   const roleId = router.params.role_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Roles', routeName: 'helix_org_roles' })
 
   const { data, isLoading } = useHelixOrgRole(roleId)
   const { data: toolCatalogue } = useListHelixOrgTools()
@@ -135,15 +137,7 @@ const HelixOrgRoleDetail: FC = () => {
   return (
     <Page
       breadcrumbTitle={roleId ?? 'Role'}
-      orgBreadcrumbs={true}
-      orgBreadcrumbRouteName="helix_org_chart"
-      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
-      breadcrumbs={[{
-        title: 'Roles',
-        routeName: 'helix_org_roles',
-        params: { org_id: orgSlug ?? '' },
-        useOrgRouter: false,
-      }]}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <Stack direction="row" spacing={1}>

@@ -45,6 +45,7 @@ import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from '../components/session/EmbeddedSessionView'
 import RobustPromptInput from '../components/common/RobustPromptInput'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -76,6 +77,7 @@ const HelixOrgWorkerDetail: FC = () => {
   const api = useApi()
   const orgSlug = router.params.org_id as string | undefined
   const workerId = router.params.worker_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Workers', routeName: 'helix_org_workers' })
 
   const fire = useFireHelixOrgWorker()
   // Stop polling/refetching this worker once a fire is in flight or
@@ -197,15 +199,7 @@ const HelixOrgWorkerDetail: FC = () => {
   return (
     <Page
       breadcrumbTitle={workerId ?? 'Worker'}
-      orgBreadcrumbs={true}
-      orgBreadcrumbRouteName="helix_org_chart"
-      orgBreadcrumbRouteParams={{ org_id: orgSlug ?? '' }}
-      breadcrumbs={[{
-        title: 'Workers',
-        routeName: 'helix_org_workers',
-        params: { org_id: orgSlug ?? '' },
-        useOrgRouter: false,
-      }]}
+      breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
