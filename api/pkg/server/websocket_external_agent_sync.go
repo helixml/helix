@@ -995,6 +995,20 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		return nil
 	}
 
+	// Refuse to push new input to a paused session. This is defence-in-depth:
+	// the HTTP ingress paths (sendSessionMessage / startChatSessionHandler /
+	// sendQueuedPromptToSession) all check pause state before calling here,
+	// but a future caller that bypasses them would otherwise silently wake
+	// a frozen-checkpoint session.
+	if session.Metadata.Paused {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("interaction_id", interaction.ID).
+			Str("paused_reason", session.Metadata.PausedReason).
+			Msg("notify: refusing to push new interaction to paused session")
+		return fmt.Errorf("session is paused (reason: %s)", session.Metadata.PausedReason)
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("interaction_id", interaction.ID).
@@ -3088,6 +3102,22 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Drop queued prompts targeting a paused session. The user paused the
+	// session (or it was paused by being forked) after this prompt was
+	// queued; delivering it now would resurrect a frozen checkpoint.
+	if session.Metadata.Paused {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("prompt_id", prompt.ID).
+			Str("paused_reason", session.Metadata.PausedReason).
+			Msg("queue: dropping queued prompt — target session is paused")
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, prompt.ID,
+			fmt.Sprintf("session paused (%s)", session.Metadata.PausedReason)); markErr != nil {
+			log.Warn().Err(markErr).Str("prompt_id", prompt.ID).Msg("queue: failed to mark prompt failed after paused-session drop")
+		}
+		return nil
 	}
 
 	// Re-check session idle state right before creating the interaction.

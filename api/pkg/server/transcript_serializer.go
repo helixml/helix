@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -143,6 +144,27 @@ func serializeAgentResponse(in *types.Interaction) string {
 		}
 	}
 	return b.String()
+}
+
+// requireUnpaused short-circuits a request when the session is paused.
+// Returns HTTP 409 with a clear reason so the frontend can render an
+// actionable error (e.g. "fork from descendant instead"). Returns nil
+// when the session is live.
+//
+// NOT wired into pickupWaitingInteraction: that path delivers an
+// already-Waiting interaction to a freshly-connected agent, which the
+// design explicitly preserves ("in-flight waiting interaction allowed
+// to complete naturally — pausing is no-new-input, not kill-the-agent").
+// Blocking pickup would strand the interaction permanently.
+func requireUnpaused(session *types.Session) *system.HTTPError {
+	if session == nil || !session.Metadata.Paused {
+		return nil
+	}
+	reason := session.Metadata.PausedReason
+	if reason == "" {
+		reason = "paused"
+	}
+	return system.NewHTTPError409(fmt.Sprintf("session is paused (reason: %s)", reason))
 }
 
 // findForkSeed scans a session's interactions for the synthetic fork_seed

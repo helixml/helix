@@ -164,6 +164,36 @@ func TestSerializeAgentResponse_ToolCallWithoutStatus(t *testing.T) {
 	assert.Contains(t, got, "cmd")
 }
 
+func TestRequireUnpaused(t *testing.T) {
+	t.Run("nil session returns nil", func(t *testing.T) {
+		assert.Nil(t, requireUnpaused(nil))
+	})
+
+	t.Run("live session returns nil", func(t *testing.T) {
+		s := &types.Session{Metadata: types.SessionMetadata{Paused: false}}
+		assert.Nil(t, requireUnpaused(s))
+	})
+
+	t.Run("paused session returns 409", func(t *testing.T) {
+		s := &types.Session{Metadata: types.SessionMetadata{
+			Paused:       true,
+			PausedReason: "forked_to:ses_child",
+		}}
+		httpErr := requireUnpaused(s)
+		require.NotNil(t, httpErr)
+		assert.Equal(t, 409, httpErr.StatusCode)
+		assert.Contains(t, httpErr.Message, "forked_to:ses_child")
+	})
+
+	t.Run("paused with no reason still 409", func(t *testing.T) {
+		s := &types.Session{Metadata: types.SessionMetadata{Paused: true}}
+		httpErr := requireUnpaused(s)
+		require.NotNil(t, httpErr)
+		assert.Equal(t, 409, httpErr.StatusCode)
+		assert.Contains(t, httpErr.Message, "paused")
+	})
+}
+
 func TestFindForkSeed(t *testing.T) {
 	seed := &types.Interaction{ID: "seed1", Trigger: types.InteractionTriggerForkSeed}
 	interactions := []*types.Interaction{
