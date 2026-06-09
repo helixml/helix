@@ -2003,7 +2003,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onHeightChange={() =>
                       sessionViewRef.current?.scrollToBottom()
                     }
-                    placeholder="Send message to agent..."
+                    placeholder={
+                      sessionData?.config?.paused
+                        ? "This session is paused — open the forked child to keep chatting"
+                        : "Send message to agent..."
+                    }
+                    disabled={!!sessionData?.config?.paused}
                   />
                 </Box>
               </Box>

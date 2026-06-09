@@ -36,6 +36,8 @@ const INTERACTIONS_TO_RENDER = 5;
 
 import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
+import PausedBanner from "./PausedBanner";
+import ForkBadge from "./ForkBadge";
 
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
@@ -557,6 +559,16 @@ const EmbeddedSessionView = forwardRef<
         flexDirection: "column",
       }}
     >
+      {session && (
+        <>
+          <PausedBanner session={session} />
+          {session.config?.parent_session_id && (
+            <Box sx={{ px: 2, pt: 1.5, display: "flex", justifyContent: "flex-start" }}>
+              <ForkBadge session={session} />
+            </Box>
+          )}
+        </>
+      )}
       <Box
         ref={containerRef}
         onScroll={handleScroll}
