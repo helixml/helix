@@ -132,12 +132,22 @@ type Compute struct {
 	// value is "yellowdog".
 	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
 
-	// DeploymentTag is the per-Helix-install identifier that
-	// distinguishes this deployment's sandbox hosts from another
-	// deployment's, even when both share a Postgres or a cloud
-	// account. Combined with the provider kind to form the value
-	// written to SandboxInstance.Provider (e.g. "yellowdog-prod").
-	// Required when Provider is set.
+	// DeploymentTag distinguishes work requirements created by this
+	// Helix install from WRs created by other tooling (e.g. someone
+	// running yd-submit directly against the same YD account) or by
+	// another Helix install that happens to share the YD namespace.
+	// It is the primary filter applied to YD's List endpoint.
+	//
+	// Auto-derived from the provider-specific namespace at boot when
+	// unset (e.g. "helix-<namespace>"). For the common deployment
+	// (one Helix install per YD namespace) the default is sufficient.
+	// Operators running multiple Helix installs in the same YD
+	// namespace MUST set this explicitly per install or the two
+	// Managers will see each other's WRs as their own.
+	//
+	// Also forms the suffix of the value written to
+	// SandboxInstance.Provider (e.g. "yellowdog-prod"). The two
+	// purposes share one knob.
 	DeploymentTag string `envconfig:"HELIX_COMPUTE_DEPLOYMENT_TAG" default:""`
 
 	// Floor is the minimum number of provisioned hosts the Manager

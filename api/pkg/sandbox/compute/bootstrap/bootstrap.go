@@ -35,11 +35,32 @@ func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager
 		log.Info().Msg("HELIX_COMPUTE_PROVIDER unset; compute subsystem disabled (no Provider, no Manager, no reconcile)")
 		return nil, nil
 	}
-	if cfg.DeploymentTag == "" {
-		return nil, errors.New("compute: HELIX_COMPUTE_DEPLOYMENT_TAG is required when HELIX_COMPUTE_PROVIDER is set")
-	}
 	if store == nil {
 		return nil, errors.New("compute: store is required")
+	}
+
+	// Auto-derive DeploymentTag from the provider-specific namespace
+	// when unset. This is enough to distinguish WRs created by Helix
+	// from WRs created by other tools in the same YD account (the
+	// primary purpose of the tag). For the niche case of multiple
+	// Helix installs sharing the same YD namespace, the operator MUST
+	// set HELIX_COMPUTE_DEPLOYMENT_TAG explicitly per install - the
+	// derivation cannot detect that scenario.
+	//
+	// A more robust "persistent install ID hashed into the tag"
+	// design is tracked for D2b; for now the namespace-derived
+	// default + boot-time log + manual override covers the realistic
+	// deployment shapes.
+	if cfg.DeploymentTag == "" {
+		derived := deriveDeploymentTag(cfg)
+		if derived == "" {
+			return nil, errors.New("compute: HELIX_COMPUTE_DEPLOYMENT_TAG is required when Provider is set and no provider namespace is configured to derive it from")
+		}
+		cfg.DeploymentTag = derived
+		log.Info().
+			Str("deployment_tag", derived).
+			Str("provider", cfg.Provider).
+			Msg("compute: HELIX_COMPUTE_DEPLOYMENT_TAG auto-derived from provider namespace; set explicitly if multiple Helix installs share this YD namespace")
 	}
 
 	provider, err := buildProvider(cfg)
@@ -66,6 +87,24 @@ func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager
 		Int("max_concurrent_provisions", cfg.MaxConcurrentProvisions).
 		Msg("compute subsystem enabled; Manager will start at boot")
 	return mgr, nil
+}
+
+// deriveDeploymentTag computes the default DeploymentTag from the
+// provider-specific config when no operator override is set. Returns
+// empty string if no derivation is possible.
+//
+// One arm per supported provider, mirroring buildProvider. Each
+// provider exposes a namespace concept; we prefix with "helix-" so
+// the tag is recognisable in admin UIs and operator tooling that
+// inspects the upstream system directly.
+func deriveDeploymentTag(cfg config.Compute) string {
+	switch cfg.Provider {
+	case "yellowdog":
+		if cfg.Yellowdog.Namespace != "" {
+			return "helix-" + cfg.Yellowdog.Namespace
+		}
+	}
+	return ""
 }
 
 // buildProvider dispatches on cfg.Provider to construct the
