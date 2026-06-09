@@ -6253,6 +6253,20 @@ func (mr *MockStoreMockRecorder) UpdateSandboxInstanceComputeState(ctx, id, comp
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxInstanceComputeState", reflect.TypeOf((*MockStore)(nil).UpdateSandboxInstanceComputeState), ctx, id, computeState)
 }
 
+// UpdateSandboxInstanceNetwork mocks base method.
+func (m *MockStore) UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSandboxInstanceNetwork", ctx, id, ipAddress, hostname, lastSeen)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSandboxInstanceNetwork indicates an expected call of UpdateSandboxInstanceNetwork.
+func (mr *MockStoreMockRecorder) UpdateSandboxInstanceNetwork(ctx, id, ipAddress, hostname, lastSeen any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxInstanceNetwork", reflect.TypeOf((*MockStore)(nil).UpdateSandboxInstanceNetwork), ctx, id, ipAddress, hostname, lastSeen)
+}
+
 // UpdateSandboxInstanceProviderID mocks base method.
 func (m *MockStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
 	m.ctrl.T.Helper()

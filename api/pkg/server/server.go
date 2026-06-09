@@ -2371,27 +2371,59 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 			continue
 		}
 
-		// Manager-provisioned host registering for the FIRST time:
-		// the row was pre-decided by compute.Manager at Provision
-		// time, sits in ComputeState=provisioning waiting for the
-		// container inside the cloud task to phone home. We must
-		// populate IP, transition state, and flip Status online -
-		// but NOT INSERT a duplicate row.
+		// Manager-provisioned host registering for the FIRST time
+		// (ComputeState=provisioning), OR a Manager-provisioned host
+		// that the Manager marked failed but is now phoning home (e.g.
+		// the upstream task recovered after a transient HealthCheck
+		// failure). Both cases get the same forward-transition
+		// treatment: populate the network identity columns, flip
+		// Status to online, and move ComputeState to ready.
 		//
-		// Mutating the loaded row in place + Saving preserves the
-		// Manager-owned fields (Provider, ProviderID, ProvisionedAt,
-		// ...) that a fresh stub-row INSERT would zero out.
-		if instance.ComputeState == string(compute.StateProvisioning) {
-			instance.IPAddress = remoteAddr
-			instance.Status = "online"
-			instance.LastSeen = time.Now()
-			instance.ComputeState = string(compute.StateReady)
-			if err := apiServer.Store.RegisterSandboxInstance(ctx, instance); err != nil {
+		// Critically we do this via THREE targeted column updates
+		// instead of a full-row gorm.Save. Save would overwrite
+		// every column with the value `instance` had when we loaded
+		// it from ListSandboxInstances above - any column written by
+		// the heartbeat goroutine between our load and our Save
+		// (gpus, service_health, profile_status, profile_progress,
+		// helix_version, desktop_versions) would be stamped back to
+		// stale. The race window is small but real because the
+		// heartbeat goroutine often runs before the WS upgrade
+		// handler returns.
+		//
+		// Treating `failed` as a forward-transition recovery path
+		// closes a gap flagged in D2 review: previously a row that
+		// the Manager rolled forward to ComputeState=failed (due to
+		// transient HealthCheck issue) would, on the host phoning
+		// home, fall through to ResetSandboxOnReconnect - Status
+		// would flip to online but ComputeState stayed `failed`
+		// forever. `isAvailable()` returns false for `failed`, so
+		// the Manager would pre-warm a replacement even though this
+		// host was now serving.
+		switch compute.State(instance.ComputeState) {
+		case compute.StateProvisioning, compute.StateFailed:
+			now := time.Now()
+			hostname := fmt.Sprintf("sandbox-%s", sandboxID)
+			if err := apiServer.Store.UpdateSandboxInstanceComputeState(ctx, sandboxID, string(compute.StateReady)); err != nil {
 				log.Error().
 					Err(err).
 					Str("sandbox_id", sandboxID).
 					Str("provider", instance.Provider).
-					Msg("Failed to bridge Manager-provisioned host registration")
+					Str("from_compute_state", instance.ComputeState).
+					Msg("Failed to bridge Manager-provisioned host registration (compute_state update)")
+				return
+			}
+			if err := apiServer.Store.UpdateSandboxInstanceStatus(ctx, sandboxID, "online"); err != nil {
+				log.Error().
+					Err(err).
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to bridge Manager-provisioned host registration (status update)")
+				return
+			}
+			if err := apiServer.Store.UpdateSandboxInstanceNetwork(ctx, sandboxID, remoteAddr, hostname, now); err != nil {
+				log.Error().
+					Err(err).
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to bridge Manager-provisioned host registration (network update)")
 				return
 			}
 			log.Info().
@@ -2399,15 +2431,16 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 				Str("provider", instance.Provider).
 				Str("provider_id", instance.ProviderID).
 				Str("ip_address", remoteAddr).
-				Msg("Manager-provisioned host registered for the first time; transitioned provisioning -> ready")
+				Str("from_compute_state", instance.ComputeState).
+				Msg("Manager-provisioned host registered; transitioned compute_state -> ready")
 			return
 		}
 
 		// Reconnect of an already-registered host (either a legacy
 		// self-registered host coming back after a crash, or a
-		// Manager-provisioned host that has been online before).
-		// Reset stale counters and flip Status back to online via
-		// the existing reaper-safe path.
+		// Manager-provisioned host that has been online before and
+		// is now reconnecting). Reset stale counters and flip Status
+		// back to online via the existing reaper-safe path.
 		err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
 		if err != nil {
 			log.Error().

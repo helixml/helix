@@ -13,16 +13,17 @@ import (
 
 // These tests cover the three branches of ensureSandboxRegistered:
 //   1. Manager-provisioned host registering for the first time
-//      (row exists, ComputeState=provisioning) - bridge path
-//   2. Reconnect of a previously-online host (row exists, any other
-//      ComputeState) - legacy reset path
+//      (row exists, ComputeState in {provisioning, failed}) - bridge
+//      forward-transitions to ready via THREE targeted column updates
+//      (compute_state, status, network). The split was driven by D2
+//      review finding that the previous full-row gorm.Save approach
+//      would clobber concurrent heartbeat writes.
+//   2. Reconnect of a previously-online host (row exists, ComputeState
+//      ready/terminating/terminated/empty) - legacy reset path
 //   3. Self-registered host appearing for the first time (no row) -
 //      legacy insert path
-//
-// The bridge path (1) is the new behaviour added in D2; the others
-// are regression guards to prove we didn't break the existing flows.
 
-func TestEnsureSandboxRegistered_BridgesManagerProvisionedRow(t *testing.T) {
+func TestEnsureSandboxRegistered_BridgesProvisioningRow_TargetedUpdates(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
@@ -39,34 +40,57 @@ func TestEnsureSandboxRegistered_BridgesManagerProvisionedRow(t *testing.T) {
 		ListSandboxInstances(gomock.Any()).
 		Return([]*types.SandboxInstance{existing}, nil)
 
-	// The bridge MUST update the row in place (preserving Provider,
-	// ProviderID) and Save it; not call ResetSandboxOnReconnect, and
-	// not insert a duplicate row.
+	// Bridge MUST use targeted column updates, NOT the full-row Save
+	// path (RegisterSandboxInstance). Regression guard for the bug
+	// found in D2 review: full-row Save would clobber heartbeat
+	// columns that the heartbeat goroutine writes between our load
+	// and our save.
 	mockStore.EXPECT().
-		RegisterSandboxInstance(gomock.Any(), gomock.AssignableToTypeOf(&types.SandboxInstance{})).
-		DoAndReturn(func(_ context.Context, inst *types.SandboxInstance) error {
-			if inst.ID != "sbx_provisioning" {
-				t.Errorf("wrong ID: %q", inst.ID)
-			}
-			if inst.Provider != "yellowdog-prod" {
-				t.Errorf("Provider clobbered: %q", inst.Provider)
-			}
-			if inst.ProviderID != "ydid:workreq:abc" {
-				t.Errorf("ProviderID clobbered: %q", inst.ProviderID)
-			}
-			if inst.ComputeState != string(compute.StateReady) {
-				t.Errorf("ComputeState should transition to ready, got %q", inst.ComputeState)
-			}
-			if inst.Status != "online" {
-				t.Errorf("Status should be online, got %q", inst.Status)
-			}
-			if inst.IPAddress != "10.0.0.1" {
-				t.Errorf("IPAddress should be set, got %q", inst.IPAddress)
-			}
-			return nil
-		})
+		UpdateSandboxInstanceComputeState(gomock.Any(), "sbx_provisioning", string(compute.StateReady)).
+		Return(nil)
+	mockStore.EXPECT().
+		UpdateSandboxInstanceStatus(gomock.Any(), "sbx_provisioning", "online").
+		Return(nil)
+	mockStore.EXPECT().
+		UpdateSandboxInstanceNetwork(gomock.Any(), "sbx_provisioning", "10.0.0.1", gomock.Any(), gomock.Any()).
+		Return(nil)
 
 	server.ensureSandboxRegistered(context.Background(), "sbx_provisioning", "10.0.0.1")
+}
+
+func TestEnsureSandboxRegistered_BridgesFailedRow_RecoveryPath(t *testing.T) {
+	// Regression guard for D2 review finding: a host whose row got
+	// rolled forward to ComputeState=failed (transient HealthCheck
+	// blip, Provider thought it was dead) may still phone home later.
+	// The bridge MUST forward-transition it to ready, otherwise it
+	// stays failed forever - isAvailable() returns false, Manager
+	// pre-warms a replacement, and the host serves but doesn't count.
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	existing := &types.SandboxInstance{
+		ID:           "sbx_recovered",
+		Provider:     "yellowdog-prod",
+		ProviderID:   "ydid:workreq:xyz",
+		ComputeState: string(compute.StateFailed),
+		Status:       "offline",
+	}
+	mockStore.EXPECT().
+		ListSandboxInstances(gomock.Any()).
+		Return([]*types.SandboxInstance{existing}, nil)
+	mockStore.EXPECT().
+		UpdateSandboxInstanceComputeState(gomock.Any(), "sbx_recovered", string(compute.StateReady)).
+		Return(nil)
+	mockStore.EXPECT().
+		UpdateSandboxInstanceStatus(gomock.Any(), "sbx_recovered", "online").
+		Return(nil)
+	mockStore.EXPECT().
+		UpdateSandboxInstanceNetwork(gomock.Any(), "sbx_recovered", "10.0.0.2", gomock.Any(), gomock.Any()).
+		Return(nil)
+	// And critically NOT ResetSandboxOnReconnect or RegisterSandboxInstance.
+
+	server.ensureSandboxRegistered(context.Background(), "sbx_recovered", "10.0.0.2")
 }
 
 func TestEnsureSandboxRegistered_LegacyReconnectPathUnchanged(t *testing.T) {
@@ -151,10 +175,10 @@ func TestEnsureSandboxRegistered_NoRowInsertsFreshLegacyRow(t *testing.T) {
 	server.ensureSandboxRegistered(context.Background(), "sbx_new", "10.0.0.1")
 }
 
-func TestEnsureSandboxRegistered_BridgeStoreErrorIsLoggedAndReturns(t *testing.T) {
-	// If the Save fails during the bridge transition, we don't fall
-	// through to the legacy paths - the bridge function must surface
-	// the error and return (the next reconcile cycle will retry).
+func TestEnsureSandboxRegistered_BridgeEarlyStoreErrorAborts(t *testing.T) {
+	// If the first targeted update (compute_state) fails, we MUST
+	// NOT proceed to the subsequent updates and MUST NOT fall through
+	// to the legacy paths. Next reconcile cycle will retry.
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
@@ -168,8 +192,10 @@ func TestEnsureSandboxRegistered_BridgeStoreErrorIsLoggedAndReturns(t *testing.T
 		ListSandboxInstances(gomock.Any()).
 		Return([]*types.SandboxInstance{existing}, nil)
 	mockStore.EXPECT().
-		RegisterSandboxInstance(gomock.Any(), gomock.Any()).
+		UpdateSandboxInstanceComputeState(gomock.Any(), "sbx_provisioning_err", string(compute.StateReady)).
 		Return(errors.New("simulated db error"))
+	// And NOT UpdateSandboxInstanceStatus, NOT UpdateSandboxInstanceNetwork,
+	// NOT ResetSandboxOnReconnect, NOT RegisterSandboxInstance.
 
 	server.ensureSandboxRegistered(context.Background(), "sbx_provisioning_err", "10.0.0.1")
 }
