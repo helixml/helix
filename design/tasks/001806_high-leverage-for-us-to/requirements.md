@@ -1,5 +1,7 @@
 # Requirements: Mid-Session Agent Switching via ACP
 
+> **STATUS: SUPERSEDED by task [002081](../002081_kickoff-mid-session/)** (2026-06-09). The fork-and-pause redesign documented here was never built on this task — the predecessor's in-place mutation implementation never landed on the helix branch either. The continuation lives in 002081. This directory is preserved as a record of the architectural pivot.
+
 ## User Stories
 
 ### 1. Switch agent mid-session (fork-and-pause)
