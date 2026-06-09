@@ -2367,23 +2367,60 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 	}
 
 	for _, instance := range instances {
-		if instance.ID == sandboxID {
-			// Already registered - reset sandbox count and mark online
-			// This handles reconnects after crashes/restarts where stale counts remain
-			err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
-			if err != nil {
+		if instance.ID != sandboxID {
+			continue
+		}
+
+		// Manager-provisioned host registering for the FIRST time:
+		// the row was pre-decided by compute.Manager at Provision
+		// time, sits in ComputeState=provisioning waiting for the
+		// container inside the cloud task to phone home. We must
+		// populate IP, transition state, and flip Status online -
+		// but NOT INSERT a duplicate row.
+		//
+		// Mutating the loaded row in place + Saving preserves the
+		// Manager-owned fields (Provider, ProviderID, ProvisionedAt,
+		// ...) that a fresh stub-row INSERT would zero out.
+		if instance.ComputeState == string(compute.StateProvisioning) {
+			instance.IPAddress = remoteAddr
+			instance.Status = "online"
+			instance.LastSeen = time.Now()
+			instance.ComputeState = string(compute.StateReady)
+			if err := apiServer.Store.RegisterSandboxInstance(ctx, instance); err != nil {
 				log.Error().
 					Err(err).
 					Str("sandbox_id", sandboxID).
-					Msg("Failed to reset sandbox on reconnect")
-			} else {
-				log.Info().
-					Str("sandbox_id", sandboxID).
-					Int("previous_container_count", instance.ActiveSandboxes).
-					Msg("Reset sandbox on reconnect (cleared stale container count)")
+					Str("provider", instance.Provider).
+					Msg("Failed to bridge Manager-provisioned host registration")
+				return
 			}
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Str("provider", instance.Provider).
+				Str("provider_id", instance.ProviderID).
+				Str("ip_address", remoteAddr).
+				Msg("Manager-provisioned host registered for the first time; transitioned provisioning -> ready")
 			return
 		}
+
+		// Reconnect of an already-registered host (either a legacy
+		// self-registered host coming back after a crash, or a
+		// Manager-provisioned host that has been online before).
+		// Reset stale counters and flip Status back to online via
+		// the existing reaper-safe path.
+		err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("sandbox_id", sandboxID).
+				Msg("Failed to reset sandbox on reconnect")
+		} else {
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Int("previous_container_count", instance.ActiveSandboxes).
+				Msg("Reset sandbox on reconnect (cleared stale container count)")
+		}
+		return
 	}
 
 	// Not registered - auto-register it
