@@ -2,7 +2,7 @@
 
 ## User Stories
 
-### 1. Switch agent mid-session
+### 1. Switch agent mid-session (fork-and-pause)
 **As a** user working in a Helix external agent session,
 **I want to** switch from one code agent (e.g., Claude Code) to another (e.g., Qwen Code) without losing conversation context,
 **So that** I can use the best agent for each phase of my work.
@@ -10,11 +10,11 @@
 **Acceptance Criteria:**
 - User can trigger an agent switch from the Helix UI while a session is active
 - Available agents: Claude Code, Qwen Code, Codex, Gemini, Zed built-in
-- The new agent receives conversation history via first-turn transcript injection (no agent forks needed)
-- The new agent can immediately continue with full context
-- Workspace (files, git state) is unchanged
-- Helix session ID remains the same (but Zed thread ID changes — see design doc for mapping risks)
-- MCP tools remain available
+- Switching **forks** the current session into a new session with the target agent (does not mutate the source). The source session is **paused** as a frozen checkpoint.
+- The new (forked) session is seeded with the parent's full event stream via first-turn transcript injection, so the new agent can immediately continue with full context.
+- Workspace (files, git state) is preserved on the new session
+- The Helix UI navigates to the new session id after a successful fork; the parent's id is preserved and accessible
+- MCP tools remain available on the new session
 
 ### 2. All agents pre-configured in container
 **As a** platform operator,
