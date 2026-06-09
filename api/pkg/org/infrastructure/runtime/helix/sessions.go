@@ -31,12 +31,17 @@ type SessionClient interface {
 //   - GetOutput: polled by the Spawner's pollUntilDone loop until the
 //     session reports a terminal status.
 //   - StopExternalAgent: used by the chat bridge's NewHandler.
+//   - SessionOwner: resolves the owning user ID so the transcript
+//     bridge can subscribe to the correct per-session pubsub topic.
+//     Helix publishes session updates to GetSessionQueue(owner, id), so
+//     the bridge must subscribe with the owner — not an empty string.
 //
 // Production impl is the in-process inProcHelixClient adapter.
 type SpawnerClient interface {
 	SessionClient
 	GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
+	SessionOwner(ctx context.Context, sessionID string) (string, error)
 }
 
 // sendToSession pushes a message to an existing session via

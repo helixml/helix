@@ -30,6 +30,7 @@ type fakeHelixClient struct {
 	outputCalls    int32
 	subscribeCalls int32
 	startSessionID string
+	sessionOwner   string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
 	startErr       error
 	sendErr        error
 	outputs        []types.SessionOutputResponse
@@ -58,6 +59,9 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
+func (f *fakeHelixClient) SessionOwner(_ context.Context, _ string) (string, error) {
+	return f.sessionOwner, nil
+}
 func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) {
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
 }
@@ -422,6 +426,10 @@ func (c *concurrencyClient) StopExternalAgent(ctx context.Context, sid string) e
 	return c.inner.StopExternalAgent(ctx, sid)
 }
 
+func (c *concurrencyClient) SessionOwner(ctx context.Context, sid string) (string, error) {
+	return c.inner.SessionOwner(ctx, sid)
+}
+
 // TestSpawnerPublishesTranscriptViaEntryStream verifies the bridge
 // subscribes via pubsub.GetSessionQueue, feeds frames through
 // EntryStream, and republishes settled events as activation Stream
@@ -433,6 +441,11 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	ps := newFakePubSub()
 	fc := &fakeHelixClient{
 		startSessionID: "ses_y",
+		// The session is owned by a real user; helix publishes its
+		// updates to that owner's pubsub topic. The bridge must resolve
+		// the owner (via SessionOwner) and subscribe there — subscribing
+		// with an empty owner is the regression this test guards.
+		sessionOwner: "u-owner",
 		// Several waiting outputs so the bridge has time to consume
 		// the pubsub frames before pollUntilDone terminates.
 		outputs: []types.SessionOutputResponse{
@@ -457,7 +470,7 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 
 	// Wait for the bridge to subscribe (handlers map populated).
 	deadline := time.Now().Add(2 * time.Second)
-	topic := pubsub.GetSessionQueue("", "ses_y")
+	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
 	for time.Now().Before(deadline) {
 		if ps.handlerCount(topic) > 0 {
 			break

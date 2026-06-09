@@ -545,9 +545,27 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 }
 
 func (b *bridge) run(ctx context.Context, cfg SpawnerConfig, sessionID string) {
+	// Resolve the session owner once. Helix publishes every session
+	// update (assistant text, tool_use, tool_result) to
+	// GetSessionQueue(session.Owner, sessionID); subscribing with an
+	// empty owner lands us on the wrong topic and the bridge receives
+	// zero frames — leaving only the spawner's own lifecycle markers on
+	// the activation stream. Owner never changes, so resolve it before
+	// the reconnect loop rather than on every reconnect.
+	ownerID := ""
+	if cfg.Client != nil {
+		if owner, err := cfg.Client.SessionOwner(ctx, sessionID); err != nil {
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("helix transcript bridge: resolve session owner", "session", sessionID, "err", err)
+			}
+		} else {
+			ownerID = owner
+		}
+	}
+
 	delay := time.Second
 	for {
-		ch, err := SubscribeSessionUpdates(ctx, cfg.PubSub, cfg.Snapshotter, "", sessionID)
+		ch, err := SubscribeSessionUpdates(ctx, cfg.PubSub, cfg.Snapshotter, ownerID, sessionID)
 		if err != nil {
 			if cfg.Logger != nil {
 				cfg.Logger.Warn("helix subscribe", "session", sessionID, "err", err)
