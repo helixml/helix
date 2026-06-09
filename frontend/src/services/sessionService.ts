@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesSession } from '../api/api';
+import { ServerForkSessionRequest, TypesSession } from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -103,6 +103,28 @@ export function useUpdateSession(sessionId: string, options?: { enabled?: boolea
   })
 }
 
+
+// useForkSession forks the given session to a different agent.
+// On success, the parent session is paused and the child session id is
+// returned (via the resolved promise). Callers typically navigate the
+// chat panel to the new session id and/or invalidate parent's data.
+//
+// See design/tasks/002081_kickoff-mid-session/design.md.
+export function useForkSession(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerForkSessionRequest) =>
+      apiClient.v1SessionsForkCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // Parent transitioned to paused; refresh its session row.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      // Refresh any session lists so the new child appears.
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
 
 export function useDeleteSession(sessionId: string, options?: { enabled?: boolean }) {
   const api = useApi()
