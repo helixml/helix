@@ -173,7 +173,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	for _, sub := range subs {
 		streamIDs = append(streamIDs, sub.StreamID)
 	}
-	wake := t.deps.Hub.Subscribe(streamIDs)
+	wake := t.deps.Hub.Subscribe(orgID, streamIDs)
 	defer t.deps.Hub.Unsubscribe(streamIDs, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)

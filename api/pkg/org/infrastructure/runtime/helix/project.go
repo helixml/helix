@@ -173,7 +173,12 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		runtime = Runtime
 	}
 	applyReq := types.ProjectApplyRequest{
-		OrganizationID: a.OrgID,
+		// Scope the project to the org this Ensure call was invoked for,
+		// not the struct's OrgID field. They are normally equal, but a
+		// caller that reuses a WorkerProject across orgs (or stamps OrgID
+		// from frozen config) must not be able to apply one org's project
+		// into another — the org parameter is the authority here.
+		OrganizationID: orgID,
 		Name:           string(workerID),
 		Spec: types.ProjectSpec{
 			Description: worker.IdentityContent(),

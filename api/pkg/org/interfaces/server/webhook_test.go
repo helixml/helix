@@ -99,7 +99,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	srv, s, bc := newWebhookServer(t, rd)
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
 
-	wake := bc.Subscribe([]streaming.StreamID{"s-inbox"})
+	wake := bc.Subscribe("org-test", []streaming.StreamID{"s-inbox"})
 	t.Cleanup(func() { bc.Unsubscribe([]streaming.StreamID{"s-inbox"}, wake) })
 	// streamhub is pubsub-backed (NATS); the SUB has to round-trip to
 	// the embedded server before Publish can route to us. Give it a

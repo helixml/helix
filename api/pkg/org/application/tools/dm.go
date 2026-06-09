@@ -117,7 +117,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		return nil, err
 	}
 	if t.deps.Hub != nil {
-		t.deps.Hub.Notify(streamID)
+		t.deps.Hub.Notify(orgID, streamID)
 	}
 	if t.deps.Dispatcher != nil {
 		t.deps.Dispatcher.Dispatch(ctx, event)

@@ -629,3 +629,36 @@ func TestEnsureLogsButDoesNotFailOnPutFileError(t *testing.T) {
 		t.Fatalf("Ensure must not fail on PutFile error; got %v", err)
 	}
 }
+
+// TestEnsureScopesProjectToParamOrg_NotStructOrgID is the unit-level
+// pin for the cross-tenant leak fix
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// WorkerProject.Ensure takes an orgID parameter AND carries an OrgID
+// struct field. They are normally equal, but the production spawner
+// used to freeze one org's identity onto a process-wide SpawnerConfig
+// and replay it for every org — so a WorkerProject built for org A
+// would .Ensure() worker activations for org B. If Ensure stamps the
+// project with the struct field (a.OrgID) instead of the orgID it was
+// invoked for, org B's worker project lands in org A — the root of the
+// leak. This test forces the two apart and asserts the parameter wins.
+func TestEnsureScopesProjectToParamOrg_NotStructOrgID(t *testing.T) {
+	t.Parallel()
+	// Worker exists in org-test (newProjectTestStore seeds there).
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+	// Frozen, WRONG org on the struct — simulates a reused/cached config.
+	a.OrgID = "org-OTHER-TENANT"
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.lastApplyReq.OrganizationID != "org-test" {
+		t.Fatalf("ApplyProject OrganizationID = %q, want org-test — Ensure must scope to the org it was invoked for, not the struct's frozen OrgID (cross-tenant leak)", svc.lastApplyReq.OrganizationID)
+	}
+}

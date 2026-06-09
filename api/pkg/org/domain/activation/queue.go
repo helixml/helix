@@ -37,7 +37,20 @@ type Spawn func(ctx context.Context, orgID string, workerID orgchart.WorkerID, e
 type Queue struct {
 	spawn  Spawn
 	logger *slog.Logger
-	lanes  sync.Map // map[orgchart.WorkerID]*workerLane
+	lanes  sync.Map // map[laneKey]*workerLane
+}
+
+// laneKey identifies a serialisation lane. It MUST include orgID:
+// Worker IDs are only unique within an org (the store keys workers by
+// the composite (org_id, id)), so the owner of every org shares the id
+// "w-owner". Keying lanes by workerID alone collapses every org's
+// w-owner into one lane — their triggers coalesce into a single batch
+// and lane.orgID becomes last-writer-wins, so one org's activation runs
+// under another org's context (wrong project, MCP URL, secrets). The
+// composite key keeps each tenant's lane separate.
+type laneKey struct {
+	orgID    string
+	workerID orgchart.WorkerID
 }
 
 // NewQueue returns a Queue that calls spawn per coalesced batch. spawn
@@ -73,7 +86,7 @@ func (q *Queue) Enqueue(orgID string, workerID orgchart.WorkerID, envPath string
 	if q.spawn == nil {
 		return
 	}
-	lane := q.laneFor(workerID)
+	lane := q.laneFor(orgID, workerID)
 	lane.mu.Lock()
 	lane.pending = append(lane.pending, trigger)
 	lane.envPath = envPath // last writer wins; stable in practice
@@ -136,7 +149,7 @@ func (q *Queue) activate(ctx context.Context, orgID string, workerID orgchart.Wo
 	)
 }
 
-func (q *Queue) laneFor(workerID orgchart.WorkerID) *workerLane {
-	got, _ := q.lanes.LoadOrStore(workerID, &workerLane{})
+func (q *Queue) laneFor(orgID string, workerID orgchart.WorkerID) *workerLane {
+	got, _ := q.lanes.LoadOrStore(laneKey{orgID: orgID, workerID: workerID}, &workerLane{})
 	return got.(*workerLane)
 }
