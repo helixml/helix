@@ -284,7 +284,27 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	secretInjectors := []runtimehelix.SpawnSecretInjector{
 		githubtransport.NewSecretInjector(githubtransport.TokenResolver(gitHubTokenResolver)),
 	}
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, secretInjectors, deps.NewID, deps.Now)
+	// Transcript mirror — process-wide singleton shared by the spawner
+	// (Ensure), bootstrap (EnsureAll), and lifecycle.Fire (Stop).
+	mirror := runtimehelix.NewMirror(context.Background(), runtimehelix.MirrorConfig{
+		PubSub:      cfg.APIServer.pubsub,
+		Snapshotter: runtimehelix.NoopSessionPreamble{},
+		Client:      inProcClient,
+		ExploratorySession: func(ctx context.Context, projectID string) (string, error) {
+			sess, err := helixStore.GetProjectExploratorySession(ctx, projectID)
+			if err != nil || sess == nil {
+				return "", err
+			}
+			return sess.ID, nil
+		},
+		Store:  st,
+		Hub:    bc,
+		NewID:  deps.NewID,
+		Now:    deps.Now,
+		Logger: logger,
+	})
+
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, secretInjectors, deps.NewID, deps.Now, mirror)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -338,6 +358,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// the REST handlers — one owner of activation/team Stream
 		// lifecycle across hire, reparent, and fire.
 		Topology: deps.Topology,
+		Mirror:   mirror, // Fire stops the fired worker's subscription
 	}
 
 	apiDeps := helixorgapi.Deps{
@@ -530,7 +551,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Str("envs", envsDir).
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
-	scope := newHelixOrgScope(configReg, st, envsDir, helixStore)
+	scope := newHelixOrgScope(configReg, st, envsDir, helixStore, mirror)
 
 	// Public github webhook handler — mounted on the insecure router
 	// because GitHub deliveries authenticate via HMAC, not the helix
@@ -926,6 +947,7 @@ func lazyHelixOrgSpawner(
 	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
+	mirror *runtimehelix.Mirror,
 ) runtime.Spawner {
 	var (
 		mu      sync.Mutex
@@ -950,6 +972,7 @@ func lazyHelixOrgSpawner(
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}
+			cfgVal.Mirror = mirror // shared singleton; not per-org config
 			built := runtimehelix.Spawner(cfgVal)
 			mu.Lock()
 			if spawner == nil {

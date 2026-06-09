@@ -3,7 +3,6 @@ package helix
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -11,18 +10,33 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
-// SessionClient is the small slice of the chat-session API
-// EnsureAndSend depends on. Production impl is the in-process adapter
-// at api/pkg/server/helix_org_inproc.go::inProcHelixClient, which
-// routes calls to HelixAPIServer handler methods directly.
+// SessionClient is the slice of the session API EnsureAndSend depends
+// on, backed by the same primitives the cron trigger / spec tasks use:
+//   - StartSession → StartExternalAgentSession (create session + start
+//     desktop + queue first message).
+//   - SendMessage → POST /sessions/{id}/messages (fire-and-forget
+//     continuation; Helix auto-resumes a downed desktop on the same
+//     session).
 //
-// hadStreamErr semantics: the SSE-error path is a workaround for
-// streaming-error chunks the chat handler may emit mid-stream. The
-// retry at line 130 below treats it as transient; safe to keep —
-// it's a one-shot, idempotent retry.
+// Neither blocks on the turn, so neither hits the external-agent response
+// timeout; the Spawner observes completion via pollUntilDone + the mirror.
 type SessionClient interface {
-	StartChatWithStatus(ctx context.Context, req StartChatRequest) (types.Session, bool, error)
+	StartSession(ctx context.Context, params StartSessionParams) (sessionID string, err error)
+	SendMessage(ctx context.Context, sessionID, prompt string) error
 	ServerStatus(ctx context.Context) (ServerStatus, error)
+}
+
+// StartSessionParams configures one-time creation of a worker's session.
+// The adapter always sets session_role "exploratory" so it's resolvable
+// by the mirror's GetProjectExploratorySession lookup.
+type StartSessionParams struct {
+	ProjectID      string
+	OrganizationID string
+	AppID          string
+	AgentType      string
+	Provider       string
+	Model          string
+	Prompt         string
 }
 
 // SpawnerClient is the chat-session surface the helix Spawner uses
@@ -42,23 +56,6 @@ type SpawnerClient interface {
 	GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
 	SessionOwner(ctx context.Context, sessionID string) (string, error)
-}
-
-// sendToSession pushes a message to an existing session via
-// /sessions/chat with SessionID set. Returns an error if the session
-// is no longer running (Helix reports streamHadErr=true).
-func sendToSession(ctx context.Context, client SessionClient, req StartChatRequest) (types.Session, error) {
-	if req.SessionID == "" {
-		return types.Session{}, errors.New("sendToSession: SessionID required")
-	}
-	session, streamHadErr, err := client.StartChatWithStatus(ctx, req)
-	if err != nil {
-		return types.Session{}, err
-	}
-	if streamHadErr {
-		return types.Session{}, errors.New("session no longer running on the server")
-	}
-	return session, nil
 }
 
 // checkDesktopQuota pre-flights the desktop quota gate before
@@ -106,36 +103,12 @@ type SendPromptParams struct {
 	OnSessionID    func(sessionID string)
 }
 
-// EnsureAndSend is the single primitive for "make this Helix session
-// run this prompt." Both the owner-chat bridge and the worker
-// activation Spawner call it — same request shape, same resume-or-fresh
-// recovery, same session_role ("exploratory" — so every session is
-// visible via Helix's per-project desktop view). Without one shared
-// primitive these two paths drift and behave differently against
-// stale state, broken WS connections, etc.
-//
-// Behaviour:
-//
-//  1. If params.SessionID is set: try to resume via SendToSession.
-//     Success → invoke OnSessionID(SessionID) and return.
-//     Any failure (HTTP error or SSE error chunk after the ID echo) →
-//     log nothing here (caller decides) and fall through to step 2.
-//  2. Pre-flight the desktop quota: a fresh session always boots a
-//     Zed sandbox, and Helix fails late if the quota is exhausted.
-//  3. Open a new session via StartChatWithStatus. OnSessionID is
-//     wired into the StartChatRequest so it fires the moment Helix
-//     emits the session ID — before the agent has produced anything,
-//     so callers can attach a WS subscriber early.
-//
-// Returns the active session ID and a bool indicating whether step 1
-// (resume) succeeded. fresh=true means a new session was opened and
-// the caller should persist the returned ID.
-//
-// session_role is fixed at "exploratory" so the new session is
-// discoverable from Helix's per-project UI (the project handlers
-// query store.GetProjectExploratorySession, which filters on this
-// role). Worker activations and owner chats both go through this
-// path, so neither is special-cased in Helix.
+// EnsureAndSend makes a worker's session run a prompt. A worker has one
+// durable session, so there's no staleness to detect:
+//   - existing session → SendMessage (fire-and-forget; Helix recovers a
+//     downed desktop on the same session). fresh=false.
+//   - no session → quota pre-flight, then StartSession. fresh=true so the
+//     caller persists the new id.
 const exploratoryRole = "exploratory"
 
 func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptParams) (sessionID string, fresh bool, err error) {
@@ -149,74 +122,35 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return "", false, fmt.Errorf("EnsureAndSend: AgentType is required")
 	}
 
-	// Step 1 — try to resume.
 	if params.SessionID != "" {
-		resumeReq := StartChatRequest{
-			SessionID:           params.SessionID,
-			ProjectID:           params.ProjectID,
-			OrganizationID:      params.OrganizationID,
-			AppID:               params.AppID,
-			SessionRole:         exploratoryRole,
-			AgentType:           params.AgentType,
-			Type:                "text",
-			ExternalAgentConfig: &types.ExternalAgentConfig{},
-			Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
+		if err := client.SendMessage(ctx, params.SessionID, params.Prompt); err != nil {
+			return "", false, fmt.Errorf("send message to session %s: %w", params.SessionID, err)
 		}
-		if _, sendErr := sendToSession(ctx, client, resumeReq); sendErr == nil {
-			if params.OnSessionID != nil {
-				params.OnSessionID(params.SessionID)
-			}
-			return params.SessionID, false, nil
+		if params.OnSessionID != nil {
+			params.OnSessionID(params.SessionID)
 		}
-		// Resume failed — caller will see fresh=true and can take
-		// the opportunity to log + persist the new ID.
+		return params.SessionID, false, nil
 	}
 
-	// Step 2 — pre-flight quota.
 	if err := checkDesktopQuota(ctx, client); err != nil {
 		return "", false, err
 	}
-
-	// Step 3 — open fresh.
-	startReq := StartChatRequest{
-		ProjectID:           params.ProjectID,
-		OrganizationID:      params.OrganizationID,
-		AppID:               params.AppID,
-		SessionRole:         exploratoryRole,
-		AgentType:           params.AgentType,
-		Type:                "text",
-		Provider:            params.Provider,
-		Model:               params.Model,
-		ExternalAgentConfig: &types.ExternalAgentConfig{},
-		Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
-		OnSessionID:         params.OnSessionID,
-	}
-	session, hadStreamErr, err := client.StartChatWithStatus(ctx, startReq)
+	sid, err := client.StartSession(ctx, StartSessionParams{
+		ProjectID:      params.ProjectID,
+		OrganizationID: params.OrganizationID,
+		AppID:          params.AppID,
+		AgentType:      params.AgentType,
+		Provider:       params.Provider,
+		Model:          params.Model,
+		Prompt:         params.Prompt,
+	})
 	if err != nil {
-		return "", false, fmt.Errorf("open fresh helix session: %w", err)
+		return "", false, fmt.Errorf("start helix session: %w", err)
 	}
-
-	// Step 4 — cold-start fallback. With Helix's per-session readiness
-	// check (waitForExternalAgentReady now polls the agent's own WS
-	// rather than the global connection list), the first dispatch
-	// should land cleanly. If hadStreamErr is still set we re-issue
-	// once on the same session via SessionID continuation. Belt-and-
-	// braces — the original race that made this critical has been
-	// fixed at the source, so this should be rare.
-	if hadStreamErr {
-		retryReq := StartChatRequest{
-			SessionID:           session.ID,
-			ProjectID:           params.ProjectID,
-			AppID:               params.AppID,
-			SessionRole:         exploratoryRole,
-			AgentType:           params.AgentType,
-			Type:                "text",
-			ExternalAgentConfig: &types.ExternalAgentConfig{},
-			Messages:            []SessionChatMessage{NewTextMessage("user", params.Prompt)},
-		}
-		_, _, _ = client.StartChatWithStatus(ctx, retryReq)
+	if params.OnSessionID != nil {
+		params.OnSessionID(sid)
 	}
-	return session.ID, true, nil
+	return sid, true, nil
 }
 
 // SessionPreamble exposes the late-joiner catch-up snapshot the
