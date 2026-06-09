@@ -5,9 +5,9 @@
 
 ## Phase 1 — Preflight
 
-- [ ] Confirm the inner Helix stack is up: `curl -s http://localhost:8080/api/v1/config | jq` returns non-error JSON
-- [ ] Confirm the branch is checked out: `cd /home/retro/work/helix && git rev-parse --abbrev-ref HEAD` reports `feature/001806-high-leverage-for-us-to`
-- [ ] Confirm the in-process tests still pass on the branch: `cd /home/retro/work/helix && go test ./api/pkg/server/... -run 'Fork|Pause|Transcript' -count=1` is green (re-confirms the baseline before manual validation)
+- [x] Confirm the inner Helix stack is up: `curl -s http://localhost:8080/api/v1/config | jq` returns non-error JSON
+- [x] Confirm the branch is checked out: `cd /home/retro/work/helix && git rev-parse --abbrev-ref HEAD` reports `feature/001806-high-leverage-for-us-to`
+- [~] Confirm the in-process tests still pass on the branch: `cd /home/retro/work/helix && go test ./api/pkg/server/... -run 'Fork|Pause|Transcript' -count=1` is green (re-confirms the baseline before manual validation)
 
 ## Phase 2 — Backend smoke test script
 
