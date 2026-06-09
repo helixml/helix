@@ -433,6 +433,24 @@ func (c *inProcHelixClient) GetOutput(ctx context.Context, sessionID string) (ty
 	return *resp, nil
 }
 
+// SessionOwner returns the user ID that owns the session. The
+// transcript bridge needs it to subscribe to the correct per-session
+// pubsub topic: helix publishes session updates to
+// GetSessionQueue(session.Owner, …), so subscribing with an empty owner
+// (or the wrong user) silently yields zero frames — only the spawner's
+// own lifecycle markers reach the activation stream. Mirrors the owner
+// lookup in websocket_server_user.go.
+func (c *inProcHelixClient) SessionOwner(ctx context.Context, sessionID string) (string, error) {
+	session, err := c.server.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("get session %s: %w", sessionID, err)
+	}
+	if session == nil {
+		return "", fmt.Errorf("get session %s: not found", sessionID)
+	}
+	return session.Owner, nil
+}
+
 // StopExternalAgent stops a session's external Zed agent.
 func (c *inProcHelixClient) StopExternalAgent(ctx context.Context, sessionID string) error {
 	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/sessions/"+sessionID+"/stop-external-agent", nil, map[string]string{"id": sessionID})
