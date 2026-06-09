@@ -18,14 +18,15 @@
 
 ## Phase 3 — Backend smoke test script (uses sessions from Phase 2)
 
-- [ ] Create `validate_fork.sh` in this task directory that takes `HELIX_TOKEN` + `HELIX_PARENT_SESSION_ID` as env vars and:
-  - [ ] Calls `POST /sessions/{id}/fork` with a different runtime (read from current session's runtime)
-  - [ ] Asserts 200 + `new_session_id`
-  - [ ] Asserts parent has `metadata.paused == true` and `metadata.paused_reason` matches `forked_to:<child>`
-  - [ ] Asserts child has `metadata.parent_session_id == <parent>` and a `fork_seed` interaction with non-empty `response_message`
-  - [ ] Posts a message to the paused parent and asserts 409 with `paused` in the body
-  - [ ] Exits non-zero on any assertion failure (prints which one)
-- [ ] Run `validate_fork.sh` end-to-end and capture the output
+- [x] Create `validate_fork.sh` in this task directory that takes `HELIX_TOKEN` + `HELIX_PARENT_SESSION_ID` as env vars and:
+  - [x] Calls `POST /sessions/{id}/fork` with a different runtime (read from current session's runtime)
+  - [x] Asserts 200 + `new_session_id`
+  - [x] Asserts parent has `metadata.paused == true` and `metadata.paused_reason` matches `forked_to:<child>`
+  - [x] Asserts child has `metadata.parent_session_id == <parent>` and a `fork_seed` interaction with non-empty `response_message`
+  - [x] Posts a message to the paused parent and asserts 409 with `paused` in the body
+  - [x] Bonus: tests fork-from-paused returns 409
+  - [x] Exits non-zero on any assertion failure (prints which one)
+- [x] Run `validate_fork.sh` end-to-end and capture the output → **17/17 PASS, ALL GREEN** (see `validate_fork.output.txt`)
 
 ## Phase 3 — Manual UI walkthrough (M1–M9 from design.md)
 

@@ -1,0 +1,35 @@
+$ HELIX_TOKEN=<jwt> HELIX_PARENT_SESSION_ID=ses_01ktpay586g3ckrvsa270yen15 ./validate_fork.sh
+
+==> Step 1: inspect parent session ses_01ktpay586g3ckrvsa270yen15
+  ✓ agent_type is zed_external (zed_external)
+  ✓ parent is not paused (false)
+  ✓ parent runtime (length=11)
+    fork target runtime: zed_agent
+==> Step 2: POST /sessions/ses_01ktpay586g3ckrvsa270yen15/fork → expect 200 + new_session_id
+  ✓ fork HTTP code (200)
+  ✓ new_session_id (length=30)
+==> Step 3: re-read parent — expect paused=true, paused_reason=forked_to:ses_01ktpazcst9yj57pf8bzyt77nb
+  ✓ parent.paused (true)
+  ✓ parent.paused_reason (forked_to:ses_01ktpazcst9yj57pf8bzyt77nb)
+  ✓ parent.paused_at (length=30)
+==> Step 4: read child ses_01ktpazcst9yj57pf8bzyt77nb — expect lineage + fork_seed interaction
+  ✓ child.parent_session_id (ses_01ktpay586g3ckrvsa270yen15)
+  ✓ child.code_agent_runtime (zed_agent)
+  ✓ child.forked_at (length=30)
+  ✓ child has fork_seed interaction with non-empty response_message (length=1150)
+  ✓ fork_seed prompt names the parent (contains: ses_01ktpay586g3ckrvsa270yen15)
+==> Step 5: POST /sessions/ses_01ktpay586g3ckrvsa270yen15/messages — expect 409 with paused reason
+  ✓ send-to-paused HTTP code (409)
+  ✓ send-to-paused body mentions reason (contains: forked_to:ses_01ktpazcst9yj57pf8bzyt77nb)
+==> Step 6: POST /sessions/ses_01ktpay586g3ckrvsa270yen15/fork again — expect 409 (fork-from-paused)
+  ✓ fork-from-paused HTTP code (409)
+  ✓ fork-from-paused body suggests descendant (contains: active descendant)
+
+==> Summary
+    PASS: 17
+    FAIL: 0
+ALL GREEN
+
+Date: 2026-06-09
+Stack: localhost:8080 (inner Helix dev stack)
+Parent session was created via UI: "Fork test #2" spec task in testorg/testproj
