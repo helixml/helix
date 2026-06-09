@@ -34,12 +34,8 @@ type SpawnerConfig struct {
 	// per-session WebsocketEvent frames to in-process subscribers.
 	PubSub      pubsub.PubSub
 	Snapshotter SessionPreamble
-	// Mirror is the session-layer transcript writer. The spawner no
-	// longer owns a per-activation bridge; instead it Ensure()s the
-	// mirror is subscribed to the worker's session, and the mirror
-	// republishes every turn on that session — activation-driven OR
-	// inline chat — to s-activations-<worker>. Nil disables transcript
-	// mirroring (tests / app-only wirings).
+	// Mirror is the transcript writer; the spawner Ensure()s it per
+	// activation. nil disables mirroring (tests / app-only wirings).
 	Mirror *Mirror
 	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
@@ -250,14 +246,9 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			}
 		}
 
-		// Register the worker with the session-layer transcript mirror.
-		// The mirror tracks the worker (not a fixed session ID): it
-		// resolves the worker's current session and re-points as that
-		// churns, so every turn on the session — spawner activation,
-		// human inline chat, anything that posts to /sessions/chat — is
-		// mirrored onto s-activations-<worker>. Idempotent; the tracker
-		// persists across activations. The spawner no longer owns a
-		// per-activation bridge.
+		// Register the worker with the transcript mirror (idempotent;
+		// the tracker persists across activations and follows the
+		// session as it churns). The spawner no longer owns a bridge.
 		if cfg.Mirror != nil {
 			cfg.Mirror.Ensure(orgID, workerID)
 		}
@@ -500,10 +491,7 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 type bridge struct {
 	publish func(body string)
 	stream  *EntryStream
-	// seenPrompts dedupes the user-prompt line: an interaction is
-	// restreamed on many frames during a turn, but its prompt is
-	// emitted once, keyed by interaction ID.
-	seenPrompts map[string]bool
+	seenPrompts map[string]bool // interaction IDs whose user prompt we've emitted (dedup)
 }
 
 func newBridge(publish func(body string)) *bridge {
@@ -512,15 +500,11 @@ func newBridge(publish func(body string)) *bridge {
 	return b
 }
 
-// apply renders one session frame onto the activation transcript: it
-// emits the user's prompt (once per interaction) and feeds the agent's
-// entry patches through the EntryStream. Every prompt is recorded —
-// human inline-chat turns AND the synthetic activation prompts the
-// spawner injects — so the stream is a faithful, two-sided record of
-// what the worker was told and what it replied. Prompts come from the
-// single current interaction (u.Interaction), never the full-session
-// history (u.Session.Interactions), so a late subscriber / restart
-// doesn't re-emit past prompts.
+// apply renders one session frame: it emits the user's prompt (once per
+// interaction) then feeds the agent's entry patches through EntryStream,
+// so the transcript is two-sided. Prompts come from the current
+// interaction only (not u.Session history), so a restart doesn't re-emit
+// past prompts.
 func (b *bridge) apply(u types.WebsocketEvent) {
 	if in := u.Interaction; in != nil && in.ID != "" && !b.seenPrompts[in.ID] {
 		if body := in.PromptMessage; body != "" {

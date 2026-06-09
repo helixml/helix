@@ -18,12 +18,9 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// newTestMirror builds a Mirror over the shared fakes, with a fast poll
-// interval. The returned fakeHelixClient drives session resolution:
-// set fc.setExploratory(id) to point the mirror at a session, and the
-// poller will (re-)subscribe to it within a couple of poll intervals.
-// The worker must have a persisted project (SaveProject) so the mirror
-// resolves via ExploratorySession.
+// newTestMirror builds a Mirror with a fast poll interval. Drive session
+// resolution via fc.setExploratory(id); the worker needs a persisted
+// project (SaveProject) so the mirror resolves via ExploratorySession.
 func newTestMirror(t *testing.T, s *store.Store, ps *fakePubSub, owner string) (*Mirror, *fakeHelixClient) {
 	t.Helper()
 	fc := &fakeHelixClient{sessionOwner: owner}
@@ -71,10 +68,8 @@ func waitForHandlers(ps *fakePubSub, topic string, want int) bool {
 	return ps.handlerCount(topic) == want
 }
 
-// TestMirrorCapturesTurnWithoutSpawner: the inline-chat regression — a
-// frame on the worker's session topic, with NO spawner/activation, is
-// mirrored onto s-activations-<worker>. The mirror tracks the worker
-// and resolves its session via ExploratorySession.
+// A frame on the worker's session topic, with no spawner, is mirrored
+// onto s-activations-<worker> (the inline-chat regression).
 func TestMirrorCapturesTurnWithoutSpawner(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
@@ -102,10 +97,8 @@ func TestMirrorCapturesTurnWithoutSpawner(t *testing.T) {
 	}
 }
 
-// TestMirrorRepointsOnSessionChurn is the core fix: when the worker's
-// session changes (a stale resume opens a fresh one), the mirror drops
-// the old subscription and follows the new session, so the stream keeps
-// flowing instead of going silent on the orphaned old session.
+// Core fix: when the worker's session changes, the mirror drops the old
+// subscription and follows the new one instead of going silent.
 func TestMirrorRepointsOnSessionChurn(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
@@ -144,9 +137,8 @@ func TestMirrorRepointsOnSessionChurn(t *testing.T) {
 	}
 }
 
-// TestMirrorCapturesUserPrompt: the mirror records the human/activation
-// prompt as a `user:` segment, once per interaction, alongside the
-// agent's reply.
+// The mirror records the prompt as a `user:` segment, once per
+// interaction, alongside the agent's reply.
 func TestMirrorCapturesUserPrompt(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)

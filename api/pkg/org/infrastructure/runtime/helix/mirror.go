@@ -14,50 +14,38 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// defaultMirrorPoll is how often the mirror re-resolves a worker's
-// current session and re-points if it changed.
 const defaultMirrorPoll = 5 * time.Second
 
-// MirrorConfig wires the session-layer transcript Mirror. It is the
-// subset of SpawnerConfig the Mirror needs, plus a resolver for the
-// worker's current session.
+// MirrorConfig wires the session-layer transcript Mirror.
 type MirrorConfig struct {
 	PubSub      pubsub.PubSub
 	Snapshotter SessionPreamble
-	// Client resolves the session owner (SessionOwner) so the mirror
-	// subscribes to the correct GetSessionQueue(owner, session) topic.
+	// Client resolves the session owner so we subscribe to the right
+	// GetSessionQueue(owner, session) topic.
 	Client SpawnerClient
-	// ExploratorySession returns a worker project's current
-	// (most-recent) exploratory session ID — the session the inline
-	// chat and the live UI follow. The mirror polls it to track the
-	// worker as its session churns (a stale resume opens a fresh
-	// session; the persisted pointer can lag). Wired to
-	// store.GetProjectExploratorySession. "" means "no session yet".
+	// ExploratorySession returns a project's current exploratory session
+	// (the one the inline chat / live UI follow). The mirror polls it to
+	// track the worker as its session churns. "" means no session yet.
 	ExploratorySession func(ctx context.Context, projectID string) (string, error)
 	Store              *store.Store
 	Hub                *streamhub.Hub
 	NewID              func() string
 	Now                func() time.Time
 	Logger             *slog.Logger
-	// PollInterval seams the re-point cadence for tests. <=0 uses
-	// defaultMirrorPoll.
-	PollInterval time.Duration
+	PollInterval       time.Duration // <=0 uses defaultMirrorPoll; seam for tests
 }
 
-// Mirror keeps one transcript subscription per *tracked worker*,
-// pointed at that worker's current session, and republishes every
-// settled entry (plus the user's prompt) onto s-activations-<worker>.
-// It is the single writer of worker transcript segments: every turn on
-// a worker's session — spawner activation, human inline chat, anything
-// that posts to /sessions/chat — flows through the session topic, so
+// Mirror is the single writer of worker transcript segments: it keeps
+// one subscription per tracked worker pointed at that worker's current
+// session and republishes every settled entry (plus the user prompt)
+// onto s-activations-<worker>. Every turn — spawner activation, inline
+// chat, anything on /sessions/chat — flows through the session topic, so
 // one subscriber captures them all.
 //
-// A worker's *session* is not stable: a stale resume opens a fresh one,
-// and the inline chat can land on a newer session than the spawner last
-// persisted. So the mirror doesn't pin a session ID — it tracks the
-// worker and polls its current exploratory session, re-pointing the
-// subscription whenever it changes. The worker (and its project) is the
-// stable identity; the session is not.
+// A worker's session is not stable (stale resume opens a fresh one;
+// inline chat can land on a newer one than the spawner persisted), so we
+// track the worker — whose project is stable — and poll its current
+// exploratory session, re-pointing when it changes.
 type Mirror struct {
 	base context.Context
 	cfg  MirrorConfig
@@ -66,9 +54,8 @@ type Mirror struct {
 	tracked map[orgchart.WorkerID]context.CancelFunc
 }
 
-// NewMirror constructs a Mirror. base is the long-lived context that
-// bounds every tracker — typically the server's lifetime context. A nil
-// PubSub disables the mirror (Ensure is a no-op).
+// NewMirror constructs a Mirror. base bounds every tracker (typically
+// the server lifetime). A nil PubSub disables the mirror.
 func NewMirror(base context.Context, cfg MirrorConfig) *Mirror {
 	if base == nil {
 		base = context.Background()
@@ -87,12 +74,9 @@ func (m *Mirror) pollInterval() time.Duration {
 	return defaultMirrorPoll
 }
 
-// Ensure starts tracking a worker, idempotently. The tracker resolves
-// the worker's current session, subscribes, and thereafter re-points on
-// every poll if the session changed. Already-tracked workers are a
-// no-op. The session is resolved by the tracker, not passed in, because
-// the caller's notion of "the session" is exactly the thing that goes
-// stale.
+// Ensure starts tracking a worker (idempotent). The session is resolved
+// by the tracker, not passed in — the caller's notion of "the session"
+// is exactly what goes stale.
 func (m *Mirror) Ensure(orgID string, workerID orgchart.WorkerID) {
 	if m == nil || m.cfg.PubSub == nil {
 		return
@@ -108,9 +92,9 @@ func (m *Mirror) Ensure(orgID string, workerID orgchart.WorkerID) {
 	go m.track(ctx, orgID, workerID)
 }
 
-// EnsureAll tracks every worker in an org. Called from the per-org
-// bootstrap so pre-existing workers (and inline-chat-only ones) are
-// mirrored without needing an activation first.
+// EnsureAll tracks every worker in an org — called from bootstrap so
+// pre-existing / inline-chat-only workers are mirrored without an
+// activation first.
 func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 	if m == nil || m.cfg.PubSub == nil || m.cfg.Store == nil {
 		return
@@ -127,8 +111,7 @@ func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 	}
 }
 
-// Stop stops tracking a worker (on fire) — cancels its tracker and the
-// current session subscription.
+// Stop stops tracking a worker (on fire).
 func (m *Mirror) Stop(workerID orgchart.WorkerID) {
 	if m == nil {
 		return
@@ -141,10 +124,9 @@ func (m *Mirror) Stop(workerID orgchart.WorkerID) {
 	}
 }
 
-// track owns one worker's mirror for the life of ctx: it resolves the
-// worker's current session and (re)subscribes whenever it changes,
-// polling on an interval. Each session gets a fresh bridge (fresh
-// EntryStream dedup + prompt-dedup state).
+// track resolves the worker's current session and (re)subscribes
+// whenever it changes, polling on an interval, until ctx fires. Each
+// session gets a fresh bridge.
 func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.WorkerID) {
 	var (
 		curSession string
@@ -157,10 +139,7 @@ func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.Work
 		if desired == "" || desired == curSession {
 			return
 		}
-		// Session changed — tear down the old subscription (its pump
-		// flushes any pending entries on ctx.Done) and attach to the
-		// new one.
-		curCancel()
+		curCancel() // old pump flushes pending entries on ctx.Done
 		subCtx, cancel := context.WithCancel(ctx)
 		curCancel = cancel
 		curSession = desired
@@ -170,7 +149,7 @@ func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.Work
 		}
 	}
 
-	repoint() // resolve + subscribe immediately, don't wait for the first tick
+	repoint() // immediately, don't wait for the first tick
 	ticker := time.NewTicker(m.pollInterval())
 	defer ticker.Stop()
 	for {
@@ -183,10 +162,8 @@ func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.Work
 	}
 }
 
-// resolveSession returns the worker's current session to mirror: its
-// project's most-recent exploratory session (what the live UI follows),
-// falling back to the persisted session pointer when the exploratory
-// lookup is unavailable.
+// resolveSession returns the worker's current exploratory session,
+// falling back to the persisted pointer when that lookup is unavailable.
 func (m *Mirror) resolveSession(ctx context.Context, orgID string, workerID orgchart.WorkerID) string {
 	state, err := LoadState(ctx, m.cfg.Store, orgID, workerID)
 	if err != nil {
@@ -202,9 +179,9 @@ func (m *Mirror) resolveSession(ctx context.Context, orgID string, workerID orgc
 	return state.SessionID
 }
 
-// subscribe attaches a bridge to one session's pubsub topic and pumps
-// its frames onto the activation stream until ctx fires. The first
-// subscribe is synchronous so a frame published right after isn't raced.
+// subscribe attaches a bridge to one session's topic and pumps its
+// frames onto the activation stream until ctx fires. The first subscribe
+// is synchronous so a frame published right after isn't raced.
 func (m *Mirror) subscribe(ctx context.Context, orgID string, workerID orgchart.WorkerID, sessionID string) {
 	ownerID := ""
 	if m.cfg.Client != nil {

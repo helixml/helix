@@ -10,35 +10,25 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
-// SessionClient is the small slice of the session API EnsureAndSend
-// depends on. Production impl is the in-process adapter at
-// api/pkg/server/helix_org_inproc.go::inProcHelixClient, which routes
-// to the same canonical HelixAPIServer primitives every other
-// autonomous flow (cron triggers, spec tasks) uses:
+// SessionClient is the slice of the session API EnsureAndSend depends
+// on, backed by the same primitives the cron trigger / spec tasks use:
+//   - StartSession → StartExternalAgentSession (create session + start
+//     desktop + queue first message).
+//   - SendMessage → POST /sessions/{id}/messages (fire-and-forget
+//     continuation; Helix auto-resumes a downed desktop on the same
+//     session).
 //
-//   - StartSession → StartExternalAgentSession (the ExternalAgentStarter
-//     interface the cron trigger uses): creates the session, starts the
-//     desktop, queues the first message. Non-blocking.
-//   - SendMessage → POST /sessions/{id}/messages (sendSessionMessage,
-//     what the frontend + spec tasks use): fire-and-forget continuation.
-//     Helix transparently auto-resumes a downed desktop on the SAME
-//     session (conversation preserved). Non-blocking.
-//
-// Neither blocks on the agent's turn, so neither is subject to the
-// external-agent response timeout. The Spawner observes completion via
-// pollUntilDone + the transcript mirror.
+// Neither blocks on the turn, so neither hits the external-agent response
+// timeout; the Spawner observes completion via pollUntilDone + the mirror.
 type SessionClient interface {
 	StartSession(ctx context.Context, params StartSessionParams) (sessionID string, err error)
 	SendMessage(ctx context.Context, sessionID, prompt string) error
 	ServerStatus(ctx context.Context) (ServerStatus, error)
 }
 
-// StartSessionParams configures the one-time creation of a worker's
-// external-agent session. Mirrors the fields StartExternalAgentSession
-// reads. The session is always created with session_role "exploratory"
-// (set by the adapter) so it's discoverable via Helix's per-project
-// desktop view and resolvable by the transcript mirror's
-// GetProjectExploratorySession lookup.
+// StartSessionParams configures one-time creation of a worker's session.
+// The adapter always sets session_role "exploratory" so it's resolvable
+// by the mirror's GetProjectExploratorySession lookup.
 type StartSessionParams struct {
 	ProjectID      string
 	OrganizationID string
@@ -113,30 +103,12 @@ type SendPromptParams struct {
 	OnSessionID    func(sessionID string)
 }
 
-// EnsureAndSend is the single primitive for "make this Helix session
-// run this prompt." Both the owner-chat bridge and the worker
-// activation Spawner call it — same request shape, same resume-or-fresh
-// recovery, same session_role ("exploratory" — so every session is
-// visible via Helix's per-project desktop view). Without one shared
-// primitive these two paths drift and behave differently against
-// stale state, broken WS connections, etc.
-//
-// Behaviour:
-//
-//  1. If params.SessionID is set: try to resume via SendToSession.
-//     The send is fire-and-forget — Helix auto-resumes the desktop if
-//     it's down, on the SAME session (conversation preserved). There is
-//     no "stale session" to detect: a worker has exactly one durable
-//     session and we always send to it. fresh=false.
-//  2. No session yet (SessionID empty): pre-flight the desktop quota,
-//     then StartSession (creates session + desktop + queues the prompt).
-//     fresh=true so the caller persists the new ID.
-//
-// The turn runs asynchronously in both cases; the Spawner observes
-// completion via pollUntilDone + the transcript mirror. Neither path
-// blocks on the agent's turn, so neither is subject to the external-
-// agent response timeout (the bug that previously made resumes look
-// "stale" and triggered fresh-session churn).
+// EnsureAndSend makes a worker's session run a prompt. A worker has one
+// durable session, so there's no staleness to detect:
+//   - existing session → SendMessage (fire-and-forget; Helix recovers a
+//     downed desktop on the same session). fresh=false.
+//   - no session → quota pre-flight, then StartSession. fresh=true so the
+//     caller persists the new id.
 const exploratoryRole = "exploratory"
 
 func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptParams) (sessionID string, fresh bool, err error) {
@@ -150,8 +122,6 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return "", false, fmt.Errorf("EnsureAndSend: AgentType is required")
 	}
 
-	// Existing session — send to it. Fire-and-forget; Helix recovers a
-	// downed desktop on the same session.
 	if params.SessionID != "" {
 		if err := client.SendMessage(ctx, params.SessionID, params.Prompt); err != nil {
 			return "", false, fmt.Errorf("send message to session %s: %w", params.SessionID, err)
@@ -162,8 +132,6 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return params.SessionID, false, nil
 	}
 
-	// No session yet — pre-flight quota, then create one (which also
-	// starts the desktop and queues the prompt).
 	if err := checkDesktopQuota(ctx, client); err != nil {
 		return "", false, err
 	}

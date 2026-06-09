@@ -32,11 +32,8 @@ type helixOrgScope struct {
 	envsRoot   string
 	helixStore helixstore.Store
 
-	// mirror is the session-layer transcript mirror. After bootstrap
-	// converges an org, EnsureAll sweeps the org's workers so any that
-	// exist before this process started — and any that are only ever
-	// inline-chatted, never spawner-activated — have their session
-	// turns mirrored onto s-activations-<worker>. nil disables it.
+	// mirror's EnsureAll runs after bootstrap so pre-existing /
+	// inline-chat-only workers are mirrored without an activation first.
 	mirror *runtimehelix.Mirror
 
 	mu           sync.Mutex
@@ -139,12 +136,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
 		}
 
-		// Sweep the org's workers and ensure a transcript mirror for
-		// each one that already has a session. This is what makes the
-		// inline chat work after a restart for pre-existing workers:
-		// their session turns are mirrored to s-activations-<worker>
-		// without needing a spawner activation first. Runs once per
-		// org per process (bootstrap is cached). Best-effort.
+		// Mirror pre-existing workers (once per org per process).
 		s.mirror.EnsureAll(ctx, orgID)
 
 		s.mu.Lock()

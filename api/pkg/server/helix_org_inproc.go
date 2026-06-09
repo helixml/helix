@@ -463,15 +463,10 @@ func (c *inProcHelixClient) StopExternalAgent(ctx context.Context, sessionID str
 	return nil
 }
 
-// StartSession creates a worker's external-agent session via the shared
-// StartExternalAgentSession primitive — the same one the cron trigger
-// drives autonomous sessions with. It creates the session row, starts
-// the desktop, and queues the prompt as the first (Waiting) message.
-// Non-blocking: the agent runs the turn asynchronously; the spawner
-// observes completion via pollUntilDone + the transcript mirror.
-// session_role is "exploratory" so the session is discoverable in
-// Helix's per-project desktop view and resolvable by the mirror's
-// GetProjectExploratorySession lookup.
+// StartSession creates the worker's session (+ desktop + queued first
+// message) via the shared StartExternalAgentSession primitive the cron
+// trigger uses. Non-blocking. session_role "exploratory" so the mirror's
+// GetProjectExploratorySession lookup resolves it.
 func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (string, error) {
 	if params.Prompt == "" {
 		return "", errors.New("StartSession: Prompt is required")
@@ -500,13 +495,9 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	return session.ID, nil
 }
 
-// SendMessage dispatches a follow-up turn to an existing worker session
-// through the same REST handler the frontend and spec tasks use
-// (POST /sessions/{id}/messages). Fire-and-forget: it persists a Waiting
-// interaction, sends the WS command, and returns immediately — no
-// blocking on the turn, so no response-timeout cap. If the desktop is
-// down, Helix auto-starts it and delivers the queued message on
-// reconnect, on the SAME session (conversation preserved).
+// SendMessage dispatches a follow-up turn via the same REST handler the
+// frontend / spec tasks use (POST /sessions/{id}/messages). Fire-and-
+// forget; Helix auto-starts a downed desktop and delivers on reconnect.
 func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
 	if sessionID == "" {
 		return errors.New("SendMessage: sessionID is required")

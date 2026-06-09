@@ -52,9 +52,8 @@ type Service struct {
 	// left. nil is a no-op (tests without topology wiring).
 	Topology *topology.Reconciler
 
-	// Mirror is the session-layer transcript mirror. Fire stops the
-	// fired Worker's mirror so its now-dead session subscription
-	// doesn't leak. nil is a no-op.
+	// Mirror is the transcript mirror; Fire stops the fired Worker's
+	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
 }
 
@@ -121,8 +120,6 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
 
-	// Stop mirroring the soon-to-be-deleted session so its subscription
-	// goroutine doesn't leak.
 	if s.Mirror != nil {
 		s.Mirror.Stop(id)
 	}

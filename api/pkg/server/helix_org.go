@@ -279,21 +279,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	secretInjectors := []runtimehelix.SpawnSecretInjector{
 		githubtransport.NewSecretInjector(githubtransport.TokenResolver(gitHubTokenResolver)),
 	}
-	// Session-layer transcript mirror — the single writer of worker
-	// transcript segments. One persistent subscription per worker
-	// session republishes every turn (spawner activation OR human
-	// inline chat — both drive the same /sessions/chat session) onto
-	// s-activations-<worker>. Process-wide singleton (no per-org
-	// config), shared by the spawner (Ensure on activation), the
-	// per-org bootstrap (EnsureAll sweep), and lifecycle.Fire (Stop).
+	// Transcript mirror — process-wide singleton shared by the spawner
+	// (Ensure), bootstrap (EnsureAll), and lifecycle.Fire (Stop).
 	mirror := runtimehelix.NewMirror(context.Background(), runtimehelix.MirrorConfig{
 		PubSub:      cfg.APIServer.pubsub,
 		Snapshotter: runtimehelix.NoopSessionPreamble{},
 		Client:      inProcClient,
-		// Resolve a worker's current session = its project's most-recent
-		// exploratory session (the one the inline chat / live UI follow).
-		// The mirror polls this to re-point as the worker's session
-		// churns. Returns "" when the project has no session yet.
 		ExploratorySession: func(ctx context.Context, projectID string) (string, error) {
 			sess, err := helixStore.GetProjectExploratorySession(ctx, projectID)
 			if err != nil || sess == nil {
@@ -352,9 +343,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// the REST handlers — one owner of activation/team Stream
 		// lifecycle across hire, reparent, and fire.
 		Topology: deps.Topology,
-		// Stop the fired worker's transcript mirror so its session
-		// subscription doesn't leak.
-		Mirror: mirror,
+		Mirror:   mirror, // Fire stops the fired worker's subscription
 	}
 
 	apiDeps := helixorgapi.Deps{
@@ -967,10 +956,7 @@ func lazyHelixOrgSpawner(
 			if err != nil {
 				return fmt.Errorf("helix-org spawner not configured: %w", err)
 			}
-			// The mirror is a process-wide singleton (no per-org config),
-			// so attach it to the per-org spawner config here rather than
-			// threading it through buildHelixOrgSpawnerConfig.
-			cfgVal.Mirror = mirror
+			cfgVal.Mirror = mirror // shared singleton; not per-org config
 			built := runtimehelix.Spawner(cfgVal)
 			mu.Lock()
 			if spawner == nil {

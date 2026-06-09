@@ -423,13 +423,8 @@ func (c *concurrencyClient) SessionOwner(ctx context.Context, sid string) (strin
 	return c.inner.SessionOwner(ctx, sid)
 }
 
-// TestSpawnerEnsuresSessionMirror verifies the spawner→mirror wiring:
-// an activation Ensure()s the session-layer Mirror for the worker's
-// session, so that turns on that session land on s-activations-<worker>
-// via the mirror — including turns that arrive AFTER the activation
-// returns (e.g. a human typing into the inline chat). The spawner no
-// longer owns a per-activation bridge; the mirror is the single
-// transcript writer for every surface that drives the session.
+// An activation Ensure()s the mirror, so a turn arriving on the session
+// AFTER the activation returns (e.g. inline chat) is still captured.
 func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
@@ -484,12 +479,9 @@ func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	}
 }
 
-// TestSpawnerFollowUpSurvivesDownDesktop: a follow-up to a worker whose
-// desktop went away must NOT churn to a fresh session. SendMessage is
-// fire-and-forget — Helix auto-resumes the desktop on the SAME session —
-// so even when the underlying send reports a transient "no agent WS yet"
-// (which sendMessageToSession swallows as success), the spawner keeps the
-// persisted session pointer intact.
+// A follow-up must never churn to a fresh session: SendMessage is
+// fire-and-forget and Helix auto-resumes a downed desktop on the same
+// session, so the persisted pointer stays intact.
 func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
