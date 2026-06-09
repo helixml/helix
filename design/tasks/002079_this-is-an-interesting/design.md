@@ -183,14 +183,32 @@ compatible (decide during implementation).
 
 ## Risks
 
-- **R1: Thundering herd on common cadences.** If many streams use `@daily`
+- **R1: Runaway sub-minute schedules.** Standard cron syntax allows up to
+  `* * * * *` (every minute); gocron's parser with the `SecondOptional`
+  descriptor permits per-second schedules; a determined user could even
+  abuse aliases or `CRON_TZ` constructs. A 1-second tick on a stream with
+  many subscribers would saturate the dispatcher, blow up activation costs,
+  and effectively DoS the cluster.
+  **Mitigation (mandatory, server-side):** `CronConfig.Validate()` rejects
+  any schedule whose next-fire-interval is shorter than the configured
+  minimum. Default minimum is **90 seconds**, matching the existing
+  app-cron limit at `trigger_cron.go:311`. Concretely:
+  1. Parse the schedule (do not enable `cron.SecondOptional` — only the
+     standard 5-field parser, so per-second specs are unparseable).
+  2. Compute the gap between the next two fire times via `Schedule.Next`.
+  3. Reject if `gap < 90s` with a clear error message naming the limit.
+  This validation runs on both create and update; the frontend mirrors it
+  for fast feedback but the backend is authoritative. Unit-test specifically
+  with `* * * * *` (60s — accepted), `*/30 * * * * *` (rejected as
+  unparseable), and any alias that resolves to sub-90s.
+- **R2: Thundering herd on common cadences.** If many streams use `@daily`
   (`0 0 * * *`), they all fire at the same instant. gocron handles this
   serially per-scheduler, and the dispatcher fan-out is per-Worker, so the
   blast radius is bounded — but it's worth noting. Mitigation: optionally
   add jitter at fire time (a few seconds). Defer unless it becomes an issue.
-- **R2: Drift between transport.go `kindOrder` and `strategies` map.** Both
+- **R3: Drift between transport.go `kindOrder` and `strategies` map.** Both
   need updating; add a unit test that asserts every Kind in `kindOrder` has
   an entry in `strategies` to catch this in CI.
-- **R3: Mis-parsed schedule silently never fires.** Server-side validation
+- **R4: Mis-parsed schedule silently never fires.** Server-side validation
   on create/update is mandatory. The UI's "next fire: …" preview also gives
   the user a sanity check before save.
