@@ -102,14 +102,33 @@ func ExpandCronSchedule(schedule string) string {
 	return trimmed
 }
 
+// CronConfig is the typed accessor for KindCron streams. Returns the
+// zero value with no error when Config is empty (which Validate then
+// rejects as "schedule is required"). Same accessor pattern as
+// Transport.WebhookConfig() — see webhook.go.
+func (t Transport) CronConfig() (CronConfig, error) {
+	if t.Kind != KindCron {
+		return CronConfig{}, fmt.Errorf("transport kind is %q, not cron", t.Kind)
+	}
+	return parseCronConfig(t.Config)
+}
+
 // cron is the Strategy for KindCron.
 type cron struct{}
 
-// ParseConfig accepts either an explicit JSON object ({"schedule": "..."})
-// or a plain JSON string ("..." — convenient for the CLI). An empty
-// blob is rejected up-front: cron streams without a schedule are a
-// configuration error, unlike KindLocal which tolerates anything.
+// ParseConfig satisfies Strategy. Delegates to the typed parser so the
+// umbrella Transport.CronConfig() accessor and Strategy dispatch share
+// one implementation.
 func (cron) ParseConfig(raw json.RawMessage) (Config, error) {
+	c, err := parseCronConfig(raw)
+	return c, err
+}
+
+// parseCronConfig accepts either an explicit JSON object
+// ({"schedule": "..."}) or a bare JSON string ("..." — convenient for
+// the CLI). An empty blob round-trips to a zero CronConfig — Validate
+// then surfaces the missing-schedule error.
+func parseCronConfig(raw json.RawMessage) (CronConfig, error) {
 	if len(raw) == 0 {
 		return CronConfig{}, nil
 	}
@@ -120,7 +139,7 @@ func (cron) ParseConfig(raw json.RawMessage) (Config, error) {
 		if err2 := json.Unmarshal(raw, &s); err2 == nil {
 			return CronConfig{Schedule: s}, nil
 		}
-		return nil, fmt.Errorf("parse cron config: %w", err)
+		return CronConfig{}, fmt.Errorf("parse cron config: %w", err)
 	}
 	return c, nil
 }
