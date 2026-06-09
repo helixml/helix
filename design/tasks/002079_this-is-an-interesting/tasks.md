@@ -9,20 +9,24 @@
 - [ ] Unit-test `CronConfig.Validate()` for: each alias, valid 5-field cron, `CRON_TZ=…` prefix, sub-90s rejection, malformed input
 - [ ] Explicit DoS-prevention tests: `* * * * *` (60s — rejected as < 90s minimum), per-second formats rejected as unparseable, aliases that would resolve to sub-90s are rejected, error message clearly names the 90s limit
 
+## Backend: store
+
+- [~] Add `ListByTransportKind(ctx, kind) ([]Stream, error)` to the `Streams` store interface — needed by the scheduler to enumerate cron streams across all orgs
+- [ ] Implement `ListByTransportKind` in `gorm/stream.go` (single cross-org `WHERE transport_kind = ?` query)
+- [ ] Implement `ListByTransportKind` in `memory/memorystore.go`
+
 ## Backend: scheduler
 
 - [ ] Create `api/pkg/org/infrastructure/streamcron/scheduler.go` modelled on `api/pkg/trigger/cron/trigger_cron.go`
 - [ ] Implement `Scheduler.reconcile()` — list `KindCron` streams, diff against current `gocron.Job`s, add/update/remove
 - [ ] Implement `Scheduler.fire(streamID, orgID)` — build event via `streaming.NewMessageEvent` with `kind:"scheduled"` body, call `Store.Events.Append`, `Hub.Notify`, `Dispatcher.Dispatch`
 - [ ] Wrap `fire()` in panic recovery so a single bad tick can't poison the schedule
-- [ ] Start the scheduler in the API bootstrap alongside the existing app-cron (`api/cmd/serve.go` or equivalent)
+- [ ] Start the scheduler in the helix-org bootstrap (`api/pkg/server/helix_org.go`), driven by the server's `ctx` so shutdown is clean
 - [ ] Integration test: create a cron stream, subscribe a fake Worker, advance time, assert the Worker's activation queue received a `TriggerEvent`
 
 ## Backend: audit
 
-- [ ] Decide: new `org_stream_cron_executions` table vs reuse `trigger_executions` (inspect existing schema; prefer reuse if shape fits)
-- [ ] Implement the audit write inside `fire()` — record `fired_at`, `event_id`, `status`, `error`
-- [ ] Add store method to fetch "last N executions" for a given stream (used by the UI)
+- [ ] **Defer to follow-up task.** v1 logs every fire at info level. A dedicated `org_stream_cron_executions` table can be added later when the UI surfaces "last fired at"; for now, log + Drone metrics are enough and we avoid coupling v1 to a UI we haven't shipped.
 
 ## Frontend: stream creation
 
@@ -34,8 +38,7 @@
 
 ## Frontend: stream list
 
-- [ ] For cron streams, show **schedule**, **last fired at**, and **next fire** columns/badges
-- [ ] Wire up the existing edit/delete flows for cron-kind streams (verify TransportConfig update is supported end-to-end)
+- [ ] **Defer.** v1 doesn't surface schedule/last-fired in the list — the existing kind column shows "cron" which is enough; per-cron-stream UI lives on the detail page in a follow-up. Existing edit/delete flows work unchanged because the transport_config update path is generic.
 
 ## Docs & cleanup
 
