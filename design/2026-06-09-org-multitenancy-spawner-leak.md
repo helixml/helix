@@ -130,6 +130,21 @@ correctness anyway: topics are now `…stream-updates.<orgID>.<streamID>` and
 `SubscribeAll` uses a per-org wildcard. `Notify`/`Subscribe`/`SubscribeAll`
 gained an `orgID` parameter; all ~10 call sites pass their operating org.
 
+### 4. Transcript Mirror trackers keyed by workerID alone (found on rebase)
+
+`api/pkg/org/infrastructure/runtime/helix/mirror.go`. The session-layer
+`Mirror` (added by the `session-layer transcript mirror` feature on main) is a
+process-wide singleton whose `tracked map[orgchart.WorkerID]context.CancelFunc`
+was keyed by workerID. Identical defect class to #2: every org's `w-owner`
+collapses into one entry, so `Ensure(orgB, "w-owner")` sees the slot occupied
+and silently no-ops (orgB's transcript never mirrors), and `Stop` cancels the
+wrong tenant. Fixed by keying `mirrorKey{orgID, workerID}`; `Stop` now takes
+`orgID`.
+
+This one is instructive: the bug class (org-blind singleton keyed by a
+non-unique id) **reappeared in brand-new code** the moment a singleton was
+added, which is the basis for the systematic-audit recommendation below.
+
 ## Regression tests
 
 - `project_test.go::TestEnsureScopesProjectToParamOrg_NotStructOrgID` — Ensure
