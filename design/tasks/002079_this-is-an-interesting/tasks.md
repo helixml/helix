@@ -2,10 +2,10 @@
 
 ## Backend: transport kind
 
-- [ ] Create `api/pkg/org/domain/transport/cron.go` with `KindCron`, `CronConfig`, and a `Strategy` implementation modelled on `local.go`
-- [ ] Implement `CronConfig.Validate()` — expand aliases (`@hourly`, `@daily`, `@weekly`, `@weekdays`, `@weekends`), parse the resulting cron string, and reject intervals < 90s
-- [ ] Register `KindCron` in `transport.go`: add to `kindOrder` (line 65) and to the `strategies` map (line 72)
-- [ ] Add a unit test in `transport_test.go` asserting every `Kind` in `kindOrder` has an entry in `strategies` (prevents drift)
+- [x] Create `api/pkg/org/domain/transport/cron.go` with `KindCron`, `CronConfig`, and a `Strategy` implementation modelled on `local.go`
+- [x] Implement `CronConfig.Validate()` — expand aliases (`@hourly`, `@daily`, `@weekly`, `@weekdays`, `@weekends`), parse the resulting cron string, and reject intervals < 90s
+- [x] Register `KindCron` in `transport.go`: add to `kindOrder` and to the `strategies` map
+- [~] Add a unit test in `transport_test.go` asserting every `Kind` in `kindOrder` has an entry in `strategies` (prevents drift)
 - [ ] Unit-test `CronConfig.Validate()` for: each alias, valid 5-field cron, `CRON_TZ=…` prefix, sub-90s rejection, malformed input
 - [ ] Explicit DoS-prevention tests: `* * * * *` (60s — rejected as < 90s minimum), per-second formats rejected as unparseable, aliases that would resolve to sub-90s are rejected, error message clearly names the 90s limit
 
