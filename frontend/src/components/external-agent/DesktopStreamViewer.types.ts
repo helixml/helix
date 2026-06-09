@@ -36,6 +36,13 @@ export interface VideoStats {
   framesDropped?: number;
   rttMs?: number;
   encoderLatencyMs?: number;
+  // Producer-side kernel-scheduler jitter (synthetic 60Hz canary in desktop-bridge).
+  // High values indicate CPU contention inside the desktop container — useful for
+  // diagnosing whether judder is caused by the container being preempted vs other
+  // causes (encoder, network, client decoder).
+  schedulerJitterP50Ms?: number;
+  schedulerJitterP99Ms?: number;
+  schedulerJitterMaxMs?: number;
   isHighLatency?: boolean;
   batchingRatio?: number;
   avgBatchSize?: number;

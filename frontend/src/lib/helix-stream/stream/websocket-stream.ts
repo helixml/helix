@@ -128,6 +128,12 @@ export class WebSocketStream {
   private rttSamples: number[] = []
   private currentRttMs = 0
   private encoderLatencyMs = 0  // Encoder pipeline latency from server (PTS to WebSocket send)
+  // Scheduler-jitter canary stats from server (synthetic 60Hz canary in desktop-bridge).
+  // Surfaces whether the desktop container's kernel scheduler is preempting userspace
+  // tasks — high values mean CPU contention is causing producer-side judder.
+  private schedulerJitterP50Ms = 0
+  private schedulerJitterP99Ms = 0
+  private schedulerJitterMaxMs = 0
   private pingIntervalId: ReturnType<typeof setInterval> | null = null
   private readonly PING_INTERVAL_MS = 500   // Send ping every 500ms for faster RTT feedback
   private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
@@ -1356,8 +1362,13 @@ export class WebSocketStream {
   }
 
   private handlePong(data: Uint8Array) {
-    // Extended Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2) = 23 bytes
-    // Backward compatible: old servers send 21 bytes without encoder latency
+    // Extended Pong format:
+    //   type(1) + seq(4) + clientTime(8) + serverTime(8) + encoderLatencyMs(2)
+    //   + schedulerP50Ms(2) + schedulerP99Ms(2) + schedulerMaxMs(2) = 29 bytes
+    // Backward compatible:
+    //   - 21 bytes: oldest format without encoder latency
+    //   - 23 bytes: with encoder latency, without scheduler canary
+    //   - 29 bytes: current — adds scheduler-jitter canary (p50/p99/max ms)
     if (data.length < 21) {
       console.warn("[WebSocketStream] Pong too short:", data.length)
       return
@@ -1391,6 +1402,12 @@ export class WebSocketStream {
     // Extract encoder latency if present (extended Pong format: 23 bytes)
     if (data.length >= 23) {
       this.encoderLatencyMs = view.getUint16(21, false)  // big-endian
+    }
+    // Extract scheduler-jitter canary stats if present (extended Pong format: 29 bytes)
+    if (data.length >= 29) {
+      this.schedulerJitterP50Ms = view.getUint16(23, false)
+      this.schedulerJitterP99Ms = view.getUint16(25, false)
+      this.schedulerJitterMaxMs = view.getUint16(27, false)
     }
     // Note: Removed console.debug here - was causing frame jitter (console ops block main thread)
 
@@ -1942,6 +1959,9 @@ export class WebSocketStream {
     height: number
     rttMs: number                    // Round-trip time in milliseconds
     encoderLatencyMs: number         // Server-side encoder latency (PTS to WebSocket send)
+    schedulerJitterP50Ms: number     // Server-side kernel-scheduler jitter, p50 (ms)
+    schedulerJitterP99Ms: number     // Server-side kernel-scheduler jitter, p99 (ms)
+    schedulerJitterMaxMs: number     // Server-side kernel-scheduler jitter, worst (ms)
     isHighLatency: boolean           // True if RTT exceeds threshold
     // Frame latency (measures actual delivery delay, not just RTT)
     frameLatencyMs: number           // How late frames are arriving based on PTS
@@ -2007,6 +2027,9 @@ export class WebSocketStream {
       height: this.streamerSize[1],
       rttMs: this.currentRttMs,
       encoderLatencyMs: this.encoderLatencyMs,
+      schedulerJitterP50Ms: this.schedulerJitterP50Ms,
+      schedulerJitterP99Ms: this.schedulerJitterP99Ms,
+      schedulerJitterMaxMs: this.schedulerJitterMaxMs,
       isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
       // Frame latency (the real measure of how delayed frames are)
       frameLatencyMs: this.currentFrameLatencyMs,
