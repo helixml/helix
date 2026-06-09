@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -43,6 +44,8 @@ import (
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/sandbox"
+	"github.com/helixml/helix/api/pkg/sandbox/compute"
+	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -171,6 +174,13 @@ type HelixAPIServer struct {
 	activeStreamProxiesMu sync.Mutex
 	// Sandboxes API: ephemeral user-created containers
 	sandboxController *sandbox.Controller
+
+	// computeManager pre-provisions sandbox HOSTS via a cloud
+	// compute.Provider (currently only yellowdog). Nil when
+	// HELIX_COMPUTE_PROVIDER is unset - in that case the legacy
+	// self-registered host path is the only way SandboxInstance rows
+	// get created. See api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
+	computeManager *compute.Manager
 }
 
 func NewServer(
@@ -398,6 +408,17 @@ func NewServer(
 		sandboxAPIURL,
 		"/data/workspaces/sandboxes",
 	)
+
+	// Bootstrap the compute subsystem (cloud-side host provisioning).
+	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving
+	// Helix on the legacy self-registered-host path. A non-nil error
+	// is fatal: better to fail boot than start with a misconfigured
+	// Manager that silently drops Provision calls.
+	computeManager, err := bootstrap.Bootstrap(cfg.Compute, store)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap compute subsystem: %w", err)
+	}
+	apiServer.computeManager = computeManager
 
 	// Sandbox-absorbs-runner: wire the inference router into the
 	// internal helix server so it picks sandboxes by model name. Safe
@@ -678,6 +699,20 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		apiServer.Cfg.SandboxStaleThreshold,
 	)
 
+	// Compute manager reconcile loop: brings sandbox hosts into
+	// existence via a cloud Provider (currently only YellowDog) and
+	// keeps the count at Floor. Nil when HELIX_COMPUTE_PROVIDER is
+	// unset - in that case Helix is fully on the legacy self-registered
+	// host path and no goroutine is started. Logged-and-skip rather
+	// than fatal so existing deployments are unaffected.
+	if apiServer.computeManager != nil {
+		go func() {
+			if err := apiServer.computeManager.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error().Err(err).Msg("compute manager Run exited with unexpected error")
+			}
+		}()
+	}
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
@@ -738,7 +773,7 @@ func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 	return true
 }
 
-func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
+func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {
@@ -786,6 +821,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
+			// Stream-cron scheduler runs for the lifetime of ctx
+			// (ListenAndServe's). Logs its own errors; one bad fire
+			// can't kill the loop because fire() has panic recovery.
+			if orgHandlers.streamCron != nil {
+				go func() {
+					if err := orgHandlers.streamCron.Start(ctx); err != nil {
+						log.Error().Err(err).Msg("streamcron scheduler exited with error")
+					}
+				}()
+			}
 			// /api/v1/orgs/{org}/github/webhook — public, GitHub
 			// deliveries authenticate via HMAC of the per-org
 			// webhook_secret. Registered on the INSECURE router so
@@ -1638,7 +1683,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Initialize skills
 	log.Info().Msg("Loading YAML skills")
-	ctx := context.Background()
 	if err := apiServer.skillManager.LoadSkills(ctx); err != nil {
 		log.Error().Err(err).Msg("Failed to load skills, continuing without them")
 	}
@@ -2333,23 +2377,93 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 	}
 
 	for _, instance := range instances {
-		if instance.ID == sandboxID {
-			// Already registered - reset sandbox count and mark online
-			// This handles reconnects after crashes/restarts where stale counts remain
-			err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
-			if err != nil {
+		if instance.ID != sandboxID {
+			continue
+		}
+
+		// Manager-provisioned host registering for the FIRST time
+		// (ComputeState=provisioning), OR a Manager-provisioned host
+		// that the Manager marked failed but is now phoning home (e.g.
+		// the upstream task recovered after a transient HealthCheck
+		// failure). Both cases get the same forward-transition
+		// treatment: populate the network identity columns, flip
+		// Status to online, and move ComputeState to ready.
+		//
+		// Critically we do this via THREE targeted column updates
+		// instead of a full-row gorm.Save. Save would overwrite
+		// every column with the value `instance` had when we loaded
+		// it from ListSandboxInstances above - any column written by
+		// the heartbeat goroutine between our load and our Save
+		// (gpus, service_health, profile_status, profile_progress,
+		// helix_version, desktop_versions) would be stamped back to
+		// stale. The race window is small but real because the
+		// heartbeat goroutine often runs before the WS upgrade
+		// handler returns.
+		//
+		// Treating `failed` as a forward-transition recovery path
+		// closes a real recovery gap: a row that the Manager rolled
+		// forward to ComputeState=failed (due to a transient
+		// HealthCheck issue) would, on the host eventually phoning
+		// home, fall through to ResetSandboxOnReconnect - Status
+		// would flip to online but ComputeState stayed `failed`
+		// forever. `isAvailable()` returns false for `failed`, so
+		// the Manager would pre-warm a replacement even though this
+		// host was now serving.
+		switch compute.State(instance.ComputeState) {
+		case compute.StateProvisioning, compute.StateFailed:
+			now := time.Now()
+			hostname := fmt.Sprintf("sandbox-%s", sandboxID)
+			if err := apiServer.Store.UpdateSandboxInstanceComputeState(ctx, sandboxID, string(compute.StateReady)); err != nil {
 				log.Error().
 					Err(err).
 					Str("sandbox_id", sandboxID).
-					Msg("Failed to reset sandbox on reconnect")
-			} else {
-				log.Info().
-					Str("sandbox_id", sandboxID).
-					Int("previous_container_count", instance.ActiveSandboxes).
-					Msg("Reset sandbox on reconnect (cleared stale container count)")
+					Str("provider", instance.Provider).
+					Str("from_compute_state", instance.ComputeState).
+					Msg("Failed to bridge Manager-provisioned host registration (compute_state update)")
+				return
 			}
+			if err := apiServer.Store.UpdateSandboxInstanceStatus(ctx, sandboxID, "online"); err != nil {
+				log.Error().
+					Err(err).
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to bridge Manager-provisioned host registration (status update)")
+				return
+			}
+			if err := apiServer.Store.UpdateSandboxInstanceNetwork(ctx, sandboxID, remoteAddr, hostname, now); err != nil {
+				log.Error().
+					Err(err).
+					Str("sandbox_id", sandboxID).
+					Msg("Failed to bridge Manager-provisioned host registration (network update)")
+				return
+			}
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Str("provider", instance.Provider).
+				Str("provider_id", instance.ProviderID).
+				Str("ip_address", remoteAddr).
+				Str("from_compute_state", instance.ComputeState).
+				Msg("Manager-provisioned host registered; transitioned compute_state -> ready")
 			return
 		}
+
+		// Reconnect of an already-registered host (either a legacy
+		// self-registered host coming back after a crash, or a
+		// Manager-provisioned host that has been online before and
+		// is now reconnecting). Reset stale counters and flip Status
+		// back to online via the existing reaper-safe path.
+		err := apiServer.Store.ResetSandboxOnReconnect(ctx, sandboxID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("sandbox_id", sandboxID).
+				Msg("Failed to reset sandbox on reconnect")
+		} else {
+			log.Info().
+				Str("sandbox_id", sandboxID).
+				Int("previous_container_count", instance.ActiveSandboxes).
+				Msg("Reset sandbox on reconnect (cleared stale container count)")
+		}
+		return
 	}
 
 	// Not registered - auto-register it

@@ -78,6 +78,29 @@ func (r *streamsRepo) List(ctx context.Context, orgID string) ([]streaming.Strea
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
+// ListByTransportKind returns every stream whose transport_kind matches,
+// across every org. The cron stream scheduler uses this to enumerate
+// schedules globally before placing them on its in-process gocron
+// scheduler. Per-tenant request paths must stay on Get / List.
+func (r *streamsRepo) ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Stream, error) {
+	var rows []streamRow
+	if err := r.db.WithContext(ctx).
+		Where("transport_kind = ?", string(kind)).
+		Order("org_id, id").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list streams by transport kind %q: %w", kind, err)
+	}
+	out := make([]streaming.Stream, 0, len(rows))
+	for _, row := range rows {
+		s, err := (streamMapper{}).ToDomain(row)
+		if err != nil {
+			return nil, fmt.Errorf("hydrate stream %s/%s: %w", row.OrgID, row.ID, err)
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 // Update rewrites the mutable subset (name, description, transport
 // kind + config) of the row identified by (id, orgID). Immutable
 // fields on the passed Stream are ignored. Returns store.ErrNotFound

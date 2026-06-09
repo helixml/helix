@@ -55,6 +55,21 @@ const TRANSPORT_KINDS = [
   { value: 'webhook', label: 'webhook', help: 'HTTP webhook. Inbound by default; outbound URL = bidirectional.' },
   { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Scope this stream to a single repo + a whitelist of event types. Webhook secret is set once at the org level on the Settings page; the GitHub access token is reused from your OAuth connection automatically.' },
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
+  { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this stream at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
+]
+
+// CRON_PRESETS are one-click chips that inject a standard 5-field
+// cron expression into the schedule field. We keep the UI on the
+// literal cron grammar — no @-aliases — so users see exactly what's
+// stored, and there's one syntax to learn rather than two.
+const CRON_PRESETS: Array<{ label: string; value: string }> = [
+  { label: 'Hourly', value: '0 * * * *' },
+  { label: 'Daily 00:00', value: '0 0 * * *' },
+  { label: 'Weekly Sun 00:00', value: '0 0 * * 0' },
+  { label: 'Weekdays 00:00', value: '0 0 * * 1-5' },
+  { label: 'Weekends 00:00', value: '0 0 * * 0,6' },
+  { label: 'Mon 09:00', value: '0 9 * * 1' },
+  { label: 'Fri 18:00', value: '0 18 * * 5' },
 ]
 
 
@@ -299,6 +314,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   // delete to specific branches. Both editable here; also on the detail page.
   const [ghEvents, setGhEvents] = useState<string[]>(['*'])
   const [ghBranches, setGhBranches] = useState<string[]>(['*'])
+  // Cron schedule — free text accepting either a 5-field cron expression
+  // or one of the @aliases the backend recognises (@hourly, @daily, …).
+  // CRON_PRESETS populate it via one-click chips.
+  const [cronSchedule, setCronSchedule] = useState<string>('0 0 * * *')
 
   // Probe GitHub on dialog open — the result tells us whether to
   // disable the `github` transport option (no OAuth connection →
@@ -359,6 +378,13 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
       config = { repo: ghRepo.trim(), events }
       const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
       if (branches.length > 0) (config as Record<string, unknown>).branches = branches
+    } else if (kind === 'cron') {
+      const sched = cronSchedule.trim()
+      if (!sched) {
+        snackbar.error('Schedule is required')
+        return
+      }
+      config = { schedule: sched }
     } else if (configText.trim()) {
       try {
         config = JSON.parse(configText)
@@ -405,7 +431,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
         snackbar.success('stream created')
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*'])
+      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -414,7 +440,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*'])
+    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
     onClose()
   }
 
@@ -498,7 +524,65 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
               </Typography>
             </>
           )}
-          {kind !== 'local' && kind !== 'github' && (
+          {kind === 'cron' && (
+            <Box>
+              <TextField
+                label="Schedule"
+                placeholder="0 9 * * 1"
+                value={cronSchedule}
+                onChange={(e) => setCronSchedule(e.target.value)}
+                fullWidth
+                helperText="Standard 5-field cron: minute hour day-of-month month day-of-week. Prefix with CRON_TZ=<zone> to pin the timezone (defaults to UTC). Minimum interval: 90 seconds."
+              />
+              <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}>
+                {CRON_PRESETS.map((p) => (
+                  <Chip
+                    key={p.value}
+                    label={p.label}
+                    size="small"
+                    variant={cronSchedule === p.value ? 'filled' : 'outlined'}
+                    onClick={() => setCronSchedule(p.value)}
+                    sx={{ fontFamily: 'monospace' }}
+                  />
+                ))}
+              </Stack>
+              <Box
+                sx={{
+                  mt: 1.5,
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  bgcolor: 'rgba(0,0,0,0.02)',
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  Examples
+                </Typography>
+                {[
+                  { value: '0 0 * * *', description: 'every day at midnight' },
+                  { value: '0 9 * * 1', description: 'every Monday at 09:00' },
+                  { value: '0 18 * * 5', description: 'every Friday at 18:00' },
+                  { value: '0 0 * * 1-5', description: 'weekdays at midnight' },
+                  { value: '*/15 * * * *', description: 'every 15 minutes' },
+                  { value: '0 0 1 * *', description: 'first day of every month at 00:00' },
+                  { value: 'CRON_TZ=America/New_York 30 14 * * 1-5', description: 'weekdays at 14:30 New York time' },
+                ].map((ex) => (
+                  <Typography
+                    key={ex.value}
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', lineHeight: 1.6 }}
+                  >
+                    <code style={{ fontFamily: 'monospace', fontWeight: 600 }}>{ex.value}</code>
+                    {' — '}
+                    {ex.description}
+                  </Typography>
+                ))}
+              </Box>
+            </Box>
+          )}
+          {kind !== 'local' && kind !== 'github' && kind !== 'cron' && (
             <TextField
               label="Transport config (JSON)"
               placeholder='{"outbound_url": "https://example.com/hook"}'

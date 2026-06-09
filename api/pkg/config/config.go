@@ -35,6 +35,7 @@ type ServerConfig struct {
 	SSL                SSL
 	Organizations      Organizations
 	Sandboxes          Sandboxes
+	Compute            Compute
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -113,6 +114,126 @@ type Sandboxes struct {
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
+}
+
+// Compute configures the cloud-provisioning side of Helix's sandbox
+// host management. When Provider is empty (the default) the entire
+// subsystem is disabled - no Provider is constructed, no reconcile
+// loop runs, no SandboxInstance rows are auto-created. Self-registered
+// hosts (the legacy path) continue to work unchanged.
+//
+// When Provider is set, Helix constructs the named compute.Provider
+// from the rest of this section + the provider-specific config block
+// (e.g. Yellowdog) and starts a compute.Manager reconcile loop.
+type Compute struct {
+	// Provider selects which compute.Provider implementation Helix
+	// uses to bring sandbox hosts into existence. Empty (default)
+	// disables the whole subsystem. Currently the only supported
+	// value is "yellowdog".
+	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
+
+	// DeploymentTag distinguishes work requirements created by this
+	// Helix install from WRs created by other tooling (e.g. someone
+	// running yd-submit directly against the same YD account) or by
+	// another Helix install that happens to share the YD namespace.
+	// It is the primary filter applied to YD's List endpoint.
+	//
+	// Auto-derived from the provider-specific namespace at boot when
+	// unset (e.g. "helix-<namespace>"). For the common deployment
+	// (one Helix install per YD namespace) the default is sufficient.
+	// Operators running multiple Helix installs in the same YD
+	// namespace MUST set this explicitly per install or the two
+	// Managers will see each other's WRs as their own.
+	//
+	// Also forms the suffix of the value written to
+	// SandboxInstance.Provider (e.g. "yellowdog-prod"). The two
+	// purposes share one knob.
+	DeploymentTag string `envconfig:"HELIX_COMPUTE_DEPLOYMENT_TAG" default:""`
+
+	// Floor is the minimum number of provisioned hosts the Manager
+	// keeps available at all times. The reconcile loop kicks off
+	// Provision calls until (Ready + Provisioning) reaches this count.
+	// Zero (the default) disables pre-warming - the Manager exists
+	// but does no work in floor-only mode. On-demand scaling lands
+	// in a follow-up; for now, Floor=0 means "Manager is a no-op".
+	Floor int `envconfig:"HELIX_COMPUTE_FLOOR" default:"0"`
+
+	// ReconcileInterval is how often the Manager's reconcile loop
+	// runs. Lower values respond faster to drift; higher values
+	// reduce pressure on Helix and the upstream Provider API. 30s
+	// is a reasonable default matching the existing sandbox
+	// heartbeat cadence.
+	ReconcileInterval time.Duration `envconfig:"HELIX_COMPUTE_RECONCILE_INTERVAL" default:"30s"`
+
+	// HealthCheckTimeout caps how long one Provider.HealthCheck call
+	// can take per provisioning row before the loop moves on.
+	HealthCheckTimeout time.Duration `envconfig:"HELIX_COMPUTE_HEALTHCHECK_TIMEOUT" default:"10s"`
+
+	// MaxConcurrentProvisions caps how many Provision calls the
+	// Manager fires per reconcile cycle when below Floor. Default 1.
+	// Raise this when bringing up a large Floor on cold boot;
+	// MaxConcurrentProvisions=5 with ReconcileInterval=30s reaches
+	// Floor=5 in one cycle instead of five.
+	MaxConcurrentProvisions int `envconfig:"HELIX_COMPUTE_MAX_CONCURRENT_PROVISIONS" default:"1"`
+
+	// MaxProvisioningAge bounds how long a row may sit in
+	// ComputeState=provisioning before the Manager rolls it back.
+	// Default 30m - covers the YD g5.xlarge happy path (~10m) plus
+	// headroom for cross-region fallback and slow NVIDIA image pulls.
+	MaxProvisioningAge time.Duration `envconfig:"HELIX_COMPUTE_MAX_PROVISIONING_AGE" default:"30m"`
+
+	// Yellowdog is the provider-specific config block. Only consulted
+	// when Provider="yellowdog".
+	Yellowdog Yellowdog
+}
+
+// Yellowdog is the YellowDog-provider-specific configuration block.
+// All fields are required when Compute.Provider="yellowdog"; an empty
+// value at boot causes Helix to fail fast rather than start with a
+// half-configured Manager.
+type Yellowdog struct {
+	// APIKeyID and APISecret are the YD account credentials. Generate
+	// them in the YD portal under Applications. Treat as secrets.
+	APIKeyID  string `envconfig:"HELIX_YD_KEY"`
+	APISecret string `envconfig:"HELIX_YD_SECRET"`
+
+	// BaseURL overrides the production API endpoint. Leave unset for
+	// the public portal at https://portal.yellowdog.co/api.
+	BaseURL string `envconfig:"HELIX_YD_BASE_URL" default:""`
+
+	// Namespace is the YD namespace work requirements live in. Match
+	// the namespace your YD account administrator allocated for this
+	// Helix install.
+	Namespace string `envconfig:"HELIX_YD_NAMESPACE" default:""`
+
+	// WorkerTag is the tag the operator-provisioned YD worker pool
+	// advertises. Tasks include this in their RunSpecification so
+	// the YD scheduler only assigns them to matching workers.
+	//
+	// Auto-derived from Namespace when unset:
+	//   WorkerTag = "worker-" + Namespace
+	//
+	// Matches the yd-provision POC convention (`worker_tag =
+	// "worker-{{tag}}"`), so an operator who set up their pool
+	// per the POC docs gets working defaults. Override via
+	// HELIX_YD_WORKER_TAG when the pool was created with a
+	// different naming scheme.
+	//
+	// Mismatch between this value and the pool's advertised tag
+	// produces silent "tasks starved" failures rather than a
+	// clear error - the YD scheduler simply finds no eligible
+	// workers and leaves the task pending. Boot logs the resolved
+	// tag so the operator can spot a mismatch quickly.
+	WorkerTag string `envconfig:"HELIX_YD_WORKER_TAG" default:""`
+
+	// TaskTimeout bounds individual task runtime upstream-side. The
+	// platform aborts the task and records TaskError type=TIMED_OUT
+	// when exceeded. 4h matches the POC's safety circuit-breaker.
+	TaskTimeout time.Duration `envconfig:"HELIX_YD_TASK_TIMEOUT" default:"4h"`
+
+	// MaxRetries caps retry attempts for idempotent YD API requests
+	// (GET, PUT, DELETE). POST is never retried.
+	MaxRetries int `envconfig:"HELIX_YD_MAX_RETRIES" default:"3"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {

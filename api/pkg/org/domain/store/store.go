@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // ErrNotFound signals that the requested record does not exist.
@@ -103,6 +104,12 @@ type Streams interface {
 	Create(ctx context.Context, s streaming.Stream) error
 	Get(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error)
 	List(ctx context.Context, orgID string) ([]streaming.Stream, error)
+	// ListByTransportKind returns every stream whose transport kind
+	// matches, across every org. Used by background components that
+	// scan tenant boundaries (e.g. the cron stream scheduler) — NOT
+	// for any per-tenant request path. Returns an empty slice when no
+	// streams match; never returns ErrNotFound for "no rows".
+	ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Stream, error)
 	// Update replaces the mutable fields on a Stream: name,
 	// description, and the entire transport (kind + config). The
 	// composite (id, orgID) identifies the row; ID, OrganizationID,

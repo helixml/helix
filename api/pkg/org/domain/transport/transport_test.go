@@ -187,8 +187,77 @@ func TestTransportValidate_UnknownKindFails(t *testing.T) {
 	if !strings.Contains(err.Error(), `"local"`) ||
 		!strings.Contains(err.Error(), `"webhook"`) ||
 		!strings.Contains(err.Error(), `"email"`) ||
-		!strings.Contains(err.Error(), `"github"`) {
+		!strings.Contains(err.Error(), `"github"`) ||
+		!strings.Contains(err.Error(), `"cron"`) {
 		t.Fatalf("unknown-kind error should list every valid kind; got %q", err)
+	}
+}
+
+// TestTransportValidate_Cron exercises the cron kind end-to-end via
+// Transport.Validate, mirroring the per-kind tests above. Fine-grained
+// CronConfig.Validate cases live in cron_test.go.
+func TestTransportValidate_Cron(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cfg     string
+		wantErr string
+	}{
+		{"valid 5-field", `{"schedule":"0 9 * * 1"}`, ""},
+		{"valid daily midnight", `{"schedule":"0 0 * * *"}`, ""},
+		{"valid weekdays midnight", `{"schedule":"0 0 * * 1-5"}`, ""},
+		{"valid weekend range", `{"schedule":"0 0 * * 0,6"}`, ""},
+		{"valid with timezone prefix", `{"schedule":"CRON_TZ=Europe/London 0 9 * * 1"}`, ""},
+		{"valid as bare string", `"0 9 * * 1"`, ""},
+
+		{"missing schedule (no config)", "", "schedule is required"},
+		{"empty schedule", `{"schedule":""}`, "schedule is required"},
+
+		// DoS-prevention: every-minute is exactly 60s between fires,
+		// below the 90s floor. The error message must name the limit so
+		// the frontend can surface it verbatim.
+		{"every minute", `{"schedule":"* * * * *"}`, "more often than the 1m30s minimum"},
+		// 6-field (per-second) specs are not parsed by ParseStandard,
+		// so they bounce out at parse time — never reaching the gap
+		// check. This is intentional: closing the syntactic door is
+		// stronger than closing the semantic one.
+		{"per-second", `{"schedule":"*/30 * * * * *"}`, "invalid cron schedule"},
+
+		{"malformed json", `{not json`, "parse cron config"},
+		{"nonsense schedule", `{"schedule":"not a cron"}`, "invalid cron schedule"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tr := transport.Transport{Kind: transport.KindCron}
+			if tc.cfg != "" {
+				tr.Config = json.RawMessage(tc.cfg)
+			}
+			err := tr.Validate()
+			assertError(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestStrategiesMatchKindOrder pins the public invariant that every
+// Kind in kindOrder has a Strategy registered. Adding a new Kind to
+// kindOrder without a strategies entry would otherwise fall over at
+// Validate() with the bewildering "unknown transport kind" error
+// rather than at compile time / boot time. The test catches the drift.
+func TestStrategiesMatchKindOrder(t *testing.T) {
+	t.Parallel()
+	for _, k := range transport.KindValues() {
+		tr := transport.Transport{Kind: k}
+		// Validate with no config is enough to exercise the registry
+		// lookup — we don't care whether the kind's own validation
+		// passes (some kinds require config), only that the dispatch
+		// found a Strategy. The "unknown transport kind" error is the
+		// failure mode we're guarding against.
+		if err := tr.Validate(); err != nil && strings.Contains(err.Error(), "unknown transport kind") {
+			t.Fatalf("Kind %q is in kindOrder but has no Strategy registered", k)
+		}
 	}
 }
 
@@ -369,6 +438,7 @@ func TestTransportKindValues_ListsEveryKnownKind(t *testing.T) {
 		transport.KindWebhook,
 		transport.KindEmail,
 		transport.KindGitHub,
+		transport.KindCron,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("TransportKindValues() length = %d, want %d (%v)", len(got), len(want), got)
