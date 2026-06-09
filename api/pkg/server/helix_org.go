@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -913,27 +912,33 @@ func buildHelixOrgSpawnerConfig(
 	}, nil
 }
 
-// lazyHelixOrgSpawner returns an runtime.Spawner that defers building
-// the underlying SpawnerConfig (and the wrapped helix.Spawner closure)
-// until the first activation arrives. Subsequent activations reuse
-// the same built Spawner — semaphore + MaxInflight live on the
-// inner closure, so they're shared across calls.
+// lazyHelixOrgSpawner returns a runtime.Spawner that builds a fresh
+// SpawnerConfig, scoped to the activating org, on every activation.
 //
-// Re-reads SpawnerConfig only if the first attempt failed; this lets
-// "pick an agent" flow seamlessly after API boot without restart.
+// It MUST NOT cache a single inner Spawner across orgs. SpawnerConfig
+// carries tenant-specific identity — OrgID and HelixOrgURL
+// (`/api/v1/mcp/helix-org/<orgID>`) — which the inner spawner stamps
+// onto every Worker's project (applyReq.OrganizationID, the
+// HELIX_ORG_URL project secret) and, critically, onto the helix-org
+// MCP entry it re-attaches to the Worker's agent app on every
+// activation. A cached spawner freezes the *first* activating org's
+// identity and replays it for every other org, so org B's owner ends
+// up with an MCP pointing at org A's gateway — and create_role /
+// hire_worker land in org A. (Root cause of the cross-tenant leak; see
+// design/2026-06-09-org-multitenancy-spawner-leak.md.)
 //
-// Worker.* drift handling: once the inner Spawner is built, its
-// captured SpawnerConfig.Runtime/Provider/Model/Credentials are frozen
-// for the life of the process. Those fields are only consumed inside
-// the spawner's own ensureProject call, so we run the dynamic applier
-// first — it re-reads worker.* on every activation and materialises
-// (or fast-paths) the per-Worker project with current settings. The
-// spawner's internal ensureProject then fast-paths against the project
-// our wrapper just touched, and the frozen fields are dead weight.
-// Net effect: changing worker.runtime / credentials / provider / model
-// via the settings page takes effect on the next activation, without
-// disturbing the shared MaxInflight semaphore inside the cached
-// spawner.
+// Building per activation is cheap (a handful of config-registry
+// reads) and also keeps worker.runtime/credentials/provider/model
+// current without any "drift" handling. The one thing the old cache
+// legitimately provided — a single process-wide inflight cap — is
+// preserved by minting one shared semaphore here and injecting it into
+// each per-activation config via SpawnerConfig.Sem.
+//
+// The dynamic applier still runs first: it provisions (or fast-paths)
+// the per-Worker project and attaches the MCP for owner-chat's benefit.
+// The inner spawner re-attaches the MCP after its own ensureProject
+// (ApplyProject wipes Config.Helix), so both must use the correct
+// per-org URL — which they now do.
 func lazyHelixOrgSpawner(
 	cfg *configregistry.Registry,
 	helixStore helixstore.Store,
@@ -949,44 +954,33 @@ func lazyHelixOrgSpawner(
 	now func() time.Time,
 	mirror *runtimehelix.Mirror,
 ) runtime.Spawner {
-	var (
-		mu      sync.Mutex
-		spawner runtime.Spawner
-	)
+	// One inflight cap shared across every per-org spawner config.
+	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
 	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
-		// worker.* settings before delegating. Without this, the cached
-		// spawner's first activation bakes whatever worker.* values
-		// were live at boot into the project; later edits via the
-		// settings page never propagate.
+		// worker.* settings before delegating.
 		if applier != nil {
 			if _, _, _, err := applier.Ensure(ctx, orgID, workerID); err != nil {
 				return fmt.Errorf("helix-org spawner: pre-apply project for %s: %w", workerID, err)
 			}
 		}
-		mu.Lock()
-		current := spawner
-		mu.Unlock()
-		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, secretInjectors, newID, now)
-			if err != nil {
-				return fmt.Errorf("helix-org spawner not configured: %w", err)
-			}
-			cfgVal.Mirror = mirror // shared singleton; not per-org config
-			built := runtimehelix.Spawner(cfgVal)
-			mu.Lock()
-			if spawner == nil {
-				spawner = built
-			}
-			current = spawner
-			mu.Unlock()
-			log.Info().
-				Str("helix_org_url", cfgVal.HelixOrgURL).
-				Str("runtime", cfgVal.Runtime).
-				Str("credentials", cfgVal.Credentials).
-				Msg("helix-org spawner built (zed_external workers)")
+		// Rebuild the SpawnerConfig for THIS org on every activation —
+		// never reuse another org's config. The shared semaphore keeps
+		// the global inflight cap intact.
+		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, secretInjectors, newID, now)
+		if err != nil {
+			return fmt.Errorf("helix-org spawner not configured: %w", err)
 		}
-		return current(ctx, orgID, workerID, envPath, triggers)
+		cfgVal.Mirror = mirror // process-wide singleton; not per-org config
+		cfgVal.Sem = sem
+		log.Trace().
+			Str("org_id", orgID).
+			Str("worker_id", string(workerID)).
+			Str("helix_org_url", cfgVal.HelixOrgURL).
+			Str("runtime", cfgVal.Runtime).
+			Str("credentials", cfgVal.Credentials).
+			Msg("helix-org spawner: per-org activation")
+		return runtimehelix.Spawner(cfgVal)(ctx, orgID, workerID, envPath, triggers)
 	}
 }
 

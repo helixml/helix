@@ -664,3 +664,50 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 		t.Error("Outcome.Error empty on error path")
 	}
 }
+
+// TestSpawnerHonorsSharedSemaphore pins the mechanism that replaced the
+// cross-tenant-leaking cached spawner
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// The old host wrapper cached ONE inner Spawner (and so one org's
+// frozen OrgID/HelixOrgURL) to share a single inflight cap. The fix
+// rebuilds a per-org SpawnerConfig every activation and instead shares
+// the cap via SpawnerConfig.Sem. If Spawner ignores cfg.Sem and mints
+// its own semaphore from MaxInflight, the global cap is silently lost.
+//
+// Here we inject a shared semaphore whose only slot is already taken.
+// A correct Spawner blocks on it and returns the context error without
+// starting a session; a Spawner that ignored cfg.Sem would sail past
+// and call StartChat.
+func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	sem := make(chan struct{}, 1)
+	sem <- struct{}{} // occupy the only slot — no inflight budget left
+	cfg.Sem = sem
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := Spawner(cfg)(ctx, "org-test", wid, "", []activation.Trigger{{Kind: activation.TriggerHire}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded while the shared semaphore is full, got %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Fatalf("StartChat fired %d times despite a full shared semaphore — Spawner ignored cfg.Sem and the global inflight cap is lost", got)
+	}
+
+	// Free the slot; the next activation must now proceed to completion,
+	// proving the gate was the semaphore and nothing else.
+	<-sem
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, "", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("activation with a free shared-semaphore slot must succeed, got %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Fatalf("StartChat calls = %d, want 1 after the slot freed", got)
+	}
+}

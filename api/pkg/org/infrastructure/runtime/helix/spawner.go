@@ -26,6 +26,11 @@ import (
 // ProjectID of its own — every AI Worker gets its own Helix project,
 // applied at hire time and persisted in the WorkerRuntimeState
 // sidecar under the "helix" backend.
+// DefaultMaxInflight bounds concurrent activations when a SpawnerConfig
+// doesn't set MaxInflight. The host also uses it to size the shared
+// semaphore it injects via SpawnerConfig.Sem.
+const DefaultMaxInflight = 8
+
 type SpawnerConfig struct {
 	Client         SpawnerClient
 	ProjectService ProjectService
@@ -101,7 +106,15 @@ type SpawnerConfig struct {
 	OrgID             string
 	ActivationTimeout time.Duration
 	MaxInflight       int
-	PollInitial       time.Duration // default 250ms
+	// Sem, when non-nil, is the inflight semaphore the Spawner acquires
+	// a slot from instead of minting its own from MaxInflight. The host
+	// builds one fresh SpawnerConfig per activation (so OrgID /
+	// HelixOrgURL stay scoped to the activating org — never frozen to
+	// whichever org activated first), and shares a single Sem across all
+	// of them to keep one process-wide inflight cap. Nil falls back to a
+	// per-config semaphore of size MaxInflight.
+	Sem         chan struct{}
+	PollInitial time.Duration // default 250ms
 	PollMax           time.Duration // default 30s
 	Logger            *slog.Logger
 	Store             *store.Store
@@ -134,9 +147,15 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		cfg.ActivationTimeout = 5 * time.Minute
 	}
 	if cfg.MaxInflight <= 0 {
-		cfg.MaxInflight = 8
+		cfg.MaxInflight = DefaultMaxInflight
 	}
-	sem := make(chan struct{}, cfg.MaxInflight)
+	// Prefer a host-supplied shared semaphore so multiple per-org
+	// SpawnerConfigs enforce one global inflight cap; otherwise mint one
+	// sized to this config's MaxInflight.
+	sem := cfg.Sem
+	if sem == nil {
+		sem = make(chan struct{}, cfg.MaxInflight)
+	}
 	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
