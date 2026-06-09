@@ -11,7 +11,7 @@
 
 ## Phase 2 — Backend smoke test script
 
-- [ ] Create `validate_fork.sh` in this task directory (`/home/retro/work/helix-specs/design/tasks/002082_what-i-want-to-do-is/`) that:
+- [~] Create `validate_fork.sh` in this task directory (`/home/retro/work/helix-specs/design/tasks/002082_what-i-want-to-do-is/`) that:
   - [ ] Logs in to the inner Helix and grabs a bearer token
   - [ ] Creates (or reuses, via env var) a `zed_external` session and posts one user message
   - [ ] Waits for the first interaction to complete
