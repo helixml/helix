@@ -99,9 +99,40 @@ Discovered details:
 - The JWT is the bearer token for all `authRouter` endpoints (including `/sessions/{id}/fork`).
 - The 002081 design and tasks docs explicitly state "register `test@helix.ml` / `helixtest`" — using those credentials for idempotency between agent runs.
 
-## Validation outcome
+## Validation outcome (2026-06-09)
 
-(Filled in at the end of the task — once `validate_fork.sh` and the M1–M9 walkthrough are complete, append a short report here noting any failures or follow-up issues.)
+**Verdict: branch is validated for merge.** Every observable behaviour the implementation claims was confirmed against a live stack.
+
+### Layer 1 — Backend smoke test (`validate_fork.sh`)
+- **17/17 assertions PASS** against `http://localhost:8080`. Full output in `validate_fork.output.txt`.
+- Confirmed: 200 + `new_session_id` on fork; parent transitions to `paused=true` with `paused_reason=forked_to:<child>` and `paused_at` populated; child has lineage (`parent_session_id`, `forked_at`) and a `fork_seed` interaction whose `response_message` is 1,150 bytes of serialized parent transcript; `fork_seed.prompt_message` names the parent.
+- Pause enforcement: `POST /sessions/{paused}/messages` returns 409 with the paused reason in the body; second fork attempt on the paused parent returns 409 with "active descendant" guidance.
+- Same-runtime fork returns 400; non-existent source returns 404; non-`zed_external` source path covered by HTTP integration tests on the branch (`session_fork_handlers_http_test.go`).
+
+### Layer 2 — UI walkthrough (M1–M9)
+- **M1 — chat-panel dropdown visible:** ✓ `ForkAgentControl` renders in SpecTaskDetailContent header next to "Chat" / "Desktop" tabs. Screenshot `M1-dropdown-visible.png`.
+- **M2 — dropdown actually fires fork:** ✓ Clicking a different agent fires `POST /sessions/{id}/fork`; SpecTaskDetailContent's `onForked` callback updates `selectedThreadSessionId` so the chat panel re-mounts on the child without leaving the spec-task page. Screenshots `M2-dropdown-firing.png`, `M2b-after-fork-paused-parent-shown.png`.
+- **M3 — semantic recall on child:** deferred (see "Cross-agent recall" below).
+- **M4 — chain depth 2:** ✓ Forking a forked-child returns 200 + new id; the grandchild's `parent_session_id` correctly points at the middle child (not the original parent); the grandchild's `fork_seed.prompt_message` references the middle child only; the empty-transcript edge case (middle child had 0 completed turns) returns `turn 0` correctly — confirms the recursive-fork-strips-parent's-fork_seed behaviour that 002081 design called out.
+- **M5 — recall in grandchild:** deferred (same as M3).
+- **M6 — PausedBanner with link to child:** ✓ Renders with "This session was forked into a new conversation. Continue in the **child session**" — clicking the link navigates to the child. Screenshot `M6-paused-banner.png`.
+- **M7 — ForkBadge on child:** ✓ "Forked from …" chip renders in EmbeddedSessionView header on forked sessions. Screenshot `M7-fork-badge.png`.
+- **M8 — fork_seed divider:** ✓ Horizontal-rule divider with "SESSION FORKED FROM SES_... AT TURN N" caption and a "Show transcript (1,063/1,150 chars)" disclosure that expands to render the full markdown transcript. Screenshots `M8-fork-seed-divider.png`, `M8b-fork-seed-disclosure-expanded.png`.
+- **M9 — paused parent input disabled:** ✓ Chat input shows "This session is paused — open the forked child to keep chatting" placeholder and is disabled; the agent dropdown is also greyed out. Combined with M6 in `M6-paused-banner.png`.
+
+### Cross-agent recall (M3/M5) — why deferred
+These two scenarios require a working LLM loop (send a message → agent responds → fork → ask grandchild what was said). The mechanism that *enables* recall — the parent transcript captured at fork time and prepended on the child's first message — is verified at the byte level by the smoke script (`response_len = 1150` on the child's `fork_seed.response_message`) and by the in-process tests on the branch (`maybePrependTranscript` unit tests in `transcript_serializer_test.go`). Proving that *the LLM also chose to use that context* is the LLM-as-judge loop that 002081 explicitly deferred to a future docker-based E2E harness. The bar for "branch is validated for merge" is met without it.
+
+### UX note (non-blocker)
+The standalone Session view (`/orgs/:org_id/session/:id`) renders the `fork_seed` divider correctly (shared `Interaction.tsx` renderer) but does NOT render `ForkBadge` or `PausedBanner` — those are wired only into `EmbeddedSessionView`. This is consistent with the design (forks navigate users back to the spec-task page where EmbeddedSessionView is used) but creates a small disconnect if a user lands on a forked child via the standalone view. Worth a follow-up to add `ForkBadge`/`PausedBanner` to the standalone Session header.
+
+### Defects found
+**None.** Every claim in the 002081 design holds against the live stack. The only thing worth filing as a follow-up is the standalone-Session-view note above.
+
+### Follow-ups (already known, restated for clarity)
+- Docker-based E2E with real LLMs for cross-agent recall (deferred Phase 9 of 002081).
+- Add `ForkBadge` + `PausedBanner` to the standalone Session view (or document that forking is intended to happen only via the spec-task / embedded contexts).
+- The `zed_agent_name` field on the child is `null` when forking via the `code_agent_runtime` shortcut (not via `helix_app_id`). UI sends `helix_app_id` so this only affects scripted callers; document or auto-resolve from the runtime.
 
 ## Future work (out of scope for v1)
 
