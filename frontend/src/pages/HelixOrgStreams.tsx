@@ -547,6 +547,40 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
                   />
                 ))}
               </Stack>
+              <Box
+                sx={{
+                  mt: 1.5,
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  bgcolor: 'rgba(0,0,0,0.02)',
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  Examples
+                </Typography>
+                {[
+                  { value: '@daily', description: 'every day at midnight (alias)' },
+                  { value: '@weekdays', description: 'Mon–Fri at midnight (alias)' },
+                  { value: '0 9 * * 1', description: 'every Monday at 09:00' },
+                  { value: '0 18 * * 5', description: 'every Friday at 18:00' },
+                  { value: '*/15 * * * *', description: 'every 15 minutes' },
+                  { value: '0 0 1 * *', description: 'first day of every month at 00:00' },
+                  { value: 'CRON_TZ=America/New_York 30 14 * * 1-5', description: 'weekdays at 14:30 New York time' },
+                ].map((ex) => (
+                  <Typography
+                    key={ex.value}
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', lineHeight: 1.6 }}
+                  >
+                    <code style={{ fontFamily: 'monospace', fontWeight: 600 }}>{ex.value}</code>
+                    {' — '}
+                    {ex.description}
+                  </Typography>
+                ))}
+              </Box>
             </Box>
           )}
           {kind !== 'local' && kind !== 'github' && kind !== 'cron' && (
