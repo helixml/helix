@@ -226,6 +226,23 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                   {' '}(avg {stats.video.avgRenderIntervalMs ?? 0}ms)
                 </div>
               )}
+              {/* Scheduler jitter — synthetic 60Hz canary in desktop-bridge.
+                  High p99/max ms = the desktop container's kernel scheduler is
+                  preempting userspace tasks (CPU contention from co-tenant work). */}
+              {(stats.video.schedulerJitterMaxMs !== undefined ||
+                stats.video.schedulerJitterP99Ms !== undefined ||
+                stats.video.schedulerJitterP50Ms !== undefined) && (
+                <div>
+                  <strong>Scheduler Jitter:</strong>{' '}
+                  {stats.video.schedulerJitterP50Ms ?? 0}/
+                  {stats.video.schedulerJitterP99Ms ?? 0}/
+                  {stats.video.schedulerJitterMaxMs ?? 0} ms
+                  <span style={{ color: '#888' }}> (p50/p99/max)</span>
+                  {(stats.video.schedulerJitterMaxMs ?? 0) > 50 && (
+                    <span style={{ color: '#ff9800' }}> Contended</span>
+                  )}
+                </div>
+              )}
             </>
           )}
           {/* Input stats */}
