@@ -374,7 +374,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	request.Name = GetUniqueRepoName(request.Name, existingNames)
 
 	// Generate repository ID
-	repoID := s.generateRepositoryID(request.RepoType, request.Name)
+	repoID := system.GenerateGitRepositoryID(request.RepoType, request.Name)
 
 	// Resolve organization ID
 	// Only set if explicitly provided or if the project has an organization.
@@ -1112,24 +1112,6 @@ func (s *GitRepositoryService) GetCloneCommand(repoID string, targetDir string) 
 		return fmt.Sprintf("git clone %s", cloneURL)
 	}
 	return fmt.Sprintf("git clone %s %s", cloneURL, targetDir)
-}
-
-// generateRepositoryID generates a unique repository ID.
-//
-// Uses a ULID suffix (via system.GenerateID) rather than a wall-clock
-// second timestamp. Two callers in different orgs minting a repo for
-// identically-named entities (e.g. per-Worker repos for `w-mt` hired into
-// two orgs in the same second) would otherwise collide on the global
-// `git_repositories_pkey` constraint and the second INSERT would fail with
-// SQLSTATE 23505. The 80 random bits in a ULID make that collision
-// astronomically unlikely without changing the schema or threading orgID
-// through the create path.
-func (s *GitRepositoryService) generateRepositoryID(repoType types.GitRepositoryType, name string) string {
-	// Sanitize name for filesystem
-	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
-	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
-
-	return fmt.Sprintf("%s-%s-%s", repoType, sanitizedName, system.GenerateID())
 }
 
 // generateCloneURL generates the clone URL for a repository
