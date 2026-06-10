@@ -19,8 +19,12 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import dagre from 'dagre'
 import {
   Background,
+  BaseEdge,
   Controls,
   Edge,
+  EdgeLabelRenderer,
+  EdgeProps,
+  getStraightPath,
   Handle,
   MiniMap,
   Node,
@@ -626,7 +630,7 @@ const buildGraph = (
       id: `report:${parentId}->${wk.id}`,
       source: `worker:${parentId}`,
       target: `worker:${wk.id}`,
-      type: 'default',
+      type: 'deletable',
       animated: false,
       data: { kind: 'report', childWorkerId: wk.id, parentWorkerId: parentId },
       style: {
@@ -748,7 +752,7 @@ const buildGraph = (
           source: `worker:${wid}`,
           sourceHandle: 'stream',
           target: `stream:${s.id}`,
-          type: 'default',
+          type: 'deletable',
           animated: false,
           data: { kind: 'sub', workerId: wid, streamId: s.id },
           style: {
@@ -787,6 +791,95 @@ const ConfirmDeleteDialog: FC<{
     </DialogActions>
   </Dialog>
 )
+
+// ---- Custom edge: deletable on hover -----------------------------------
+//
+// Wraps the default straight edge with a hover affordance: a small × button
+// appears at the edge midpoint while the pointer is over the edge (or the
+// button), and clicking it routes through ReactFlow's deleteElements API so
+// the existing onEdgesDelete dispatch fires unchanged. A transparent wider
+// stroke overlay widens the hover hit-area to ~20px so the 1.25–1.5px
+// visible line is not the only target.
+const DeletableEdge: FC<EdgeProps> = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  style,
+  markerEnd,
+  data,
+  selected,
+}) => {
+  const [hover, setHover] = useState(false)
+  const { deleteElements } = useReactFlow()
+  const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY })
+  const kind = (data as { kind?: string } | undefined)?.kind
+  const ariaLabel = kind === 'sub' ? 'Remove subscription' : 'Remove reporting line'
+  const show = hover || selected
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
+      {/* invisible wider hit-area; must NOT inherit strokeDasharray or hover
+          becomes spotty between dashes on subscription edges */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        strokeDasharray="none"
+        style={{ cursor: 'pointer' }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      />
+      {show && (
+        <EdgeLabelRenderer>
+          <button
+            type="button"
+            aria-label={ariaLabel}
+            title={ariaLabel}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            onClick={(e) => {
+              e.stopPropagation()
+              deleteElements({ edges: [{ id }] })
+            }}
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              border: '1px solid rgba(0,0,0,0.2)',
+              background: '#ffffff',
+              color: '#444',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+              fontSize: 14,
+              lineHeight: 1,
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.outline = '2px solid #1976d2'
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.outline = 'none'
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            ×
+          </button>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  )
+}
+
+const edgeTypes = { deletable: DeletableEdge }
 
 // ---- ReactFlow canvas --------------------------------------------------
 
@@ -886,6 +979,7 @@ const ChartCanvas: FC<{
       onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
