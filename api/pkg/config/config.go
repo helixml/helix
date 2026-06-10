@@ -235,11 +235,8 @@ type Yellowdog struct {
 	// (GET, PUT, DELETE). POST is never retried.
 	MaxRetries int `envconfig:"HELIX_YD_MAX_RETRIES" default:"3"`
 
-	// HelixImage is the helix-sandbox image tag the YD task will
-	// docker-run on the worker. Operators bump this to roll new
-	// sandbox versions out. The default tracks the latest stable
-	// release; pin to a SHA for reproducible deploys.
-	HelixImage string `envconfig:"HELIX_YD_HELIX_IMAGE" default:"ghcr.io/helixml/helix-sandbox:latest"`
+	// (helix-sandbox image is auto-derived from the Helix build
+	// version - see bootstrap.helixSandboxImage. No env var to set.)
 }
 
 func LoadServerConfig() (ServerConfig, error) {

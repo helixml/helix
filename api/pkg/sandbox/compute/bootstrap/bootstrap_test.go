@@ -297,5 +297,39 @@ func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
 		Run(context.Context) error
 		Reconcile(context.Context) error
 	} = mgr
+}
+
+func TestHelixSandboxImageFor(t *testing.T) {
+	// Auto-derived sandbox image tag. Production must pull
+	// ghcr.io/helixml/helix-sandbox:<version> matching the running
+	// control plane; dev/non-release builds fall back to :latest so
+	// they don't try to pull a tag that was never published.
+	cases := []struct {
+		in   string
+		want string
+	}{
+		// Release shapes -> use the version verbatim
+		{"2.11.14", "ghcr.io/helixml/helix-sandbox:2.11.14"},
+		{"v2.11.14", "ghcr.io/helixml/helix-sandbox:v2.11.14"},
+		{"1.0.0", "ghcr.io/helixml/helix-sandbox:1.0.0"},
+		// Dev / unset / unrecognised -> fall back to :latest
+		{"v0.0.0+dev", "ghcr.io/helixml/helix-sandbox:latest"},
+		{"v0.0.0", "ghcr.io/helixml/helix-sandbox:latest"},
+		{"0.0.0", "ghcr.io/helixml/helix-sandbox:latest"},
+		{"<unknown>", "ghcr.io/helixml/helix-sandbox:latest"},
+		{"", "ghcr.io/helixml/helix-sandbox:latest"},
+		// Git sha (when no Version baked in, GetHelixVersion can return vcs.revision)
+		{"a1b2c3d4e5f6", "ghcr.io/helixml/helix-sandbox:latest"},
+		// Pre-release / build-metadata shapes -> fall back rather than guess
+		{"2.11.14-rc1", "ghcr.io/helixml/helix-sandbox:latest"},
+		{"2.11.14+build.42", "ghcr.io/helixml/helix-sandbox:latest"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := helixSandboxImageFor(tc.in); got != tc.want {
+				t.Fatalf("helixSandboxImageFor(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
 	_ = compute.Manager{} // keep the compute import used even if signature simplifies later
 }

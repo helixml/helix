@@ -8,8 +8,10 @@ package bootstrap
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/sandbox/compute/yellowdog"
 	"github.com/rs/zerolog/log"
@@ -143,9 +145,45 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 			MaxRetries:    cfg.Yellowdog.MaxRetries,
 			HelixURL:      serverURL,
 			RunnerToken:   runnerToken,
-			HelixImage:    cfg.Yellowdog.HelixImage,
+			HelixImage:    helixSandboxImage(),
 		})
 	default:
 		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)
 	}
+}
+
+// helixSandboxImage returns the helix-sandbox image tag the YD task
+// should docker-run. Auto-derived from the Helix build version so
+// the sandbox image always matches the control plane that's
+// dispatching it - no version skew, no operator config knob.
+//
+// In production, data.GetHelixVersion() returns the release tag
+// (e.g. "2.11.14") that was baked into the controlplane image via
+// ldflags. Sandbox images are published with the same tag on every
+// release. So the auto-derived ref pulls cleanly.
+//
+// In dev / non-release builds, data.GetHelixVersion() returns
+// "<unknown>", a git revision, or "v0.0.0+dev" - none of which have
+// a corresponding published sandbox image. We fall back to "latest"
+// with a loud log line so the operator notices.
+//
+// Pattern: strict X.Y.Z or vX.Y.Z, no pre-release suffix, no build
+// metadata. Rejects "v0.0.0+dev", "<unknown>", git shas, and any
+// "-rc1"-style suffix.
+var releaseTagPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+
+func helixSandboxImage() string {
+	return helixSandboxImageFor(data.GetHelixVersion())
+}
+
+// helixSandboxImageFor is the testable inner. Tests inject specific
+// version strings; the production wrapper above reads from data.
+func helixSandboxImageFor(version string) string {
+	if !releaseTagPattern.MatchString(version) || version == "v0.0.0" || version == "0.0.0" {
+		log.Warn().
+			Str("helix_version", version).
+			Msg("compute: Helix build is not a tagged release; falling back to helix-sandbox:latest. YD tasks may pull a sandbox version that does not match this control plane.")
+		return "ghcr.io/helixml/helix-sandbox:latest"
+	}
+	return "ghcr.io/helixml/helix-sandbox:" + version
 }
