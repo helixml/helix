@@ -18,22 +18,22 @@
 
 ## HelixOrgWorkers.tsx — hire button + role filter
 
-- [~] Add `useState<boolean>` for hire drawer open state; add a primary-action `+ New Worker` button (with `<PersonAddOutlinedIcon>`) above the table, right-aligned in a header `<Stack direction="row" justifyContent="space-between">`.
-- [ ] Add `roleFilter` state seeded from `router.params.role` (or URL `?role=` param). On change, update both state and URL via `router.setParams({ role: value || undefined })`. Render a `<TextField select size="small" label="Role">` on the left side of the header row populated from `useListHelixOrgRoles()`, with `All roles` as the default option.
-- [ ] Apply the filter to the worker list before building `tableData`: `const filteredWorkers = roleFilter ? workers.filter(w => w.role_id === roleFilter) : workers`. Use `filteredWorkers` in the existing `useMemo` mapping.
-- [ ] Update the empty-state copy: when `workers.length === 0`, show "No workers yet." with a primary `+ New Worker` button below. When `filteredWorkers.length === 0` but `workers.length > 0`, show "No workers match this role."
-- [ ] Render `<HireWorkerDrawer open={hireOpen} onClose={() => setHireOpen(false)} />` at the bottom of the page (no `presetRoleId`).
+- [x] Add `useState<boolean>` for hire drawer open state; add a primary-action `+ New Worker` button (with `<PersonAddOutlinedIcon>`) above the table, right-aligned in a header `<Stack direction="row" justifyContent="space-between">`.
+- [x] Add `roleFilter` state seeded from `router.params.role`. On change, persist via `router.mergeParams({ role })` / `router.removeParams(['role'])`. Render a `<TextField select size="small" label="Role">` populated from `useListHelixOrgRoles()`, with `All roles` as the default option.
+- [x] Apply the filter to the worker list before building `tableData`: `const filteredWorkers = roleFilter ? workers.filter(w => w.role_id === roleFilter) : workers`. Use `filteredWorkers` in the existing `useMemo` mapping.
+- [x] Update the empty-state copy: when `workers.length === 0`, show "No workers yet." with a primary `+ New Worker` button below. When `filteredWorkers.length === 0` but `workers.length > 0`, show "No workers match this role."
+- [x] Render `<HireWorkerDrawer open={hireOpen} onClose={() => setHireOpen(false)} />` at the bottom of the page (no `presetRoleId`).
 
 ## HelixOrgRoles.tsx — new role button
 
-- [ ] Add `useState<boolean>` for the new-role dialog open state; add a `+ New Role` button (top right of the page, mirroring the Workers tab pattern) inside a header `<Stack direction="row" justifyContent="space-between">`.
-- [ ] Render `<NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />` at the bottom of the page.
-- [ ] Update the empty-state copy to point at the new button instead of the Chart (`"Create roles from the Chart…"` → `"Click + New Role to create one."`).
+- [x] Add `useState<boolean>` for the new-role dialog open state; add a `+ New Role` button (top right of the page, mirroring the Workers tab pattern) inside a header `<Stack direction="row" justifyContent="space-between">`.
+- [x] Render `<NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />` at the bottom of the page.
+- [x] Update the empty-state copy to point at the new button instead of the Chart (`"Create roles from the Chart…"` → `+ New Role` button).
 
 ## Verification
 
-- [ ] `cd frontend && yarn build` — TypeScript must compile.
-- [ ] Inner-Helix browser test: register / log in, create an org, navigate to Workers tab → click `+ New Worker` → verify drawer opens with Role + Reports-to selectors → hire a worker with both set → confirm the row shows the right `Role` and `Reports to`.
+- [x] `cd frontend && yarn build` — TypeScript must compile.
+- [~] Inner-Helix browser test: register / log in, create an org, navigate to Workers tab → click `+ New Worker` → verify drawer opens with Role + Reports-to selectors → hire a worker with both set → confirm the row shows the right `Role` and `Reports to`.
 - [ ] Inner-Helix browser test: Workers tab → set Role filter → confirm table narrows and URL gains `?role=…`. Refresh the page → confirm filter survives. Clear to `All roles` → URL `?role=` is removed.
 - [ ] Inner-Helix browser test: Roles tab → click `+ New Role` → create a role → confirm it appears in the table.
 - [ ] Inner-Helix browser test: Chart → click per-role hire icon → confirm role is preselected and read-only, Reports-to selector is present → hire → confirm worker appears with correct reporting line in the chart.
