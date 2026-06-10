@@ -7,11 +7,11 @@
 - [x] Add a `Reports to (optional)` `<TextField select>` to `<HireWorkerDrawer>` populated from `useListHelixOrgWorkers()`. Include a `(none)` option. When set, include `parent_id` in the `HireWorkerRequest` body.
 - [x] Reset internal form state (`id`, `kind`, `identity`, `roleId`, `parentId`) on the `open` false → true transition via `useEffect`.
 - [x] Disable the `Hire` button when `identity.trim() === ''` OR `!roleId`. Update the success toast to read `hired ${id} reporting to ${parent}` when `parent_id` was supplied; keep the existing "drag an edge…" hint otherwise.
-- [~] Create `frontend/src/components/helix-org/NewRoleDialog.tsx` by extracting `CreateRoleDialog` from `HelixOrgChart.tsx:775-829` verbatim with `{ open, onClose }` props.
+- [x] Create `frontend/src/components/helix-org/NewRoleDialog.tsx` by extracting `CreateRoleDialog` from `HelixOrgChart.tsx:775-829` verbatim with `{ open, onClose }` props.
 
 ## Wire shared components into HelixOrgChart.tsx
 
-- [ ] Delete the inline `HireDrawer` and `CreateRoleDialog` definitions from `HelixOrgChart.tsx`.
+- [~] Delete the inline `HireDrawer` and `CreateRoleDialog` definitions from `HelixOrgChart.tsx`.
 - [ ] Replace the `<CreateRoleDialog>` usage with `<NewRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />`.
 - [ ] Replace the `<Drawer>` + inline `<HireDrawer>` block (`:1327-1339`) with `<HireWorkerDrawer open={selection.kind === 'hire'} onClose={() => setSelection({ kind: 'none' })} presetRoleId={selection.kind === 'hire' ? selection.roleId : undefined} />`.
 - [ ] Verify the per-role node `PersonAddOutlinedIcon` button and the floating top-right `+ New role` button still behave identically (placement, click handlers, snackbar messages).
