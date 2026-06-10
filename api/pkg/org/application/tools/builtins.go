@@ -150,5 +150,14 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 			return fmt.Errorf("register %q: %w", tool.Name(), err)
 		}
 	}
+	// Fail fast if BaseReadTools references a name that isn't registered
+	// — a typo in defaults.go would otherwise produce silently-broken
+	// Roles whose reconciled tool list is missing one of the baseline
+	// entries.
+	for _, name := range BaseReadTools {
+		if _, err := reg.Get(name); err != nil {
+			return fmt.Errorf("BaseReadTools references unregistered tool %q: %w", name, err)
+		}
+	}
 	return nil
 }
