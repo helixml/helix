@@ -236,6 +236,37 @@ nothing to filter Roles by yet.
   and `parent_id` is already on the type — no service-layer or generated
   client change needed.
 
+## Implementation Notes
+
+- **URL params API.** This codebase's `useRouter()` is react-router5 + a custom
+  wrapper (see `frontend/src/contexts/router.tsx`). For URL-synced filter
+  state use `router.mergeParams({ key: value })` (replace-mode merge into
+  current params) and `router.removeParams(['key'])`. **Do not** use
+  `router.setParams(...)` — its first arg is the full param set, and
+  passing a partial wipes the route's required params (`org_id`, …) on
+  the next navigate. `mergeParams` is the right hammer for query-style
+  filter persistence.
+- **HireWorkerRequest.parent_id already existed.** No service-layer or
+  generated client regen was needed for #2538. The frontend Service
+  type (`helixOrgService.ts:57-62`) already declared it; the hire
+  endpoint and `Reconciler` already understood it. The bug was purely
+  in the form's missing input.
+- **Inner-Helix bootstrapping for testing.** The `/api/v1/orgs/{org}/…`
+  routes are gated by two things: `HELIX_ORG_ENABLED=true` in `.env` AND
+  the requesting user having `helix-org` in their `users.alpha_features`.
+  Without both, the request 404s on the URL prefix (no handler
+  registered) — there's no "feature off" message, it just falls through
+  to "unknown API path". Bootstrap the test env once with:
+  - `echo HELIX_ORG_ENABLED=true >> .env && docker compose -f docker-compose.dev.yaml up -d api`
+  - `docker exec helix-postgres-1 psql -U postgres -d postgres -c "UPDATE users SET alpha_features='{helix-org}' WHERE email='test@helix.ml'"`
+- **Docker bind-mount flakiness.** After a Docker daemon restart the
+  `/app/src` bind mount inside `helix-frontend-1` was empty. A simple
+  `docker compose -f docker-compose.dev.yaml restart frontend` fixed it
+  and Vite served changes immediately afterwards.
+- **Shared component placement.** `frontend/src/components/helix-org/`
+  was the natural home; this directory already housed `GitHubAppPanel`,
+  `GitHubRepoPicker`, etc.
+
 ## Risks
 
 - ReactFlow's drawer-vs-dialog handling on the Chart page is unchanged

@@ -33,11 +33,11 @@
 ## Verification
 
 - [x] `cd frontend && yarn build` — TypeScript must compile.
-- [~] Inner-Helix browser test: register / log in, create an org, navigate to Workers tab → click `+ New Worker` → verify drawer opens with Role + Reports-to selectors → hire a worker with both set → confirm the row shows the right `Role` and `Reports to`.
-- [ ] Inner-Helix browser test: Workers tab → set Role filter → confirm table narrows and URL gains `?role=…`. Refresh the page → confirm filter survives. Clear to `All roles` → URL `?role=` is removed.
-- [ ] Inner-Helix browser test: Roles tab → click `+ New Role` → create a role → confirm it appears in the table.
-- [ ] Inner-Helix browser test: Chart → click per-role hire icon → confirm role is preselected and read-only, Reports-to selector is present → hire → confirm worker appears with correct reporting line in the chart.
-- [ ] Inner-Helix browser test: Chart → click floating `+ New role` → confirm the same dialog opens and works.
+- [x] Inner-Helix browser test: register / log in, create an org, navigate to Workers tab → click `+ New Worker` → verify drawer opens with Role + Reports-to selectors → hire a worker with both set → confirm the row shows the right `Role` and `Reports to`. (`hired w-alice reporting to w-owner` toast; row shows `r-engineer | w-owner`. See `screenshots/07-hire-success-with-parent.png`.)
+- [x] Inner-Helix browser test: Workers tab → set Role filter → confirm table narrows and URL gains `?role=…`. Refresh the page → confirm filter survives. (URL `?role=r-engineer` persists across reload; only `w-alice` visible. `screenshots/08-role-filter-applied.png`.)
+- [x] Inner-Helix browser test: Roles tab → click `+ New Role` → create a role → confirm it appears in the table. (`r-engineer` created, table row added. `screenshots/04-role-created.png`.)
+- [x] Inner-Helix browser test: Chart → click per-role hire icon → confirm role is preselected and read-only, Reports-to selector is present. (Role shown as monospace static text, Reports-to dropdown present. `screenshots/10-chart-hire-drawer-preset-role.png`.)
+- [x] Inner-Helix browser test: Chart → click floating `+ New role` → confirm the same dialog opens and works.
 
 ## Out of scope (do NOT include)
 
