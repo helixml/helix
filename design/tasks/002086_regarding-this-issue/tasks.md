@@ -13,3 +13,4 @@
 - [x] Run local build + the affected test packages, merge origin/main into the feature branch, push.
 - [x] Write `pull_request_helix.md` describing the change and explicitly noting Failure 2 (`dm` tool ignoring the reporting graph) is out of scope.
 - [x] Watch CI on the pushed feature branch; if anything fails, drill into Drone logs and fix. **Drone build #2002 — all 14 steps green.**
+- [x] **REST handler fix (discovered during in-browser demo):** the UI's "New Role" dialog posts to `POST /orgs/{org}/roles`, a path that bypasses the MCP `create_role` tool entirely. Added the same `MergeBaseReadTools` call there and locked it in with two REST tests (`roles_test.go`). Exported `MergeBaseReadTools` from `tools/defaults.go` so the merge implementation is shared across all Role-creation entry points.

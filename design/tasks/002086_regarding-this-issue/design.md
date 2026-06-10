@@ -113,9 +113,18 @@ defaults := append(append([]tool.Name{}, ownerMutationTools...), tools.BaseReadT
 
 The end-result set is identical to today's; we just stop duplicating the read names.
 
-### D6 — `create_role` merge happens in the tool, not in `orgchart.NewRole`
+### D6 — Merge happens at every Role-creation entry point, not in `orgchart.NewRole`
 
-`orgchart.NewRole` is a pure constructor and should remain so — adding "inject defaults" there would surprise any non-tool caller of the constructor (tests, fixtures, future entry points). The merge happens in `CreateRole.Invoke` before calling `NewRole`. Keeps the domain layer untouched.
+`orgchart.NewRole` is a pure constructor and should remain so — adding "inject defaults" there would surprise any non-creation caller (tests, fixtures, copies, future re-hydration). The merge happens at each entry point that constructs a *new* Role.
+
+**Entry points covered:**
+
+1. **MCP `create_role` tool** (`tools/create_role.go`) — calls `MergeBaseReadTools(args.Tools)` before `NewRole`.
+2. **REST `POST /orgs/{org}/roles`** (`interfaces/server/api/roles.go::createRole`) — same merge, applied to `toToolNames(req.Tools)`. *Discovered during the in-browser demo of the implementation:* the chart UI's "New Role" dialog collects only ID + content (no tools picker) and posts to this REST handler. Without the merge, every Role created through the UI ended up with an empty tool list, so its Workers had no MCP surface at all. The MCP fix alone was insufficient because the UI doesn't go through MCP.
+3. **`bootstrap.Run`** — composes the owner default by `append(ownerMutationTools, BaseReadTools...)` directly.
+4. **`RoleReconciler.Reconcile`** — uses the same `MergeBaseReadTools` helper at startup to backfill drifted Roles.
+
+`MergeBaseReadTools` is exported from `tools/defaults.go` so all four sites share one implementation. Adding a fifth Role-creation entry point in future is a one-line call to the same helper.
 
 ## Data Flow
 
