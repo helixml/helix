@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -252,12 +253,18 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	// can therefore render a forked session by reading just its own
 	// interactions — no chain-walking, no cross-session fetches.
 	//
-	// Skip the parent's own fork_seed divider — the child gets a fresh
-	// one below pointing at this fork point. The parent's inherited
-	// rows (Trigger=fork_inherited) ARE copied so chain depth ≥ 2 keeps
-	// the full history.
+	// Skip the parent's own fork_seed and fork_handoff entries — both
+	// are synthetic system markers tied to the *previous* fork point.
+	// The child gets a fresh fork_seed/fork_handoff pair below pointing
+	// at this fork. The parent's *inherited* rows (Trigger=fork_inherited)
+	// and *handoff replies* (the agent's response to the previous
+	// handoff) ARE copied so chain depth ≥ 2 keeps the full history.
 	for _, in := range parentInteractions {
-		if in == nil || in.Trigger == types.InteractionTriggerForkSeed {
+		if in == nil {
+			continue
+		}
+		if in.Trigger == types.InteractionTriggerForkSeed ||
+			in.Trigger == types.InteractionTriggerForkHandoff {
 			continue
 		}
 		copyInteraction := *in
@@ -291,6 +298,52 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	}
 	if _, err := apiServer.Store.CreateInteraction(ctx, seedInteraction); err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create fork_seed interaction: %v", err))
+	}
+
+	// Auto-fire a synthetic handoff turn so the new agent loads the
+	// prior context *before* the user sends their first real message —
+	// otherwise Zed's thread is empty on the child until the user
+	// prompts (and the "all the prior text streams in" sensation only
+	// happens because the LLM is reading the prepended transcript on
+	// that first call). Creating it in Waiting state means the existing
+	// pickupWaitingInteraction path delivers it as soon as the agent
+	// websocket connects; maybePrependTranscript fires on it (same as
+	// any other first-message-on-a-forked-session) and prepends the
+	// transcript. The prompt is short and meaningful so the agent's
+	// acknowledgment is a useful confirmation, not noise.
+	prevAgent := strings.TrimSpace(string(parent.Metadata.CodeAgentRuntime))
+	if prevAgent == "" {
+		prevAgent = "the previous agent"
+	}
+	newAgent := strings.TrimSpace(string(targetRuntime))
+	if newAgent == "" {
+		newAgent = "the new agent"
+	}
+	handoffPrompt := fmt.Sprintf(
+		"[System handoff: a new agent has just been switched in to continue this conversation. "+
+			"You are %s; the previous agent was %s. The full prior conversation transcript is "+
+			"included above. Please briefly acknowledge that you've reviewed it and are ready to "+
+			"continue — keep the acknowledgment to one or two sentences so the user can pick up "+
+			"with their next message.]",
+		newAgent, prevAgent,
+	)
+	handoffInteraction := &types.Interaction{
+		Created:       now,
+		Updated:       now,
+		SessionID:     createdChild.ID,
+		UserID:        createdChild.Owner,
+		GenerationID:  createdChild.GenerationID,
+		Mode:          types.SessionModeInference,
+		Trigger:       types.InteractionTriggerForkHandoff,
+		State:         types.InteractionStateWaiting,
+		PromptMessage: handoffPrompt,
+	}
+	if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
+		// Best-effort: a failed handoff just degrades to the previous
+		// "cold until first user message" behaviour. Don't fail the fork.
+		log.Warn().Err(err).
+			Str("child_session_id", createdChild.ID).
+			Msg("fork: failed to create handoff interaction; child will warm up on user's first message instead")
 	}
 
 	// Mark parent paused. Done AFTER the child exists so a transient pause-update

@@ -142,6 +142,15 @@ const (
 	// edit) and lets a future fork-of-fork still recognise its inherited
 	// vs. own turns when deciding what to copy forward.
 	InteractionTriggerForkInherited = "fork_inherited"
+
+	// InteractionTriggerForkHandoff marks the synthetic first turn fired
+	// automatically when a session is forked. Its prompt explicitly
+	// tells the new agent it's taking over a conversation, includes the
+	// full prior transcript (via maybePrependTranscript), and asks for
+	// a one-or-two-sentence acknowledgment. This turns the otherwise
+	// "cold agent until you first prompt" UX into "agent has visibly
+	// warmed up on the context by the time you arrive on the child".
+	InteractionTriggerForkHandoff = "fork_handoff"
 )
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {

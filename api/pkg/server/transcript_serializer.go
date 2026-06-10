@@ -45,7 +45,13 @@ func serializeTranscript(interactions []*types.Interaction, maxBytes int) string
 		if in == nil {
 			continue
 		}
-		if in.Trigger == types.InteractionTriggerForkSeed {
+		// Skip both fork markers — fork_seed is the divider on the
+		// parent (its ResponseMessage is the previous transcript blob,
+		// already represented by the parent's inherited rows above
+		// it), and fork_handoff is the synthetic warm-up turn (its
+		// content is meta-prompt, not real conversation).
+		if in.Trigger == types.InteractionTriggerForkSeed ||
+			in.Trigger == types.InteractionTriggerForkHandoff {
 			continue
 		}
 		if in.State != types.InteractionStateComplete {
