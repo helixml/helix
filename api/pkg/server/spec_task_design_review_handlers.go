@@ -964,22 +964,8 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 	}
 
 	// Load project repositories.
-	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: agent.ProjectID,
-	})
-	if err == nil && len(projectRepos) > 0 {
-		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-		for _, repo := range projectRepos {
-			if repo.ID != "" {
-				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-			}
-		}
-		project, err := s.Store.GetProject(ctx, agent.ProjectID)
-		if err == nil && project != nil && project.DefaultRepoID != "" {
-			agent.PrimaryRepositoryID = project.DefaultRepoID
-		} else if len(projectRepos) > 0 {
-			agent.PrimaryRepositoryID = projectRepos[0].ID
-		}
+	if err := s.attachProjectContext(ctx, agent, agent.ProjectID); err != nil {
+		return fmt.Errorf("attach project context: %w", err)
 	}
 
 	// Get display settings from app config.
