@@ -1,7 +1,7 @@
 # Implementation Tasks: Reinstate Role/Identity File Republish on Worker Activation
 
-- [ ] In `api/pkg/org/infrastructure/runtime/helix/project.go`, add a call to `a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())` inside the fast-path `else` block, immediately before `return state.ProjectID, state.AgentAppID, state.RepoID, nil`.
-- [ ] Delete (or rewrite) the comment block at `project.go:223-229` that currently explains why files are NOT republished on the fast path — the rationale no longer applies and leaving stale doc lies about the code.
+- [~] In `api/pkg/org/infrastructure/runtime/helix/project.go`, add a call to `a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())` inside the fast-path `else` block, immediately before `return state.ProjectID, state.AgentAppID, state.RepoID, nil`.
+- [~] Delete (or rewrite) the comment block at `project.go:223-229` that currently explains why files are NOT republished on the fast path — the rationale no longer applies and leaving stale doc lies about the code.
 - [ ] In `api/pkg/org/infrastructure/runtime/helix/project_test.go`, flip the assertions in `TestEnsureWithPersistedProjectFastPaths` at lines 418-425: branch creation MUST happen, and `role.md` MUST appear in `git.putFileByPath` with the seeded role content (`# Role v1`).
 - [ ] Add new test `TestEnsureFastPathPropagatesRoleEdits` in the same file: persist a project, call `Ensure`, mutate the role content in the store, reset `git.putFileByPath`, call `Ensure` again, assert the second push carries the new role content.
 - [ ] Run `go build ./api/pkg/org/...` to confirm no compile breakage.
