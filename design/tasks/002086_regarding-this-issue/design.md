@@ -69,11 +69,18 @@ The reconciler computes `Role.Tools = union(Role.Tools, BaseReadTools)` preservi
 - **Conservative** — never removes a caller's custom tool. Owners stay in control of pruning via `update_role`.
 - **Order-stable** — the caller-supplied order is preserved (matters for any UI that lists tools in declaration order).
 
-### D3 — One-shot on startup, plus once at bootstrap
+### D3 — One-shot per-org in `ensureBootstrap` (revised after discovery)
 
-We deliberately avoid a background reconcile loop. Drift in this system can only happen on two events: (a) the baseline definition changes in code, or (b) `update_role` is misused. (a) is solved by reconcile-on-startup; (b) is a user-driven action and shouldn't be silently undone. If real drift is observed in production, we can add a periodic reconcile later — but YAGNI for v1.
+**Discovery during implementation:** The org graph is per-org and **lazy**. There is no "API server start" hook that iterates all orgs — `bootstrap.Run` is invoked from `helix_org_middleware.ensureBootstrap` on the first request for an org, and the existing `topology.Reconciler.ReconcileAll(ctx, orgID)` runs there too (`api/pkg/server/helix_org_middleware.go:134-137`).
 
-The bootstrap call is mostly a wiring smoke-test (the freshly-created `r-owner` already includes the baseline because bootstrap composes from `BaseReadTools`). It costs nothing and proves the reconciler doesn't blow up on a single-role org.
+So the right place for the new reconciler is exactly the same site, right after the topology reconcile. This:
+
+- Runs once per org per process (the `bootstrapped` flag guards re-entry).
+- Covers both first-time bootstrap (a no-op — `r-owner` already includes the baseline because `bootstrap.go` composes from `BaseReadTools`) **and** the upgrade case (catches pre-existing roles missing the baseline — the actual bug from issue #2546).
+- Avoids needing access to a global org list (which doesn't exist in the org-store).
+- Matches the project's existing reconciler convention so future maintainers find it where they expect.
+
+We deliberately avoid a background loop. Drift can only happen on two events: (a) the baseline definition changes in code, or (b) `update_role` is misused. (a) is solved on next request after a deploy; (b) is a user-driven action and shouldn't be silently undone.
 
 ### D4 — Reconciler is a function, not a goroutine
 
@@ -88,7 +95,7 @@ func (r *RoleReconciler) Reconcile(ctx context.Context, orgID string) error
 
 Mirrors the shape of `topology.Reconciler` (`api/pkg/org/application/topology/reconciler.go:16-32`), which is the project's existing reconciler pattern. Same `Now` seam for tests.
 
-`ReconcileAll(ctx) error` is the entrypoint used by `serve.go` — it iterates `store.Organizations.List(ctx)` and calls `Reconcile` per org. Errors per org are logged and aggregated (one bad org should not block bootstrap of others).
+No `ReconcileAll` is needed (see D3 — there is no global org list in the org-store; reconcile is per-org-on-first-request, same as topology).
 
 ### D5 — Compose, don't duplicate, the bootstrap defaults
 
