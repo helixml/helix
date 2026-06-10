@@ -4169,11 +4169,11 @@ definitions:
     - CodeAgentRuntimeGooseCode
   types.CommentQueueStatusResponse:
     properties:
+      agent_session_id:
+        description: Session ID for WebSocket subscription
+        type: string
       current_comment_id:
         description: Comment currently being processed (response streaming)
-        type: string
-      planning_session_id:
-        description: Session ID for WebSocket subscription
         type: string
       queued_comment_ids:
         description: Comments waiting in queue
@@ -7341,6 +7341,31 @@ definitions:
         description: Number of entries synced
         type: integer
     type: object
+  types.ProposalDecisionRequest:
+    properties:
+      comment:
+        type: string
+      decision:
+        description: '"approve" or "reject"'
+        enum:
+        - approve
+        - reject
+        type: string
+      edited_payload:
+        additionalProperties: true
+        description: 'optional: user edits to the proposal payload (PR head_branch
+          / title / etc.)'
+        type: object
+    required:
+    - decision
+    type: object
+  types.ProposalDecisionResponse:
+    properties:
+      message:
+        type: string
+      proposal:
+        $ref: '#/definitions/types.SpecTaskProposal'
+    type: object
   types.Provider:
     enum:
     - openai
@@ -9115,6 +9140,11 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      agent_session_id:
+        description: |-
+          AgentSessionID is the single Helix session backing the agent for this spec task.
+          One agent, one session for the whole lifecycle (planning + implementation phases).
+        type: string
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -9239,13 +9269,13 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      parent_task_id:
+        description: |-
+          Parent task tracking — set when this task was spawned via an approved
+          SpecTaskProposal of kind=spec_task. Enables UI lineage display.
+        type: string
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
-      planning_session_id:
-        description: |-
-          Session tracking (single Helix session for entire workflow - planning + implementation)
-          The same external agent/session is reused throughout the entire SpecTask lifecycle
-        type: string
       planning_started_at:
         type: string
       planning_started_by:
@@ -9619,6 +9649,100 @@ definitions:
     - SpecTaskPriorityMedium
     - SpecTaskPriorityHigh
     - SpecTaskPriorityCritical
+  types.SpecTaskProposal:
+    properties:
+      agent_reason:
+        description: free-form why-we-want-this
+        type: string
+      complete_reason:
+        description: Mark-complete payload (kind = ProposalKindMarkComplete)
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        description: Decision tracking
+        type: string
+      decision_comment:
+        type: string
+      edited_payload:
+        description: user edits to the payload, if any
+        items:
+          type: integer
+        type: array
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/types.SpecTaskProposalKind'
+      pr_base_branch:
+        type: string
+      pr_body:
+        type: string
+      pr_head_branch:
+        type: string
+      pr_repository_id:
+        description: PR proposal payload (kind = ProposalKindPullRequest)
+        type: string
+      pr_title:
+        type: string
+      project_id:
+        type: string
+      proposed_by_session:
+        description: Created-by-agent metadata
+        type: string
+      result_error:
+        description: populated when Status=failed
+        type: string
+      result_pr_id:
+        description: Result tracking — what actually happened on approval
+        type: string
+      result_pr_url:
+        description: for PR kind
+        type: string
+      result_task_id:
+        description: for spec_task kind
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.SpecTaskProposalStatus'
+      task_description:
+        type: string
+      task_name:
+        description: Spec task proposal payload (kind = ProposalKindSpecTask)
+        type: string
+      task_original_prompt:
+        type: string
+      task_priority:
+        $ref: '#/definitions/types.SpecTaskPriority'
+      task_type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskProposalKind:
+    enum:
+    - pull_request
+    - spec_task
+    - mark_complete
+    type: string
+    x-enum-varnames:
+    - ProposalKindPullRequest
+    - ProposalKindSpecTask
+    - ProposalKindMarkComplete
+  types.SpecTaskProposalStatus:
+    enum:
+    - pending
+    - approved
+    - rejected
+    - failed
+    type: string
+    x-enum-varnames:
+    - ProposalStatusPending
+    - ProposalStatusApproved
+    - ProposalStatusRejected
+    - ProposalStatusFailed
   types.SpecTaskStatus:
     enum:
     - backlog
@@ -9705,6 +9829,11 @@ definitions:
     type: object
   types.SpecTaskWithProject:
     properties:
+      agent_session_id:
+        description: |-
+          AgentSessionID is the single Helix session backing the agent for this spec task.
+          One agent, one session for the whole lifecycle (planning + implementation phases).
+        type: string
       agent_work_state:
         allOf:
         - $ref: '#/definitions/types.AgentWorkState'
@@ -9829,13 +9958,13 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      parent_task_id:
+        description: |-
+          Parent task tracking — set when this task was spawned via an approved
+          SpecTaskProposal of kind=spec_task. Enables UI lineage display.
+        type: string
       planning_options:
         $ref: '#/definitions/types.StartPlanningOptions'
-      planning_session_id:
-        description: |-
-          Session tracking (single Helix session for entire workflow - planning + implementation)
-          The same external agent/session is reused throughout the entire SpecTask lifecycle
-        type: string
       planning_started_at:
         type: string
       planning_started_by:
@@ -19347,6 +19476,27 @@ paths:
       summary: List all labels used in a project
       tags:
       - spec-driven-tasks
+  /api/v1/projects/{projectId}/proposals:
+    get:
+      description: List pending proposals across all spec tasks in a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List pending proposals for a project
+      tags:
+      - projects
   /api/v1/projects/apply:
     put:
       consumes:
@@ -19739,6 +19889,32 @@ paths:
       summary: Sync prompt history
       tags:
       - PromptHistory
+  /api/v1/proposals/{proposalId}/decide:
+    post:
+      description: Approve or reject an agent's proposal; on approve, the action is
+        executed and the agent is notified
+      parameters:
+      - description: Proposal ID
+        in: path
+        name: proposalId
+        required: true
+        type: string
+      - description: Decision payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProposalDecisionRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProposalDecisionResponse'
+      security:
+      - BearerAuth: []
+      summary: Decide on a spec task proposal
+      tags:
+      - spec-tasks
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -22964,6 +23140,32 @@ paths:
       summary: Get spec-driven task progress
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/proposals:
+    get:
+      description: List all agent proposals (PR / sub-task / mark-complete) for a
+        given spec task
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Filter by status (pending|approved|rejected|failed)
+        in: query
+        name: status
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List proposals for a spec task
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{taskId}/specs:
     get:
       description: Get the generated specifications for human review

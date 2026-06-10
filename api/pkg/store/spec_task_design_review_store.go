@@ -313,15 +313,15 @@ func (s *PostgresStore) GetUnresolvedCommentsForTask(ctx context.Context, specTa
 	return comments, nil
 }
 
-// GetPendingCommentByPlanningSessionID finds a comment that has a pending request_id
+// GetPendingCommentByAgentSessionID finds a comment that has a pending request_id
 // for a given planning session. This is used for response linking after API restart
 // when in-memory requestToSessionMapping is lost.
-func (s *PostgresStore) GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+func (s *PostgresStore) GetPendingCommentByAgentSessionID(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	var comment types.SpecTaskDesignReviewComment
 	err := s.gdb.WithContext(ctx).
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
-		Where("spec_tasks.planning_session_id = ? AND spec_task_design_review_comments.request_id IS NOT NULL AND spec_task_design_review_comments.request_id != ''", planningSessionID).
+		Where("spec_tasks.agent_session_id = ? AND spec_task_design_review_comments.request_id IS NOT NULL AND spec_task_design_review_comments.request_id != ''", agentSessionID).
 		Order("spec_task_design_review_comments.created_at DESC").
 		First(&comment).Error
 	if err != nil {
@@ -337,12 +337,12 @@ func (s *PostgresStore) GetPendingCommentByPlanningSessionID(ctx context.Context
 // - request_id IS NULL OR '' (not currently being processed)
 // - agent_response IS NULL OR '' (no response received yet)
 // Returns oldest queued comment (FIFO order by queued_at).
-func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	var comment types.SpecTaskDesignReviewComment
 	err := s.gdb.WithContext(ctx).
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
-		Where("spec_tasks.planning_session_id = ?", planningSessionID).
+		Where("spec_tasks.agent_session_id = ?", agentSessionID).
 		Where("spec_task_design_review_comments.queued_at IS NOT NULL").
 		Where("(spec_task_design_review_comments.request_id IS NULL OR spec_task_design_review_comments.request_id = '')").
 		Where("(spec_task_design_review_comments.agent_response IS NULL OR spec_task_design_review_comments.agent_response = '')").
@@ -356,13 +356,13 @@ func (s *PostgresStore) GetNextQueuedCommentForSession(ctx context.Context, plan
 
 // IsCommentBeingProcessedForSession checks if there's a comment currently being processed
 // (has request_id set) for the given session. Used to prevent concurrent processing.
-func (s *PostgresStore) IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error) {
+func (s *PostgresStore) IsCommentBeingProcessedForSession(ctx context.Context, agentSessionID string) (bool, error) {
 	var count int64
 	err := s.gdb.WithContext(ctx).
 		Model(&types.SpecTaskDesignReviewComment{}).
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
-		Where("spec_tasks.planning_session_id = ?", planningSessionID).
+		Where("spec_tasks.agent_session_id = ?", agentSessionID).
 		Where("spec_task_design_review_comments.request_id IS NOT NULL AND spec_task_design_review_comments.request_id != ''").
 		Count(&count).Error
 	if err != nil {
@@ -377,12 +377,12 @@ func (s *PostgresStore) GetSessionsWithPendingComments(ctx context.Context) ([]s
 	var sessionIDs []string
 	err := s.gdb.WithContext(ctx).
 		Model(&types.SpecTaskDesignReviewComment{}).
-		Select("DISTINCT spec_tasks.planning_session_id").
+		Select("DISTINCT spec_tasks.agent_session_id").
 		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
 		Joins("JOIN spec_tasks ON spec_tasks.id = spec_task_design_reviews.spec_task_id").
 		Where("spec_task_design_review_comments.queued_at IS NOT NULL").
-		Where("spec_tasks.planning_session_id IS NOT NULL AND spec_tasks.planning_session_id != ''").
-		Pluck("spec_tasks.planning_session_id", &sessionIDs).Error
+		Where("spec_tasks.agent_session_id IS NOT NULL AND spec_tasks.agent_session_id != ''").
+		Pluck("spec_tasks.agent_session_id", &sessionIDs).Error
 	if err != nil {
 		return nil, err
 	}

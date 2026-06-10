@@ -480,7 +480,7 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 	log.Info().
 		Str("comment_id", comment.ID).
 		Str("spec_task_id", specTask.ID).
-		Str("planning_session_id", specTask.PlanningSessionID).
+		Str("agent_session_id", specTask.AgentSessionID).
 		Msg("📝 Comment created, sending to agent...")
 
 	// Send comment to agent session synchronously so we can return the request_id
@@ -490,7 +490,7 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 			Err(err).
 			Str("comment_id", comment.ID).
 			Str("spec_task_id", specTask.ID).
-			Str("planning_session_id", specTask.PlanningSessionID).
+			Str("agent_session_id", specTask.AgentSessionID).
 			Msg("❌ Failed to send comment to agent (will retry via polling)")
 		// Don't fail the request - comment is still created, agent response will be linked via polling
 	} else {
@@ -675,14 +675,14 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 		}
 	}
 
-	sessionID := specTask.PlanningSessionID
+	sessionID := specTask.AgentSessionID
 	currentCommentID := s.GetCurrentCommentForSession(sessionID)
 	queuedCommentIDs := s.GetCommentQueueForSession(sessionID)
 
 	response := &types.CommentQueueStatusResponse{
 		CurrentCommentID:  currentCommentID,
 		QueuedCommentIDs:  queuedCommentIDs,
-		PlanningSessionID: sessionID,
+		AgentSessionID: sessionID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -697,14 +697,14 @@ func (s *HelixAPIServer) queueCommentForAgent(
 	specTask *types.SpecTask,
 	comment *types.SpecTaskDesignReviewComment,
 ) error {
-	if specTask.PlanningSessionID == "" {
+	if specTask.AgentSessionID == "" {
 		log.Debug().
 			Str("spec_task_id", specTask.ID).
 			Msg("No planning session ID, skipping agent notification for comment")
 		return nil
 	}
 
-	sessionID := specTask.PlanningSessionID
+	sessionID := specTask.AgentSessionID
 
 	// Set QueuedAt to mark comment as queued for processing
 	now := time.Now()
@@ -853,24 +853,24 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 // It first tries the planning session ID, then searches for any connected session with matching spec task ID
 func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, specTask *types.SpecTask) (string, error) {
 	// First, try the planning session ID directly
-	if specTask.PlanningSessionID != "" {
-		if _, exists := s.externalAgentWSManager.getConnection(specTask.PlanningSessionID); exists {
+	if specTask.AgentSessionID != "" {
+		if _, exists := s.externalAgentWSManager.getConnection(specTask.AgentSessionID); exists {
 			log.Debug().
 				Str("spec_task_id", specTask.ID).
-				Str("session_id", specTask.PlanningSessionID).
+				Str("session_id", specTask.AgentSessionID).
 				Msg("Found WebSocket connection for planning session ID")
-			return specTask.PlanningSessionID, nil
+			return specTask.AgentSessionID, nil
 		}
 	}
 
-	// PlanningSessionID not connected - search for the most recently updated
+	// AgentSessionID not connected - search for the most recently updated
 	// connected session with this spec task ID. A spectask can have multiple
 	// Zed threads (sessions), so we pick the most recent to route messages
 	// to the thread the agent is most likely actively working in.
 	log.Info().
 		Str("spec_task_id", specTask.ID).
-		Str("planning_session_id", specTask.PlanningSessionID).
-		Msg("PlanningSessionID not connected, searching for alternate connected session")
+		Str("agent_session_id", specTask.AgentSessionID).
+		Msg("AgentSessionID not connected, searching for alternate connected session")
 
 	connectedSessions := s.externalAgentWSManager.listConnections()
 
@@ -894,14 +894,14 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		log.Info().
 			Str("spec_task_id", specTask.ID).
 			Str("found_session_id", bestSessionConnID).
-			Str("original_planning_session_id", specTask.PlanningSessionID).
+			Str("original_agent_session_id", specTask.AgentSessionID).
 			Time("session_updated", bestSession.Updated).
 			Msg("✅ Found most recently updated connected session for spec task")
 		return bestSessionConnID, nil
 	}
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
-		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
+		specTask.ID, specTask.AgentSessionID, len(connectedSessions))
 }
 
 // startDevContainerForSession boots the dev container for any zed_external session,
@@ -1042,12 +1042,12 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 // session, then delegates to startDevContainerForSession. Kept for callers that have
 // a SpecTask in hand but not the session.
 func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
-	if specTask.PlanningSessionID == "" {
+	if specTask.AgentSessionID == "" {
 		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
 	}
-	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	session, err := s.Store.GetSession(ctx, specTask.AgentSessionID)
 	if err != nil {
-		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.AgentSessionID, err)
 	}
 	return s.startDevContainerForSession(ctx, session)
 }
@@ -1063,7 +1063,7 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 
 	// Send via the unified helper, notifying the commenter of responses.
 	// interactionID is returned directly — avoids the fragile session-based queue
-	// lookup that breaks when the connected session differs from PlanningSessionID
+	// lookup that breaks when the connected session differs from AgentSessionID
 	// (e.g. after Zed thread compaction creates a new work session).
 	// interrupt=true: a design-review comment is reactive feedback that should preempt
 	// any in-flight agent turn so the latest input takes priority over stale work.
@@ -1118,7 +1118,7 @@ func (s *HelixAPIServer) GetCurrentCommentForSession(sessionID string) string {
 	}
 
 	// Find the comment that's being processed (has request_id set)
-	comment, err := s.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
+	comment, err := s.Store.GetPendingCommentByAgentSessionID(context.Background(), sessionID)
 	if err != nil {
 		return ""
 	}
@@ -1287,14 +1287,14 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return nil
 	}
 
-	if specTask.PlanningSessionID == "" {
+	if specTask.AgentSessionID == "" {
 		log.Warn().
 			Str("spec_task_id", specTask.ID).
-			Msg("⚠️ SpecTask has empty PlanningSessionID - cannot process next comment")
+			Msg("⚠️ SpecTask has empty AgentSessionID - cannot process next comment")
 		return nil
 	}
 
-	sessionID := specTask.PlanningSessionID
+	sessionID := specTask.AgentSessionID
 
 	// Cancel the timeout timer since we got a response
 	s.sessionCommentMutex.Lock()
@@ -1343,10 +1343,10 @@ func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, c
 		return
 	}
 	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
-	if err != nil || specTask.PlanningSessionID == "" {
+	if err != nil || specTask.AgentSessionID == "" {
 		return
 	}
-	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	session, err := s.Store.GetSession(ctx, specTask.AgentSessionID)
 	if err != nil || len(session.Interactions) == 0 {
 		return
 	}
@@ -1514,20 +1514,20 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
 	interrupt bool,
 ) (string, string, error) {
-	// Find a connected session for this spec task, falling back to PlanningSessionID.
+	// Find a connected session for this spec task, falling back to AgentSessionID.
 	// If no session is connected, sendChatMessageToExternalAgent will still create
 	// the interaction. sendCommandToExternalAgent will fail and trigger auto-start;
 	// pickupWaitingInteraction delivers the message when the agent reconnects.
 	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
-		if specTask.PlanningSessionID == "" {
+		if specTask.AgentSessionID == "" {
 			return "", "", fmt.Errorf("no connected session and no planning session ID: %w", err)
 		}
 		log.Info().
 			Str("spec_task_id", specTask.ID).
-			Str("planning_session_id", specTask.PlanningSessionID).
+			Str("agent_session_id", specTask.AgentSessionID).
 			Msg("No connected session, falling back to planning session ID — auto-start will be triggered on send")
-		sessionID = specTask.PlanningSessionID
+		sessionID = specTask.AgentSessionID
 	}
 
 	return s.sendMessageToSession(ctx, sessionID, message, notifyUserID, interrupt)

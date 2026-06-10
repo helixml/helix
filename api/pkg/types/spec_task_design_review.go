@@ -219,7 +219,7 @@ type SpecTaskGitPushEventListResponse struct {
 type CommentQueueStatusResponse struct {
 	CurrentCommentID  string   `json:"current_comment_id,omitempty"`  // Comment currently being processed (response streaming)
 	QueuedCommentIDs  []string `json:"queued_comment_ids"`            // Comments waiting in queue
-	PlanningSessionID string   `json:"planning_session_id,omitempty"` // Session ID for WebSocket subscription
+	AgentSessionID string   `json:"agent_session_id,omitempty"` // Session ID for WebSocket subscription
 }
 
 // Implementation phase transition response

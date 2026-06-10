@@ -86,7 +86,7 @@ const transformTaskForCard = (task: TypesSpecTaskWithProject) => ({
   status: task.status || 'backlog',
   phase: statusToPhase(task.status || 'backlog'),
   planningStatus: undefined,
-  planning_session_id: task.planning_session_id,
+  agent_session_id: task.agent_session_id,
   archived: task.archived,
   metadata: task.metadata,
   merged_to_main: task.merged_to_main,

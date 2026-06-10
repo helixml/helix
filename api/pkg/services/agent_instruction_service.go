@@ -107,12 +107,6 @@ type RevisionPromptData struct {
 	Comments    string
 }
 
-// MergePromptData contains data for merge instruction prompts
-type MergePromptData struct {
-	BranchName string
-	BaseBranch string
-}
-
 // ImplementationReviewPromptData contains data for implementation review prompts
 type ImplementationReviewPromptData struct {
 	BranchName  string
@@ -190,7 +184,37 @@ git add -A && git commit -m "chore(specs): update progress" && git push origin h
    ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git fetch origin {{.BaseBranch}} && git merge origin/{{.BaseBranch}}`" + `
    Resolve any conflicts and commit before pushing.
 5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
-6. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient. The Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
+6. **Opening pull requests (zero, one, or many)**
+
+   If your task produces code changes, open one or more PRs via the ` + "`propose_pull_request`" + ` MCP tool. Each call creates a pending proposal for the user to approve in the Helix UI. You may call it multiple times per task to ship work as a series of reviewable slices, and you may request a non-default branch name; the user can override it during approval.
+
+   The simple "click Open PR in the UI" path still works for single-PR tasks — you don't *have* to use ` + "`propose_pull_request`" + ` if there's only one PR and it goes on the default branch.
+
+   **Opening zero PRs is a valid outcome.** Some tasks (research, analysis, knowledge work, doc-only updates that live in the spec branch) finish without any code changes. That's fine — call ` + "`mark_task_complete`" + ` when you're done (see step 8).
+
+   Do NOT use ` + "`gh pr create`" + `, the GitHub MCP tools, or any other direct route to open PRs — ` + "`propose_pull_request`" + ` is the only sanctioned mechanism.
+
+7. **Capture knowledge as you go**
+
+   Two channels for writing down what you learned. Use both as appropriate:
+
+   - **Spec branch (` + "`helix-specs`" + `) — no PR needed, push freely.** This branch is forward-only and you push to it constantly throughout the task anyway. At minimum, update ` + "`design/tasks/{{.TaskDirName}}/design.md`" + ` with: gotchas you hit, design decisions you made, why you picked approach A over B, things future agents on similar tasks should know. You can also add new files (` + "`learnings.md`" + `, ` + "`architecture-notes.md`" + `) in the same task directory. None of this needs a PR — it's already pushed and visible.
+
+   - **Main repo markdown files — use ` + "`propose_pull_request`" + ` like any code change.** For content that should live next to the code (` + "`README.md`" + `, ` + "`docs/`" + `, ` + "`ARCHITECTURE.md`" + `, etc.), include the file in a regular PR proposal. Doc-only PRs are valid.
+
+   When in doubt, prefer the spec branch — it's friction-free and the knowledge is guaranteed to be captured.
+
+8. **Declaring the task done — REQUIRED**
+
+   ` + "`mark_task_complete`" + ` is the **only** way the task moves to ` + "`done`" + `. There is no automatic completion based on PRs merging. You must call it explicitly when the work is finished, regardless of how many PRs you opened or what state they're in.
+
+   - Zero PRs and you've captured what you needed → call ` + "`mark_task_complete`" + `.
+   - One PR open and waiting for review → call ` + "`mark_task_complete`" + ` after pushing.
+   - All PRs merged → call ` + "`mark_task_complete`" + `.
+
+   The user clicks Mark Done (or Send Back with feedback) in the UI to confirm. Without your explicit call the task stays in its current state forever.
+
+   If during implementation you discover follow-up work that should be its own task, use ` + "`propose_spec_task`" + ` to propose it before calling ` + "`mark_task_complete`" + `.
 
 ## How Pushing Works (Read This Before Debugging Any Push Failure)
 
@@ -429,17 +453,6 @@ cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add
 ` + "```" + `
 `))
 
-var mergePromptTemplate = template.Must(template.New("merge").Parse(`# Implementation Approved - Please Merge
-
-Speak English.
-
-Your implementation has been approved. Merge to {{.BaseBranch}}:
-
-` + "```bash" + `
-git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.BranchName}} && git push origin {{.BaseBranch}}
-` + "```" + `
-`))
-
 // =============================================================================
 // Prompt Builder Functions
 // =============================================================================
@@ -591,21 +604,6 @@ func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) strin
 	var buf bytes.Buffer
 	if err := revisionPromptTemplate.Execute(&buf, data); err != nil {
 		return "Error generating revision prompt: " + err.Error()
-	}
-	return buf.String()
-}
-
-// BuildMergeInstructionPrompt builds the prompt for telling agent to merge their branch
-// This is the single source of truth for this prompt - used by WebSocket approaches
-func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
-	data := MergePromptData{
-		BranchName: branchName,
-		BaseBranch: baseBranch,
-	}
-
-	var buf bytes.Buffer
-	if err := mergePromptTemplate.Execute(&buf, data); err != nil {
-		return "Error generating merge prompt: " + err.Error()
 	}
 	return buf.String()
 }
@@ -789,27 +787,6 @@ func (s *AgentInstructionService) SendRevisionInstruction(
 		Str("session_id", sessionID).
 		Str("task_id", task.ID).
 		Msg("Sending revision instruction to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
-}
-
-// SendMergeInstruction tells agent to merge their branch to main
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildMergeInstructionPrompt
-// and send via sendMessageToSpecTaskAgent instead
-func (s *AgentInstructionService) SendMergeInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-	baseBranch string,
-) error {
-	message := BuildMergeInstructionPrompt(branchName, baseBranch)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Str("base_branch", baseBranch).
-		Msg("Sending merge instruction to agent")
 
 	return s.sendMessage(ctx, sessionID, userID, message)
 }

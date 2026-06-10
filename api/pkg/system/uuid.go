@@ -47,6 +47,7 @@ const (
 	AttentionEventPrefix       = "atev_"
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
+	SpecTaskProposalPrefix     = "stp_"
 	SandboxPrefix              = "sbx_"
 	SandboxCommandPrefix       = "sbcmd_"
 	RunnerProfilePrefix        = "rprof_"
@@ -195,6 +196,10 @@ func GenerateQuestionSetExecutionID() string {
 
 func GenerateSpecTaskID() string {
 	return fmt.Sprintf("%s%s", SpecTaskPrefix, newID())
+}
+
+func GenerateSpecTaskProposalID() string {
+	return fmt.Sprintf("%s%s", SpecTaskProposalPrefix, newID())
 }
 
 func GenerateCloneGroupID() string {

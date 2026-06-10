@@ -125,7 +125,7 @@ type HelixAPIServer struct {
 	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
-	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
+	sessionCommentTimeout     map[string]*time.Timer // agent_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
 	requestToCommenterMapping map[string]string      // request_id -> commenter user_id (for design review streaming)
 	sessionToCommenterMapping map[string]string      // session_id -> commenter user_id (for streaming when request_id unavailable)
@@ -1573,6 +1573,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Workflow automation routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost) // MOVE
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
+
+	// Spec task proposal routes (agent proposes PR / sub-task / mark-complete; user approves)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/proposals", apiServer.listSpecTaskProposals).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{projectId}/proposals", apiServer.listProjectPendingProposals).Methods(http.MethodGet)
+	authRouter.HandleFunc("/proposals/{proposalId}/decide", apiServer.decideSpecTaskProposal).Methods(http.MethodPost)
 
 	// Design review routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews", apiServer.listDesignReviews).Methods(http.MethodGet)

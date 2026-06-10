@@ -415,13 +415,13 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 
 	case existingThread != nil && specTask != nil && isSpecTaskActive(specTask.Status):
 		// Spec task thread, handle spec task thread - using planning session ID
-		planningSession, err := s.store.GetSession(ctx, specTask.PlanningSessionID)
+		agentSession, err := s.store.GetSession(ctx, specTask.AgentSessionID)
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to get planning session '%s': %w", specTask.PlanningSessionID, err)
+			return "", nil, fmt.Errorf("failed to get planning session '%s': %w", specTask.AgentSessionID, err)
 		}
 
 		// Replace the session with planning session, this one speaks directly with the zed agent
-		session = planningSession
+		session = agentSession
 
 	case existingThread != nil && specTask != nil && !isSpecTaskActive(specTask.Status):
 		// Inactive spec task (backlog or merged/done) - using normal app route

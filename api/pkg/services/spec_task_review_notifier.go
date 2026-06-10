@@ -62,7 +62,7 @@ func (n *SpecTaskReviewNotifier) NotifyAgentOfReviewFeedback(
 
 	// TODO: Implement WebSocket push to agent
 	// This would send to the agent's planning session:
-	// - Get specTask.PlanningSessionID
+	// - Get specTask.AgentSessionID
 	// - Find active WebSocket connection for that session
 	// - Send notification via WebSocket
 

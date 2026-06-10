@@ -413,11 +413,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Guard against duplicate session creation (issue #10 from ZFS deployment).
 	// Two concurrent requests can both reach this point before either has written
-	// planning_session_id to the DB. Re-read the task to see if a sibling already won the race.
-	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+	// agent_session_id to the DB. Re-read the task to see if a sibling already won the race.
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.AgentSessionID != "" {
 		log.Info().
 			Str("task_id", task.ID).
-			Str("existing_session_id", freshTask.PlanningSessionID).
+			Str("existing_session_id", freshTask.AgentSessionID).
 			Msg("Planning session already created by concurrent request — skipping duplicate creation")
 		return
 	}
@@ -431,7 +431,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Update task with session ID
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: About to update task with session ID")
-	task.PlanningSessionID = session.ID
+	task.AgentSessionID = session.ID
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
@@ -654,7 +654,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	log.Info().
 		Str("task_id", task.ID).
 		Str("session_id", session.ID).
-		Str("planning_session_id", task.PlanningSessionID).
+		Str("agent_session_id", task.AgentSessionID).
 		Str("dev_container_id", agentResp.DevContainerID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
@@ -810,10 +810,10 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	}
 
 	// Guard against duplicate session creation (issue #10 from ZFS deployment).
-	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.AgentSessionID != "" {
 		log.Info().
 			Str("task_id", task.ID).
-			Str("existing_session_id", freshTask.PlanningSessionID).
+			Str("existing_session_id", freshTask.AgentSessionID).
 			Msg("Planning session already created by concurrent request — skipping duplicate Just Do It creation")
 		return
 	}
@@ -825,8 +825,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		return
 	}
 
-	// Update task with session ID (use PlanningSessionID since it's the primary session)
-	task.PlanningSessionID = session.ID
+	// Update task with session ID (use AgentSessionID since it's the primary session)
+	task.AgentSessionID = session.ID
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
@@ -1135,7 +1135,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	if s.notifier != nil {
 		// Note: The notification system expects a session, but for task notifications we'll create a minimal one
 		session := &types.Session{
-			ID:    task.PlanningSessionID,
+			ID:    task.AgentSessionID,
 			Owner: task.CreatedBy,
 		}
 
@@ -1203,8 +1203,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Msg("[ApproveSpecs] Inherited HelixAppID from project default")
 
 			// Also update the planning session's ParentApp if it was empty
-			if task.PlanningSessionID != "" {
-				session, sessionErr := s.store.GetSession(ctx, task.PlanningSessionID)
+			if task.AgentSessionID != "" {
+				session, sessionErr := s.store.GetSession(ctx, task.AgentSessionID)
 				if sessionErr == nil && session != nil && session.ParentApp == "" {
 					session.ParentApp = task.HelixAppID
 					if _, updateErr := s.store.UpdateSession(ctx, *session); updateErr != nil {
@@ -1325,7 +1325,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		// Update git identity in the running container to match the approver,
 		// so implementation commits are attributed to the user who approved specs.
-		sessionID := task.PlanningSessionID
+		sessionID := task.AgentSessionID
 
 		if err := s.syncGitIdentityToUser(ctx, task, task.SpecApprovedBy, "approver"); err != nil {
 			// Don't fail the whole approval — push-time credentials already
@@ -1413,8 +1413,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 					Msg("[RequestRevision] Inherited HelixAppID from project default")
 
 				// Also update the planning session's ParentApp if it was empty
-				if task.PlanningSessionID != "" {
-					session, sessionErr := s.store.GetSession(ctx, task.PlanningSessionID)
+				if task.AgentSessionID != "" {
+					session, sessionErr := s.store.GetSession(ctx, task.AgentSessionID)
 					if sessionErr == nil && session != nil && session.ParentApp == "" {
 						session.ParentApp = task.HelixAppID
 						if _, updateErr := s.store.UpdateSession(ctx, *session); updateErr != nil {
@@ -1443,7 +1443,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 					log.Error().
 						Err(err).
 						Str("task_id", t.ID).
-						Str("planning_session_id", t.PlanningSessionID).
+						Str("agent_session_id", t.AgentSessionID).
 						Msg("Failed to send revision instruction to agent via WebSocket")
 				} else {
 					log.Info().
@@ -1460,8 +1460,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		// Log audit event for review comment (revision request)
 		if s.auditLogService != nil && task.SpecApproval.Comments != "" {
-			// reviewID=planningSessionID, commentID=empty (revision not a specific comment), commentText, userID, userEmail
-			s.auditLogService.LogReviewComment(ctx, task, task.PlanningSessionID, "", task.SpecApproval.Comments, task.SpecApproval.ApprovedBy, "")
+			// reviewID=agentSessionID, commentID=empty (revision not a specific comment), commentText, userID, userEmail
+			s.auditLogService.LogReviewComment(ctx, task, task.AgentSessionID, "", task.SpecApproval.Comments, task.SpecApproval.ApprovedBy, "")
 		}
 	}
 
@@ -1487,7 +1487,7 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 	if s.testMode || s.ExecInDesktop == nil {
 		return nil
 	}
-	if task.PlanningSessionID == "" {
+	if task.AgentSessionID == "" {
 		return nil
 	}
 	if userID == "" {
@@ -1525,7 +1525,7 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 		}
 	}
 
-	sessionID := task.PlanningSessionID
+	sessionID := task.AgentSessionID
 
 	// Email first — this is the attribution-critical field. If it fails we
 	// don't touch user.name at all, so we don't leave a mixed identity.
@@ -1618,7 +1618,7 @@ func shellQuoteArg(s string) string {
 // Errors that won't be fixed by retrying (missing email, user not found) are
 // detected early and returned via the first attempt without further retries.
 func (s *SpecDrivenTaskService) syncGitIdentityAsync(task *types.SpecTask, userID, phaseLabel string, maxWait time.Duration) {
-	if s.testMode || s.ExecInDesktop == nil || task.PlanningSessionID == "" || userID == "" {
+	if s.testMode || s.ExecInDesktop == nil || task.AgentSessionID == "" || userID == "" {
 		return
 	}
 
@@ -1672,7 +1672,7 @@ func (s *SpecDrivenTaskService) syncGitIdentityAsync(task *types.SpecTask, userI
 				backoff += 2 * time.Second
 			}
 		}
-	}(task.ID, task.PlanningSessionID)
+	}(task.ID, task.AgentSessionID)
 }
 
 // Sentinel errors returned by syncGitIdentityToUser for conditions that won't

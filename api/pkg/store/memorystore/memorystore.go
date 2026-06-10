@@ -330,7 +330,7 @@ func (m *MemoryStore) UpdateSpecTaskDesignReviewComment(_ context.Context, _ *ty
 }
 
 // Pending comments — always return nil (no comments queued)
-func (m *MemoryStore) GetPendingCommentByPlanningSessionID(_ context.Context, _ string) (*types.SpecTaskDesignReviewComment, error) {
+func (m *MemoryStore) GetPendingCommentByAgentSessionID(_ context.Context, _ string) (*types.SpecTaskDesignReviewComment, error) {
 	return nil, nil
 }
 
@@ -386,6 +386,23 @@ func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, 
 // SpecTask methods — always return "not found" (no spectasks in test)
 func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask, error) {
 	return nil, store.ErrNotFound
+}
+
+// SpecTaskProposal stubs — no-op for in-memory tests
+func (m *MemoryStore) CreateSpecTaskProposal(_ context.Context, _ *types.SpecTaskProposal) error {
+	return nil
+}
+
+func (m *MemoryStore) GetSpecTaskProposal(_ context.Context, _ string) (*types.SpecTaskProposal, error) {
+	return nil, store.ErrNotFound
+}
+
+func (m *MemoryStore) ListSpecTaskProposals(_ context.Context, _ *types.SpecTaskProposalFilters) ([]*types.SpecTaskProposal, error) {
+	return nil, nil
+}
+
+func (m *MemoryStore) UpdateSpecTaskProposal(_ context.Context, _ *types.SpecTaskProposal) error {
+	return nil
 }
 
 func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {

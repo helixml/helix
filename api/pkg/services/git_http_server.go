@@ -1057,6 +1057,11 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 // have been mutated by the orchestrator or by a user action (move-to-backlog,
 // archive, etc). Operating on a stale pointer would silently overwrite those
 // changes.
+//
+// This is the user-initiated approve-implementation merge path — it stays
+// status-transitioning even though handleMainBranchPush no longer auto-transitions,
+// because here the user has explicitly asked to merge and the rebase is the agent
+// completing that user request.
 func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID string) {
 	task, err := s.store.GetSpecTask(ctx, taskID)
 	if err != nil {
@@ -1146,7 +1151,16 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
-// handleMainBranchPush transitions task from implementation_review → done
+// handleMainBranchPush observes pushes to a default-branch and records merge
+// metadata (MergedToMain / MergedAt / MergeCommitHash) on any spec task whose
+// feature branch was merged into main as part of this push.
+//
+// COMPLETION MODEL: this function used to transition matching tasks to
+// TaskStatusDone. That auto-transition has been removed — the only path to
+// done is now an approved mark_task_complete proposal, the user-initiated
+// approve-implementation flow (tryAutoMergeAfterRebase above), or direct
+// user action in the UI. We continue to record the merge metadata here so
+// the UI can display "merged to main" alongside the (still-active) task.
 func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash, repoPath string, gitRepo *GitRepo) {
 	log.Info().Str("repo_id", repo.ID).Str("commit", commitHash).Msg("Detected push to main branch")
 
@@ -1162,7 +1176,12 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 	}
 
 	for _, task := range allTasks {
-		if task == nil || task.BranchName == "" || task.Status != types.TaskStatusImplementationReview {
+		if task == nil || task.BranchName == "" {
+			continue
+		}
+		// Only annotate active tasks — done/archived tasks are already terminal
+		// and should not be re-touched by background detection.
+		if task.Status == types.TaskStatusDone {
 			continue
 		}
 
@@ -1173,22 +1192,20 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 			continue
 		}
 
-		if merged {
-			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Branch merged to main - transitioning to done")
+		if !merged || task.MergedToMain {
+			continue
+		}
 
-			now := time.Now()
-			task.Status = types.TaskStatusDone
-			task.StatusUpdatedAt = &now
-			task.MergedToMain = true
-			task.MergedAt = &now
-			task.MergeCommitHash = commitHash
-			task.CompletedAt = &now
-			task.UpdatedAt = now
-			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
-				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
-				continue
-			}
-			DismissTaskAttentionEvents(ctx, s.store, task.ID)
+		log.Debug().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Branch merged to main — recording metadata; task stays in current status until mark_task_complete is approved")
+
+		now := time.Now()
+		task.MergedToMain = true
+		task.MergedAt = &now
+		task.MergeCommitHash = commitHash
+		task.UpdatedAt = now
+		if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+			continue
 		}
 	}
 }

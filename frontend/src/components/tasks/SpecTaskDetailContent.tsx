@@ -59,6 +59,7 @@ import ExternalAgentDesktopViewer, {
 import DiffViewer from "./DiffViewer";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import PendingProposalsPanel from "../specTask/PendingProposalsPanel";
 import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
@@ -539,7 +540,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   >(null);
 
   // Get the active session ID - keep it available for chat history even when task is completed
-  const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
+  const activeSessionId = selectedThreadSessionId || task?.agent_session_id;
 
   // Track sandbox/desktop state for stop/start buttons
   const {
@@ -549,7 +550,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   } = useSandboxState(activeSessionId || "");
 
   // When the task is queued for planning, the backend hasn't created the session yet (or the
-  // planning_session_id still points to a previously-stopped session). In either case, suppress
+  // agent_session_id still points to a previously-stopped session). In either case, suppress
   // the "paused/stopped" UI and treat the desktop as starting so the user sees "Starting Desktop"
   // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
   const isQueuedForPlanning = task?.status === "queued_spec_generation";
@@ -1903,7 +1904,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     {(() => {
                       // Filter out threads that point to the same session as planning (they're the same conversation)
                       const extraThreads = zedThreadsData?.zed_threads?.filter(
-                        t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                        t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.agent_session_id
                       ) || [];
                       if (extraThreads.length === 0) return null;
                       return (
@@ -2112,7 +2113,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       branch_name: task.branch_name,
                       archived: task.archived,
                       just_do_it_mode: justDoItMode,
-                      planning_session_id: task.planning_session_id,
+                      agent_session_id: task.agent_session_id,
                       metadata: task.metadata as { error?: string },
                       last_push_at: task.last_push_at,
                     }}
@@ -2299,6 +2300,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     )}
                   </Box>
                 </Box>
+
+                {/* Pending agent proposals (PR / sub-task / mark-complete) */}
+                {task.id && (
+                  <Box sx={{ px: 2 }}>
+                    <PendingProposalsPanel taskId={task.id} />
+                  </Box>
+                )}
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
                     is already visible in the left panel */}
@@ -2523,7 +2531,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   branch_name: task.branch_name,
                   archived: task.archived,
                   just_do_it_mode: justDoItMode,
-                  planning_session_id: task.planning_session_id,
+                  agent_session_id: task.agent_session_id,
                   metadata: task.metadata as { error?: string },
                   last_push_at: task.last_push_at,
                 }}
@@ -2701,7 +2709,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               >
                 {(() => {
                   const extraThreads = zedThreadsData?.zed_threads?.filter(
-                    t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                    t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.agent_session_id
                   ) || [];
                   if (extraThreads.length === 0) return null;
                   return (

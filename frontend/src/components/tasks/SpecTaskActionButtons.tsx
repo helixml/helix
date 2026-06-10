@@ -47,7 +47,7 @@ export interface SpecTaskForActions {
   branch_name?: string;
   archived?: boolean;
   just_do_it_mode?: boolean;
-  planning_session_id?: string;
+  agent_session_id?: string;
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
   last_push_at?: string;

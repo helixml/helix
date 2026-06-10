@@ -47,7 +47,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
 		ID:                "task-123",
-		PlanningSessionID: "session-456",
+		AgentSessionID: "session-456",
 		Status:            types.TaskStatusDone,
 	}
 
@@ -61,7 +61,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
 		ID:                "task-keep-alive",
-		PlanningSessionID: "session-keep-alive",
+		AgentSessionID: "session-keep-alive",
 		Status:            types.TaskStatusDone,
 		KeepAlive:         true,
 	}
@@ -576,9 +576,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.Nil(s.T(), task.MergedAt, "MergedAt must not be set on error")
 }
 
-// Sanity: when every PR genuinely is merged, the task DOES transition to
-// done. Guards against an over-eager fix that breaks the happy path.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_TransitionsToDone() {
+// When every PR is merged, the orchestrator records MergedToMain/MergedAt
+// metadata but leaves task.Status alone — the only path to done is now an
+// approved mark_task_complete proposal (or the user-initiated approve-
+// implementation flow), not PR merge state.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllMerged_RecordsMetadataNoTransition() {
 	ctx := context.Background()
 	task := makePullRequestTask(2)
 
@@ -589,24 +591,22 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 		GetPullRequest(ctx, "repo-2", "2").
 		Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
 	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
-	s.store.EXPECT().DismissAttentionEventsForTask(ctx, "task-pr-1").Return(int64(0), nil)
 
 	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
 	s.Require().NoError(err)
 
-	assert.Equal(s.T(), types.TaskStatusDone, task.Status)
+	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status,
+		"all-PRs-merged no longer transitions to done; agent must call mark_task_complete")
 	assert.True(s.T(), task.MergedToMain)
 	assert.NotNil(s.T(), task.MergedAt)
 }
 
-// Production-realistic case: task has a BranchName set, all PRs error, so
-// the IsBranchMerged fallback runs. With active PR branches (commits not
-// in default), IsBranchMerged returns false and the task correctly stays
-// in pull_request. Important regression test because my primary fix only
-// addresses the allMerged-true path; the fallback path is a separate
-// transition site that could in principle wrongly transition on stale
-// repo state. This test pins the safe production-typical scenario.
-func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrorsWithBranch_FallbackDoesNotTransition() {
+// All PRs error and task has BranchName set: the prior IsBranchMerged
+// fallback has been removed alongside the PR-merge auto-transition, so
+// the orchestrator now records no state change and returns silently.
+// Keeps the regression pin against any future re-introduction of an
+// auto-transition site here.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_AllErrorsWithBranch_NoTransition() {
 	ctx := context.Background()
 	task := makePullRequestTask(1)
 	task.BranchName = "feature/active-work"
@@ -615,18 +615,8 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	s.gitService.EXPECT().
 		GetPullRequest(ctx, "repo-1", "1").
 		Return(nil, fmt.Errorf("simulated gitlab 502"))
-	s.store.EXPECT().
-		GetProject(ctx, "proj-1").
-		Return(&types.Project{ID: "proj-1", DefaultRepoID: "repo-default"}, nil)
-	s.store.EXPECT().
-		GetGitRepository(ctx, "repo-default").
-		Return(&types.GitRepository{ID: "repo-default", DefaultBranch: "main"}, nil)
-	// Active PR branch: HEAD has commits not in default → not an ancestor.
-	s.gitService.EXPECT().
-		IsBranchMerged(ctx, "repo-default", "feature/active-work", "main").
-		Return(false, nil)
 
-	// No UpdateSpecTask — fallback found nothing, no state changed.
+	// No UpdateSpecTask — every PR errored, no state changed.
 	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
 	s.Require().NoError(err)
 

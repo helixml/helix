@@ -65,7 +65,7 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnDoneTask_StopsDesktop() {
 		ID:                s.taskID,
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusDone,
-		PlanningSessionID: "session_keepalive",
+		AgentSessionID: "session_keepalive",
 		KeepAlive:         true,
 	}
 	project := &types.Project{
@@ -94,7 +94,7 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOn_OnDoneTask_DoesNotStopDesktop()
 		ID:                s.taskID,
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusDone,
-		PlanningSessionID: "session_keepalive",
+		AgentSessionID: "session_keepalive",
 		KeepAlive:         false,
 	}
 	project := &types.Project{
@@ -121,7 +121,7 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnRunningTask_DoesNotStopDeskt
 		ID:                s.taskID,
 		ProjectID:         "project_keepalive",
 		Status:            types.TaskStatusImplementation,
-		PlanningSessionID: "session_keepalive",
+		AgentSessionID: "session_keepalive",
 		KeepAlive:         true,
 	}
 	project := &types.Project{

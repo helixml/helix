@@ -258,7 +258,7 @@ export default function DesignReviewContent({
   }, [queueStatus]);
 
   // Get planning session ID from spec task (more reliable than waiting for queue status)
-  const planningSessionId = task?.planning_session_id;
+  const agentSessionId = task?.agent_session_id;
 
   const activeDocComments = useMemo(
     () => allComments.filter((c) => c.document_type === activeTab),
@@ -383,19 +383,19 @@ export default function DesignReviewContent({
     // [DRWS-DEBUG] Log subscription decision
     // With BFF auth, session cookie is automatically sent with WebSocket connections
     console.log("[DRWS-DEBUG] Subscription check:", {
-      planningSessionId,
+      agentSessionId,
       hasUser: !!account.user,
-      willSubscribe: !!(planningSessionId && account.user),
+      willSubscribe: !!(agentSessionId && account.user),
     });
 
-    if (!planningSessionId || !account.user) {
+    if (!agentSessionId || !account.user) {
       console.log(
-        "[DRWS-DEBUG] Not subscribing - missing planningSessionId or user",
+        "[DRWS-DEBUG] Not subscribing - missing agentSessionId or user",
       );
       return;
     }
 
-    const sessionId = planningSessionId;
+    const sessionId = agentSessionId;
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsHost = window.location.host;
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${sessionId}`;
@@ -652,7 +652,7 @@ export default function DesignReviewContent({
       rws.removeEventListener("message", messageHandler);
       rws.close();
     };
-  }, [planningSessionId, specTaskId, reviewId, account.user]);
+  }, [agentSessionId, specTaskId, reviewId, account.user]);
 
   // Keyboard shortcuts
   useEffect(() => {

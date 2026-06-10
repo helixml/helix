@@ -343,7 +343,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
   );
   const displayTask = tab.type === "task" ? refreshedTask || tab.task : null;
 
-  const hasSession = !!displayTask?.planning_session_id;
+  const hasSession = !!displayTask?.agent_session_id;
   const {
     isActive: isAgentActiveState,
     needsAttention,
@@ -352,15 +352,15 @@ const PanelTab: React.FC<PanelTabProps> = ({
 
   // Fetch session data with title history when hovering (only if session exists)
   const { data: sessionData } = useQuery({
-    queryKey: ["session-title-history", displayTask?.planning_session_id],
+    queryKey: ["session-title-history", displayTask?.agent_session_id],
     queryFn: async () => {
-      if (!displayTask?.planning_session_id) return null;
+      if (!displayTask?.agent_session_id) return null;
       const response = await api.get<TypesSession>(
-        `/api/v1/sessions/${displayTask.planning_session_id}`,
+        `/api/v1/sessions/${displayTask.agent_session_id}`,
       );
       return response;
     },
-    enabled: isHovered && !!displayTask?.planning_session_id,
+    enabled: isHovered && !!displayTask?.agent_session_id,
     staleTime: 30000, // Cache for 30 seconds
   });
 
@@ -1846,7 +1846,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       const desktopTabId = `desktop-${initialDesktopId}`;
       const isTeamDesktop = initialDesktopId === exploratorySessionId;
       const ownerTask = !isTeamDesktop
-        ? tasks.find((t) => t.planning_session_id === initialDesktopId)
+        ? tasks.find((t) => t.agent_session_id === initialDesktopId)
         : null;
       const desktopTitle = isTeamDesktop
         ? "Human Desktop"
@@ -1992,7 +1992,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     const desktopTabId = `desktop-${initialDesktopId}`;
     const isTeamDesktop = initialDesktopId === exploratorySessionId;
     const ownerTask = !isTeamDesktop
-      ? tasks.find((t) => t.planning_session_id === initialDesktopId)
+      ? tasks.find((t) => t.agent_session_id === initialDesktopId)
       : null;
     const desktopTitle = isTeamDesktop
       ? "Human Desktop"

@@ -2589,10 +2589,10 @@ export enum TypesCodeAgentRuntime {
 }
 
 export interface TypesCommentQueueStatusResponse {
+  /** Session ID for WebSocket subscription */
+  agent_session_id?: string;
   /** Comment currently being processed (response streaming) */
   current_comment_id?: string;
-  /** Session ID for WebSocket subscription */
-  planning_session_id?: string;
   /** Comments waiting in queue */
   queued_comment_ids?: string[];
 }
@@ -4522,6 +4522,19 @@ export interface TypesPromptHistorySyncResponse {
   synced?: number;
 }
 
+export interface TypesProposalDecisionRequest {
+  comment?: string;
+  /** "approve" or "reject" */
+  decision: "approve" | "reject";
+  /** optional: user edits to the proposal payload (PR head_branch / title / etc.) */
+  edited_payload?: Record<string, any>;
+}
+
+export interface TypesProposalDecisionResponse {
+  message?: string;
+  proposal?: TypesSpecTaskProposal;
+}
+
 export enum TypesProvider {
   ProviderOpenAI = "openai",
   ProviderTogetherAI = "togetherai",
@@ -5640,6 +5653,11 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /**
+   * AgentSessionID is the single Helix session backing the agent for this spec task.
+   * One agent, one session for the whole lifecycle (planning + implementation phases).
+   */
+  agent_session_id?: string;
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -5716,12 +5734,12 @@ export interface TypesSpecTask {
   organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
-  planning_options?: TypesStartPlanningOptions;
   /**
-   * Session tracking (single Helix session for entire workflow - planning + implementation)
-   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   * Parent task tracking — set when this task was spawned via an approved
+   * SpecTaskProposal of kind=spec_task. Enables UI lineage display.
    */
-  planning_session_id?: string;
+  parent_task_id?: string;
+  planning_options?: TypesStartPlanningOptions;
   planning_started_at?: string;
   /** User who kicked off planning (may differ from CreatedBy) */
   planning_started_by?: string;
@@ -5937,6 +5955,61 @@ export enum TypesSpecTaskPriority {
   SpecTaskPriorityCritical = "critical",
 }
 
+export interface TypesSpecTaskProposal {
+  /** free-form why-we-want-this */
+  agent_reason?: string;
+  /** Mark-complete payload (kind = ProposalKindMarkComplete) */
+  complete_reason?: string;
+  created_at?: string;
+  decided_at?: string;
+  /** Decision tracking */
+  decided_by?: string;
+  decision_comment?: string;
+  /** user edits to the payload, if any */
+  edited_payload?: number[];
+  id?: string;
+  kind?: TypesSpecTaskProposalKind;
+  pr_base_branch?: string;
+  pr_body?: string;
+  pr_head_branch?: string;
+  /** PR proposal payload (kind = ProposalKindPullRequest) */
+  pr_repository_id?: string;
+  pr_title?: string;
+  project_id?: string;
+  /** Created-by-agent metadata */
+  proposed_by_session?: string;
+  /** populated when Status=failed */
+  result_error?: string;
+  /** Result tracking — what actually happened on approval */
+  result_pr_id?: string;
+  /** for PR kind */
+  result_pr_url?: string;
+  /** for spec_task kind */
+  result_task_id?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskProposalStatus;
+  task_description?: string;
+  /** Spec task proposal payload (kind = ProposalKindSpecTask) */
+  task_name?: string;
+  task_original_prompt?: string;
+  task_priority?: TypesSpecTaskPriority;
+  task_type?: string;
+  updated_at?: string;
+}
+
+export enum TypesSpecTaskProposalKind {
+  ProposalKindPullRequest = "pull_request",
+  ProposalKindSpecTask = "spec_task",
+  ProposalKindMarkComplete = "mark_complete",
+}
+
+export enum TypesSpecTaskProposalStatus {
+  ProposalStatusPending = "pending",
+  ProposalStatusApproved = "approved",
+  ProposalStatusRejected = "rejected",
+  ProposalStatusFailed = "failed",
+}
+
 export enum TypesSpecTaskStatus {
   TaskStatusBacklog = "backlog",
   TaskStatusQueuedImplementation = "queued_implementation",
@@ -5976,6 +6049,11 @@ export interface TypesSpecTaskUpdateRequest {
 }
 
 export interface TypesSpecTaskWithProject {
+  /**
+   * AgentSessionID is the single Helix session backing the agent for this spec task.
+   * One agent, one session for the whole lifecycle (planning + implementation phases).
+   */
+  agent_session_id?: string;
   /** Current agent work state (idle/working/done) from activity tracking */
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
@@ -6052,12 +6130,12 @@ export interface TypesSpecTaskWithProject {
   organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
-  planning_options?: TypesStartPlanningOptions;
   /**
-   * Session tracking (single Helix session for entire workflow - planning + implementation)
-   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   * Parent task tracking — set when this task was spawned via an approved
+   * SpecTaskProposal of kind=spec_task. Enables UI lineage display.
    */
-  planning_session_id?: string;
+  parent_task_id?: string;
+  planning_options?: TypesStartPlanningOptions;
   planning_started_at?: string;
   /** User who kicked off planning (may differ from CreatedBy) */
   planning_started_by?: string;
@@ -12941,6 +13019,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List pending proposals across all spec tasks in a project
+     *
+     * @tags projects
+     * @name V1ProjectsProposalsDetail
+     * @summary List pending proposals for a project
+     * @request GET:/api/v1/projects/{projectId}/proposals
+     * @secure
+     */
+    v1ProjectsProposalsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskProposal[], any>({
+        path: `/api/v1/projects/${projectId}/proposals`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Idempotent upsert of a project from a declarative YAML spec
      *
      * @tags Projects
@@ -13162,6 +13257,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approve or reject an agent's proposal; on approve, the action is executed and the agent is notified
+     *
+     * @tags spec-tasks
+     * @name V1ProposalsDecideCreate
+     * @summary Decide on a spec task proposal
+     * @request POST:/api/v1/proposals/{proposalId}/decide
+     * @secure
+     */
+    v1ProposalsDecideCreate: (proposalId: string, request: TypesProposalDecisionRequest, params: RequestParams = {}) =>
+      this.request<TypesProposalDecisionResponse, any>({
+        path: `/api/v1/proposals/${proposalId}/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -15315,6 +15429,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/progress`,
         method: "GET",
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all agent proposals (PR / sub-task / mark-complete) for a given spec task
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksProposalsDetail
+     * @summary List proposals for a spec task
+     * @request GET:/api/v1/spec-tasks/{taskId}/proposals
+     * @secure
+     */
+    v1SpecTasksProposalsDetail: (
+      taskId: string,
+      query?: {
+        /** Filter by status (pending|approved|rejected|failed) */
+        status?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskProposal[], any>({
+        path: `/api/v1/spec-tasks/${taskId}/proposals`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 

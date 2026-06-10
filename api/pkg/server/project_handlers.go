@@ -841,16 +841,16 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 	})
 	if err == nil {
 		for _, task := range tasks {
-			if task.PlanningSessionID != "" {
+			if task.AgentSessionID != "" {
 				log.Info().
 					Str("project_id", projectID).
 					Str("task_id", task.ID).
-					Str("session_id", task.PlanningSessionID).
+					Str("session_id", task.AgentSessionID).
 					Msg("Stopping SpecTask session before project deletion")
 
-				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.AgentSessionID)
 				if stopErr != nil {
-					log.Warn().Err(stopErr).Str("session_id", task.PlanningSessionID).Msg("Failed to stop session (continuing with deletion)")
+					log.Warn().Err(stopErr).Str("session_id", task.AgentSessionID).Msg("Failed to stop session (continuing with deletion)")
 				}
 			}
 		}

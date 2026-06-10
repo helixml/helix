@@ -120,7 +120,7 @@ export interface SpecTaskWithExtras {
     | "completed"
     | "failed"
     | "queued";
-  planning_session_id?: string;
+  agent_session_id?: string;
   archived?: boolean;
   metadata?: { error?: string; error_timestamp?: string };
   merged_to_main?: boolean;
@@ -1152,7 +1152,7 @@ function TaskCardInner({
         )}
 
         {/* Queued state: waiting for orchestrator to create session */}
-        {isQueued && !task.planning_session_id && (
+        {isQueued && !task.agent_session_id && (
           <Box
             sx={{
               display: "flex",
@@ -1177,14 +1177,14 @@ function TaskCardInner({
             Polling absent sandboxes burns API requests and dumps a fleet of
             503s in the logs every time the page loads, since each card spins
             up its own poll loop until it hits one. */}
-        {task.planning_session_id &&
+        {task.agent_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
           !taskError &&
           (task.sandbox_state === "running" ||
             task.sandbox_state === "starting") && (
             <LiveAgentScreenshot
-              sessionId={task.planning_session_id}
+              sessionId={task.agent_session_id}
               projectId={projectId}
               startupErrorMessage={
                 typeof task.metadata?.error === "string"
