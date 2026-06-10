@@ -16,6 +16,7 @@ import (
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -373,7 +374,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	request.Name = GetUniqueRepoName(request.Name, existingNames)
 
 	// Generate repository ID
-	repoID := s.generateRepositoryID(request.RepoType, request.Name)
+	repoID := system.GenerateGitRepositoryID(request.RepoType, request.Name)
 
 	// Resolve organization ID
 	// Only set if explicitly provided or if the project has an organization.
@@ -1111,16 +1112,6 @@ func (s *GitRepositoryService) GetCloneCommand(repoID string, targetDir string) 
 		return fmt.Sprintf("git clone %s", cloneURL)
 	}
 	return fmt.Sprintf("git clone %s %s", cloneURL, targetDir)
-}
-
-// generateRepositoryID generates a unique repository ID
-func (s *GitRepositoryService) generateRepositoryID(repoType types.GitRepositoryType, name string) string {
-	// Sanitize name for filesystem
-	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
-	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
-
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("%s-%s-%d", repoType, sanitizedName, timestamp)
 }
 
 // generateCloneURL generates the clone URL for a repository
