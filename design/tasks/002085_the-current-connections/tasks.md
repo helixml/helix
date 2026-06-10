@@ -1,6 +1,6 @@
 # Implementation Tasks: Hover-to-Delete Cross Icon on Org Chart Connections
 
-- [ ] Add a `DeletableEdge` React component in `frontend/src/pages/HelixOrgChart.tsx` (or a new sibling file) that wraps `BaseEdge` and renders a hover-only × button at the edge midpoint using `EdgeLabelRenderer`.
+- [~] Add a `DeletableEdge` React component in `frontend/src/pages/HelixOrgChart.tsx` (or a new sibling file) that wraps `BaseEdge` and renders a hover-only × button at the edge midpoint using `EdgeLabelRenderer`.
 - [ ] Add a transparent wider stroke overlay path on the edge so the hover hit-area covers ~20 px (avoid setting `strokeDasharray` on the overlay so dashed subscription edges remain hoverable between dashes).
 - [ ] Wire the × `onClick` to `useReactFlow().deleteElements({ edges: [{ id }] })` so the existing `onEdgesDelete` dispatch (which already routes by `data.kind` to `onUnsubscribeWorker` / `onRemoveParent`) fires unchanged — do not call mutation hooks directly from the edge component.
 - [ ] Register the new edge type via `edgeTypes={{ deletable: DeletableEdge }}` on the `<ReactFlow>` element.
