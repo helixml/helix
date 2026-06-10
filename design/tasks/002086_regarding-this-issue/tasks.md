@@ -12,4 +12,4 @@
 - [x] Extend the E2E test in `api/pkg/org/application/tools/builtins_test.go` (`TestDemoOwnerHiresCEO` and/or a sibling) to assert that an MCP `tools/list` on `w-owner` includes both `managers` and `reports`, and that a CEO-like role created via `create_role` with a minimal tool list still exposes the full base read set on its MCP surface.
 - [x] Run local build + the affected test packages, merge origin/main into the feature branch, push.
 - [x] Write `pull_request_helix.md` describing the change and explicitly noting Failure 2 (`dm` tool ignoring the reporting graph) is out of scope.
-- [~] Watch CI on the pushed feature branch; if anything fails, drill into Drone logs and fix.
+- [x] Watch CI on the pushed feature branch; if anything fails, drill into Drone logs and fix. **Drone build #2002 — all 14 steps green.**
