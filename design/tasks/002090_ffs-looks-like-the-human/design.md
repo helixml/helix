@@ -318,6 +318,47 @@ implementing, in this order:
     already carries the (project_id, role=exploratory) tuple the guard
     keys on.
 
+## Implementation Notes (post-implementation)
+
+What actually shipped, what surprised us, what to remember:
+
+- **The persistence-branching task collapsed to zero work.** The original
+  task list expected an `UpdateSession`-vs-`WriteSession` branch on the
+  reused-row path. Turned out unnecessary:
+  `controller.WriteSession` already calls `store.UpdateSession` which is
+  a GORM `Save` (upsert by PK), and `store.CreateInteractions` already
+  uses `OnConflict{UpdateAll: true}`. So *one* code path covers both
+  cases — just swap the *source* of the starting `*types.Session` struct
+  (existing row vs fresh struct), then let the unchanged
+  `appendOrOverwrite` → `WriteSession` → `WriteInteractions` →
+  `StartDesktop` chain handle the rest. Final diff is ~15 added lines in
+  `session_handlers.go`, no other production touch.
+- **Tests fail-then-pass cleanly.** Before the guard: case 1 fails
+  inside `controller.WriteSession`'s `Store.GetSession` call with
+  `expected ses_existing_exploratory, Got: ses_01ktsf…` plus three
+  missing-call complaints. After the guard: all four cases pass. Cases
+  2-4 are unaffected by the guard and were green from the start —
+  they're there to pin the unchanged paths against a future refactor.
+- **Spawner-side belt-and-braces (`ExploratorySession` pre-fill in
+  `ensureSession`) was skipped.** The server-side guard fully closes
+  the regression test. Adding the spawner pre-fill would be defence in
+  depth against a hypothetical future code path that bypasses
+  `StartExternalAgentSession` — none exists today. Left as a documented
+  follow-up in `design.md` "Spawner-side belt-and-braces" rather than
+  in this PR.
+- **Local Go tests need CGo for tree-sitter.** Mentioned in `CLAUDE.md`
+  but easy to forget. Fix: `sudo apt-get install -y gcc libc6-dev` then
+  `CGO_ENABLED=1 go test ...`. Without it `go test` fails with
+  `cgo: C compiler "gcc" not found`.
+- **`setRequestUser` takes `types.User` by value, not by pointer.**
+  Different from `getRequestUser` which returns `*types.User`. Cost me
+  one compile cycle.
+- **`external_agent.ErrSessionNotFound` does not exist.** The hydra
+  executor's `GetSession` returns a plain `fmt.Errorf("session %s not
+  found", ...)`. In tests, return any error and the "stopped" branch
+  takes it (see `project_handlers.go:1292` — the check is just
+  `err != nil`, no errors.Is).
+
 ## Risk
 
 Low — load-bearing change is a 10-line guard with one new code path
