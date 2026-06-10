@@ -1,6 +1,6 @@
 # Implementation Tasks: Tool Reconciler and Default Base Tools for Roles
 
-- [ ] Add `api/pkg/org/application/tools/defaults.go` exporting `BaseReadTools []tool.Name` containing: `managers`, `reports`, `list_workers`, `get_worker`, `list_roles`, `get_role`, `list_streams`, `get_stream`, `list_stream_events`, `read_events`, `worker_log`, `get_worker_environment`.
+- [~] Add `api/pkg/org/application/tools/defaults.go` exporting `BaseReadTools []tool.Name` containing: `managers`, `reports`, `list_workers`, `get_worker`, `list_roles`, `get_role`, `list_streams`, `get_stream`, `list_stream_events`, `read_events`, `worker_log`, `get_worker_environment`.
 - [ ] Add a startup-fail validation in `RegisterBuiltins` (`api/pkg/org/application/tools/builtins.go`) that every name in `BaseReadTools` resolves in the registry.
 - [ ] Refactor `api/pkg/org/application/bootstrap/bootstrap.go:77-101` so the owner defaults are `append(ownerMutationTools, tools.BaseReadTools...)` — no behavioural change to the resulting set.
 - [ ] Modify `api/pkg/org/application/tools/create_role.go:47-68` so `Invoke` merges `tools.BaseReadTools` with the caller-supplied `args.Tools` (union, order-stable, deduped) before passing to `orgchart.NewRole`.
