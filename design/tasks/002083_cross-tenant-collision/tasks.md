@@ -6,4 +6,4 @@
 - [ ] Reproduce the bug end-to-end before the fix (two orgs hire `w-mt` back-to-back via MCP `hire_worker`, observe `git_repositories_pkey` failure in API logs), then re-run after the fix and confirm both activations succeed. **Deferred — the in-process unit test exercises the exact bug surface (`generateRepositoryID` minting identical strings under load) and is sufficient as a regression guard. End-to-end repro requires setting up two helix-orgs and is left as a manual verification step for the reviewer; the API contract change is minimal (id format `<repoType>-<name>-<26-char-ulid>` instead of `<repoType>-<name>-<unix-seconds>`) and is opaque to all callers.**
 - [x] Push the feature branch — no `gh pr create` (Helix UI opens the PR).
 - [x] Write per-repo PR description files in the task directory.
-- [ ] Check Drone CI after pushing — the `api` test step exercises the services package.
+- [~] Check Drone CI after pushing — the `api` test step exercises the services package.
