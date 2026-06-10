@@ -116,10 +116,10 @@ dialogs.
 
 ## §4. Cross-org isolation, persistence, theme
 
-1. Switch to a second org via the top-left selector. The Chart
-   shows the fresh `r-owner / w-owner` baseline — no leakage from
-   the first org. Hire something in the second org and switch
-   back: first org unchanged.
+1. **Cross-org isolation** is its own section now — see §16. The
+   shallow smoke test that lived here (switch org, confirm the fresh
+   `r-owner / w-owner` baseline) is subsumed by §16's two-level,
+   colliding-ID gate. Do §16, not a re-run here.
 2. Restart the API container. Everything persists — no `org_*`
    data is dropped on boot.
 3. Toggle the top-right sun/moon. Both modes render the
@@ -490,6 +490,207 @@ editable identity, deep links into Helix, and a guarded restart.
    lost. Clicking re-activates the worker (`POST …/workers/<id>/activate`)
    → snackbar confirming the restart was queued.
 
+## §16. Multi-tenancy: read + write isolation across two orgs
+
+This is the load-bearing tenancy gate. It exists because of the
+cross-tenant leak fixed in
+`https://github.com/helixml/helix/pull/2570` (root cause in
+`design/2026-06-09-org-multitenancy-spawner-leak.md`): a new org's
+owner asked to "create a role and hire a worker" and the role + worker
+landed in a **different** org.
+
+**Two distinct threats — test both.** "Multi-tenancy" here means two
+things, and they need different detectors:
+
+1. **Read leakage** (the more dangerous): org-b's operator or agent can
+   *see* org-a's roles / workers / streams / events / transcripts. The
+   right detector is **distinct sentinel data** — plant a uniquely-named,
+   secret-tagged record in each org and assert the *other* org's reads
+   never surface it, and that cross-org id-guessing returns not-found.
+   Colliding ids are the WRONG detector for read leakage: a leak can hide
+   behind the matching id (you can't tell whose row you got back).
+2. **Write leakage** (the literal #2570 symptom): org-b's `create_role` /
+   `hire_worker` lands in org-a. The right detector is **colliding ids**
+   in two orgs at once — because the store is tenant-safe by composite
+   `(id, org_id)` PK (confirm: `\d org_roles` shows
+   `PRIMARY KEY (id, org_id)`), so every write bug we have shipped lived
+   in a process-wide layer *above* the store keyed by an id unique only
+   *within* an org — and **every org's owner is `w-owner`**, every owner
+   role is `r-owner`, ids like `r-engineer` repeat across orgs. A test
+   with *different* ids per org can pass while the singleton leaks; the
+   same id in both orgs is what bites.
+
+So §16 does both: a **read-isolation** pass with distinct sentinels, then
+**write-isolation** passes (Levels 1–2) with colliding ids.
+
+**Ordering matters.** The spawner bug froze the **first** org to ever
+activate a worker and replayed its identity for everyone else. So always
+activate/act in **org-a first**, then org-b, and assert org-b's writes
+landed in org-b. If you only ever exercise one org, or org-b first, the
+frozen-identity leak hides.
+
+**Setup.** Acting user owns (or is a global admin of — `authorizeOrgMember`
+grants admins a temporary owner membership for any org) two helix-org
+orgs, both already bootstrapped (`w-owner`/`r-owner`). On localhost the
+pair is `test` (org-a) and `beta` (org-b); switch between them with the
+top-left org selector.
+
+### Read isolation — distinct sentinels, every read surface
+
+This is the data-leakage half. Plant one **uniquely-named, secret-tagged**
+record in each org (distinct ids — NOT colliding, so nothing can be
+masked), then prove neither org can read the other's. Cover the MCP read
+tools AND the REST endpoints the UI lists from — both resolve `org` from
+the URL and query the composite-keyed store, but a regression in either
+the gateway or a store query would leak here.
+
+```bash
+KEY=<user api key>
+mcp(){ curl -s -X POST \
+  "http://localhost:8080/api/v1/mcp/helix-org/$1/workers/w-owner/mcp" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" -d "$2" \
+  | sed -n 's/^data: //p'; }
+
+# plant DISTINCT sentinels with secret content:
+mcp org-a '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_role","arguments":{"id":"r-secret-aaa","content":"# SECRET-A-DATA do-not-leak"}}}'
+mcp org-b '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_role","arguments":{"id":"r-secret-bbb","content":"# SECRET-B-DATA do-not-leak"}}}'
+```
+
+1. **Cross-org `list_*` shows only the acting org.** `list_roles` on
+   org-b must return `r-secret-bbb` and **never** `r-secret-aaa` /
+   `SECRET-A-DATA`; `list_roles` on org-a is the mirror image. Same for
+   `list_workers` and `list_streams` — org-a's unique stream ids
+   (e.g. `s-dummy-*`, `s-activations-<an org-a-only worker>`) must be
+   absent from org-b's list. The only ids that may appear in both lists
+   are generic per-org rows (`s-activations-w-owner`, `s-team-w-owner`) —
+   those are each org's *own* row that happens to share an id, not a leak;
+   confirm the row's `org_id` and content are the reader's, not the
+   other's.
+2. **Cross-org id-guess returns not-found, not the other org's row.**
+   `get_role {id:"r-secret-aaa"}` and `get_worker {id:"w-<org-a-only>"}`
+   issued against **org-b**'s endpoint must come back
+   `record not found` (`isError:true`) — NOT org-a's data. This is the
+   `loadAuthorized…` / composite-PK guard; a regression that dropped the
+   `org_id` predicate would return the row.
+3. **UI/REST surface, same assertion.** `GET /api/v1/orgs/<org-b>/workers`
+   (what the Workers list page renders) returns only org-b's workers —
+   none of org-a's distinct worker ids. Repeat for `/roles`, `/streams`.
+4. **Events / transcripts don't cross.** Publish a secret-tagged event to
+   an org-a stream; `read_events` / `list_stream_events` on every org-b
+   stream must never return it. (The #2570 streamhub fix namespaced wake
+   topics by org so one org's publish can't even wake another's
+   subscribers; this asserts the read path stays scoped too.)
+
+### Level 1 — UI/UX (operator switches orgs and acts via the chart)
+
+1. In **org-a**'s `…/helix-org/chart`, hire an AI Worker `w-mt` into a
+   new role `r-mt` (use the role frame's hire icon, §3/§12).
+2. Switch to **org-b** via the top-left org selector. The chart renders
+   org-b's *own* baseline — `r-mt` / `w-mt` from org-a are **absent**.
+   This is the read-isolation half: a colliding id in another org must
+   not bleed into this canvas.
+3. In org-b, **New role** → enter an id that already exists in org-a
+   (e.g. `r-engineer`, which org-a already holds) → Create. It succeeds
+   (no "already exists" — the PK is composite). Hire `w-mt` into `r-mt`
+   in org-b too.
+4. **DB — both rows exist, each scoped to its own org, content distinct:**
+   ```sql
+   SELECT org_id, id, left(content,30) FROM org_roles
+     WHERE id IN ('r-engineer','r-mt') ORDER BY id, org_id;
+   SELECT org_id, id, role_id FROM org_workers
+     WHERE id='w-mt' ORDER BY org_id;
+   ```
+   Each id returns one row per org; org-a's content is org-a's, org-b's
+   is org-b's. The UI create landed in the org the operator had switched
+   to — never the other.
+5. Switch back to org-a: its `r-mt` / `w-mt` / `r-engineer` are
+   unchanged (org-b's writes did not mutate them).
+
+### Level 2 — Helix tool level (the owner's MCP surface)
+
+This is the actually-exploited surface: the org-graph MCP tools the
+owner Worker's agent calls. Endpoint:
+`POST /api/v1/mcp/helix-org/<org>/workers/w-owner/mcp` — auth is a Bearer
+api_key for an **alpha-flagged** member (`hasAlphaFeature`,
+`authorizeOrgMember`); the org is resolved from the **URL path**. It
+speaks JSON-RPC; no separate `initialize` is needed, but the request
+must send `Accept: application/json, text/event-stream` and the reply
+comes back as an SSE `data:` line.
+
+1. **Tools are org-scoped by the URL, even under identical ids.** Drive
+   the *same* ids into both orgs and confirm they split:
+   ```bash
+   KEY=<user api key>
+   mcp(){ curl -s -X POST \
+     "http://localhost:8080/api/v1/mcp/helix-org/$1/workers/w-owner/mcp" \
+     -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" -d "$2" \
+     | sed -n 's/^data: //p'; }
+   # create_role r-mt in BOTH orgs, then hire_worker w-mt in BOTH
+   mcp org-a '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_role","arguments":{"id":"r-mt","content":"# MT (a)"}}}'
+   mcp org-b '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_role","arguments":{"id":"r-mt","content":"# MT (b)"}}}'
+   mcp org-a '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hire_worker","arguments":{"id":"w-mt","roleId":"r-mt","kind":"ai","identityContent":"# a","parentId":"w-owner"}}}'
+   mcp org-b '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hire_worker","arguments":{"id":"w-mt","roleId":"r-mt","kind":"ai","identityContent":"# b","parentId":"w-owner"}}}'
+   ```
+   Each call returns `{"id":"r-mt"}` / `{"id":"w-mt", "activation_id":…}`.
+   The DB queries from Level 1.4 must show one row per org with the right
+   per-org content. Critically: a `create_role` against org-b's URL must
+   write **zero** rows into org-a (`SELECT count(*) FROM org_roles WHERE
+   id='r-mt' AND org_id='<org-a>'` stays at exactly 1).
+2. **The owner agent's stamped MCP URL is its own org — the real leak.**
+   The gateway above is *always* org-correct (it reads `org` from the
+   path). The #2570 bug was upstream of it: the **spawner** stamped the
+   wrong org's MCP URL onto the Worker's agent app, so org-b's owner
+   desktop booted pointing at org-a, and the agent's `create_role` /
+   `hire_worker` then hit org-a's gateway. Catch it by inspecting what
+   the spawner wrote — **after activating org-a first, then org-b:**
+   ```sql
+   -- agent app id for each org's w-mt (provisioned on hire/activate):
+   SELECT org_id, value FROM org_worker_runtime_state
+     WHERE worker_id='w-mt' AND key='agent_app_id';
+   -- the helix-org MCP entry on that app must embed the worker's OWN org:
+   SELECT config FROM apps WHERE id='<that app id>';  -- grep the url:
+   --   …/api/v1/mcp/helix-org/<this worker's org_id>/workers/w-mt/mcp
+   ```
+   org-a's app URL embeds org-a's id; org-b's app URL embeds **org-b's**
+   id — *not* org-a's, even though org-a activated first. Under the old
+   bug org-b's app carried org-a's id. (Re-activate with
+   `POST /api/v1/orgs/<org>/workers/<id>/activate` if a desktop needs a
+   nudge.)
+3. **Gold standard — the literal bug report, end-to-end.** With org-a's
+   owner activated first, open **org-b**'s `w-owner` detail page and chat
+   (§10): "Create a role `r-chat` and hire an AI worker `w-chat` into
+   it." Watch the agent's `create_role` / `hire_worker` tool calls in the
+   transcript, then assert `SELECT org_id FROM org_roles WHERE
+   id='r-chat'` → **org-b only**, never org-a. This reproduces the exact
+   reported symptom against the fixed code.
+
+The unit-level counterpart is the colliding-IDs integration gate added
+in #2570 (drives Dispatcher → Queue → Spawner with two orgs holding
+identical ids; asserts an org-a event activates only org-a's `w-owner`,
+under org-a, and that both orgs' `w-owner` activate concurrently on
+independent lanes). §16 is the live, end-to-end version of that gate.
+
+### Known sharp edge — per-Worker repo id is NOT org-scoped
+
+Surfaced while running §16.2: hiring the **same** worker id into two
+orgs *within the same wall-clock second* makes the second org's
+activation fail. The per-Worker git repo id is
+`code-<workerID>-<unix-seconds>` and the `git_repositories` table PK is
+**global**, not `(id, org_id)` — so the two hires mint the identical
+repo id and the second collides:
+```
+activation.fail worker=w-mt … create per-Worker repo: 500 …
+  duplicate key value violates unique constraint "git_repositories_pkey"
+```
+The org-graph rows (`org_roles`, `org_workers`) still land correctly in
+each org — only the second org's *desktop provisioning* aborts. Spacing
+the hires by >1s sidesteps it (the timestamp differs), but the latent
+defect is real: it is the same id-collision class as #2570, one layer
+down in the git-repo service, which #2570 did not cover. Either scope the
+repo id by org or make it collision-proof (ULID, not second-granularity).
+
 ## Pass criteria
 
 - §1 — bootstrap creates one Worker (`w-owner` with `role_id =
@@ -501,8 +702,21 @@ editable identity, deep links into Helix, and a guarded restart.
 - §3 — AI worker creation doesn't crash the API; owner refuses
   fire (409); role delete dialog enumerates the affected workers
   before confirm.
-- §4 — cross-org isolation holds; restart persists; both themes
-  render.
+- §4 — restart persists; both themes render. (Cross-org isolation is
+  §16.)
+- §16 — **read isolation**: with distinct sentinels planted per org,
+  neither org's `list_*` / REST list / `read_events` surfaces the other's
+  records, and a cross-org `get_role` / `get_worker` id-guess returns
+  `record not found` (never the other org's row). **Write isolation**:
+  under colliding ids, a UI create after switching orgs and an MCP
+  `create_role` / `hire_worker` against an org's URL each appear in
+  exactly one org's `org_roles` / `org_workers` (composite-PK rows, one
+  per org, distinct content) and write zero rows into the other.
+  Activating org-a's owner first must NOT taint org-b: org-b's `w-mt`
+  agent app embeds **org-b's** id in its helix-org MCP URL, and an org-b
+  owner-chat "create a role / hire a worker" lands in org-b. Watch the
+  per-Worker repo-id collision (same worker id + same second across orgs
+  fails the second activation on `git_repositories_pkey`).
 - §6 — activation streams' subscribers list contains the Worker's
   manager id (derived from the reporting line, not whoever clicked
   hire); a manager with reports also has an `s-team-<id>` stream; live
@@ -555,3 +769,11 @@ editable identity, deep links into Helix, and a guarded restart.
   trash/fire affordance and surfaces a friendly 409.
 - Adding a reporting line is cycle-guarded server-side: dragging a
   manager edge that would close a reporting loop is rejected with a 409.
+- Org isolation is enforced by composite `(id, org_id)` PKs in the store;
+  every tenancy bug to date lived in a process-wide layer above it keyed
+  by an id unique only within an org (`w-owner`, `r-owner`). §16 is the
+  colliding-ID gate that exercises that layer. One layer it does NOT yet
+  cover is safe: the per-Worker git repo id (`code-<workerID>-<second>`)
+  has a **global** PK, so two orgs hiring the same worker id in the same
+  second collide and the second org's desktop fails to provision (the
+  org-graph rows still land correctly). See §16's "Known sharp edge".
