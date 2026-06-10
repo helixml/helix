@@ -220,16 +220,15 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			// flipped to api_key mode but w-owner's agent app still
 			// thought it was in subscription mode.
 			//
-			// We do NOT re-push canonical files (role.md / identity.md
-			// / agent.md): republishing on every activation clobbers
-			// any external edits the Worker has made on the
-			// helix-specs branch since the last apply. Canonical-
-			// content updates flow through Workspace.MirrorFile
-			// explicitly; that's the only path that touches these
-			// files outside first-activation provisioning.
 			if _, err := a.Service.ApplyProject(ctx, applyReq); err != nil {
 				return "", "", "", fmt.Errorf("refresh project spec for %s: %w", workerID, err)
 			}
+			// Re-publish canonical files so DB edits to role / identity /
+			// agent.md propagate to the helix-specs branch on every
+			// activation — that's the contract DefaultHelixSpecsMandate
+			// promises every Worker. Idempotent and cheap: CreateBranch
+			// and CreateOrUpdateFileContents both no-op on unchanged input.
+			a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())
 			return state.ProjectID, state.AgentAppID, state.RepoID, nil
 		}
 	}
