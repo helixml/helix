@@ -6,17 +6,12 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
-import Divider from '@mui/material/Divider'
-import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
-import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
-import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
@@ -41,17 +36,16 @@ import '@xyflow/react/dist/style.css'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import HireWorkerDrawer from '../components/helix-org/HireWorkerDrawer'
+import NewRoleDialog from '../components/helix-org/NewRoleDialog'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
-  HireWorkerRequest,
   WorkerDTO,
-  useCreateHelixOrgRole,
   useDeleteHelixOrgRole,
   useDeleteHelixOrgStream,
   useFireHelixOrgWorker,
-  useHireHelixOrgWorker,
   useListHelixOrgRoles,
   useListHelixOrgStreams,
   useListHelixOrgWorkers,
@@ -770,63 +764,7 @@ const buildGraph = (
   return { nodes, edges }
 }
 
-// ---- Dialogs (Create role, Confirm delete) -----------------------------
-
-const CreateRoleDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
-  const snackbar = useSnackbar()
-  const create = useCreateHelixOrgRole()
-  const [id, setId] = useState('')
-  const [content, setContent] = useState('')
-
-  const submit = async () => {
-    const trimmedId = id.trim()
-    if (!trimmedId) {
-      snackbar.error('Role ID is required')
-      return
-    }
-    try {
-      await create.mutateAsync({ id: trimmedId, content })
-      snackbar.success(`role ${trimmedId} created`)
-      setId(''); setContent(''); onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
-    }
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>New role</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <TextField
-            label="Role ID"
-            placeholder="r-engineer"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            helperText="Convention: r-<kebab-case>. Stays as-is — the LLM and operator both refer to roles by this handle."
-            autoFocus
-            fullWidth
-          />
-          <TextField
-            label="Content (markdown)"
-            placeholder="# Engineer&#10;Builds and ships software."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={6}
-            fullWidth
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={create.isPending}>
-          {create.isPending ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
+// ---- Dialogs (Confirm delete) -----------------------------------------
 
 const ConfirmDeleteDialog: FC<{
   open: boolean
@@ -849,81 +787,6 @@ const ConfirmDeleteDialog: FC<{
     </DialogActions>
   </Dialog>
 )
-
-// ---- Hire drawer -------------------------------------------------------
-
-const HireDrawer: FC<{ roleId: string; onClose: () => void }> = ({ roleId, onClose }) => {
-  const snackbar = useSnackbar()
-  const hire = useHireHelixOrgWorker()
-  const [id, setId] = useState('')
-  const [kind, setKind] = useState<'ai' | 'human'>('human')
-  const [identity, setIdentity] = useState('')
-
-  const submit = async () => {
-    if (!identity.trim()) {
-      snackbar.error('identity content is required')
-      return
-    }
-    const body: HireWorkerRequest = {
-      role_id: roleId,
-      kind,
-      identity_content: identity,
-    }
-    if (id.trim()) body.id = id.trim()
-    try {
-      const res = await hire.mutateAsync(body)
-      snackbar.success(`hired ${res.id} — drag an edge from a manager to set who they report to`)
-      setId(''); setIdentity(''); onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'hire failed')
-    }
-  }
-
-  return (
-    <Box sx={{ p: 2.5, width: 380 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Hire worker</Typography>
-        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
-      </Stack>
-      <Stack spacing={1.5}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Role</Typography>
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{roleId}</Typography>
-        </Box>
-        <Divider sx={{ my: 1 }} />
-        <TextField select size="small" label="Kind" value={kind} onChange={(e) => setKind(e.target.value as 'ai' | 'human')} fullWidth>
-          <MenuItem value="human">Human</MenuItem>
-          <MenuItem value="ai">AI</MenuItem>
-        </TextField>
-        <TextField
-          size="small"
-          label="Handle (optional)"
-          placeholder="w-alice"
-          helperText="Lowercase first name, prefixed with w-. Leave blank to auto-assign."
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          fullWidth
-        />
-        <TextField
-          size="small"
-          label="Identity content"
-          placeholder="Short persona / profile in markdown."
-          value={identity}
-          onChange={(e) => setIdentity(e.target.value)}
-          multiline
-          minRows={6}
-          fullWidth
-        />
-        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-          <Button variant="contained" onClick={submit} disabled={hire.isPending}>
-            {hire.isPending ? 'Hiring…' : 'Hire'}
-          </Button>
-          <Button variant="text" onClick={onClose}>Cancel</Button>
-        </Stack>
-      </Stack>
-    </Box>
-  )
-}
 
 // ---- ReactFlow canvas --------------------------------------------------
 
@@ -1310,7 +1173,7 @@ const HelixOrgChart: FC = () => {
         </Box>
       </Box>
 
-      <CreateRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />
+      <NewRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
         title={
@@ -1324,19 +1187,11 @@ const HelixOrgChart: FC = () => {
         pending={deleteRole.isPending || deleteStream.isPending || fireWorker.isPending}
       />
 
-      <Drawer
-        anchor="right"
-        open={selection.kind !== 'none'}
+      <HireWorkerDrawer
+        open={selection.kind === 'hire'}
         onClose={() => setSelection({ kind: 'none' })}
-        PaperProps={{ sx: { backgroundImage: 'none' } }}
-      >
-        {selection.kind === 'hire' && (
-          <HireDrawer
-            roleId={selection.roleId}
-            onClose={() => setSelection({ kind: 'none' })}
-          />
-        )}
-      </Drawer>
+        presetRoleId={selection.kind === 'hire' ? selection.roleId : undefined}
+      />
     </Page>
   )
 }
