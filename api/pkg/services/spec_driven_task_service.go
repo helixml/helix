@@ -519,20 +519,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Build list of all repository IDs to clone from project
-	repositoryIDs := []string{}
-	for _, repo := range projectRepos {
-		if repo.ID != "" {
-			repositoryIDs = append(repositoryIDs, repo.ID)
-		}
-	}
-
-	// Determine primary repository from project configuration
-	primaryRepoID := project.DefaultRepoID
-	if primaryRepoID == "" && len(projectRepos) > 0 {
-		// Use first project repo as fallback if no default set
-		primaryRepoID = projectRepos[0].ID
-	}
+	// Repository fields are populated below via zedAgent.SetRepoContext after
+	// the agent struct is constructed.
 
 	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
 	// session lock) to prevent races with concurrent StopDesktop.
@@ -600,21 +588,20 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	zedAgent := &types.DesktopAgent{
-		OrganizationID:      orgID,
-		SessionID:           session.ID,
-		UserID:              task.CreatedBy,
-		Input:               "Initialize Zed development environment for spec generation",
-		ProjectID:           task.ProjectID, // For golden Docker cache overlay
-		ProjectPath:         "workspace",    // Use relative path
-		SpecTaskID:          task.ID,        // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
-		DisplayWidth:        displayWidth,
-		DisplayHeight:       displayHeight,
-		DisplayRefreshRate:  displayRefreshRate,
-		Resolution:          resolution,
-		ZoomLevel:           zoomLevel,
-		DesktopType:         desktopType,
+		OrganizationID: orgID,
+		SessionID:      session.ID,
+		UserID:         task.CreatedBy,
+		Input:          "Initialize Zed development environment for spec generation",
+		ProjectID:      task.ProjectID, // For golden Docker cache overlay
+		ProjectPath:    "workspace",    // Use relative path
+		SpecTaskID:     task.ID,        // For task-scoped workspace
+		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
+		DisplayWidth:       displayWidth,
+		DisplayHeight:      displayHeight,
+		DisplayRefreshRate: displayRefreshRate,
+		Resolution:         resolution,
+		ZoomLevel:          zoomLevel,
+		DesktopType:        desktopType,
 		Env: envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
@@ -633,6 +620,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.SetRepoContext(projectRepos, project.DefaultRepoID)
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
 	// Check if executor is nil
