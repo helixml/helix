@@ -2,14 +2,27 @@ package bootstrap
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// TestMain sets a plausible release version on the data package
+// global so tests that construct a Manager via Bootstrap don't trip
+// the helixSandboxImage sentinel-rejection. Tests of the rejection
+// itself call helixSandboxImageFor directly with their own values.
+func TestMain(m *testing.M) {
+	orig := data.Version
+	data.Version = "0.0.0-test"
+	defer func() { data.Version = orig }()
+	os.Exit(m.Run())
+}
 
 // nullStore is a no-op SandboxStore so we can construct Bootstrap
 // without standing up a real Postgres or even an in-memory fake.
@@ -300,36 +313,69 @@ func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
 }
 
 func TestHelixSandboxImageFor(t *testing.T) {
-	// Auto-derived sandbox image tag. Production must pull
-	// ghcr.io/helixml/helix-sandbox:<version> matching the running
-	// control plane; dev/non-release builds fall back to :latest so
-	// they don't try to pull a tag that was never published.
-	cases := []struct {
-		in   string
-		want string
-	}{
-		// Release shapes -> use the version verbatim
-		{"2.11.14", "ghcr.io/helixml/helix-sandbox:2.11.14"},
-		{"v2.11.14", "ghcr.io/helixml/helix-sandbox:v2.11.14"},
-		{"1.0.0", "ghcr.io/helixml/helix-sandbox:1.0.0"},
-		// Dev / unset / unrecognised -> fall back to :latest
-		{"v0.0.0+dev", "ghcr.io/helixml/helix-sandbox:latest"},
-		{"v0.0.0", "ghcr.io/helixml/helix-sandbox:latest"},
-		{"0.0.0", "ghcr.io/helixml/helix-sandbox:latest"},
-		{"<unknown>", "ghcr.io/helixml/helix-sandbox:latest"},
-		{"", "ghcr.io/helixml/helix-sandbox:latest"},
-		// Git sha (when no Version baked in, GetHelixVersion can return vcs.revision)
-		{"a1b2c3d4e5f6", "ghcr.io/helixml/helix-sandbox:latest"},
-		// Pre-release / build-metadata shapes -> fall back rather than guess
-		{"2.11.14-rc1", "ghcr.io/helixml/helix-sandbox:latest"},
-		{"2.11.14+build.42", "ghcr.io/helixml/helix-sandbox:latest"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			if got := helixSandboxImageFor(tc.in); got != tc.want {
-				t.Fatalf("helixSandboxImageFor(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
+	// The Helix build process publishes a sandbox image at the same
+	// tag as whatever data.Version was set to - release tags, RCs,
+	// per-PR short SHAs all valid. We trust the build process and
+	// pass the version through verbatim. The only thing we reject
+	// is sentinel/placeholder values that mean "Version wasn't
+	// actually baked in" - because there's no corresponding image
+	// for those.
+	t.Run("valid versions are passed through verbatim", func(t *testing.T) {
+		cases := []struct {
+			in   string
+			want string
+		}{
+			// Release tags
+			{"2.11.14", "ghcr.io/helixml/helix-sandbox:2.11.14"},
+			{"v2.11.14", "ghcr.io/helixml/helix-sandbox:v2.11.14"},
+			{"1.0.0", "ghcr.io/helixml/helix-sandbox:1.0.0"},
+			// Release candidates (Helix publishes -rc tags)
+			{"2.11.14-rc1", "ghcr.io/helixml/helix-sandbox:2.11.14-rc1"},
+			{"2.12.0-beta.3", "ghcr.io/helixml/helix-sandbox:2.12.0-beta.3"},
+			// Per-PR short SHAs (Helix publishes these too)
+			{"a1b2c3d", "ghcr.io/helixml/helix-sandbox:a1b2c3d"},
+			// Build metadata - trust the build process
+			{"2.11.14+build.42", "ghcr.io/helixml/helix-sandbox:2.11.14+build.42"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.in, func(t *testing.T) {
+				got, err := helixSandboxImageFor(tc.in)
+				if err != nil {
+					t.Fatalf("unexpected error for %q: %v", tc.in, err)
+				}
+				if got != tc.want {
+					t.Fatalf("helixSandboxImageFor(%q) = %q, want %q", tc.in, got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("sentinel values are rejected loudly", func(t *testing.T) {
+		// These are the values data.GetHelixVersion() returns when
+		// Version wasn't baked in via ldflags - no published image
+		// corresponds, so we error rather than silently producing a
+		// ref that will fail at docker pull on the worker.
+		sentinels := []string{
+			"",
+			"<unknown>",
+			"v0.0.0",
+			"0.0.0",
+			"v0.0.0+dev",
+		}
+		for _, s := range sentinels {
+			t.Run(s, func(t *testing.T) {
+				_, err := helixSandboxImageFor(s)
+				if err == nil {
+					t.Fatalf("expected error for sentinel version %q, got nil", s)
+				}
+				if !strings.Contains(err.Error(), "Helix build version") {
+					t.Fatalf("error should explain why; got %q", err.Error())
+				}
+				if !strings.Contains(err.Error(), "-ldflags") {
+					t.Fatalf("error should tell operator how to fix; got %q", err.Error())
+				}
+			})
+		}
+	})
 	_ = compute.Manager{} // keep the compute import used even if signature simplifies later
 }

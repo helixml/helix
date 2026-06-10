@@ -8,7 +8,6 @@ package bootstrap
 import (
 	"errors"
 	"fmt"
-	"regexp"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
@@ -134,6 +133,10 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 				Str("worker_tag", workerTag).
 				Msg("compute: HELIX_YD_WORKER_TAG auto-derived from namespace; override if your YD worker pool advertises a different tag")
 		}
+		sandboxImage, err := helixSandboxImage()
+		if err != nil {
+			return nil, err
+		}
 		return yellowdog.NewProvider(yellowdog.Config{
 			APIKeyID:      cfg.Yellowdog.APIKeyID,
 			APISecret:     cfg.Yellowdog.APISecret,
@@ -145,7 +148,7 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 			MaxRetries:    cfg.Yellowdog.MaxRetries,
 			HelixURL:      serverURL,
 			RunnerToken:   runnerToken,
-			HelixImage:    helixSandboxImage(),
+			HelixImage:    sandboxImage,
 		})
 	default:
 		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)
@@ -157,33 +160,43 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 // the sandbox image always matches the control plane that's
 // dispatching it - no version skew, no operator config knob.
 //
-// In production, data.GetHelixVersion() returns the release tag
-// (e.g. "2.11.14") that was baked into the controlplane image via
-// ldflags. Sandbox images are published with the same tag on every
-// release. So the auto-derived ref pulls cleanly.
+// data.GetHelixVersion() returns whatever was baked into the
+// controlplane image at build time via ldflags - release tags
+// ("2.11.14"), release candidates ("2.11.14-rc1"), and per-PR
+// short-SHA tags are all valid. Sandbox images are published at
+// the same tag for every Helix build, so any non-sentinel value
+// has a matching pullable image.
 //
-// In dev / non-release builds, data.GetHelixVersion() returns
-// "<unknown>", a git revision, or "v0.0.0+dev" - none of which have
-// a corresponding published sandbox image. We fall back to "latest"
-// with a loud log line so the operator notices.
-//
-// Pattern: strict X.Y.Z or vX.Y.Z, no pre-release suffix, no build
-// metadata. Rejects "v0.0.0+dev", "<unknown>", git shas, and any
-// "-rc1"-style suffix.
-var releaseTagPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+// We refuse to proceed when data.GetHelixVersion() returns one of
+// its sentinel values ("<unknown>", empty string) or the dummy
+// dev-default ("v0.0.0+dev", "v0.0.0", "0.0.0"). Those mean the
+// build didn't pin a version and we have no way to know which
+// sandbox image is correct. Fail loudly at boot so the operator
+// fixes the build rather than discovering the mismatch later when
+// YD tasks ERROR on docker pull.
+var sentinelVersions = map[string]bool{
+	"":          true,
+	"<unknown>": true,
+	"v0.0.0":    true,
+	"0.0.0":     true,
+	"v0.0.0+dev": true,
+}
 
-func helixSandboxImage() string {
+func helixSandboxImage() (string, error) {
 	return helixSandboxImageFor(data.GetHelixVersion())
 }
 
 // helixSandboxImageFor is the testable inner. Tests inject specific
 // version strings; the production wrapper above reads from data.
-func helixSandboxImageFor(version string) string {
-	if !releaseTagPattern.MatchString(version) || version == "v0.0.0" || version == "0.0.0" {
-		log.Warn().
-			Str("helix_version", version).
-			Msg("compute: Helix build is not a tagged release; falling back to helix-sandbox:latest. YD tasks may pull a sandbox version that does not match this control plane.")
-		return "ghcr.io/helixml/helix-sandbox:latest"
+func helixSandboxImageFor(version string) (string, error) {
+	if sentinelVersions[version] {
+		return "", fmt.Errorf(
+			"compute: cannot derive helix-sandbox image tag - Helix build version %q is a placeholder, not a real version. "+
+				"YD compute requires a versioned Helix build so the sandbox image (ghcr.io/helixml/helix-sandbox:<version>) "+
+				"matches the control plane. Build with -ldflags=\"-X github.com/helixml/helix/api/pkg/data.Version=X.Y.Z\" "+
+				"or run a tagged release.",
+			version,
+		)
 	}
-	return "ghcr.io/helixml/helix-sandbox:" + version
+	return "ghcr.io/helixml/helix-sandbox:" + version, nil
 }
