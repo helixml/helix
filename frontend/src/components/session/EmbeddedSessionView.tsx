@@ -239,32 +239,6 @@ const EmbeddedSessionView = forwardRef<
   );
   const paginatedData = paginatedInteractionsResponse?.data;
 
-  // For forked sessions: also fetch the parent's interactions so we can
-  // render them inline above the fork_seed divider as historical
-  // context. Without this, opening a forked session looks empty (only
-  // the divider is visible) — the user has to click "show transcript"
-  // to see what was there before, which doesn't match the "this is a
-  // continuation of the conversation" mental model.
-  //
-  // Parent is frozen (paused), so no polling. Generous per-page since
-  // the serializer caps transcripts at 400KB anyway — anything that
-  // would not fit there isn't worth rendering as separate bubbles.
-  const parentSessionId = session?.config?.parent_session_id || "";
-  const { data: parentInteractionsResponse } = useListInteractions(
-    parentSessionId,
-    0,
-    500,
-    'asc', // oldest-first directly so we can render without reversing
-    { enabled: !!parentSessionId, refetchInterval: false }
-  );
-  const parentInteractions = useMemo(() => {
-    const list = parentInteractionsResponse?.data?.interactions || [];
-    // Strip the parent's own fork_seed (if it was itself a fork). The
-    // child's fork_seed below acts as the divider; rendering the parent's
-    // would create a confusing double-marker.
-    return list.filter((i) => i.trigger !== "fork_seed");
-  }, [parentInteractionsResponse]);
-
   // Fetch session steps
   const { data: sessionSteps } = useListSessionSteps(sessionId, {
     enabled: !!sessionId,
@@ -650,58 +624,6 @@ const EmbeddedSessionView = forwardRef<
             >
               {isLoadingOlder ? "Loading..." : `Show ${remainingOlderCount} older messages`}
             </Button>
-          )}
-          {/* Historical context from the parent session, rendered above
-              this session's own turns (which start with the fork_seed
-              divider). Visually subdued + left border so it reads as
-              "this happened before the fork, you can't change it" while
-              still using the same Interaction renderer so tool calls,
-              steps, etc. show up identically to how they did originally. */}
-          {parentInteractions.length > 0 && (
-            <Box
-              sx={{
-                opacity: 0.75,
-                borderLeft: "3px solid",
-                borderColor: "divider",
-                pl: 2,
-                mb: 1,
-              }}
-            >
-              <Typography
-                variant="caption"
-                sx={{
-                  display: "block",
-                  color: "text.secondary",
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  mb: 1,
-                }}
-              >
-                Conversation before the fork (read-only)
-              </Typography>
-              {parentInteractions.map((interaction) => (
-                <Interaction
-                  key={`parent-${interaction.id}`}
-                  serverConfig={account.serverConfig}
-                  interaction={interaction}
-                  session={session}
-                  highlightAllFiles={false}
-                  onReloadSession={handleReloadSession}
-                  onRegenerate={handleRegenerate}
-                  isLastInteraction={false}
-                  // Force non-owner / non-admin so regenerate / edit /
-                  // delete actions are hidden — these messages live on
-                  // the parent session and mutating them here would
-                  // either no-op or do the wrong thing.
-                  isOwner={false}
-                  isAdmin={false}
-                  scrollToBottom={scrollToBottom}
-                  session_id={parentSessionId}
-                  sessionSteps={[]}
-                />
-              ))}
-            </Box>
           )}
           {visibleInteractions.map((interaction, index) => {
             const isLastInteraction = index === totalInteractions - 1;

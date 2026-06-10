@@ -244,9 +244,39 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create child session: %v", err))
 	}
 
-	// fork_seed interaction. Its ResponseMessage carries the parent's serialized
-	// transcript and is re-read by maybePrependTranscript on the child's first
-	// outgoing message. The interaction is also a UI-visible record of the fork.
+	// Copy the parent's interaction history into the child as actual
+	// interaction rows, marked with Trigger=fork_inherited. This makes
+	// the fork a self-contained snapshot: a fork-of-fork inherits the
+	// full ancestry by copying the immediate parent's history (which
+	// already contains everything the grandparent had). The chat panel
+	// can therefore render a forked session by reading just its own
+	// interactions — no chain-walking, no cross-session fetches.
+	//
+	// Skip the parent's own fork_seed divider — the child gets a fresh
+	// one below pointing at this fork point. The parent's inherited
+	// rows (Trigger=fork_inherited) ARE copied so chain depth ≥ 2 keeps
+	// the full history.
+	for _, in := range parentInteractions {
+		if in == nil || in.Trigger == types.InteractionTriggerForkSeed {
+			continue
+		}
+		copyInteraction := *in
+		copyInteraction.ID = ""             // let the store mint a fresh ID
+		copyInteraction.SessionID = createdChild.ID
+		copyInteraction.GenerationID = createdChild.GenerationID
+		copyInteraction.Trigger = types.InteractionTriggerForkInherited
+		if _, err := apiServer.Store.CreateInteraction(ctx, &copyInteraction); err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to copy parent interaction %s: %v", in.ID, err))
+		}
+	}
+
+	// fork_seed interaction. Its ResponseMessage still carries the
+	// parent's serialized transcript so maybePrependTranscript can
+	// inject it into the child's first outgoing message — the agent
+	// (Zed thread is fresh) needs this prepend to receive the context;
+	// the inherited rows above are for UI display, not for Zed state.
+	// The fork_seed also serves as the visual divider between inherited
+	// history and the child's own future turns.
 	seedInteraction := &types.Interaction{
 		Created:         now,
 		Updated:         now,

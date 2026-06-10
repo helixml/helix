@@ -129,7 +129,19 @@ const (
 // not user-initiated (those use the default empty string or app-trigger
 // names like "slack", "crisp"). Used by the fork-and-pause flow.
 const (
+	// InteractionTriggerForkSeed marks the single synthetic divider
+	// interaction created on a forked child, carrying lineage metadata
+	// and (for the agent prepend path) a serialized blob of the parent
+	// transcript.
 	InteractionTriggerForkSeed = "fork_seed"
+
+	// InteractionTriggerForkInherited marks an interaction that was
+	// copied from a parent session at fork time. The child now owns
+	// these rows — they live on the child's SessionID — but their
+	// trigger value lets the UI hide destructive actions (regenerate,
+	// edit) and lets a future fork-of-fork still recognise its inherited
+	// vs. own turns when deciding what to copy forward.
+	InteractionTriggerForkInherited = "fork_inherited"
 )
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {

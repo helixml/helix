@@ -186,22 +186,37 @@ func TestForkSessionFromParent_SnapshotsTranscriptAndPausesParent(t *testing.T) 
 	// Same parent app inherited when no override.
 	assert.Equal(t, parent.ParentApp, child.ParentApp)
 
-	// fork_seed interaction on child.
+	// Child now owns three inherited copies of the parent's completed
+	// turns plus one fork_seed divider — four interactions total. The
+	// inherited rows make the fork a self-contained snapshot so a
+	// future fork-of-fork preserves full ancestry.
 	childInteractions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    child.ID,
 		GenerationID: child.GenerationID,
 		PerPage:      100,
 	})
 	require.NoError(t, err)
-	require.Len(t, childInteractions, 1)
-	seed := childInteractions[0]
+	require.Len(t, childInteractions, 4, "expected 3 inherited rows + 1 fork_seed")
+	// fork_seed must be last (after the inherited rows) so it visually
+	// divides "history before fork" from "child's own future turns".
+	seed := childInteractions[len(childInteractions)-1]
 	assert.Equal(t, types.InteractionTriggerForkSeed, seed.Trigger)
 	assert.Equal(t, types.InteractionStateComplete, seed.State)
 	assert.Contains(t, seed.PromptMessage, parent.ID)
 	assert.Contains(t, seed.PromptMessage, "turn 3")
-	// Transcript contains all three parent turns.
+	// Transcript blob still contains all three parent turns (used by
+	// maybePrependTranscript to seed the agent on first message).
 	assert.Contains(t, seed.ResponseMessage, "user turn 0")
 	assert.Contains(t, seed.ResponseMessage, "agent reply 2")
+	// The first three are inherited copies of the parent's turns.
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, types.InteractionTriggerForkInherited, childInteractions[i].Trigger,
+			"interaction %d should be marked as inherited from the parent", i)
+		assert.NotEqual(t, parentInteractions[i].ID, childInteractions[i].ID,
+			"inherited rows must get fresh IDs, not reuse the parent's")
+		assert.Equal(t, child.ID, childInteractions[i].SessionID,
+			"inherited rows must be owned by the child session, not the parent")
+	}
 
 	// Parent paused with link to child.
 	freshParent, err := mem.GetSession(ctx, parent.ID)
@@ -240,7 +255,7 @@ func TestForkSessionFromParent_EmptyParentTranscript(t *testing.T) {
 		PerPage:      100,
 	})
 	require.NoError(t, err)
-	require.Len(t, childInteractions, 1)
+	require.Len(t, childInteractions, 1, "parent had no interactions to inherit, only fork_seed exists")
 	seed := childInteractions[0]
 	assert.Equal(t, "", seed.ResponseMessage, "transcript must be empty when parent had no completed turns")
 	assert.Contains(t, seed.PromptMessage, "turn 0")
@@ -281,8 +296,11 @@ func TestForkSessionFromParent_SkipsForkSeedFromParentTranscript(t *testing.T) {
 		SessionID: c.ID, GenerationID: c.GenerationID, PerPage: 100,
 	})
 	require.NoError(t, err)
-	require.Len(t, childInteractions, 1)
-	seedForC := childInteractions[0]
+	// B had one fake-fork_seed + one real interaction. We inherit the
+	// real one (fork_seed is stripped) and add C's own fork_seed.
+	require.Len(t, childInteractions, 2)
+	seedForC := childInteractions[len(childInteractions)-1]
+	assert.Equal(t, types.InteractionTriggerForkSeed, seedForC.Trigger)
 
 	// B's fork_seed is excluded from the C transcript (serializeTranscript
 	// strips fork_seed entries). B's actual user turn IS included.
@@ -290,4 +308,78 @@ func TestForkSessionFromParent_SkipsForkSeedFromParentTranscript(t *testing.T) {
 	assert.NotContains(t, seedForC.ResponseMessage, "Session forked from ses_A")
 	assert.Contains(t, seedForC.ResponseMessage, "follow-up on B")
 	assert.Contains(t, seedForC.ResponseMessage, "follow-up answer on B")
+}
+
+// TestForkSessionFromParent_ChainDepth2PreservesFullAncestry covers
+// the user-reported concern: a fork of a fork must contain the
+// original ancestor's turns, not just the immediate parent's own. The
+// "copy interactions at fork time" design makes this fall out
+// naturally — B inherits A's turns; C inherits B's full interaction
+// list (which already includes A's). No chain-walking required.
+func TestForkSessionFromParent_ChainDepth2PreservesFullAncestry(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	// A: original session, two completed turns.
+	a := newTestParentSession("user_a")
+	a.ID = "ses_A"
+	a.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
+	seedParentWithInteractions(t, mem, a, 2) // creates "user turn 0/1", "agent reply 0/1"
+	user := &types.User{ID: a.Owner, Type: types.OwnerTypeUser}
+
+	// Fork A → B.
+	b, httpErr := srv.forkSessionFromParent(ctx, user, a, types.CodeAgentRuntimeQwenCode, "")
+	require.Nil(t, httpErr)
+
+	// Add a turn directly on B so chain depth 2 actually shows
+	// continuation beyond the inherited bits.
+	_, err := mem.CreateInteraction(ctx, &types.Interaction{
+		SessionID:       b.ID,
+		GenerationID:    b.GenerationID,
+		State:           types.InteractionStateComplete,
+		PromptMessage:   "B-only follow up",
+		ResponseMessage: "B-only follow-up answer",
+	})
+	require.NoError(t, err)
+
+	// B must NOT be paused before we re-fork it.
+	freshB, err := mem.GetSession(ctx, b.ID)
+	require.NoError(t, err)
+	freshB.Metadata.Paused = false
+	freshB.Metadata.PausedReason = ""
+	_, err = mem.UpdateSession(ctx, *freshB)
+	require.NoError(t, err)
+
+	// Fork B → C.
+	c, httpErr := srv.forkSessionFromParent(ctx, user, freshB, types.CodeAgentRuntimeGeminiCLI, "")
+	require.Nil(t, httpErr)
+
+	cInteractions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: c.ID, GenerationID: c.GenerationID, PerPage: 100,
+	})
+	require.NoError(t, err)
+
+	// Expected on C (in order):
+	//   2 inherited copies from A (user turn 0, user turn 1) — note that
+	//     B inherited these as fork_inherited rows, and C inherits B's
+	//     full non-fork_seed history → these come along
+	//   1 inherited copy of B's own follow-up
+	//   1 fork_seed marking the C fork
+	require.Len(t, cInteractions, 4, "C must inherit A's 2 turns + B's 1 turn + own fork_seed")
+
+	prompts := make([]string, 0, len(cInteractions))
+	for _, in := range cInteractions {
+		prompts = append(prompts, in.PromptMessage)
+	}
+	assert.Contains(t, prompts[0], "user turn 0", "A's first turn must be present in C")
+	assert.Contains(t, prompts[1], "user turn 1", "A's second turn must be present in C")
+	assert.Contains(t, prompts[2], "B-only follow up", "B's own turn must be present in C")
+	assert.Equal(t, types.InteractionTriggerForkSeed, cInteractions[3].Trigger)
+
+	// All the historical rows are marked as inherited so the UI can
+	// hide destructive actions on them.
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, types.InteractionTriggerForkInherited, cInteractions[i].Trigger,
+			"chain-inherited interactions must keep the fork_inherited marker")
+	}
 }
