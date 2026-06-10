@@ -10,5 +10,6 @@
 - [x] Add `create_role_test.go` cases for `tools:[]` and for `tools:[publish, managers]` (verifies union, dedup, order preservation).
 - [x] Add `reconciler_test.go`: seed a role with `tools:[dm, publish]`, run `Reconcile`, assert the role's tools is the union with `BaseReadTools`; run `Reconcile` again, assert no `Roles.Update` write occurred and `UpdatedAt` is unchanged.
 - [x] Extend the E2E test in `api/pkg/org/application/tools/builtins_test.go` (`TestDemoOwnerHiresCEO` and/or a sibling) to assert that an MCP `tools/list` on `w-owner` includes both `managers` and `reports`, and that a CEO-like role created via `create_role` with a minimal tool list still exposes the full base read set on its MCP surface.
-- [~] Run `go build ./api/pkg/...` and the relevant unit-test subset locally, then push and confirm CI green via Drone MCP tools.
-- [ ] Open the PR against `helixml/helix` with full URL referenced back to issue [#2546](https://github.com/helixml/helix/issues/2546). The PR description should explicitly note Failure 2 (`dm` tool ignoring the reporting graph) is **out of scope** for this PR.
+- [x] Run local build + the affected test packages, merge origin/main into the feature branch, push.
+- [x] Write `pull_request_helix.md` describing the change and explicitly noting Failure 2 (`dm` tool ignoring the reporting graph) is out of scope.
+- [~] Watch CI on the pushed feature branch; if anything fails, drill into Drone logs and fix.
