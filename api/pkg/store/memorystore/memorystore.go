@@ -29,7 +29,11 @@ type MemoryStore struct {
 	interactions map[string]*types.Interaction
 	apps         map[string]*types.App
 	projects     map[string]*types.Project
-	mu           sync.RWMutex
+	// planningSessionClaims tracks the atomic claim set by
+	// SetPlanningSessionIDIfEmpty; keyed by taskID, value is the winning
+	// sessionID. Allocated lazily.
+	planningSessionClaims map[string]string
+	mu                    sync.RWMutex
 
 	// OnInteractionUpdated is called after every UpdateInteraction call.
 	// Test binaries use this to detect completion events.
@@ -390,6 +394,25 @@ func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask,
 
 func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
 	return false, nil
+}
+
+// SetPlanningSessionIDIfEmpty mirrors the postgres CAS — first caller wins, rest
+// lose. No persistence; just a per-task atomic gate keyed by taskID so tests can
+// exercise the race without a real DB.
+func (m *MemoryStore) SetPlanningSessionIDIfEmpty(_ context.Context, taskID string, sessionID string) (bool, error) {
+	if taskID == "" || sessionID == "" {
+		return false, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.planningSessionClaims == nil {
+		m.planningSessionClaims = make(map[string]string)
+	}
+	if existing := m.planningSessionClaims[taskID]; existing != "" {
+		return false, nil
+	}
+	m.planningSessionClaims[taskID] = sessionID
+	return true, nil
 }
 
 func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, _ string) (*types.SpecTaskZedThread, error) {

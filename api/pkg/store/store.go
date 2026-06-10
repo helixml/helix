@@ -557,6 +557,13 @@ type Store interface {
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
+	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
+	// slot. Returns true if this caller won the claim (row updated), false if another
+	// caller had already set planning_session_id to a non-empty value. The single SQL
+	// statement closes the TOCTOU window that a read-then-write guard leaves open and
+	// is the primary defence against two concurrent StartSpecGeneration calls each
+	// creating a session and spawning a dev container against the same workspace.
+	SetPlanningSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error)
 	DeleteSpecTask(ctx context.Context, id string) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
