@@ -414,7 +414,7 @@ func NewServer(
 	// Helix on the legacy self-registered-host path. A non-nil error
 	// is fatal: better to fail boot than start with a misconfigured
 	// Manager that silently drops Provision calls.
-	computeManager, err := bootstrap.Bootstrap(cfg.Compute, store)
+	computeManager, err := bootstrap.Bootstrap(cfg.Compute, cfg.WebServer.URL, cfg.WebServer.RunnerToken, store)
 	if err != nil {
 		return nil, fmt.Errorf("bootstrap compute subsystem: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/sandbox/compute/yellowdog"
 	"github.com/rs/zerolog/log"
@@ -30,7 +31,14 @@ import (
 // are fatal: returning an error from here causes the API server to
 // fail fast at boot rather than start with a half-configured
 // Manager.
-func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager, error) {
+//
+// serverURL and runnerToken come from the wider ServerConfig
+// (cfg.WebServer.URL and cfg.WebServer.RunnerToken). Helix already
+// requires these for its own operation; we reuse them rather than
+// introduce parallel env vars. The Provider injects them into the
+// upstream task environment so helix-sandbox knows how to phone
+// home and how to authenticate.
+func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.SandboxStore) (*compute.Manager, error) {
 	if cfg.Provider == "" {
 		log.Info().Msg("HELIX_COMPUTE_PROVIDER unset; compute subsystem disabled (no Provider, no Manager, no reconcile)")
 		return nil, nil
@@ -63,7 +71,7 @@ func Bootstrap(cfg config.Compute, store compute.SandboxStore) (*compute.Manager
 			Msg("compute: HELIX_COMPUTE_DEPLOYMENT_TAG auto-derived from provider namespace; set explicitly if multiple Helix installs share this YD namespace")
 	}
 
-	provider, err := buildProvider(cfg)
+	provider, err := buildProvider(cfg, serverURL, runnerToken)
 	if err != nil {
 		return nil, fmt.Errorf("build %q provider: %w", cfg.Provider, err)
 	}
@@ -110,7 +118,7 @@ func deriveDeploymentTag(cfg config.Compute) string {
 // buildProvider dispatches on cfg.Provider to construct the
 // appropriate concrete Provider. Add new providers here as
 // implementations land.
-func buildProvider(cfg config.Compute) (compute.Provider, error) {
+func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.Provider, error) {
 	switch cfg.Provider {
 	case "yellowdog":
 		// Auto-derive WorkerTag from Namespace when unset, matching
@@ -125,6 +133,10 @@ func buildProvider(cfg config.Compute) (compute.Provider, error) {
 				Str("worker_tag", workerTag).
 				Msg("compute: HELIX_YD_WORKER_TAG auto-derived from namespace; override if your YD worker pool advertises a different tag")
 		}
+		sandboxImage, err := helixSandboxImage()
+		if err != nil {
+			return nil, err
+		}
 		return yellowdog.NewProvider(yellowdog.Config{
 			APIKeyID:      cfg.Yellowdog.APIKeyID,
 			APISecret:     cfg.Yellowdog.APISecret,
@@ -134,8 +146,57 @@ func buildProvider(cfg config.Compute) (compute.Provider, error) {
 			WorkerTag:     workerTag,
 			TaskTimeout:   cfg.Yellowdog.TaskTimeout,
 			MaxRetries:    cfg.Yellowdog.MaxRetries,
+			HelixURL:      serverURL,
+			RunnerToken:   runnerToken,
+			HelixImage:    sandboxImage,
 		})
 	default:
 		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)
 	}
+}
+
+// helixSandboxImage returns the helix-sandbox image tag the YD task
+// should docker-run. Auto-derived from the Helix build version so
+// the sandbox image always matches the control plane that's
+// dispatching it - no version skew, no operator config knob.
+//
+// data.GetHelixVersion() returns whatever was baked into the
+// controlplane image at build time via ldflags - release tags
+// ("2.11.14"), release candidates ("2.11.14-rc1"), and per-PR
+// short-SHA tags are all valid. Sandbox images are published at
+// the same tag for every Helix build, so any non-sentinel value
+// has a matching pullable image.
+//
+// We refuse to proceed when data.GetHelixVersion() returns one of
+// its sentinel values ("<unknown>", empty string) or the dummy
+// dev-default ("v0.0.0+dev", "v0.0.0", "0.0.0"). Those mean the
+// build didn't pin a version and we have no way to know which
+// sandbox image is correct. Fail loudly at boot so the operator
+// fixes the build rather than discovering the mismatch later when
+// YD tasks ERROR on docker pull.
+var sentinelVersions = map[string]bool{
+	"":          true,
+	"<unknown>": true,
+	"v0.0.0":    true,
+	"0.0.0":     true,
+	"v0.0.0+dev": true,
+}
+
+func helixSandboxImage() (string, error) {
+	return helixSandboxImageFor(data.GetHelixVersion())
+}
+
+// helixSandboxImageFor is the testable inner. Tests inject specific
+// version strings; the production wrapper above reads from data.
+func helixSandboxImageFor(version string) (string, error) {
+	if sentinelVersions[version] {
+		return "", fmt.Errorf(
+			"compute: cannot derive helix-sandbox image tag - Helix build version %q is a placeholder, not a real version. "+
+				"YD compute requires a versioned Helix build so the sandbox image (ghcr.io/helixml/helix-sandbox:<version>) "+
+				"matches the control plane. Build with -ldflags=\"-X github.com/helixml/helix/api/pkg/data.Version=X.Y.Z\" "+
+				"or run a tagged release.",
+			version,
+		)
+	}
+	return "ghcr.io/helixml/helix-sandbox:" + version, nil
 }
