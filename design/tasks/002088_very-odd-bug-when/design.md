@@ -14,23 +14,56 @@ same code path.
 |------|------|
 | `api/pkg/server/session_handlers.go` | **Bug site** at ~line 2474 (StartExternalAgentSession). Also already does the same lookup at ~line 1991 (exploratory resume). |
 | `api/pkg/server/spec_task_design_review_handlers.go` | Same lookup at ~line 967 (startDevContainerForSession). |
-| `api/pkg/services/spec_driven_task_service.go` | Same lookup at ~line 602 (spec-task launch). Slightly different shape — caller already has `repositoryIDs`/`primaryRepoID` computed earlier. Out of scope for the helper extraction; leave alone. |
+| `api/pkg/services/spec_driven_task_service.go` | Same agent-population logic at ~line 522-535 (spec-task launch). Different shape — caller already loaded `projectRepos` at line 506 because `SyncBaseBranchForTask` needs them. Reuses the **pure** helper but not the fetching wrapper. |
+| `api/pkg/types/external_agent.go` (or wherever `DesktopAgent` is defined) | Receives the new `(*DesktopAgent).SetRepoContext` method — pure, no I/O, callable from any package. |
 | `api/pkg/external-agent/hydra_executor.go` | Consumer at ~line 316-330. No change. |
 | `api/pkg/types/external_agent.go` (or wherever `DesktopAgent` lives) | No change — the helper only writes to existing fields. |
 
 ## Helper Design
 
-Add a small helper on `*HelixAPIServer` in `session_handlers.go` (or a new
-`agent_project_context.go` sibling — see "Alternatives"):
+Two layers — a **pure** method on `*types.DesktopAgent` (callable from any
+package, no I/O) and a thin **server-side wrapper** that does the store
+lookups. This lets all three call sites converge on the same agent-population
+logic without forcing the spec-task service to do redundant DB fetches.
+
+### Layer 1 — pure method on `*types.DesktopAgent`
+
+Lives next to the `DesktopAgent` type definition (likely
+`api/pkg/types/external_agent.go`; confirm during implementation):
+
+```go
+// SetRepoContext populates RepositoryIDs and PrimaryRepositoryID from the
+// given project repos. defaultRepoID is the project's preferred repo
+// (typically project.DefaultRepoID); when empty the first repo wins.
+//
+// No-op when repos is empty — leaves both fields untouched so callers can
+// pre-set or skip safely.
+func (a *DesktopAgent) SetRepoContext(repos []*GitRepository, defaultRepoID string) {
+    if len(repos) == 0 {
+        return
+    }
+    a.RepositoryIDs = make([]string, 0, len(repos))
+    for _, repo := range repos {
+        if repo.ID != "" {
+            a.RepositoryIDs = append(a.RepositoryIDs, repo.ID)
+        }
+    }
+    if defaultRepoID != "" {
+        a.PrimaryRepositoryID = defaultRepoID
+    } else if len(a.RepositoryIDs) > 0 {
+        a.PrimaryRepositoryID = a.RepositoryIDs[0]
+    }
+}
+```
+
+### Layer 2 — server-side wrapper
+
+Lives in `session_handlers.go` (or a sibling `agent_project_context.go`):
 
 ```go
 // attachProjectContext loads the project's repos and sets ProjectID,
 // RepositoryIDs, and PrimaryRepositoryID on agent. Safe to call when
-// projectID is empty (no-op) or when the project has no repos
-// (ProjectID is still set, repo fields stay empty).
-//
-// Behaviour mirrors the existing inline lookups at
-// spec_task_design_review_handlers.go:967 and session_handlers.go:1991.
+// projectID is empty (no-op).
 func (s *HelixAPIServer) attachProjectContext(ctx context.Context, agent *types.DesktopAgent, projectID string) error {
     if projectID == "" {
         return nil
@@ -45,19 +78,11 @@ func (s *HelixAPIServer) attachProjectContext(ctx context.Context, agent *types.
         return nil
     }
 
-    agent.RepositoryIDs = make([]string, 0, len(repos))
-    for _, repo := range repos {
-        if repo.ID != "" {
-            agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-        }
+    var defaultRepoID string
+    if project, err := s.Store.GetProject(ctx, projectID); err == nil && project != nil {
+        defaultRepoID = project.DefaultRepoID
     }
-
-    project, err := s.Store.GetProject(ctx, projectID)
-    if err == nil && project != nil && project.DefaultRepoID != "" {
-        agent.PrimaryRepositoryID = project.DefaultRepoID
-    } else if len(agent.RepositoryIDs) > 0 {
-        agent.PrimaryRepositoryID = agent.RepositoryIDs[0]
-    }
+    agent.SetRepoContext(repos, defaultRepoID)
     return nil
 }
 ```
@@ -109,12 +134,34 @@ Keep the existing `GetProject` error-check (which returns 500 if the project
 disappeared) — it's a separate concern from repo loading. After it, call the
 helper to populate repos.
 
-### `spec_driven_task_service.go:602-635`
+### `spec_driven_task_service.go:522-535`
 
-**Out of scope.** This site already has `repositoryIDs` and `primaryRepoID`
-computed from earlier code in the same function for unrelated reasons
-(displaying spec-task setup, validation). Extracting it would force
-threading the helper through a separate service layer. Defer.
+The caller already has `projectRepos` and `project` in hand (fetched at
+line 506 because `SyncBaseBranchForTask` needs them). Replace the local
+`repositoryIDs` slice build (522-528) and `primaryRepoID` derivation
+(530-535) with the pure helper, and remove `RepositoryIDs` /
+`PrimaryRepositoryID` from the `DesktopAgent` literal at line 602:
+
+```go
+zedAgent := &types.DesktopAgent{
+    OrganizationID: orgID,
+    SessionID:      session.ID,
+    UserID:         task.CreatedBy,
+    Input:          "Initialize Zed development environment for spec generation",
+    ProjectID:      task.ProjectID,
+    ProjectPath:    "workspace",
+    SpecTaskID:     task.ID,
+    // RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
+    DisplayWidth:        displayWidth,
+    DisplayHeight:       displayHeight,
+    // ... rest unchanged ...
+}
+zedAgent.SetRepoContext(projectRepos, project.DefaultRepoID)
+```
+
+The pre-existing `repositoryIDs` / `primaryRepoID` local variables become
+dead and should be removed. `SyncBaseBranchForTask` continues to receive
+`projectRepos` directly — no change there.
 
 ## Why Not Fix It in Hydra
 
@@ -137,9 +184,16 @@ Could `hydra_executor.go` look up repos from `session.ProjectID` itself when
   Rejected: the user request explicitly calls out the duplication, and the
   same bug class is one copy-paste away every time someone adds a new
   desktop-launch entry point.
+- **Single helper that always re-fetches from the store.**
+  Rejected: the spec-task service path already loads `projectRepos` for
+  `SyncBaseBranchForTask`. Forcing it through a fetching helper would
+  double the DB calls or require threading the cached repos through as an
+  optional parameter — ugly either way. Splitting into a pure
+  agent-population method + a server-side fetching wrapper is cleaner.
 - **Make `attachProjectContext` a free function instead of a method.**
   Rejected: it needs `s.Store`, and the existing pattern in this package
-  uses methods on `*HelixAPIServer`.
+  uses methods on `*HelixAPIServer`. (The pure `SetRepoContext` *is* a
+  free-of-server method, which is why it sits on `*DesktopAgent` itself.)
 - **Have the helper fail loudly when the project has no repos.**
   Rejected: projects without repos are legal today (e.g., exploratory
   chat-only sessions). Changing that is a separate decision.
@@ -178,5 +232,10 @@ session before the fix ships.
 - The auto-wake loop (`auto_wake_stuck_interactions.go`) is a safety net,
   not a fix. Don't rely on it to mask broken first-start paths.
 - When adding a new desktop-launch site, search for `DesktopAgent{` and
-  check whether `attachProjectContext` should be called. The pattern is:
-  build the struct, call the helper, hand off to the executor.
+  decide which helper applies:
+  - Server-package site with only a `projectID` in hand → call
+    `s.attachProjectContext(ctx, agent, projectID)`.
+  - Site that already loaded `[]*types.GitRepository` for another reason →
+    call `agent.SetRepoContext(repos, project.DefaultRepoID)` directly and
+    set `agent.ProjectID` yourself.
+  In both cases: build the struct, call the helper, hand off to the executor.
