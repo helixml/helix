@@ -17,20 +17,65 @@ package server
 //   3. On confirm, fork handler calls commitAndPushUncommittedRepos
 //      BEFORE pausing the parent. If any push fails, the fork aborts
 //      and the parent stays live so the user can fix git and retry.
+//
+// Both helpers reach the desktop via RevDial → /workspace/status and
+// /workspace/commit-and-push (defined in api/pkg/desktop/workspace.go).
+// We deliberately do NOT use the generic /exec endpoint because it's
+// allowlist-restricted to a small set of safe commands — git plumbing
+// runs through dedicated endpoints with structured request/response.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// Wire types mirroring api/pkg/desktop/workspace.go. Duplicated
+// rather than imported because the desktop package pulls in
+// gstreamer/CGo via its video pipeline, which would balloon this
+// package's build dependencies. Both sides need to stay in sync —
+// the JSON field tags are the contract.
+
+type desktopWorkspaceStatusResp struct {
+	Repos []desktopWorkspaceRepoStatus `json:"repos"`
+}
+
+type desktopWorkspaceRepoStatus struct {
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	Branch           string `json:"branch,omitempty"`
+	UncommittedFiles int    `json:"uncommitted_files"`
+	UnpushedCommits  int    `json:"unpushed_commits"`
+	Error            string `json:"error,omitempty"`
+}
+
+type desktopCommitReq struct {
+	Message string `json:"message"`
+}
+
+type desktopCommitResp struct {
+	Repos   []desktopCommitRepoResult `json:"repos"`
+	Success bool                      `json:"success"`
+}
+
+type desktopCommitRepoResult struct {
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	Action           string `json:"action"`
+	UncommittedFiles int    `json:"uncommitted_files"`
+	UnpushedCommits  int    `json:"unpushed_commits"`
+	Error            string `json:"error,omitempty"`
+	PushOutput       string `json:"push_output,omitempty"`
+}
 
 // WorkspaceRepoStatus describes one repo's git state inside the
 // session's desktop container. Returned as part of WorkspaceStatusResponse.
@@ -66,14 +111,64 @@ type WorkspaceStatusResponse struct {
 	ContainerReachable bool `json:"container_reachable"`
 }
 
-// workspaceStatusGitScript is the bash one-liner we exec per repo. It's
-// written defensively so a missing path returns a benign zero-result
-// rather than failing the whole call.
-const workspaceStatusGitScript = `cd %s 2>/dev/null || { echo '{"branch":"","uncommitted":0,"unpushed":0,"error":"path missing"}'; exit 0; }
-uncommitted=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-unpushed=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)
-echo "{\"branch\":\"$branch\",\"uncommitted\":$uncommitted,\"unpushed\":$unpushed}"`
+// dialDesktop opens a RevDial connection to the session's desktop
+// container. Centralised so the runner-id format ("desktop-<sessionID>")
+// lives in one place. Returns an error (not a panic) when connman
+// isn't initialised — tests that wire HelixAPIServer without the
+// full connman should still be able to exercise the fork path.
+func (apiServer *HelixAPIServer) dialDesktop(ctx context.Context, sessionID string) (io.ReadWriteCloser, error) {
+	if apiServer.connman == nil {
+		return nil, fmt.Errorf("connection manager not initialised")
+	}
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	conn, err := apiServer.connman.Dial(ctx, runnerID)
+	if err != nil {
+		return nil, fmt.Errorf("container not ready: %w", err)
+	}
+	return conn, nil
+}
+
+// callDesktopJSON sends an HTTP request to the desktop's RevDial-
+// exposed port (9876) and decodes the JSON response into `out`.
+// Used by both workspace-status and commit-and-push.
+func callDesktopJSON(conn io.ReadWriteCloser, method, path string, body interface{}, out interface{}) error {
+	var reqBody io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("encode body: %w", err)
+		}
+		reqBody = bytes.NewReader(buf)
+	}
+	req, err := http.NewRequest(method, "http://localhost:9876"+path, reqBody)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if err := req.Write(conn); err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("desktop returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	if out != nil {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("parse json response: %w (body: %q)", err, string(respBody))
+		}
+	}
+	return nil
+}
 
 // workspaceStatus godoc
 // @Summary  Check uncommitted / unpushed git state in a session's desktop container
@@ -119,50 +214,46 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 		return resp, nil
 	}
 
-	repos, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: projectID,
-	})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list repos: %v", err))
+	// Single round-trip to the desktop — it walks its own
+	// findAllWorkspaces() and returns the per-repo status. We map the
+	// result back into the API-level shape (which includes RepoID from
+	// the helix store, not just the on-disk directory name).
+	conn, dialErr := apiServer.dialDesktop(ctx, sessionID)
+	if dialErr != nil {
+		resp.ContainerReachable = false
+		log.Debug().Err(dialErr).Str("session_id", sessionID).Msg("workspace-status: container not reachable")
+		return resp, nil
 	}
-	if len(repos) == 0 {
-		resp.ContainerReachable = true
+	defer conn.Close()
+
+	var desktopResp desktopWorkspaceStatusResp
+	if err := callDesktopJSON(conn, http.MethodGet, "/workspace/status", nil, &desktopResp); err != nil {
+		resp.ContainerReachable = false
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("workspace-status: desktop call failed")
 		return resp, nil
 	}
 
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	reachable := true
+	resp.ContainerReachable = true
 
-	for _, repo := range repos {
-		out, execErr := apiServer.execInContainer(ctx, runnerID, []string{
-			"bash", "-c", fmt.Sprintf(workspaceStatusGitScript, fmt.Sprintf("/home/retro/work/%s", repo.Name)),
-		})
-		status := WorkspaceRepoStatus{RepoID: repo.ID, Name: repo.Name}
-		if execErr != nil {
-			// Container unreachable counts once; subsequent repos
-			// will produce the same error so don't spam the response
-			// with N copies of "container not ready".
-			reachable = false
-			status.Error = execErr.Error()
-			resp.Repos = append(resp.Repos, status)
-			continue
+	// Try to attach repo IDs by joining on Name. If we have the helix
+	// repo metadata we surface it; otherwise we just pass the on-disk
+	// status through (still useful to the user).
+	repos, _ := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: projectID})
+	idByName := make(map[string]string, len(repos))
+	for _, r := range repos {
+		if r != nil {
+			idByName[r.Name] = r.ID
 		}
-		var parsed struct {
-			Branch      string `json:"branch"`
-			Uncommitted int    `json:"uncommitted"`
-			Unpushed    int    `json:"unpushed"`
-			Error       string `json:"error,omitempty"`
-		}
-		if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &parsed); jsonErr != nil {
-			status.Error = fmt.Sprintf("parse status: %v (raw: %q)", jsonErr, out)
-			resp.Repos = append(resp.Repos, status)
-			continue
-		}
-		status.Branch = parsed.Branch
-		status.UncommittedFiles = parsed.Uncommitted
-		status.UnpushedCommits = parsed.Unpushed
-		if parsed.Error != "" {
-			status.Error = parsed.Error
+	}
+
+	for _, ws := range desktopResp.Repos {
+		status := WorkspaceRepoStatus{
+			RepoID:           idByName[ws.Name],
+			Name:             ws.Name,
+			Branch:           ws.Branch,
+			UncommittedFiles: ws.UncommittedFiles,
+			UnpushedCommits:  ws.UnpushedCommits,
+			Error:            ws.Error,
 		}
 		if status.IsDirty() {
 			resp.TotalDirty += status.UncommittedFiles + status.UnpushedCommits
@@ -171,94 +262,112 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 		resp.Repos = append(resp.Repos, status)
 	}
 
-	resp.ContainerReachable = reachable
 	return resp, nil
 }
 
-// commitAndPushUncommittedRepos runs `git add -A && git commit && git
-// push` per dirty repo in the parent's container. Called from
-// forkSession when the request has auto_commit_uncommitted=true.
-// Returns an error if ANY push fails — the fork should abort rather
-// than leave half-pushed-state-then-paused.
+// commitAndPushUncommittedRepos delegates to the desktop's
+// /workspace/commit-and-push endpoint which walks its own workspaces
+// and runs `git add -A && git commit && git push` per dirty repo.
+// Returns an error if ANY repo's commit or push fails — the fork
+// should abort rather than leave half-pushed-state-then-paused.
+//
+// If the container isn't reachable, this is a no-op (we can't see
+// what's there to push, but we also can't pause an unreachable
+// container's worth of work — best effort is "proceed silently").
 func (apiServer *HelixAPIServer) commitAndPushUncommittedRepos(
 	ctx context.Context,
 	parentSessionID string,
-	projectID string,
 	commitMessage string,
 ) error {
-	if projectID == "" {
+	conn, dialErr := apiServer.dialDesktop(ctx, parentSessionID)
+	if dialErr != nil {
+		log.Debug().Err(dialErr).Str("session_id", parentSessionID).Msg("pre-fork commit: container not reachable, skipping")
 		return nil
 	}
-	repos, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: projectID,
-	})
-	if err != nil {
-		return fmt.Errorf("list repos: %w", err)
+	defer conn.Close()
+
+	var desktopResp desktopCommitResp
+	if err := callDesktopJSON(conn, http.MethodPost, "/workspace/commit-and-push",
+		desktopCommitReq{Message: commitMessage}, &desktopResp); err != nil {
+		// Older container images don't have this endpoint yet (rolled
+		// out with the fork safety-net change; needs build-ubuntu and
+		// a new session to take effect). Treat 404 as "feature not
+		// available on this desktop" and skip the pre-fork commit
+		// rather than blocking the fork entirely. The user can
+		// always commit manually before forking on an old container.
+		if isDesktopEndpointMissing(err) {
+			log.Warn().Err(err).Str("session_id", parentSessionID).
+				Msg("pre-fork commit: desktop image predates /workspace/commit-and-push; skipping")
+			return nil
+		}
+		return fmt.Errorf("commit-and-push call: %w", err)
 	}
-	if len(repos) == 0 {
+
+	if desktopResp.Success {
+		for _, r := range desktopResp.Repos {
+			if r.Action != "clean" {
+				log.Info().Str("repo", r.Name).Str("action", r.Action).Int("files", r.UncommittedFiles).
+					Int("commits", r.UnpushedCommits).Str("session_id", parentSessionID).
+					Msg("fork: pre-fork commit+push complete")
+			}
+		}
 		return nil
 	}
 
-	runnerID := fmt.Sprintf("desktop-%s", parentSessionID)
+	// At least one repo failed — collect the errors for a single
+	// user-facing message.
 	var failures []string
-
-	for _, repo := range repos {
-		path := fmt.Sprintf("/home/retro/work/%s", repo.Name)
-		// One bash invocation per repo, with early-exit if path missing
-		// or if nothing's dirty. Captures combined stdout+stderr so
-		// hook output (commit-msg, pre-push) surfaces on failure.
-		script := fmt.Sprintf(`set -e
-cd %s 2>/dev/null || { echo "SKIP path missing"; exit 0; }
-dirty=$(git status --porcelain 2>/dev/null)
-unpushed=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)
-if [ -z "$dirty" ] && [ "$unpushed" = "0" ]; then
-  echo "CLEAN"
-  exit 0
-fi
-if [ -n "$dirty" ]; then
-  git add -A
-  git -c commit.gpgsign=false commit -m %s
-fi
-git push origin HEAD 2>&1
-echo "OK"`, path, shellEscape(commitMessage))
-
-		out, execErr := apiServer.execInContainer(ctx, runnerID, []string{"bash", "-c", script})
-		out = strings.TrimSpace(out)
-		if execErr != nil {
-			failures = append(failures, fmt.Sprintf("repo %s: %v (output: %s)", repo.Name, execErr, out))
-			log.Warn().Err(execErr).Str("repo", repo.Name).Str("session_id", parentSessionID).Str("output", out).Msg("fork: commit+push failed")
-			continue
+	for _, r := range desktopResp.Repos {
+		if r.Error != "" {
+			failures = append(failures, fmt.Sprintf("repo %s: %s", r.Name, r.Error))
 		}
-		// Bash succeeded but git push could still have reported errors
-		// to stdout. Detect by looking for typical failure phrases.
-		if strings.Contains(out, "rejected") || strings.Contains(out, "failed to push") || strings.Contains(out, "error:") {
-			failures = append(failures, fmt.Sprintf("repo %s: %s", repo.Name, out))
-			log.Warn().Str("repo", repo.Name).Str("session_id", parentSessionID).Str("output", out).Msg("fork: git push reported error")
-			continue
-		}
-		log.Info().Str("repo", repo.Name).Str("session_id", parentSessionID).Str("output", out).Msg("fork: pre-fork commit+push complete")
 	}
-
-	if len(failures) > 0 {
-		return fmt.Errorf("pre-fork commit+push failed: %s", strings.Join(failures, "; "))
+	if len(failures) == 0 {
+		failures = append(failures, "unknown desktop error")
 	}
-	return nil
+	return fmt.Errorf("pre-fork commit+push failed: %s", joinErrors(failures))
 }
 
-// shellEscape wraps a string in single quotes for safe use inside a
-// bash double-quoted script. Single-quoted strings have NO escape
-// processing in bash so the only thing we need to handle is embedded
-// single quotes (replace ' with '\'').
-func shellEscape(s string) string {
-	var b bytes.Buffer
-	b.WriteByte('\'')
-	for _, r := range s {
-		if r == '\'' {
-			b.WriteString(`'\''`)
-		} else {
-			b.WriteRune(r)
-		}
+// isDesktopEndpointMissing detects the "HTTP 404 page not found"
+// reply older sandbox images return for unknown routes — needed so
+// the fork flow doesn't break for users still on a desktop image
+// that predates /workspace/commit-and-push.
+func isDesktopEndpointMissing(err error) bool {
+	if err == nil {
+		return false
 	}
-	b.WriteByte('\'')
+	msg := err.Error()
+	return (containsCaseInsensitive(msg, "404") && containsCaseInsensitive(msg, "page not found"))
+}
+
+func containsCaseInsensitive(haystack, needle string) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	if len(haystack) < len(needle) {
+		return false
+	}
+	// Cheap ASCII case-insensitive contains — both strings are short
+	// runtime-internal labels, no need for proper Unicode folding.
+	hl := bytes.ToLower([]byte(haystack))
+	nl := bytes.ToLower([]byte(needle))
+	return bytes.Contains(hl, nl)
+}
+
+// joinErrors flattens N error strings into one with "; " separators,
+// quietly truncating any individual string longer than ~500 chars so
+// the surface message doesn't blow up the snackbar.
+func joinErrors(errs []string) string {
+	const perItemMax = 500
+	var b bytes.Buffer
+	for i, s := range errs {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		if len(s) > perItemMax {
+			s = s[:perItemMax] + "…[truncated]"
+		}
+		b.WriteString(s)
+	}
 	return b.String()
 }

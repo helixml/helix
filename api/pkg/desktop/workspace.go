@@ -1,0 +1,243 @@
+package desktop
+
+// Workspace-level git operations exposed for the fork-and-pause flow.
+//
+// These run server-side INSIDE the desktop container (no allowlist
+// gate; we trust ourselves) so the API server doesn't have to abuse
+// the security-scoped /exec endpoint to shell out for git plumbing.
+//
+// Two endpoints:
+//
+//   GET  /workspace/status         — per-repo dirty + unpushed counts
+//   POST /workspace/commit-and-push — auto-commit + push every dirty repo
+//
+// Both walk findAllWorkspaces() so they cover whatever directory
+// layout is on this desktop (single-repo-at-/home/retro/work, or
+// multi-repo via subdirectories).
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// WorkspaceRepoStatus is the per-repo shape returned by
+// GET /workspace/status. UncommittedFiles is the count of paths
+// `git status --porcelain` reports; UnpushedCommits is the count from
+// `git rev-list --count @{u}..HEAD` (0 when there's no upstream or
+// when nothing's ahead).
+type WorkspaceRepoStatus struct {
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	Branch           string `json:"branch,omitempty"`
+	UncommittedFiles int    `json:"uncommitted_files"`
+	UnpushedCommits  int    `json:"unpushed_commits"`
+	Error            string `json:"error,omitempty"`
+}
+
+// WorkspaceStatusResponse is the body of GET /workspace/status.
+type WorkspaceStatusResponse struct {
+	Repos []WorkspaceRepoStatus `json:"repos"`
+}
+
+// handleWorkspaceStatus serves GET /workspace/status. It walks every
+// git workspace on this desktop and reports counts only — no diffs,
+// no file lists; the consumer (fork-confirm modal) just needs to
+// decide whether to surface "you have changes" and show totals.
+func (s *Server) handleWorkspaceStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	resp := WorkspaceStatusResponse{Repos: []WorkspaceRepoStatus{}}
+	for _, ws := range findAllWorkspaces() {
+		status := WorkspaceRepoStatus{Name: ws.Name, Path: ws.Path, Branch: ws.CurrentBranch}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		uncommittedOut, err := runGit(ctx, ws.Path, "status", "--porcelain")
+		cancel()
+		if err != nil {
+			status.Error = fmt.Sprintf("git status: %v", err)
+			resp.Repos = append(resp.Repos, status)
+			continue
+		}
+		// git status --porcelain emits one line per changed path. Empty
+		// output → clean tree.
+		uncommittedOut = strings.TrimSpace(uncommittedOut)
+		if uncommittedOut != "" {
+			status.UncommittedFiles = len(strings.Split(uncommittedOut, "\n"))
+		}
+
+		ctx, cancel = context.WithTimeout(r.Context(), 10*time.Second)
+		unpushedOut, err := runGit(ctx, ws.Path, "rev-list", "--count", "@{u}..HEAD")
+		cancel()
+		// No-upstream / detached HEAD returns a non-zero exit — treat
+		// it as "0 unpushed" rather than a real error. The user can
+		// only "miss" unpushed commits when there IS an upstream they
+		// could have pushed to.
+		if err == nil {
+			n := 0
+			fmt.Sscanf(strings.TrimSpace(unpushedOut), "%d", &n)
+			status.UnpushedCommits = n
+		}
+
+		resp.Repos = append(resp.Repos, status)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// WorkspaceCommitRequest is the body of POST /workspace/commit-and-push.
+type WorkspaceCommitRequest struct {
+	// Message becomes the commit message for any repo that has
+	// uncommitted changes. Required — empty messages are rejected.
+	Message string `json:"message"`
+}
+
+// WorkspaceCommitRepoResult is the per-repo outcome of the commit+push.
+// Action is "clean" (nothing to do), "committed" (had uncommitted
+// changes + pushed), "pushed-only" (clean tree but had unpushed
+// commits), or "failed".
+type WorkspaceCommitRepoResult struct {
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	Action           string `json:"action"`
+	UncommittedFiles int    `json:"uncommitted_files"`
+	UnpushedCommits  int    `json:"unpushed_commits"`
+	Error            string `json:"error,omitempty"`
+	PushOutput       string `json:"push_output,omitempty"`
+}
+
+// WorkspaceCommitResponse is the body of POST /workspace/commit-and-push.
+type WorkspaceCommitResponse struct {
+	Repos   []WorkspaceCommitRepoResult `json:"repos"`
+	Success bool                        `json:"success"`
+}
+
+// handleWorkspaceCommitAndPush serves POST /workspace/commit-and-push.
+// Per dirty repo: stage all → commit (without GPG signing — the
+// container has no signing key) → push origin HEAD. If any repo
+// fails the response Success is false and the per-repo Error is
+// populated; the caller (fork handler) should treat that as an abort
+// rather than continuing into the rest of the fork flow.
+func (s *Server) handleWorkspaceCommitAndPush(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req WorkspaceCommitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid JSON: %s", err), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+
+	resp := WorkspaceCommitResponse{Repos: []WorkspaceCommitRepoResult{}, Success: true}
+
+	for _, ws := range findAllWorkspaces() {
+		result := WorkspaceCommitRepoResult{Name: ws.Name, Path: ws.Path}
+
+		// Re-check status so we don't commit/push redundantly. Same
+		// timeouts as the status endpoint.
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		uncommittedOut, err := runGit(ctx, ws.Path, "status", "--porcelain")
+		cancel()
+		if err != nil {
+			result.Action = "failed"
+			result.Error = fmt.Sprintf("git status: %v", err)
+			resp.Repos = append(resp.Repos, result)
+			resp.Success = false
+			continue
+		}
+		uncommittedOut = strings.TrimSpace(uncommittedOut)
+		if uncommittedOut != "" {
+			result.UncommittedFiles = len(strings.Split(uncommittedOut, "\n"))
+		}
+
+		ctx, cancel = context.WithTimeout(r.Context(), 10*time.Second)
+		unpushedOut, _ := runGit(ctx, ws.Path, "rev-list", "--count", "@{u}..HEAD")
+		cancel()
+		n := 0
+		fmt.Sscanf(strings.TrimSpace(unpushedOut), "%d", &n)
+		result.UnpushedCommits = n
+
+		if result.UncommittedFiles == 0 && result.UnpushedCommits == 0 {
+			result.Action = "clean"
+			resp.Repos = append(resp.Repos, result)
+			continue
+		}
+
+		if result.UncommittedFiles > 0 {
+			ctx, cancel = context.WithTimeout(r.Context(), 30*time.Second)
+			if _, err := runGit(ctx, ws.Path, "add", "-A"); err != nil {
+				cancel()
+				result.Action = "failed"
+				result.Error = fmt.Sprintf("git add: %v", err)
+				resp.Repos = append(resp.Repos, result)
+				resp.Success = false
+				continue
+			}
+			cancel()
+
+			ctx, cancel = context.WithTimeout(r.Context(), 30*time.Second)
+			// -c commit.gpgsign=false in case the user has signing
+			// enabled by default but the container has no signing key.
+			if _, err := runGit(ctx, ws.Path, "-c", "commit.gpgsign=false", "commit", "-m", req.Message); err != nil {
+				cancel()
+				result.Action = "failed"
+				result.Error = fmt.Sprintf("git commit: %v", err)
+				resp.Repos = append(resp.Repos, result)
+				resp.Success = false
+				continue
+			}
+			cancel()
+		}
+
+		// Push regardless of whether we committed this turn — there
+		// may have been unpushed commits left over from earlier.
+		ctx, cancel = context.WithTimeout(r.Context(), 120*time.Second)
+		pushOut, err := runGit(ctx, ws.Path, "push", "origin", "HEAD")
+		cancel()
+		result.PushOutput = pushOut
+		if err != nil {
+			result.Action = "failed"
+			result.Error = fmt.Sprintf("git push: %v (output: %s)", err, pushOut)
+			resp.Repos = append(resp.Repos, result)
+			resp.Success = false
+			continue
+		}
+		if result.UncommittedFiles > 0 {
+			result.Action = "committed"
+		} else {
+			result.Action = "pushed-only"
+		}
+		resp.Repos = append(resp.Repos, result)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// runGit invokes git in the given working directory and returns the
+// combined stdout+stderr output along with the error (if any). All
+// timeouts come from the caller's context.
+func runGit(ctx context.Context, cwd string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = cwd
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func writeJSON(w http.ResponseWriter, code int, body interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(body)
+}

@@ -121,12 +121,8 @@ func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Re
 	// Failure here aborts the fork — better to surface a git error to
 	// the user than to silently abandon their changes.
 	if body.AutoCommitUncommitted == nil || *body.AutoCommitUncommitted {
-		projectID := parent.ProjectID
-		if projectID == "" {
-			projectID = parent.Metadata.ProjectID
-		}
 		commitMsg := fmt.Sprintf("Pre-fork checkpoint (switching to %s)", string(targetRuntime))
-		if pushErr := apiServer.commitAndPushUncommittedRepos(ctx, parent.ID, projectID, commitMsg); pushErr != nil {
+		if pushErr := apiServer.commitAndPushUncommittedRepos(ctx, parent.ID, commitMsg); pushErr != nil {
 			return nil, system.NewHTTPError409(
 				fmt.Sprintf("pre-fork commit+push failed; fork aborted, parent is still live. Fix git state and retry: %v", pushErr))
 		}
