@@ -11,14 +11,14 @@
 
 ## Wire shared components into HelixOrgChart.tsx
 
-- [~] Delete the inline `HireDrawer` and `CreateRoleDialog` definitions from `HelixOrgChart.tsx`.
-- [ ] Replace the `<CreateRoleDialog>` usage with `<NewRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />`.
-- [ ] Replace the `<Drawer>` + inline `<HireDrawer>` block (`:1327-1339`) with `<HireWorkerDrawer open={selection.kind === 'hire'} onClose={() => setSelection({ kind: 'none' })} presetRoleId={selection.kind === 'hire' ? selection.roleId : undefined} />`.
-- [ ] Verify the per-role node `PersonAddOutlinedIcon` button and the floating top-right `+ New role` button still behave identically (placement, click handlers, snackbar messages).
+- [x] Delete the inline `HireDrawer` and `CreateRoleDialog` definitions from `HelixOrgChart.tsx`.
+- [x] Replace the `<CreateRoleDialog>` usage with `<NewRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />`.
+- [x] Replace the `<Drawer>` + inline `<HireDrawer>` block (`:1327-1339`) with `<HireWorkerDrawer open={selection.kind === 'hire'} onClose={() => setSelection({ kind: 'none' })} presetRoleId={selection.kind === 'hire' ? selection.roleId : undefined} />`.
+- [x] Verify the per-role node `PersonAddOutlinedIcon` button and the floating top-right `+ New role` button still behave identically (placement, click handlers, snackbar messages).
 
 ## HelixOrgWorkers.tsx — hire button + role filter
 
-- [ ] Add `useState<boolean>` for hire drawer open state; add a primary-action `+ New Worker` button (with `<PersonAddOutlinedIcon>`) above the table, right-aligned in a header `<Stack direction="row" justifyContent="space-between">`.
+- [~] Add `useState<boolean>` for hire drawer open state; add a primary-action `+ New Worker` button (with `<PersonAddOutlinedIcon>`) above the table, right-aligned in a header `<Stack direction="row" justifyContent="space-between">`.
 - [ ] Add `roleFilter` state seeded from `router.params.role` (or URL `?role=` param). On change, update both state and URL via `router.setParams({ role: value || undefined })`. Render a `<TextField select size="small" label="Role">` on the left side of the header row populated from `useListHelixOrgRoles()`, with `All roles` as the default option.
 - [ ] Apply the filter to the worker list before building `tableData`: `const filteredWorkers = roleFilter ? workers.filter(w => w.role_id === roleFilter) : workers`. Use `filteredWorkers` in the existing `useMemo` mapping.
 - [ ] Update the empty-state copy: when `workers.length === 0`, show "No workers yet." with a primary `+ New Worker` button below. When `filteredWorkers.length === 0` but `workers.length > 0`, show "No workers match this role."
