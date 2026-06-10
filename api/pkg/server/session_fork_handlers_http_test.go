@@ -118,6 +118,46 @@ func TestForkSessionHTTP_RejectsSameRuntime(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "already using")
 }
 
+// TestForkSessionHTTP_AllowsSameRuntimeDifferentApp covers the case
+// where two helix apps share a code_agent_runtime (e.g. both are
+// claude_code) but differ in model — picking a different app from the
+// dropdown must fork even though the runtime string is unchanged.
+// Regression for the user-reported "source session is already using
+// claude_code" 400 when switching between Opus and Sonnet variants.
+func TestForkSessionHTTP_AllowsSameRuntimeDifferentApp(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
+	// Parent is already bound to "app_test" via seedRunningParent. Seed a
+	// SECOND app with the same runtime to fork to.
+	mem.SeedApp(&types.App{
+		ID: "app_test_sonnet",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
+					Model:            "claude-sonnet-4-5-20250929",
+				}},
+			},
+		},
+	})
+
+	rr := callForkHTTP(t, srv, user, parent.ID, ForkSessionRequest{
+		HelixAppID: "app_test_sonnet",
+	})
+
+	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+	var resp ForkSessionResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.NotEmpty(t, resp.NewSessionID, "child session must be created even though runtime is unchanged")
+
+	child, err := srv.Store.GetSession(context.Background(), resp.NewSessionID)
+	require.NoError(t, err)
+	assert.Equal(t, "app_test_sonnet", child.ParentApp, "child must adopt the new app")
+	assert.Equal(t, types.CodeAgentRuntimeClaudeCode, child.Metadata.CodeAgentRuntime)
+}
+
 func TestForkSessionHTTP_RejectsNonZedExternalSource(t *testing.T) {
 	srv, _ := newForkTestServer(t)
 	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}

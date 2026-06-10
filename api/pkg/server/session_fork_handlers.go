@@ -92,9 +92,17 @@ func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Re
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
-	if targetRuntime == parent.Metadata.CodeAgentRuntime {
+	// Reject the fork only when NOTHING about how the child runs would
+	// change: same app (or no app override, falling back to the parent's)
+	// AND same runtime. Two apps that share a runtime can still differ in
+	// model / credentials / system prompt — e.g. claude_code on Opus vs
+	// claude_code on Sonnet — so an app change alone is enough to justify
+	// the fork.
+	sameApp := targetAppID == "" || targetAppID == parent.ParentApp
+	sameRuntime := targetRuntime == parent.Metadata.CodeAgentRuntime
+	if sameApp && sameRuntime {
 		return nil, system.NewHTTPError400(
-			fmt.Sprintf("source session is already using %s; fork to a different runtime", targetRuntime))
+			fmt.Sprintf("source session is already using %s in this app; pick a different agent or runtime", targetRuntime))
 	}
 
 	child, forkErr := apiServer.forkSessionFromParent(ctx, user, parent, targetRuntime, targetAppID)

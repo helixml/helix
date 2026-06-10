@@ -1,5 +1,11 @@
 import React, { FC, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
 import Tooltip from "@mui/material/Tooltip";
 import AgentDropdown from "../agent/AgentDropdown";
 import useApps from "../../hooks/useApps";
@@ -42,6 +48,11 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
   const router = useRouter();
   const snackbar = useSnackbar();
   const [pending, setPending] = useState(false);
+  // Two-step flow: pickAgent() stages a target and opens the confirm
+  // dialog; runFork() (called from the dialog's "Fork" button) actually
+  // fires the mutation. Keeps the destructive-feeling action behind a
+  // single explicit user click.
+  const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
 
   const { data: sessionResponse } = useGetSession(sessionId, {
     enabled: !!sessionId,
@@ -69,16 +80,31 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
   // selection becomes a fork.
   const currentAppId = session?.parent_app || "";
 
-  const handleSelect = async (newAppId: string) => {
+  // Dropdown's onChange — just stage the target and open the confirm
+  // dialog. The actual fork doesn't fire until the user clicks "Fork" in
+  // runFork() below.
+  const handleSelect = (newAppId: string) => {
     if (!sessionId || pending || newAppId === currentAppId) return;
+    setPendingTargetId(newAppId);
+  };
+
+  const cancelFork = () => {
+    if (pending) return; // can't back out mid-flight
+    setPendingTargetId(null);
+  };
+
+  const runFork = async () => {
+    if (!sessionId || pending || !pendingTargetId) return;
+    const targetId = pendingTargetId;
     setPending(true);
     try {
-      const result = await forkMutation.mutateAsync({ helix_app_id: newAppId });
+      const result = await forkMutation.mutateAsync({ helix_app_id: targetId });
       const newId = result?.new_session_id;
       if (!newId) {
         throw new Error("server did not return new_session_id");
       }
       snackbar.success("Forked to new session");
+      setPendingTargetId(null);
       if (onForked) {
         onForked(newId);
       } else {
@@ -93,7 +119,8 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
         }
       }
     } catch (err: unknown) {
-      // Backend returns HTTP 400 / 409 with a clear message; surface it.
+      // Backend returns HTTP 400 / 409 with a clear message; surface it
+      // and keep the dialog open so the user sees what they tried to do.
       const message =
         err instanceof Error
           ? err.message
@@ -104,6 +131,18 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
     }
   };
 
+  const pendingTargetName = useMemo(() => {
+    if (!pendingTargetId) return "";
+    const app = eligibleAgents.find((a) => a.id === pendingTargetId);
+    return app?.config?.helix?.name || "the selected agent";
+  }, [pendingTargetId, eligibleAgents]);
+
+  const currentAgentName = useMemo(() => {
+    if (!currentAppId) return "";
+    const app = eligibleAgents.find((a) => a.id === currentAppId);
+    return app?.config?.helix?.name || "the current agent";
+  }, [currentAppId, eligibleAgents]);
+
   const isPaused = !!session?.config?.paused;
   const disabled = pending || isPaused || eligibleAgents.length === 0;
   const tooltip = isPaused
@@ -111,21 +150,51 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
     : "Pick a different agent to fork this session";
 
   return (
-    // placement="top" keeps the tooltip above the trigger. The default
-    // "bottom" placement put the tooltip directly over the first menu
-    // item when the dropdown opened, hiding it from view.
-    <Tooltip title={tooltip} placement="top" disableHoverListener={pending}>
-      <Box sx={{ minWidth: 200 }}>
-        <AgentDropdown
-          value={currentAppId}
-          onChange={handleSelect}
-          agents={eligibleAgents}
-          label="Agent"
-          disabled={disabled}
-          size={size}
-        />
-      </Box>
-    </Tooltip>
+    <>
+      {/* placement="top" keeps the tooltip above the trigger. The default
+          "bottom" placement put the tooltip directly over the first menu
+          item when the dropdown opened, hiding it from view. */}
+      <Tooltip title={tooltip} placement="top" disableHoverListener={pending}>
+        <Box sx={{ minWidth: 200 }}>
+          <AgentDropdown
+            value={currentAppId}
+            onChange={handleSelect}
+            agents={eligibleAgents}
+            label="Agent"
+            disabled={disabled}
+            size={size}
+          />
+        </Box>
+      </Tooltip>
+      <Dialog
+        open={!!pendingTargetId}
+        onClose={cancelFork}
+        aria-labelledby="fork-confirm-title"
+        aria-describedby="fork-confirm-description"
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle id="fork-confirm-title">Switch agent?</DialogTitle>
+        <DialogContent>
+          <DialogContentText id="fork-confirm-description">
+            Switching to <strong>{pendingTargetName}</strong> will fork this
+            session into a new conversation. The current session
+            {currentAgentName ? ` (with ${currentAgentName})` : ""} will be
+            paused as a frozen checkpoint, and the new agent will pick up
+            with the full prior transcript as context. Do you want to
+            continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cancelFork} disabled={pending}>
+            Cancel
+          </Button>
+          <Button onClick={runFork} disabled={pending} variant="contained" autoFocus>
+            {pending ? "Forking…" : "Fork"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 
