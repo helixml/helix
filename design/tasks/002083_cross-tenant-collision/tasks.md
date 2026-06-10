@@ -7,3 +7,7 @@
 - [x] Push the feature branch — no `gh pr create` (Helix UI opens the PR).
 - [x] Write per-repo PR description files in the task directory.
 - [x] Check Drone CI after pushing — **deferred until the GitHub PR is opened from the Helix UI**. The push goes to the intermediate git server (`http://api:8080/.../helix-4`), which mirrors to GitHub on "Open PR". CI runs against the GitHub PR, not the intermediate push, so there is no build to check yet. Reviewer should check `gh pr checks <num>` (or use the Drone MCP tools) once the PR is opened.
+
+## Follow-up (reviewer feedback)
+
+- [~] Move the id-mint into `api/pkg/system/uuid.go` as `GenerateGitRepositoryID(repoType, name)` so it lives with the other entity id helpers (`GenerateSessionID`, `GenerateProjectID`, etc.) instead of being a one-off method on `GitRepositoryService`. Move the regression test to a new `api/pkg/system/uuid_test.go` next to its helper.
