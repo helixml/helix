@@ -145,3 +145,29 @@ function and the existing tests already exercise the full apply flow.
 - #2570 — same id-collision class, fixed at the spawner / activation
   queue / mirror / streamhub layer. This task closes the equivalent
   defect in the git-repo service.
+
+## Implementation notes (post-merge)
+
+- Sits directly on top of the #2570 commit (`a3c2f3dfa`) — closes the
+  remaining defect in the same id-collision class.
+- The change is genuinely two lines: one import (`api/pkg/system`) and one
+  swap inside `generateRepositoryID` (`time.Now().Unix()` →
+  `system.GenerateID()`). Total diff: 35 insertions / 3 deletions across
+  the source file and its test.
+- `time` import in `git_repository_service.go` is still needed elsewhere
+  in the file (`LastActivity`, `CreatedAt`, etc.), so no import removal.
+- `go test -run TestGenerateRepositoryID -count=1 ./api/pkg/services/...`
+  passes in ~10ms locally with CGo enabled (`apt-get install gcc
+  libc6-dev` first — the dev environment shipped without gcc).
+- Regression-test design: 10,000 calls to `generateRepositoryID` with
+  identical `(repoType, name)` inputs. On the old `time.Now().Unix()`
+  implementation the test fails on iteration 2 because the loop runs in
+  ≪1s. On the new code it passes because each ULID has 80 random bits.
+- No frontend / no client changes — repo ids are opaque strings
+  everywhere except the mint function. Verified by grepping
+  `api/pkg/services`, `api/pkg/store`, `frontend/src` for any parsing of
+  the `-\d+` tail; none found.
+- CI deferred to PR open: the push targets the Helix intermediate git
+  server (`http://api:8080/...`), which mirrors to GitHub when the user
+  clicks "Open PR" in the Helix UI. Drone CI runs against the GitHub
+  PR, not the intermediate push.
