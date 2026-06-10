@@ -26,12 +26,14 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
 import Grid from '@mui/material/Grid'
+import Link from '@mui/material/Link'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SaveIcon from '@mui/icons-material/Save'
@@ -47,6 +49,7 @@ import EmbeddedSessionView, {
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 
+import router5 from '../router'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -363,40 +366,58 @@ const HelixOrgWorkerDetail: FC = () => {
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                         Role
                       </Typography>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => orgSlug && router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: data.role!.id })}
-                        sx={{ fontFamily: 'monospace', textTransform: 'none', justifyContent: 'flex-start', p: 0, minWidth: 0 }}
-                      >
-                        {data.role.id}
-                      </Button>
+                      {orgSlug ? (
+                        <Link
+                          href={router5.buildPath('helix_org_role_detail', { org_id: orgSlug, role_id: data.role.id })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          underline="hover"
+                          sx={{ fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                        >
+                          {data.role.id}
+                          <OpenInNewIcon sx={{ fontSize: 14 }} />
+                        </Link>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{data.role.id}</Typography>
+                      )}
                     </Box>
                   )}
                   {projectID && (
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Project</Typography>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => orgSlug && router.navigate('org_project-specs', { org_id: orgSlug, id: projectID })}
-                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem', textTransform: 'none', justifyContent: 'flex-start', p: 0, minWidth: 0, wordBreak: 'break-all', textAlign: 'left' }}
-                      >
-                        {projectID}
-                      </Button>
+                      {orgSlug ? (
+                        <Link
+                          href={router5.buildPath('org_project-specs', { org_id: orgSlug, id: projectID })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          underline="hover"
+                          sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 0.5, wordBreak: 'break-all' }}
+                        >
+                          {projectID}
+                          <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+                        </Link>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{projectID}</Typography>
+                      )}
                     </Box>
                   )}
                   {agentAppID && (
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Agent</Typography>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => orgSlug && router.navigate('org_agent', { org_id: orgSlug, app_id: agentAppID })}
-                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem', textTransform: 'none', justifyContent: 'flex-start', p: 0, minWidth: 0, wordBreak: 'break-all', textAlign: 'left' }}
-                      >
-                        {agentAppID}
-                      </Button>
+                      {orgSlug ? (
+                        <Link
+                          href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentAppID })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          underline="hover"
+                          sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 0.5, wordBreak: 'break-all' }}
+                        >
+                          {agentAppID}
+                          <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+                        </Link>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{agentAppID}</Typography>
+                      )}
                     </Box>
                   )}
                   <Divider />
