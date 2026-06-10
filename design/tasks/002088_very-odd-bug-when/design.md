@@ -214,6 +214,29 @@ recreated container will have the right env. **This workaround is not part
 of the code change** — it's only relevant for unblocking the user-reported
 session before the fix ships.
 
+## Implementation Notes (post-implementation)
+
+- `DesktopAgent` lives at `api/pkg/types/types.go:1826`, not in a dedicated
+  `external_agent.go`. `SetRepoContext` was added next to the existing
+  `GetEffectiveResolution` method on the same type.
+- The store accessor convention in `pkg/server/` is `s.Store.X`; some older
+  call sites use `s.Controller.Options.Store.X` (they're the same pointer).
+  `attachProjectContext` uses `s.Store` for consistency with newer code.
+- The exploratory-resume site (`session_handlers.go:1986-1989`) had an
+  explicit `GetProject` error-check that returned 500 on missing project.
+  Kept that check (discarding the project value with `_`) — the helper's
+  internal `GetProject` is best-effort, but this code path's contract is
+  "project must exist". A small duplicate call, deliberate trade-off.
+- The old inline code at `spec_task_design_review_handlers.go:967-983`
+  silently swallowed `ListGitRepositories` errors (`if err == nil && ...`).
+  The helper now returns them, surfacing DB errors instead of launching a
+  broken container. That's a behaviour improvement, not a regression.
+- E2E manual verification through the inner Helix UI was blocked: the
+  helix-org REST endpoints (`/api/v1/orgs/{org}/roles` etc.) return
+  "unknown API path" in this build. Unit tests + path inspection had to
+  carry the verification weight. Future implementers in a more complete
+  Helix environment should still run the worker-hire flow end-to-end.
+
 ## Risks
 
 - **Helper called from a context where `s.Store` is nil.** All current
