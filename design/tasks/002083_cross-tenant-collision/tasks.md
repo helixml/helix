@@ -10,4 +10,4 @@
 
 ## Follow-up (reviewer feedback)
 
-- [~] Move the id-mint into `api/pkg/system/uuid.go` as `GenerateGitRepositoryID(repoType, name)` so it lives with the other entity id helpers (`GenerateSessionID`, `GenerateProjectID`, etc.) instead of being a one-off method on `GitRepositoryService`. Move the regression test to a new `api/pkg/system/uuid_test.go` next to its helper.
+- [x] Move the id-mint into `api/pkg/system/uuid.go` as `GenerateGitRepositoryID(repoType, name)` so it lives with the other entity id helpers (`GenerateSessionID`, `GenerateProjectID`, etc.) instead of being a one-off method on `GitRepositoryService`. Move the regression test to a new `api/pkg/system/uuid_test.go` next to its helper. ✅ `system` already imported `types` via `apikey.go`, so no circular-dependency concern. Format unchanged.

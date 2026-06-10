@@ -10,8 +10,10 @@ This is the same id-collision class as #2570 (spawner / activation-queue / mirro
 
 ## Changes
 
-- `api/pkg/services/git_repository_service.go` — `generateRepositoryID` now suffixes with `system.GenerateID()` instead of `time.Now().Unix()`; added `api/pkg/system` import; added comment explaining the collision class being closed.
-- `api/pkg/services/git_repository_service_test.go` — new `TestGenerateRepositoryID_NoCollisionUnderLoad` mints 10,000 ids with the same `(repoType, name)` and asserts all distinct. Fails immediately on the old implementation; passes on the new one.
+- `api/pkg/system/uuid.go` — new `GenerateGitRepositoryID(repoType, name)` helper, alongside `GenerateSessionID`, `GenerateProjectID`, etc. Mints `<repoType>-<sanitizedName>-<ulid>`. Comment explains the collision class being closed and why the format keeps its dash-separated, log-greppable shape rather than the short prefix-and-ulid shape used by other entities.
+- `api/pkg/system/uuid_test.go` — new `TestGenerateGitRepositoryID_NoCollisionUnderLoad` mints 10,000 ids with the same `(repoType, name)` and asserts all distinct. Fails immediately on the old implementation; passes on the new one.
+- `api/pkg/services/git_repository_service.go` — replaces the private `generateRepositoryID` method with a call to `system.GenerateGitRepositoryID`. Net code shrinks; the mint logic now lives with its siblings.
+- `api/pkg/services/git_repository_service_test.go` — corresponding test removed (now lives in `system/uuid_test.go`).
 
 ## Compatibility
 
