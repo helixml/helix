@@ -2,12 +2,12 @@
 
 ## Extract shared components
 
-- [~] Create `frontend/src/components/helix-org/HireWorkerDrawer.tsx` by extracting `HireDrawer` from `HelixOrgChart.tsx:855-926`. Wrap the existing `<Box>` body in its own MUI `<Drawer anchor="right">` so the component owns its open/close chrome.
-- [ ] Add `presetRoleId?: string`, `open: boolean`, and `onClose: () => void` props to `<HireWorkerDrawer>`. When `presetRoleId` is set, render the role as read-only text (current behaviour); otherwise render a required `<TextField select>` populated from `useListHelixOrgRoles()`.
-- [ ] Add a `Reports to (optional)` `<TextField select>` to `<HireWorkerDrawer>` populated from `useListHelixOrgWorkers()`. Include a `(none)` option. When set, include `parent_id` in the `HireWorkerRequest` body.
-- [ ] Reset internal form state (`id`, `kind`, `identity`, `roleId`, `parentId`) on the `open` false → true transition via `useEffect`.
-- [ ] Disable the `Hire` button when `identity.trim() === ''` OR `!roleId`. Update the success toast to read `hired ${id} reporting to ${parent}` when `parent_id` was supplied; keep the existing "drag an edge…" hint otherwise.
-- [ ] Create `frontend/src/components/helix-org/NewRoleDialog.tsx` by extracting `CreateRoleDialog` from `HelixOrgChart.tsx:775-829` verbatim with `{ open, onClose }` props.
+- [x] Create `frontend/src/components/helix-org/HireWorkerDrawer.tsx` by extracting `HireDrawer` from `HelixOrgChart.tsx:855-926`. Wrap the existing `<Box>` body in its own MUI `<Drawer anchor="right">` so the component owns its open/close chrome.
+- [x] Add `presetRoleId?: string`, `open: boolean`, and `onClose: () => void` props to `<HireWorkerDrawer>`. When `presetRoleId` is set, render the role as read-only text (current behaviour); otherwise render a required `<TextField select>` populated from `useListHelixOrgRoles()`.
+- [x] Add a `Reports to (optional)` `<TextField select>` to `<HireWorkerDrawer>` populated from `useListHelixOrgWorkers()`. Include a `(none)` option. When set, include `parent_id` in the `HireWorkerRequest` body.
+- [x] Reset internal form state (`id`, `kind`, `identity`, `roleId`, `parentId`) on the `open` false → true transition via `useEffect`.
+- [x] Disable the `Hire` button when `identity.trim() === ''` OR `!roleId`. Update the success toast to read `hired ${id} reporting to ${parent}` when `parent_id` was supplied; keep the existing "drag an edge…" hint otherwise.
+- [~] Create `frontend/src/components/helix-org/NewRoleDialog.tsx` by extracting `CreateRoleDialog` from `HelixOrgChart.tsx:775-829` verbatim with `{ open, onClose }` props.
 
 ## Wire shared components into HelixOrgChart.tsx
 
