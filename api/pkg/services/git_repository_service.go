@@ -16,6 +16,7 @@ import (
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -1113,14 +1114,22 @@ func (s *GitRepositoryService) GetCloneCommand(repoID string, targetDir string) 
 	return fmt.Sprintf("git clone %s %s", cloneURL, targetDir)
 }
 
-// generateRepositoryID generates a unique repository ID
+// generateRepositoryID generates a unique repository ID.
+//
+// Uses a ULID suffix (via system.GenerateID) rather than a wall-clock
+// second timestamp. Two callers in different orgs minting a repo for
+// identically-named entities (e.g. per-Worker repos for `w-mt` hired into
+// two orgs in the same second) would otherwise collide on the global
+// `git_repositories_pkey` constraint and the second INSERT would fail with
+// SQLSTATE 23505. The 80 random bits in a ULID make that collision
+// astronomically unlikely without changing the schema or threading orgID
+// through the create path.
 func (s *GitRepositoryService) generateRepositoryID(repoType types.GitRepositoryType, name string) string {
 	// Sanitize name for filesystem
 	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
 	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
 
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("%s-%s-%d", repoType, sanitizedName, timestamp)
+	return fmt.Sprintf("%s-%s-%s", repoType, sanitizedName, system.GenerateID())
 }
 
 // generateCloneURL generates the clone URL for a repository
