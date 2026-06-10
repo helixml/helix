@@ -6,8 +6,8 @@
 - [x] Modify `api/pkg/org/application/tools/create_role.go:47-68` so `Invoke` merges `tools.BaseReadTools` with the caller-supplied `args.Tools` (union, order-stable, deduped) before passing to `orgchart.NewRole`.
 - [x] Add `api/pkg/org/application/tools/reconciler.go` defining `RoleReconciler{Store, Now}` with `Reconcile(ctx, orgID) error`. Reconcile loads all roles for an org, computes the union with `BaseReadTools`, and calls `Roles.Update` only when the set changes.
 - [x] Wire `RoleReconciler.Reconcile` into `helix_org_middleware.ensureBootstrap` right after `topology.Reconciler.ReconcileAll`. Log errors but do not break the request (matches the topology reconcile's best-effort pattern). Runs once per org per process via the existing `bootstrapped` flag.
-- [~] Add `defaults_test.go`: assert `BaseReadTools` matches a golden list; assert every name resolves in the registry.
-- [ ] Add `create_role_test.go` cases for `tools:[]` and for `tools:[publish, managers]` (verifies union, dedup, order preservation).
+- [x] Add `defaults_test.go`: assert `BaseReadTools` matches a golden list; assert every name resolves in the registry.
+- [~] Add `create_role_test.go` cases for `tools:[]` and for `tools:[publish, managers]` (verifies union, dedup, order preservation).
 - [ ] Add `reconciler_test.go`: seed a role with `tools:[dm, publish]`, run `Reconcile`, assert the role's tools is the union with `BaseReadTools`; run `Reconcile` again, assert no `Roles.Update` write occurred and `UpdatedAt` is unchanged.
 - [ ] Extend the E2E test in `api/pkg/org/application/tools/builtins_test.go` (`TestDemoOwnerHiresCEO` and/or a sibling) to assert that an MCP `tools/list` on `w-owner` includes both `managers` and `reports`, and that a CEO-like role created via `create_role` with a minimal tool list still exposes the full base read set on its MCP surface.
 - [ ] Run `go build ./api/pkg/...` and the relevant unit-test subset locally, then push and confirm CI green via `gh pr checks` / Drone MCP tools.
