@@ -111,7 +111,10 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
     : "Pick a different agent to fork this session";
 
   return (
-    <Tooltip title={tooltip} disableHoverListener={pending}>
+    // placement="top" keeps the tooltip above the trigger. The default
+    // "bottom" placement put the tooltip directly over the first menu
+    // item when the dropdown opened, hiding it from view.
+    <Tooltip title={tooltip} placement="top" disableHoverListener={pending}>
       <Box sx={{ minWidth: 200 }}>
         <AgentDropdown
           value={currentAppId}
