@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
@@ -959,6 +960,124 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		"activationId": "a-3",
 	}); err == nil {
 		t.Fatalf("worker_log with cross-Worker activationId should error")
+	}
+}
+
+// TestBootstrapOwnerHasBaselineReadsOverMCP is the §13 regression test
+// for helixml/helix#2546. It drives the production bootstrap (so the
+// owner Role is created from the same defaults the real server would
+// use) and asserts the w-owner MCP surface includes every BaseReadTools
+// entry — most importantly `managers` and `reports`, the two tools the
+// QA report observed missing.
+func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
+	t.Parallel()
+
+	s := orggorm.GetOrgTestDB(t)
+	envsDir := t.TempDir()
+	ownerEnv := filepath.Join(envsDir, "w-owner")
+	if err := os.MkdirAll(ownerEnv, 0o750); err != nil {
+		t.Fatalf("mkdir owner env: %v", err)
+	}
+
+	if _, err := bootstrap.Run(context.Background(), s, bootstrap.Params{
+		EnvironmentPath: ownerEnv,
+		OrganizationID:  "org-test",
+	}); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	reg := tools.NewRegistry()
+	deps := tools.DefaultDeps(s)
+	deps.EnvsDir = envsDir
+	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	session := connectMCP(t, srv.URL, "w-owner")
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	got := make(map[string]bool, len(res.Tools))
+	for _, tl := range res.Tools {
+		got[tl.Name] = true
+	}
+	for _, name := range tools.BaseReadTools {
+		if !got[name] {
+			t.Errorf("baseline tool %q missing from w-owner MCP surface; got: %+v", name, got)
+		}
+	}
+}
+
+// TestCreateRoleInjectsBaselineOverMCP simulates the second half of the
+// §13 regression: an owner who creates a role with a minimal mutation-
+// only tools list. Without baseline injection, a Worker hired into that
+// role would have no way to read its reporting graph. With injection,
+// every BaseReadTools entry is on the hired Worker's MCP surface.
+func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
+	t.Parallel()
+
+	s := orggorm.GetOrgTestDB(t)
+	envsDir := t.TempDir()
+	ownerEnv := filepath.Join(envsDir, "w-owner")
+	if err := os.MkdirAll(ownerEnv, 0o750); err != nil {
+		t.Fatalf("mkdir owner env: %v", err)
+	}
+	if _, err := bootstrap.Run(context.Background(), s, bootstrap.Params{
+		EnvironmentPath: ownerEnv,
+		OrganizationID:  "org-test",
+	}); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	reg := tools.NewRegistry()
+	deps := tools.DefaultDeps(s)
+	deps.EnvsDir = envsDir
+	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ownerSession := connectMCP(t, srv.URL, "w-owner")
+
+	// Owner creates a §13-style QA-engineer role with only the mutation
+	// tools its prompt mentions. No reads are listed by the caller —
+	// the baseline must arrive via injection.
+	invokeExpectID(t, ownerSession, tools.CreateRoleName, map[string]any{
+		"id":      "r-qa",
+		"content": "# QA Engineer\nDM and publish only.",
+		"tools":   []string{"dm", "publish", "subscribe", "read_events"},
+	})
+	invokeExpectID(t, ownerSession, tools.HireWorkerName, map[string]any{
+		"id":              "w-qa-1",
+		"roleId":          "r-qa",
+		"parentId":        "w-owner",
+		"kind":            "ai",
+		"identityContent": "# QA Engineer",
+	})
+
+	qaSession := connectMCP(t, srv.URL, "w-qa-1")
+	res, err := qaSession.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("qa list tools: %v", err)
+	}
+	got := make(map[string]bool, len(res.Tools))
+	for _, tl := range res.Tools {
+		got[tl.Name] = true
+	}
+	for _, name := range tools.BaseReadTools {
+		if !got[name] {
+			t.Errorf("baseline tool %q missing from w-qa-1 MCP surface; got: %+v", name, got)
+		}
+	}
+	// Caller-supplied tools must also still be present.
+	for _, name := range []string{"dm", "publish", "subscribe", "read_events"} {
+		if !got[name] {
+			t.Errorf("caller-specified tool %q missing from w-qa-1 MCP surface; got: %+v", name, got)
+		}
 	}
 }
 
