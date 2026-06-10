@@ -234,9 +234,6 @@ type Yellowdog struct {
 	// MaxRetries caps retry attempts for idempotent YD API requests
 	// (GET, PUT, DELETE). POST is never retried.
 	MaxRetries int `envconfig:"HELIX_YD_MAX_RETRIES" default:"3"`
-
-	// (helix-sandbox image is auto-derived from the Helix build
-	// version - see bootstrap.helixSandboxImage. No env var to set.)
 }
 
 func LoadServerConfig() (ServerConfig, error) {
