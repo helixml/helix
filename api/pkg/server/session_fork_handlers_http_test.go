@@ -118,6 +118,55 @@ func TestForkSessionHTTP_RejectsSameRuntime(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "already using")
 }
 
+// TestForkSessionHTTP_RepointsSpecTaskToChild covers the case where the
+// session being forked is the active session of a SpecTask. After the
+// fork, the task's PlanningSessionID must point at the child so the
+// spec-task page mounts the active session, not the now-paused parent.
+// Regression for the user-reported "session was forked — view remains
+// a frozen checkpoint" UX when revisiting a task after switching agent.
+func TestForkSessionHTTP_RepointsSpecTaskToChild(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
+
+	// Spec task that's tracking the parent as its planning session.
+	task := &types.SpecTask{
+		ID:                "spt_test_" + randSuffix(),
+		Name:              "Repoint test",
+		PlanningSessionID: parent.ID,
+		HelixAppID:        parent.ParentApp,
+		Status:            types.TaskStatusImplementation,
+	}
+	mem.SeedSpecTask(task)
+
+	// Seed a second app to fork to (different from the parent's app).
+	mem.SeedApp(&types.App{
+		ID: "app_test_qwen",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeQwenCode,
+				}},
+			},
+		},
+	})
+
+	rr := callForkHTTP(t, srv, user, parent.ID, ForkSessionRequest{
+		HelixAppID: "app_test_qwen",
+	})
+	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+	var resp ForkSessionResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+
+	updated, err := srv.Store.GetSpecTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, resp.NewSessionID, updated.PlanningSessionID,
+		"spec task must re-point at the forked child, not stay on the paused parent")
+	assert.Equal(t, "app_test_qwen", updated.HelixAppID,
+		"spec task must also adopt the child's new helix_app_id")
+}
+
 // TestForkSessionHTTP_AllowsSameRuntimeDifferentApp covers the case
 // where two helix apps share a code_agent_runtime (e.g. both are
 // claude_code) but differ in model — picking a different app from the

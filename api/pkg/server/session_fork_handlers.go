@@ -278,6 +278,15 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 		return nil, system.NewHTTPError500(fmt.Sprintf("child created (%s) but failed to pause parent: %v", createdChild.ID, err))
 	}
 
+	// Re-point any SpecTask that was tracking the parent session at the
+	// child. Without this the spec-task page keeps loading the now-paused
+	// parent and the user lands on the "this session is paused" banner
+	// every time they revisit the task — the fork effectively orphans
+	// itself. After the re-point, the spec task's chat panel mounts on
+	// the active child; the parent is still reachable through the
+	// ForkBadge on the child for users who want to inspect history.
+	apiServer.repointSpecTasksToChild(ctx, parent.ID, createdChild)
+
 	// Provision the desktop for the child. Same path as initial session start.
 	if err := apiServer.provisionForkedSessionDesktop(ctx, user, createdChild); err != nil {
 		// As above, leave the child row in place — its desktop can be started on
@@ -297,6 +306,57 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 		Msg("fork: created child session, paused parent")
 
 	return createdChild, nil
+}
+
+// repointSpecTasksToChild finds any SpecTask whose PlanningSessionID points
+// at the just-paused parent and updates it to point at the freshly-forked
+// child. Best-effort: failures are logged but do not abort the fork — the
+// child + parent rows are already consistent and the user can manually
+// navigate via the ForkBadge if the re-point silently fails.
+func (apiServer *HelixAPIServer) repointSpecTasksToChild(
+	ctx context.Context,
+	parentSessionID string,
+	child *types.Session,
+) {
+	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		PlanningSessionID: parentSessionID,
+	})
+	if err != nil {
+		log.Warn().Err(err).
+			Str("parent_session_id", parentSessionID).
+			Str("child_session_id", child.ID).
+			Msg("fork: failed to look up spec tasks pointing at parent; chat panel may still show paused parent")
+		return
+	}
+	if len(tasks) == 0 {
+		return // standalone session — no spec task to re-point
+	}
+	for _, task := range tasks {
+		if task == nil {
+			continue
+		}
+		oldSessionID := task.PlanningSessionID
+		oldAppID := task.HelixAppID
+		task.PlanningSessionID = child.ID
+		if child.ParentApp != "" {
+			task.HelixAppID = child.ParentApp
+		}
+		if err := apiServer.Store.UpdateSpecTask(ctx, task); err != nil {
+			log.Warn().Err(err).
+				Str("spec_task_id", task.ID).
+				Str("parent_session_id", parentSessionID).
+				Str("child_session_id", child.ID).
+				Msg("fork: failed to re-point spec task to child; chat panel may still show paused parent")
+			continue
+		}
+		log.Info().
+			Str("spec_task_id", task.ID).
+			Str("old_session_id", oldSessionID).
+			Str("new_session_id", child.ID).
+			Str("old_helix_app_id", oldAppID).
+			Str("new_helix_app_id", task.HelixAppID).
+			Msg("fork: re-pointed spec task to child session")
+	}
 }
 
 // provisionForkedSessionDesktop mirrors the desktop-startup branch of

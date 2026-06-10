@@ -8,6 +8,7 @@ package memorystore
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ type MemoryStore struct {
 	interactions map[string]*types.Interaction
 	apps         map[string]*types.App
 	projects     map[string]*types.Project
+	specTasks    map[string]*types.SpecTask
 	mu           sync.RWMutex
 
 	// OnInteractionUpdated is called after every UpdateInteraction call.
@@ -43,6 +45,7 @@ func New() *MemoryStore {
 		interactions: make(map[string]*types.Interaction),
 		apps:         make(map[string]*types.App),
 		projects:     make(map[string]*types.Project),
+		specTasks:    make(map[string]*types.SpecTask),
 	}
 }
 
@@ -383,9 +386,60 @@ func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, 
 	return true, nil // In-memory: always succeed (no concurrency in tests)
 }
 
-// SpecTask methods — always return "not found" (no spectasks in test)
-func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask, error) {
-	return nil, store.ErrNotFound
+// SpecTask methods — minimal in-memory implementation. Earlier versions
+// returned ErrNotFound for everything; the fork-and-pause path needs
+// real CRUD because it re-points a SpecTask's PlanningSessionID at the
+// child after a fork (see HelixAPIServer.repointSpecTasksToChild).
+func (m *MemoryStore) GetSpecTask(_ context.Context, id string) (*types.SpecTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t, ok := m.specTasks[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *t
+	return &cp, nil
+}
+
+// ListSpecTasks supports the filter shapes the fork path uses today —
+// notably PlanningSessionID for the reverse lookup from session → task.
+// Other filters are wired in as needed; everything not handled here is
+// effectively "no filter".
+func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*types.SpecTask, 0, len(m.specTasks))
+	for _, t := range m.specTasks {
+		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
+			continue
+		}
+		cp := *t
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) error {
+	if task == nil || task.ID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.specTasks[task.ID]; !ok {
+		return store.ErrNotFound
+	}
+	cp := *task
+	m.specTasks[task.ID] = &cp
+	return nil
+}
+
+// SeedSpecTask is a test helper: install a SpecTask into the store
+// without going through validation. Mirrors SeedApp / SeedSession.
+func (m *MemoryStore) SeedSpecTask(task *types.SpecTask) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *task
+	m.specTasks[task.ID] = &cp
 }
 
 func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
