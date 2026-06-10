@@ -35,3 +35,6 @@ To make the chart non-empty in a fresh inner-Helix instance:
 
 ### Light/dark styling note
 The button currently uses fixed white background / dark glyph. This is readable on both themes against the chart background, but a future polish pass could tint it via `useLightTheme().isLight` like the rest of the chart. Not done in this pass — the design called for "match existing chart conventions" and the rest of the chart's chips/buttons use static MUI defaults too.
+
+### Post-rebase note (2026-06-10)
+Rebased onto latest `origin/main` which included PR #2574 (shared `HireWorkerDrawer` / `NewRoleDialog` components). The merge dropped the inline `HireDrawer` block from `HelixOrgChart.tsx` and removed the `CloseIcon` import. My `DeletableEdge` swapped `<CloseIcon sx={{fontSize: 12}} />` for a plain `×` text glyph — visually identical, one fewer dependency. Re-verified in browser: hover shows ×, click triggers `DELETE`, `aria-label` correct. Screenshot: `screenshots/06-post-rebase-hover-x.png`. Typecheck clean.
