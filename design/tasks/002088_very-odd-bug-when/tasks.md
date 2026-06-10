@@ -1,6 +1,6 @@
 # Implementation Tasks: Populate ProjectID and RepositoryIDs when Helix-OR worker starts its first session
 
-- [ ] Add a pure method `(*types.DesktopAgent).SetRepoContext(repos []*types.GitRepository, defaultRepoID string)` next to the `DesktopAgent` type definition (likely `api/pkg/types/external_agent.go`). No I/O, no-op when `repos` is empty.
+- [~] Add a pure method `(*types.DesktopAgent).SetRepoContext(repos []*types.GitRepository, defaultRepoID string)` next to the `DesktopAgent` type definition in `api/pkg/types/types.go` (lives there, not a separate file). No I/O, no-op when `repos` is empty.
 - [ ] Add `(s *HelixAPIServer).attachProjectContext(ctx, agent, projectID)` in `api/pkg/server/session_handlers.go` (or a sibling file). It sets `agent.ProjectID`, calls `ListGitRepositories` + `GetProject`, then `agent.SetRepoContext(...)`.
 - [ ] In `StartExternalAgentSession` (`session_handlers.go` ~line 2474), call `s.attachProjectContext(ctx, zedAgent, session.ProjectID)` after constructing the `DesktopAgent`. Return the wrapped error on failure.
 - [ ] Replace the inline `ListGitRepositories` + `GetProject` + repo-loop block in `spec_task_design_review_handlers.go:967-983` with a single call to `s.attachProjectContext(...)`.
