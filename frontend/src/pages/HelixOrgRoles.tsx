@@ -9,6 +9,7 @@
 
 import { FC, MouseEvent, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
@@ -16,11 +17,13 @@ import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import useTheme from '@mui/material/styles/useTheme'
+import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import Page from '../components/system/Page'
+import NewRoleDialog from '../components/helix-org/NewRoleDialog'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
@@ -52,6 +55,7 @@ const HelixOrgRoles: FC = () => {
   const [deleting, setDeleting] = useState<RoleDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentRole, setCurrentRole] = useState<RoleDTO | null>(null)
+  const [newRoleOpen, setNewRoleOpen] = useState(false)
 
   const openRole = (roleId: string) => {
     if (!orgSlug) return
@@ -152,14 +156,24 @@ const HelixOrgRoles: FC = () => {
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
-          <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Roles</Typography>
-            <Typography variant="body2" color="text.secondary">
-              A Role defines a job description: the markdown content tells a Worker what they're for, the
-              tools list is the Worker's MCP tool surface, and the streams list flags which inbound events the Role's
-              prompt expects. Workers hold a Role directly — tools and prompt come from here.
-            </Typography>
-          </Box>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="h5" sx={{ mb: 1 }}>Roles</Typography>
+              <Typography variant="body2" color="text.secondary">
+                A Role defines a job description: the markdown content tells a Worker what they're for, the
+                tools list is the Worker's MCP tool surface, and the streams list flags which inbound events the Role's
+                prompt expects. Workers hold a Role directly — tools and prompt come from here.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setNewRoleOpen(true)}
+              sx={{ flexShrink: 0, mt: 0.5 }}
+            >
+              New Role
+            </Button>
+          </Stack>
 
           {isLoading ? (
             <LoadingSpinner />
@@ -168,9 +182,14 @@ const HelixOrgRoles: FC = () => {
               <Typography variant="body1" color="text.secondary" gutterBottom>
                 No roles defined yet.
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Create roles from the Chart — use “New role” on the org chart canvas.
-              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setNewRoleOpen(true)}
+                sx={{ mt: 1 }}
+              >
+                New Role
+              </Button>
             </Box>
           ) : (
             <SimpleTable
@@ -227,6 +246,8 @@ const HelixOrgRoles: FC = () => {
           </Typography>
         </DeleteConfirmWindow>
       )}
+
+      <NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />
     </Page>
   )
 }
