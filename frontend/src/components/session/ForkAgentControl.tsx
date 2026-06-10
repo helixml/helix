@@ -1,6 +1,8 @@
 import React, { FC, useMemo, useState } from "react";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -11,7 +13,7 @@ import AgentDropdown from "../agent/AgentDropdown";
 import useApps from "../../hooks/useApps";
 import useRouter from "../../hooks/useRouter";
 import useSnackbar from "../../hooks/useSnackbar";
-import { useGetSession, useForkSession } from "../../services/sessionService";
+import { useGetSession, useForkSession, useWorkspaceStatus } from "../../services/sessionService";
 import { AGENT_TYPE_ZED_EXTERNAL } from "../../types";
 
 interface ForkAgentControlProps {
@@ -62,6 +64,21 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
   const session = sessionResponse?.data;
   const forkMutation = useForkSession(sessionId);
 
+  // Workspace status check fires only when the confirm modal is open
+  // (pendingTargetId != null). It execs `git status` in each repo of
+  // the parent's desktop container — too expensive to do speculatively
+  // on every dropdown open without user intent.
+  const { data: workspaceResp, isFetching: workspaceFetching, isError: workspaceErrored } = useWorkspaceStatus(
+    sessionId,
+    { enabled: !!pendingTargetId },
+  );
+  const workspace = workspaceResp?.data;
+  const dirtyRepos = useMemo(
+    () => (workspace?.repos || []).filter((r) => (r.uncommitted_files || 0) + (r.unpushed_commits || 0) > 0),
+    [workspace],
+  );
+  const [forkError, setForkError] = useState<string | null>(null);
+
   // Filter to zed_external agents. Forking only makes sense between
   // external-agent frameworks; non-zed_external apps would have no
   // agent_servers config in the desktop container.
@@ -91,14 +108,23 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
   const cancelFork = () => {
     if (pending) return; // can't back out mid-flight
     setPendingTargetId(null);
+    setForkError(null);
   };
 
   const runFork = async () => {
     if (!sessionId || pending || !pendingTargetId) return;
     const targetId = pendingTargetId;
     setPending(true);
+    setForkError(null);
     try {
-      const result = await forkMutation.mutateAsync({ helix_app_id: targetId });
+      // Always opt into the pre-fork commit+push safety net. Backend
+      // defaults to it too; passing explicit true makes the request
+      // self-documenting and lets future UI add an "abandon changes"
+      // opt-out without a separate API change.
+      const result = await forkMutation.mutateAsync({
+        helix_app_id: targetId,
+        auto_commit_uncommitted: true,
+      });
       const newId = result?.new_session_id;
       if (!newId) {
         throw new Error("server did not return new_session_id");
@@ -119,13 +145,14 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
         }
       }
     } catch (err: unknown) {
-      // Backend returns HTTP 400 / 409 with a clear message; surface it
-      // and keep the dialog open so the user sees what they tried to do.
+      // Backend returns HTTP 400 / 409 with a clear message; surface
+      // it INSIDE the modal so the user sees what went wrong and can
+      // either fix git state and retry, or cancel.
       const message =
         err instanceof Error
           ? err.message
           : "Failed to fork session";
-      snackbar.error(message);
+      setForkError(message);
     } finally {
       setPending(false);
     }
@@ -184,12 +211,66 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
             with the full prior transcript as context. Do you want to
             continue?
           </DialogContentText>
+
+          {/* Workspace status panel: only surfaces when there's
+              something the user needs to know (uncommitted/unpushed
+              changes, an unreachable container, or a check failure).
+              A clean workspace is silent — the modal stays focused on
+              the agent-switch decision. */}
+          {workspaceFetching && (
+            <Box sx={{ mt: 2, display: "flex", alignItems: "center", gap: 1 }}>
+              <CircularProgress size={14} />
+              <Box sx={{ fontSize: "0.85rem", color: "text.secondary" }}>
+                Checking workspace for uncommitted changes…
+              </Box>
+            </Box>
+          )}
+          {!workspaceFetching && workspaceErrored && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Couldn't check the workspace for uncommitted changes. The
+              fork will still try to commit & push if anything's dirty.
+            </Alert>
+          )}
+          {!workspaceFetching && workspace && !workspace.container_reachable && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Desktop container isn't running — nothing to commit. The
+              child will start clean.
+            </Alert>
+          )}
+          {!workspaceFetching && workspace?.container_reachable && dirtyRepos.length > 0 && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Pre-fork checkpoint: the following changes will be
+              committed and pushed before the fork so the new agent
+              sees them:
+              <Box component="ul" sx={{ pl: 2.5, mt: 0.5, mb: 0 }}>
+                {dirtyRepos.map((r) => (
+                  <li key={r.repo_id}>
+                    <strong>{r.name}</strong>
+                    {r.branch ? ` (${r.branch})` : ""}
+                    {": "}
+                    {(r.uncommitted_files || 0) > 0 && (
+                      <>{r.uncommitted_files} file{r.uncommitted_files === 1 ? "" : "s"} uncommitted</>
+                    )}
+                    {(r.uncommitted_files || 0) > 0 && (r.unpushed_commits || 0) > 0 && ", "}
+                    {(r.unpushed_commits || 0) > 0 && (
+                      <>{r.unpushed_commits} commit{r.unpushed_commits === 1 ? "" : "s"} unpushed</>
+                    )}
+                  </li>
+                ))}
+              </Box>
+            </Alert>
+          )}
+          {forkError && (
+            <Alert severity="error" sx={{ mt: 2 }} onClose={() => setForkError(null)}>
+              {forkError}
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={cancelFork} disabled={pending}>
             Cancel
           </Button>
-          <Button onClick={runFork} disabled={pending} variant="contained" autoFocus>
+          <Button onClick={runFork} disabled={pending || workspaceFetching} variant="contained" autoFocus>
             {pending ? "Forking…" : "Fork"}
           </Button>
         </DialogActions>

@@ -1008,6 +1008,16 @@ export interface ServerExposedPort {
 }
 
 export interface ServerForkSessionRequest {
+  /**
+   * AutoCommitUncommitted, when true, runs `git add -A && git commit
+   * && git push` per dirty repo in the parent's container BEFORE the
+   * parent is paused. Without this, any uncommitted file edits or
+   * unpushed commits in the parent's container would be invisible to
+   * the child (which boots a fresh clone). Defaults to true at the
+   * API level — pass false explicitly to opt out (loses changes).
+   * Push failures abort the fork; the parent is NOT paused.
+   */
+  auto_commit_uncommitted?: boolean;
   code_agent_runtime?: TypesCodeAgentRuntime;
   helix_app_id?: string;
 }
@@ -1674,6 +1684,34 @@ export interface ServerVideoStreamingStats {
   client_count?: number;
   frames_received?: number;
   gop_buffer_size?: number;
+}
+
+export interface ServerWorkspaceRepoStatus {
+  branch?: string;
+  /**
+   * Error is set when we couldn't determine the status (container
+   * unreachable, path missing, git command failed). The repo is then
+   * excluded from "dirty" totals — we don't refuse a fork because we
+   * can't see one repo's state.
+   */
+  error?: string;
+  name?: string;
+  repo_id?: string;
+  uncommitted_files?: number;
+  unpushed_commits?: number;
+}
+
+export interface ServerWorkspaceStatusResponse {
+  /**
+   * ContainerReachable=false means we couldn't talk to the desktop
+   * at all (e.g. it's been reaped). The frontend should treat this
+   * as "unknown" and let the user decide whether to fork anyway.
+   */
+  container_reachable?: boolean;
+  is_dirty?: boolean;
+  repos?: ServerWorkspaceRepoStatus[];
+  session_id?: string;
+  total_dirty?: number;
 }
 
 export interface ServerAddLabelRequest {
@@ -14715,6 +14753,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Used by the fork-confirm modal so we can show "N files will be committed & pushed" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as "unknown".
+     *
+     * @tags sessions
+     * @name V1SessionsWorkspaceStatusDetail
+     * @summary Check uncommitted / unpushed git state in a session's desktop container
+     * @request GET:/api/v1/sessions/{id}/workspace-status
+     * @secure
+     */
+    v1SessionsWorkspaceStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerWorkspaceStatusResponse, any>({
+        path: `/api/v1/sessions/${id}/workspace-status`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

@@ -126,6 +126,32 @@ export function useForkSession(sessionId: string) {
   })
 }
 
+export const WORKSPACE_STATUS_QUERY_KEY = (sessionId: string) => [
+  "workspace-status",
+  sessionId,
+]
+
+// useWorkspaceStatus polls the parent session's desktop container for
+// uncommitted git changes and unpushed commits. The fork-confirm modal
+// uses this to either show a "N files will be committed and pushed
+// before the fork" panel or just proceed silently when clean.
+//
+// enabled defaults to false because this triggers a real exec into the
+// running desktop container — callers should only enable it when the
+// modal is actually open. refetchInterval is disabled (the state is
+// static between user actions).
+export function useWorkspaceStatus(sessionId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: WORKSPACE_STATUS_QUERY_KEY(sessionId),
+    queryFn: () => apiClient.v1SessionsWorkspaceStatusDetail(sessionId),
+    enabled: options?.enabled ?? false,
+    refetchInterval: false,
+    staleTime: 0,
+  })
+}
+
 export function useDeleteSession(sessionId: string, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()

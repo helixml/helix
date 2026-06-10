@@ -442,6 +442,14 @@ func (m *MemoryStore) SeedSpecTask(task *types.SpecTask) {
 	m.specTasks[task.ID] = &cp
 }
 
+// ListGitRepositories returns an empty list — the fork tests never seed
+// repos and the pre-fork commit+push helper relies on this to no-op
+// safely when there's no project (or no repos). If a future test needs
+// real repos here, add a SeedGitRepository helper.
+func (m *MemoryStore) ListGitRepositories(_ context.Context, _ *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
+	return nil, nil
+}
+
 func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
 	return false, nil
 }

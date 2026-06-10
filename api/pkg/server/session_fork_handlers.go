@@ -30,6 +30,15 @@ import (
 type ForkSessionRequest struct {
 	HelixAppID       string                 `json:"helix_app_id,omitempty"`
 	CodeAgentRuntime types.CodeAgentRuntime `json:"code_agent_runtime,omitempty"`
+
+	// AutoCommitUncommitted, when true, runs `git add -A && git commit
+	// && git push` per dirty repo in the parent's container BEFORE the
+	// parent is paused. Without this, any uncommitted file edits or
+	// unpushed commits in the parent's container would be invisible to
+	// the child (which boots a fresh clone). Defaults to true at the
+	// API level — pass false explicitly to opt out (loses changes).
+	// Push failures abort the fork; the parent is NOT paused.
+	AutoCommitUncommitted *bool `json:"auto_commit_uncommitted,omitempty"`
 }
 
 // ForkSessionResponse identifies the child session created by the fork.
@@ -104,6 +113,23 @@ func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Re
 	if sameApp && sameRuntime {
 		return nil, system.NewHTTPError400(
 			fmt.Sprintf("source session is already using %s in this app; pick a different agent or runtime", targetRuntime))
+	}
+
+	// Pre-fork checkpoint: commit & push any uncommitted edits in the
+	// parent's container so the child (which clones fresh) sees the
+	// in-progress work. Default is on; explicit false opts out.
+	// Failure here aborts the fork — better to surface a git error to
+	// the user than to silently abandon their changes.
+	if body.AutoCommitUncommitted == nil || *body.AutoCommitUncommitted {
+		projectID := parent.ProjectID
+		if projectID == "" {
+			projectID = parent.Metadata.ProjectID
+		}
+		commitMsg := fmt.Sprintf("Pre-fork checkpoint (switching to %s)", string(targetRuntime))
+		if pushErr := apiServer.commitAndPushUncommittedRepos(ctx, parent.ID, projectID, commitMsg); pushErr != nil {
+			return nil, system.NewHTTPError409(
+				fmt.Sprintf("pre-fork commit+push failed; fork aborted, parent is still live. Fix git state and retry: %v", pushErr))
+		}
 	}
 
 	child, forkErr := apiServer.forkSessionFromParent(ctx, user, parent, targetRuntime, targetAppID)

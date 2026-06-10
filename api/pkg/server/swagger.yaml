@@ -1565,6 +1565,16 @@ definitions:
     type: object
   server.ForkSessionRequest:
     properties:
+      auto_commit_uncommitted:
+        description: |-
+          AutoCommitUncommitted, when true, runs `git add -A && git commit
+          && git push` per dirty repo in the parent's container BEFORE the
+          parent is paused. Without this, any uncommitted file edits or
+          unpushed commits in the parent's container would be invisible to
+          the child (which boots a fresh clone). Defaults to true at the
+          API level — pass false explicitly to opt out (loses changes).
+          Push failures abort the fork; the parent is NOT paused.
+        type: boolean
       code_agent_runtime:
         $ref: '#/definitions/types.CodeAgentRuntime'
       helix_app_id:
@@ -2670,6 +2680,45 @@ definitions:
       frames_received:
         type: integer
       gop_buffer_size:
+        type: integer
+    type: object
+  server.WorkspaceRepoStatus:
+    properties:
+      branch:
+        type: string
+      error:
+        description: |-
+          Error is set when we couldn't determine the status (container
+          unreachable, path missing, git command failed). The repo is then
+          excluded from "dirty" totals — we don't refuse a fork because we
+          can't see one repo's state.
+        type: string
+      name:
+        type: string
+      repo_id:
+        type: string
+      uncommitted_files:
+        type: integer
+      unpushed_commits:
+        type: integer
+    type: object
+  server.WorkspaceStatusResponse:
+    properties:
+      container_reachable:
+        description: |-
+          ContainerReachable=false means we couldn't talk to the desktop
+          at all (e.g. it's been reaped). The frontend should treat this
+          as "unknown" and let the user decide whether to fork anyway.
+        type: boolean
+      is_dirty:
+        type: boolean
+      repos:
+        items:
+          $ref: '#/definitions/server.WorkspaceRepoStatus'
+        type: array
+      session_id:
+        type: string
+      total_dirty:
         type: integer
     type: object
   server.addLabelRequest:
@@ -21971,6 +22020,30 @@ paths:
       summary: Get interaction by turn number
       tags:
       - Sessions
+  /api/v1/sessions/{id}/workspace-status:
+    get:
+      description: Used by the fork-confirm modal so we can show "N files will be
+        committed & pushed" or just proceed silently when the workspace is clean.
+        Aborts gracefully on unreachable containers — the frontend treats that as
+        "unknown".
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.WorkspaceStatusResponse'
+      security:
+      - BearerAuth: []
+      summary: Check uncommitted / unpushed git state in a session's desktop container
+      tags:
+      - sessions
   /api/v1/sessions/{id}/zed-config:
     get:
       consumes:
