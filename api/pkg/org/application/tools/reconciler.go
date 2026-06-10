@@ -56,7 +56,7 @@ func (r *RoleReconciler) Reconcile(ctx context.Context, orgID string) error {
 	}
 	now := r.now()
 	for _, role := range roles {
-		merged := mergeBaseReadTools(role.Tools)
+		merged := MergeBaseReadTools(role.Tools)
 		if sameToolList(role.Tools, merged) {
 			continue
 		}
@@ -69,7 +69,7 @@ func (r *RoleReconciler) Reconcile(ctx context.Context, orgID string) error {
 	return nil
 }
 
-// sameToolList reports element-wise equality. mergeBaseReadTools is
+// sameToolList reports element-wise equality. MergeBaseReadTools is
 // order-stable when the input already contains the baseline, so an
 // in-order comparison is sufficient to detect "no drift". This avoids
 // writing (and bumping UpdatedAt on) Roles that are already correct.

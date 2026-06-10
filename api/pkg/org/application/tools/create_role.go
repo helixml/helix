@@ -62,7 +62,7 @@ func (t *CreateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	// are appended at the end. A caller that supplies an empty/missing
 	// tools field still gets the base set — there is no way to create a
 	// Role that lacks the read primitives every Worker needs.
-	r, err := orgchart.NewRole(id, args.Content, mergeBaseReadTools(args.Tools), args.Streams, t.deps.Now(), orgID)
+	r, err := orgchart.NewRole(id, args.Content, MergeBaseReadTools(args.Tools), args.Streams, t.deps.Now(), orgID)
 	if err != nil {
 		return nil, err
 	}

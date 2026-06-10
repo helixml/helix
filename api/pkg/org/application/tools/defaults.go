@@ -30,15 +30,17 @@ var BaseReadTools = []tool.Name{
 	GetWorkerEnvironmentName,
 }
 
-// mergeBaseReadTools returns the union of `existing` and BaseReadTools.
+// MergeBaseReadTools returns the union of `existing` and BaseReadTools.
 // The order of `existing` is preserved; any BaseReadTools entries not
 // already present are appended in BaseReadTools order. Duplicates within
 // `existing` are also dropped, so the result is fully deduped.
 //
-// Used by create_role at hire time and by RoleReconciler at startup —
-// keeping the merge in one place ensures both paths agree on order and
-// dedup semantics.
-func mergeBaseReadTools(existing []tool.Name) []tool.Name {
+// Used by every entry point that creates a Role — the MCP create_role
+// tool, the REST POST /orgs/{org}/roles handler, and the RoleReconciler.
+// Keeping the merge in one place ensures all paths agree on order and
+// dedup semantics, and adding a new entry point only requires a single
+// call to this helper.
+func MergeBaseReadTools(existing []tool.Name) []tool.Name {
 	seen := make(map[tool.Name]struct{}, len(existing)+len(BaseReadTools))
 	out := make([]tool.Name, 0, len(existing)+len(BaseReadTools))
 	for _, name := range existing {

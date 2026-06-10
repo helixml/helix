@@ -77,7 +77,7 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 
 func TestMergeBaseReadToolsEmptyInput(t *testing.T) {
 	t.Parallel()
-	got := mergeBaseReadTools(nil)
+	got := MergeBaseReadTools(nil)
 	if !reflect.DeepEqual(got, BaseReadTools) {
 		t.Fatalf("empty input should return BaseReadTools verbatim.\n got: %v\nwant: %v", got, BaseReadTools)
 	}
@@ -88,7 +88,7 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 	// Caller-supplied: includes one baseline name (managers) and one
 	// non-baseline mutation (publish), with a duplicate to verify dedup.
 	in := []tool.Name{PublishName, ManagersName, PublishName}
-	got := mergeBaseReadTools(in)
+	got := MergeBaseReadTools(in)
 
 	// Expected order: caller's deduped order first, then baseline
 	// names not yet present in baseline order (managers is skipped).
@@ -120,8 +120,8 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 func TestMergeBaseReadToolsIdempotent(t *testing.T) {
 	t.Parallel()
 	in := []tool.Name{PublishName, DMName}
-	once := mergeBaseReadTools(in)
-	twice := mergeBaseReadTools(once)
+	once := MergeBaseReadTools(in)
+	twice := MergeBaseReadTools(once)
 	if !reflect.DeepEqual(once, twice) {
 		t.Fatalf("merge is not idempotent.\n once: %v\ntwice: %v", once, twice)
 	}
