@@ -154,4 +154,51 @@ No backend / API / route changes. Frontend-only, single file.
 - **No new unit tests required.** This is a presentation-layer swap
   with no logic branches; visual verification in the browser is the
   appropriate test.
-- **Build check**: `cd frontend && yarn build` must succeed.
+- **Build check**: TypeScript via `npx tsc --noEmit -p tsconfig.json`
+  must pass. Note `yarn build` itself fails in this dev environment
+  because `frontend/dist/` is a root-owned bind mount (production
+  frontend mode) — vite transforms all modules successfully, then
+  EACCES on writing the output. The transform step is the real type/JSX
+  check, so TS clean = build clean.
+
+### Testing Limitation in This Environment
+
+The inner Helix at `http://localhost:8080` in this dev environment does
+**not** have the Helix-OR (helix-org) API endpoints wired in
+(`/api/v1/orgs/{slug}/roles` returns "unknown API path"; there is no
+`helix_org_workers` table in Postgres). That means a full click-through
+of the rebuilt right-rail links cannot be performed here.
+
+Verification done instead:
+1. TypeScript: `npx tsc --noEmit` → 0 errors.
+2. Vite transform: all 21,647 modules transformed without JSX/TS errors.
+3. Route names confirmed present in `frontend/src/router.tsx`:
+   `helix_org_role_detail` (line 567), `org_project-specs` (line 219),
+   `org_agent` (line 291).
+4. `router.buildPath(name, params)` is the standard router5 API and is
+   used by the helix router context internally — it returns the path
+   string for an anchor href. The `useRouter` hook does **not** expose
+   `buildPath`, so importing the default router singleton from
+   `../router` (aliased here as `router5` to avoid shadowing the local
+   `const router = useRouter()`) is required.
+
+The full click-through belongs in CI / on a deployment where the
+helix-org API is wired in. The change is mechanical (JSX swap, no logic
+branches) and is safe to ship pending that browser-level confirmation.
+
+## Implementation Notes
+
+- **Import alias**: imported the default router as `router5` (not
+  `router`) because `const router = useRouter()` already exists at line
+  74 of the component and shadowing it would change the meaning of
+  every other `router.navigate(...)` call in the file (e.g. line 185
+  for the back button). Aliasing the singleton avoids touching any
+  other code.
+- **Fallback when `orgSlug` is missing**: the original `<Button>`
+  rendered always (with a no-op onClick when slug was missing). The new
+  `<Link>` cannot have a no-op href without producing a broken link, so
+  the fallback path renders plain `<Typography>` with matching font
+  styling. This is *better* UX than the old behaviour, which was a
+  button that did nothing on click.
+- **`<Link>` `component` prop**: not needed — MUI `<Link>` defaults to
+  an `<a>` element when given an `href`, which is exactly what we want.
