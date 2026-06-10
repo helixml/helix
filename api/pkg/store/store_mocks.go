@@ -5526,6 +5526,21 @@ func (mr *MockStoreMockRecorder) SetLicenseKey(ctx, licenseKey any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLicenseKey", reflect.TypeOf((*MockStore)(nil).SetLicenseKey), ctx, licenseKey)
 }
 
+// SetPlanningSessionIDIfEmpty mocks base method.
+func (m *MockStore) SetPlanningSessionIDIfEmpty(ctx context.Context, taskID, sessionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPlanningSessionIDIfEmpty", ctx, taskID, sessionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetPlanningSessionIDIfEmpty indicates an expected call of SetPlanningSessionIDIfEmpty.
+func (mr *MockStoreMockRecorder) SetPlanningSessionIDIfEmpty(ctx, taskID, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPlanningSessionIDIfEmpty", reflect.TypeOf((*MockStore)(nil).SetPlanningSessionIDIfEmpty), ctx, taskID, sessionID)
+}
+
 // SetProjectPrimaryRepository mocks base method.
 func (m *MockStore) SetProjectPrimaryRepository(ctx context.Context, projectID, repoID string) error {
 	m.ctrl.T.Helper()
