@@ -7,9 +7,9 @@
 
 ## Resolver widening (GitHub identity)
 
-- [ ] Widen `MintInstallationToken` (`api/pkg/agent/skill/github/client.go:127`) so the github transport can surface `expires_at` from the installation-token response — either return a small struct or expose a sibling function. Keep the existing string-returning function or its callers compiling (no churn outside the github transport).
-- [ ] Widen `newOrgGitHubIdentityResolver` (`api/pkg/server/helix_org_github.go`) so its return shape includes `Token` and `ExpiresAt`. Keep the existing `gitHubTokenResolver` projection (returns just the token string) for the `SecretInjector` callers.
-- [ ] Update unit tests around the resolver to assert the widened shape (no behaviour change for `Token`; new `ExpiresAt` assertion).
+- [~] Widen `MintInstallationToken` (`api/pkg/agent/skill/github/client.go:127`) so the github transport can surface `expires_at` from the installation-token response — either return a small struct or expose a sibling function. Keep the existing string-returning function or its callers compiling (no churn outside the github transport).
+- [~] Widen `newOrgGitHubIdentityResolver` (`api/pkg/server/helix_org_github.go`) so its return shape includes `Token` and `ExpiresAt`. Keep the existing `gitHubTokenResolver` projection (returns just the token string) for the `SecretInjector` callers.
+- [~] Update unit tests around the resolver to assert the widened shape (no behaviour change for `Token`; new `ExpiresAt` assertion).
 
 ## GitHub `CredentialProvider`
 
