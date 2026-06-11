@@ -684,9 +684,14 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 state.egl_display = Some(egl_display_arc.clone());
                 state.output_mode = OutputMode::Cuda;
 
-                // Create CudaResources for PipeWire thread
-                // CRITICAL: This allows CUDA processing to happen in PipeWire thread
-                // BEFORE returning the buffer to the compositor, preventing race conditions.
+                // DRM render node for allocating the GL-blit persistent buffer.
+                let drm_render_node = DrmNode::from_path(node_path).map_err(|e| {
+                    gst::error_msg!(gst::LibraryError::Init, ("DrmNode from {}: {:?}", node_path, e))
+                })?;
+
+                // Create CudaResources for PipeWire thread. The GL blitter (built
+                // on that thread) uses egl_display + cuda_context + render_node to
+                // import captures cheaply and feed a persistent CUDA-registered buffer.
                 let cuda_resources = CudaResources {
                     egl_display: egl_display_arc,
                     cuda_context: cuda_context.clone(),
@@ -694,7 +699,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         pool: Some(pool),
                         configured: false,
                     })),
-                    egl_cuda_cache: parking_lot::Mutex::new(std::collections::HashMap::new()),
+                    render_node: drm_render_node,
                 };
 
                 // Connect to PipeWire with NVIDIA DmaBuf modifiers AND CUDA resources

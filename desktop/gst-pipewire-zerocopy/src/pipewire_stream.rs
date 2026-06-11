@@ -27,8 +27,6 @@ use pipewire::{
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
 use smithay::backend::allocator::{Fourcc, Modifier};
 use std::io::Cursor;
-use std::collections::HashMap;
-use std::mem::ManuallyDrop;
 use std::os::fd::{BorrowedFd, FromRawFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -156,34 +154,8 @@ pub struct CudaResources {
     pub cuda_context: Arc<std::sync::Mutex<CUDAContext>>,
     /// Buffer pool state - wrapped in Mutex for interior mutability
     pub buffer_pool_state: Arc<Mutex<BufferPoolState>>,
-    /// Per-slot cache of {stable PipeWire slot fd → EGL import + CUDA
-    /// registration}. PipeWire reuses a fixed buffer pool, so each slot's
-    /// EGLImage + cuGraphicsEGLRegisterImage can be created once and reused,
-    /// instead of every frame. Our metrics showed those two stages (egl import
-    /// + register) are the ones that spike to tens of ms under GPU contention;
-    /// the per-frame map+copy (which never spiked) still runs each frame.
-    ///
-    /// This mirrors upstream gst-wayland-display, which registers its output
-    /// buffer to CUDA ONCE (Arc<Mutex<CUDAImage>>) and reuses it every frame.
-    /// The one extra thing we must do vs upstream: upstream owns and keeps its
-    /// buffer alive forever, whereas we import Mutter's pool dma-bufs — so each
-    /// cache entry keeps an owned Dmabuf clone alive to hold the underlying fds
-    /// valid for the EGLImage's lifetime. (My first attempt closed the per-frame
-    /// fd, which aliased the cached EGLImage to the wrong buffer → reordering.)
-    pub egl_cuda_cache: Mutex<HashMap<i32, CachedSlot>>,
-}
-
-/// A cached per-slot CUDA registration plus the owned Dmabuf that keeps its
-/// underlying fds alive (see CudaResources::egl_cuda_cache).
-pub struct CachedSlot {
-    /// Kept alive solely so the EGLImage's source fds remain valid.
-    _dmabuf: Dmabuf,
-    /// EGL import + CUDA registration, created once for this slot, reused every
-    /// frame via to_gst_buffer (map + copy). ManuallyDrop: intentionally leaked
-    /// on teardown to avoid an unguarded cuGraphicsUnregisterResource off the
-    /// PipeWire thread (bounded: ~pool-size entries). TODO: context-guarded
-    /// teardown if this proves out.
-    cuda_image: ManuallyDrop<CUDAImage>,
+    /// DRM render node, for allocating the GL-blit persistent output buffer.
+    pub render_node: smithay::backend::drm::DrmNode,
 }
 
 /// Buffer pool state for CUDA buffer allocation
@@ -606,7 +578,29 @@ fn run_pipewire_loop(
     // Wrap cuda_resources in Arc for sharing with process callback
     // The process callback will do EGL import + CUDA copy BEFORE returning buffer to PipeWire
     let cuda_resources = cuda_resources.map(Arc::new);
-    let cuda_resources_process = cuda_resources.clone();
+
+    // GL-blit path (OBS + wolf synthesis): a thread-confined GlesRenderer plus a
+    // persistent output buffer we own and register to CUDA once. Each frame we
+    // GL-import Mutter's dma-buf (cheap) and blit it in, instead of per-frame
+    // cuGraphicsEGLRegisterImage of the external buffer. Created here so it lives
+    // on the PipeWire loop thread (GlesRenderer is GL-context-bound, !Send).
+    let gl_blitter: std::cell::RefCell<Option<crate::gl_blit::GlBlitter>> =
+        std::cell::RefCell::new(cuda_resources.as_ref().and_then(|cr| {
+            match crate::gl_blit::GlBlitter::new(
+                &cr.egl_display,
+                cr.cuda_context.clone(),
+                cr.render_node,
+            ) {
+                Ok(b) => {
+                    eprintln!("[GL_BLIT] blitter initialised on PipeWire thread");
+                    Some(b)
+                }
+                Err(e) => {
+                    eprintln!("[GL_BLIT] init failed, CUDA path will drop frames: {}", e);
+                    None
+                }
+            }
+        }));
 
     // Per-stream tracking for format negotiation.
     // CRITICAL: This must be per-stream (Arc), not static, because Wolf runs
@@ -930,11 +924,6 @@ fn run_pipewire_loop(
                 )
             };
 
-            // Stable per-slot DMA-BUF fd: PipeWire pre-allocates a fixed buffer
-            // pool and reuses the same fds for the stream's life, so this is a
-            // valid cache key for the EGL import + CUDA registration.
-            let slot_fd = datas.first().map(|d| d.as_raw().fd as i32).unwrap_or(-1);
-
             let params = video_info.lock().clone();
             if let Some(frame) = extract_frame(datas, &params, pts_ns) {
                 // Point A: inter-arrival of frames from Mutter/PipeWire (measure-only).
@@ -958,23 +947,35 @@ fn run_pipewire_loop(
                     tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire pts_ns={}", count, pts_ns);
                 }
 
-                // CRITICAL FIX: Process DmaBuf through CUDA BEFORE returning buffer to PipeWire.
-                // This prevents the race condition where Mutter reuses the GPU buffer
-                // while we're still reading from it in a different thread.
-                let frame_to_send = match (&frame, cuda_resources_process.as_ref()) {
-                    (FrameData::DmaBuf { dmabuf, pts_ns }, Some(cuda_res)) => {
-                        // Do CUDA processing in PipeWire thread, synchronously
-                        match process_dmabuf_to_cuda(dmabuf, cuda_res, *pts_ns, &params, slot_fd) {
-                            Ok(cuda_frame) => Some(cuda_frame),
+                // GL-blit path: import Mutter's dma-buf as a GL texture (cheap)
+                // and blit into our persistent CUDA-registered buffer, instead of
+                // per-frame cuGraphicsEGLRegisterImage of the external buffer.
+                // We copy out before requeueing, so the buffer-reuse race is safe.
+                let have_blitter = gl_blitter.borrow().is_some();
+                let frame_to_send = match &frame {
+                    FrameData::DmaBuf { dmabuf, pts_ns } if have_blitter => {
+                        let t = std::time::Instant::now();
+                        let result = gl_blitter
+                            .borrow_mut()
+                            .as_mut()
+                            .unwrap()
+                            .process(dmabuf, *pts_ns);
+                        match result {
+                            Ok(cuda_frame) => {
+                                let total = t.elapsed().as_micros() as u32;
+                                // egl/reg now 0 (done once at buffer creation); the
+                                // per-frame GPU work is the GL blit + CUDA map+copy.
+                                crate::metrics::PRODUCER.lock().record_cuda(0, 0, total, total);
+                                Some(cuda_frame)
+                            }
                             Err(e) => {
-                                // Log error and drop frame - no fallback, corruption is worse
-                                static CUDA_ERROR_COUNT: std::sync::atomic::AtomicU32 =
+                                static GL_BLIT_ERR: std::sync::atomic::AtomicU32 =
                                     std::sync::atomic::AtomicU32::new(0);
-                                let err_count = CUDA_ERROR_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                                if err_count <= 10 || err_count % 100 == 0 {
-                                    eprintln!("[PIPEWIRE_CUDA] ERROR: CUDA processing failed ({}): {}", err_count, e);
+                                let n = GL_BLIT_ERR.fetch_add(1, Ordering::Relaxed) + 1;
+                                if n <= 10 || n % 100 == 0 {
+                                    eprintln!("[GL_BLIT] ERROR ({}): {}", n, e);
                                 }
-                                None  // Drop frame
+                                None // Drop frame
                             }
                         }
                     }
@@ -1110,7 +1111,7 @@ fn run_pipewire_loop(
 
 /// Convert DRM fourcc (smithay Fourcc enum) to GStreamer VideoFormat.
 /// This is needed for CUDA buffer creation in the PipeWire thread.
-fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
+pub fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
     // Use the smithay Fourcc enum variants directly
     match fourcc {
         Fourcc::Argb8888 => VideoFormat::Bgra,
@@ -1130,145 +1131,6 @@ fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
     }
 }
 
-/// Process DmaBuf through CUDA in the PipeWire thread.
-/// This does EGL import + CUDA copy synchronously BEFORE returning the buffer to PipeWire,
-/// preventing the race condition where Mutter reuses the GPU buffer while we're reading.
-fn process_dmabuf_to_cuda(
-    dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
-    cuda_res: &CudaResources,
-    pts_ns: i64,
-    params: &VideoParams,
-    slot_fd: i32,
-) -> Result<FrameData, String> {
-    use smithay::backend::allocator::Buffer;
-
-    let w = dmabuf.width() as u32;
-    let h = dmabuf.height() as u32;
-
-    // Stage timing (measure-only): EGL import / CUDA register / CUDA copy.
-    let t_fn_start = std::time::Instant::now();
-
-    // Build video info for buffer allocation (cheap; needed by every path).
-    let drm_format = dmabuf.format();
-    let video_format = drm_fourcc_to_video_format(drm_format.code);
-    let base_info = VideoInfo::builder(video_format, w, h)
-        .build()
-        .map_err(|e| format!("VideoInfo build failed: {:?}", e))?;
-    let dma_video_info = VideoInfoDmaDrm::new(
-        base_info,
-        drm_format.code as u32,
-        drm_format.modifier.into(),
-    );
-
-    // Configure buffer pool on first use.
-    {
-        let mut pool_state = cuda_res.buffer_pool_state.lock();
-        if !pool_state.configured {
-            if let Some(ref pool) = pool_state.pool {
-                let pool_caps = VideoCapsBuilder::new()
-                    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
-                    .format(video_format)
-                    .width(w as i32)
-                    .height(h as i32)
-                    .framerate(gst::Fraction::new(60, 1))
-                    .build();
-                let buffer_size = w * h * 4;
-                if pool.configure_basic(&pool_caps, buffer_size, 8, 16).is_ok() {
-                    if pool.activate().is_ok() {
-                        pool_state.configured = true;
-                        eprintln!("[PIPEWIRE_CUDA] Buffer pool configured: {}x{} {:?}", w, h, video_format);
-                    }
-                }
-            }
-        }
-    }
-
-    let cuda_ctx = cuda_res.cuda_context.lock()
-        .map_err(|e| format!("Failed to lock CUDA context: {}", e))?;
-
-    // FAST PATH: this slot's EGLImage + CUDA registration is already cached.
-    // Skip eglCreateImage + cuGraphicsEGLRegisterImage (the stages that spike
-    // under GPU contention) and go straight to map+copy. The buffer memory
-    // backing the registration is stable for the slot; Mutter wrote the new
-    // frame into it, so re-mapping yields the current frame.
-    {
-        let cache = cuda_res.egl_cuda_cache.lock();
-        if let Some(cached) = cache.get(&slot_fd) {
-            let t_copy = std::time::Instant::now();
-            let pool_state = cuda_res.buffer_pool_state.lock();
-            let buffer = cached
-                .cuda_image
-                .to_gst_buffer(dma_video_info, &cuda_ctx, pool_state.pool.as_ref())
-                .map_err(|e| format!("to_gst_buffer (cached) failed: {}", e))?;
-            drop(pool_state);
-            let copy_us = t_copy.elapsed().as_micros() as u32;
-            crate::metrics::PRODUCER.lock().record_cuda(
-                0, // egl: cached
-                0, // reg: cached
-                copy_us,
-                t_fn_start.elapsed().as_micros() as u32,
-            );
-            return Ok(FrameData::CudaBuffer {
-                buffer,
-                width: w,
-                height: h,
-                format: video_format,
-                pts_ns,
-            });
-        }
-    }
-
-    // SLOW PATH (first frame for this slot): import + register once, then cache.
-    // CRITICAL: keep an owned Dmabuf clone alive for the cache entry's lifetime
-    // so the EGLImage's source fds stay valid (smithay Dmabuf is an Arc-backed
-    // handle; cloning shares the same underlying fds). Without this the fd is
-    // closed at end of frame and the cached EGLImage aliases to the wrong
-    // buffer on later frames → reordered video.
-    let owned_dmabuf = dmabuf.clone();
-    let raw_display: RawEGLDisplay = cuda_res.egl_display.get_display_handle().handle;
-
-    let t_egl = std::time::Instant::now();
-    let egl_image = EGLImage::from(&owned_dmabuf, &raw_display)
-        .map_err(|e| format!("EGLImage::from failed: {}", e))?;
-    let egl_us = t_egl.elapsed().as_micros() as u32;
-
-    let t_reg = std::time::Instant::now();
-    let cuda_image = CUDAImage::from(egl_image, &cuda_ctx)
-        .map_err(|e| format!("CUDAImage::from failed: {}", e))?;
-    let reg_us = t_reg.elapsed().as_micros() as u32;
-
-    let t_copy = std::time::Instant::now();
-    let pool_state = cuda_res.buffer_pool_state.lock();
-    let buffer = cuda_image
-        .to_gst_buffer(dma_video_info, &cuda_ctx, pool_state.pool.as_ref())
-        .map_err(|e| format!("to_gst_buffer failed: {}", e))?;
-    drop(pool_state);
-    let copy_us = t_copy.elapsed().as_micros() as u32;
-    crate::metrics::PRODUCER.lock().record_cuda(
-        egl_us,
-        reg_us,
-        copy_us,
-        t_fn_start.elapsed().as_micros() as u32,
-    );
-
-    // Cache the registration + the owned Dmabuf (keeps fds alive) for this slot.
-    cuda_res.egl_cuda_cache.lock().insert(
-        slot_fd,
-        CachedSlot {
-            _dmabuf: owned_dmabuf,
-            cuda_image: ManuallyDrop::new(cuda_image),
-        },
-    );
-    drop(cuda_ctx);
-
-    Ok(FrameData::CudaBuffer {
-        buffer,
-        width: w,
-        height: h,
-        format: video_format,
-        pts_ns,
-    })
-}
 
 /// Extract DRM fourcc code from SPA video format - exposed for testing
 pub fn spa_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32 {
