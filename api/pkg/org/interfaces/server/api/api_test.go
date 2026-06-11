@@ -67,7 +67,11 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	deps := orgapi.Deps{
 		Streams:       streams.New(streams.Deps{Streams: st.Streams, Now: clock, NewID: newID}),
 		Roles:         rolesSvc,
-		Workers:       workers.New(workers.Deps{Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: topo}),
+		Workers: workers.New(workers.Deps{
+			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: topo,
+			Environments: st.Environments, Activations: st.Activations,
+			EnvsDir: t.TempDir(), Now: clock, NewID: newID,
+		}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
 		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),

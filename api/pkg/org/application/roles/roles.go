@@ -82,6 +82,13 @@ func (r *Roles) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	return role, nil
 }
 
+// Get returns the Role by (orgID, id), or store.ErrNotFound (wrapped).
+// A thin read used by collaborators that need to validate a Role exists
+// (e.g. workers.Hire) without reaching for the store directly.
+func (r *Roles) Get(ctx context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error) {
+	return r.roles.Get(ctx, orgID, id)
+}
+
 // UpdateParams patches the mutable fields of a Role. A nil pointer
 // leaves the corresponding field unchanged — this is what preserves
 // Tools/Streams on a content-only update (the old MCP bug).

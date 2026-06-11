@@ -398,11 +398,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	// JSON handlers consumed by the React pages at
 	// /orgs/:org_id/helix-org/*. They mount under
-	// /api/v1/orgs/{org}/ via the orgServer's extras list. REST hire
-	// shares the exact tool the MCP registry exposes — same Deps,
-	// same Invocation shape, so chat-driven and chart-driven hires
-	// can't drift.
-	hireTool := tools.NewHireWorker(deps)
+	// /api/v1/orgs/{org}/ via the orgServer's extras list. REST hire and
+	// chat-driven hire both call the same workers.Hire service (wired
+	// into apiDeps.Workers below) — one implementation, no drift.
 
 	// Fire (DELETE /workers/{id}) cascades Helix-side teardown
 	// (project + agent app) plus full org-store cleanup. The Helix
@@ -432,7 +430,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	apiDeps := helixorgapi.Deps{
 		Streams:       streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
 		Roles:         orgRolesSvc,
-		Workers:       workers.New(workers.Deps{Workers: st.Workers, Roles: orgRolesSvc, Lines: st.ReportingLines, Topology: deps.Topology}),
+		Workers: workers.New(workers.Deps{
+			Workers: st.Workers, Roles: orgRolesSvc, Lines: st.ReportingLines, Topology: deps.Topology,
+			Environments: st.Environments, Activations: st.Activations, Dispatcher: dispatcher,
+			HireHook: deps.HireHook, EnvsDir: envsDir, Now: deps.Now, NewID: deps.NewID,
+		}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
 		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),
@@ -454,7 +456,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Owner:          "w-owner",
 		DBPath:         orgRoot,
 		EnvsDir:        envsDir,
-		HireWorker:     hireTool,
 		Lifecycle:      lifecycleSvc,
 		Tools:          reg,
 		ProjectEnsurer: projectApplier,

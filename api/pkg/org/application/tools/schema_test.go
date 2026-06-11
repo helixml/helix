@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
 // TestHireWorkerSchemaSurfacesKindEnum pins the contract that the
@@ -49,14 +50,19 @@ func TestHireWorkerSchemaSurfacesKindEnum(t *testing.T) {
 // reading source.
 func TestHireWorkerInvokeRejectsUnknownKindWithValidList(t *testing.T) {
 	t.Parallel()
-	tl := &HireWorker{deps: Deps{EnvsDir: t.TempDir()}}
+	deps := DefaultDeps(orggorm.GetOrgTestDB(t))
+	deps.EnvsDir = t.TempDir()
+	tl := &HireWorker{deps: deps}
+	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	args, _ := json.Marshal(map[string]any{
 		"id":              "w-bad",
-		"positionId":      "p-x",
+		"roleId":          "r-x",
 		"kind":            "claude",
 		"identityContent": "hi",
 	})
-	_, err := tl.Invoke(context.Background(), tool.Invocation{Args: args})
+	// Kind is validated first (before any store access), so the bad
+	// kind is rejected with the valid-values list regardless of seeding.
+	_, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: args})
 	if err == nil {
 		t.Fatal("Invoke = nil, want error")
 	}

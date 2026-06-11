@@ -146,12 +146,24 @@ func (d Deps) publishingService() *publishing.Publishing {
 // the tool deps. UpdateRole delegates to the roles service so the
 // held-Role content rewrite preserves tools/streams.
 func (d Deps) workersService() *workers.Workers {
-	return workers.New(workers.Deps{
-		Workers:  d.Store.Workers,
-		Roles:    d.rolesService(),
-		Lines:    d.Store.ReportingLines,
-		Topology: d.Topology,
-	})
+	wd := workers.Deps{
+		Workers:      d.Store.Workers,
+		Roles:        d.rolesService(),
+		Lines:        d.Store.ReportingLines,
+		Topology:     d.Topology,
+		Environments: d.Store.Environments,
+		Activations:  d.Store.Activations,
+		HireHook:     d.HireHook,
+		EnvsDir:      d.EnvsDir,
+		Now:          d.Now,
+		NewID:        d.NewID,
+	}
+	// d.Dispatcher (EventDispatcher) satisfies workers.HireDispatcher
+	// (DispatchHire); guard the typed-nil-in-interface case.
+	if d.Dispatcher != nil {
+		wd.Dispatcher = d.Dispatcher
+	}
+	return workers.New(wd)
 }
 
 // rolesService builds the role-mutation application service from the

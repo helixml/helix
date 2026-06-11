@@ -18,12 +18,21 @@ import (
 func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
 func newService(st *store.Store) *Workers {
+	return newServiceEnv(st, "")
+}
+
+func newServiceEnv(st *store.Store, envsDir string) *Workers {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: fixedClock, NewID: func() string { return "id" }})
 	return New(Deps{
-		Workers:  st.Workers,
-		Roles:    rolesSvc,
-		Lines:    st.ReportingLines,
-		Topology: &topology.Reconciler{Store: st, Now: fixedClock},
+		Workers:      st.Workers,
+		Roles:        rolesSvc,
+		Lines:        st.ReportingLines,
+		Topology:     &topology.Reconciler{Store: st, Now: fixedClock},
+		Environments: st.Environments,
+		Activations:  st.Activations,
+		EnvsDir:      envsDir,
+		Now:          fixedClock,
+		NewID:        func() string { return "id" },
 	})
 }
 
@@ -213,6 +222,75 @@ func TestWorkersRemoveParent(t *testing.T) {
 	}
 	// Removing again → not found.
 	if err := svc.RemoveParent(ctx, "org-test", "w-report", "w-boss"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestWorkersHire_CreatesWorkerEnvAndReconciles: Hire creates the worker
+// + environment row, wires the reporting line to the parent, and
+// reconciles topology (the hire's activation stream materialises with
+// the manager subscribed).
+func TestWorkersHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newServiceEnv(st, t.TempDir())
+	ctx := context.Background()
+
+	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, fixedClock(), "org-test")
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatal(err)
+	}
+	boss, _ := orgchart.NewAIWorker("w-boss", "r-eng", "id", "org-test")
+	if err := st.Workers.Create(ctx, boss); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Hire(ctx, "org-test", HireParams{
+		ID: "w-new", RoleID: "r-eng", ParentID: "w-boss",
+		Kind: orgchart.WorkerKindAI, IdentityContent: "a new hire",
+	})
+	if err != nil {
+		t.Fatalf("Hire: %v", err)
+	}
+	if res.WorkerID != "w-new" {
+		t.Fatalf("worker id = %q", res.WorkerID)
+	}
+	if _, err := st.Workers.Get(ctx, "org-test", "w-new"); err != nil {
+		t.Fatalf("worker not persisted: %v", err)
+	}
+	if _, err := st.Environments.Get(ctx, "org-test", "w-new"); err != nil {
+		t.Fatalf("environment not created: %v", err)
+	}
+	managers, _ := st.ReportingLines.ListManagers(ctx, "org-test", "w-new")
+	if len(managers) != 1 || managers[0] != "w-boss" {
+		t.Fatalf("reporting line not wired: %v", managers)
+	}
+	// Topology reconcile created the hire's activation stream.
+	if _, err := st.Streams.Get(ctx, "org-test", "s-activations-w-new"); err != nil {
+		t.Fatalf("activation stream not reconciled: %v", err)
+	}
+}
+
+func TestWorkersHire_RejectsUnknownKind(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newServiceEnv(st, t.TempDir())
+	_, err := svc.Hire(context.Background(), "org-test", HireParams{
+		RoleID: "r-eng", Kind: "claude", IdentityContent: "x",
+	})
+	if err == nil {
+		t.Fatal("Hire with unknown kind: want error")
+	}
+}
+
+func TestWorkersHire_UnknownRole(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newServiceEnv(st, t.TempDir())
+	_, err := svc.Hire(context.Background(), "org-test", HireParams{
+		RoleID: "r-missing", Kind: orgchart.WorkerKindAI, IdentityContent: "x",
+	})
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }

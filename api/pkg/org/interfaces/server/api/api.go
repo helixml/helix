@@ -29,7 +29,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 
@@ -115,13 +114,6 @@ type Deps struct {
 	PublicURL string
 	DBPath    string
 	EnvsDir   string
-
-	// HireWorker is the constructed hire tool, shared with the MCP
-	// registry. The REST POST /workers handler builds a synthetic
-	// Invocation around the owner Worker and dispatches through this
-	// same path so REST hires and chat-driven hires produce identical
-	// store state. nil disables POST /workers (returns 501).
-	HireWorker *tools.HireWorker
 
 	// Tools is the same tools registry the MCP server exposes — used
 	// by GET /tools so the chart UI's role-editor multi-select can
@@ -505,7 +497,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/workers [post]
 func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
-	if a.deps.HireWorker == nil {
+	if a.deps.Workers == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("hire is not wired in this deployment"))
 		return
 	}
@@ -533,46 +525,22 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner, err := a.deps.Queries.GetWorker(ctx, orgID, orgchart.WorkerID(a.deps.Owner))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("load owner %s: %w", a.deps.Owner, err))
-		return
-	}
-
-	// hire_worker reads its args off tool.Invocation.Args using the
-	// same JSON shape MCP delivers — we marshal HireWorkerRequest into
-	// the wire form so there is exactly one parser.
-	type wireArgs struct {
-		ID              string `json:"id,omitempty"`
-		RoleID          string `json:"roleId"`
-		ParentID        string `json:"parentId,omitempty"`
-		Kind            string `json:"kind"`
-		IdentityContent string `json:"identityContent"`
-	}
-	wargs := wireArgs{
+	// REST and chat-driven hires share workers.Hire — one implementation,
+	// no synthetic Invocation, no owner lookup. Worker mutations run as
+	// the org service identity; the picking user's id (when present) is
+	// read off ctx by Hire's hire-hook.
+	res, err := a.deps.Workers.Hire(ctx, orgID, workers.HireParams{
 		ID:              strings.TrimSpace(req.ID),
-		RoleID:          strings.TrimSpace(req.RoleID),
-		ParentID:        strings.TrimSpace(req.ParentID),
-		Kind:            strings.TrimSpace(req.Kind),
+		RoleID:          orgchart.RoleID(strings.TrimSpace(req.RoleID)),
+		ParentID:        orgchart.WorkerID(strings.TrimSpace(req.ParentID)),
+		Kind:            orgchart.WorkerKind(strings.TrimSpace(req.Kind)),
 		IdentityContent: req.IdentityContent,
-	}
-	argsJSON, err := json.Marshal(wargs)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("marshal hire args: %w", err))
-		return
-	}
-
-	resp, err := a.deps.HireWorker.Invoke(ctx, tool.Invocation{Caller: owner, Args: argsJSON})
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	var out HireWorkerResponse
-	if err := json.Unmarshal(resp, &out); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("decode hire response: %w", err))
-		return
-	}
-	writeJSON(w, http.StatusCreated, out)
+	writeJSON(w, http.StatusCreated, HireWorkerResponse{ID: string(res.WorkerID), ActivationID: string(res.ActivationID)})
 }
 
 // fireWorker tears down a Worker via the lifecycle service. Returns
