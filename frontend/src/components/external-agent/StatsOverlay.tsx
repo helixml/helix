@@ -427,6 +427,18 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                   )}
                 </div>
               )}
+              {/* Adaptive playout buffer depth (0 while interacting, grows when
+                  idle to absorb network/WiFi jitter). */}
+              {stats.video.playoutBufferMs !== undefined && (
+                <div>
+                  <strong>Playout Buffer:</strong> {stats.video.playoutBufferMs} ms
+                  {stats.video.playoutBufferMs === 0 ? (
+                    <span style={{ color: '#4caf50' }}> (interactive)</span>
+                  ) : (
+                    <span style={{ color: '#888' }}> (smoothing)</span>
+                  )}
+                </div>
+              )}
               {/* Scheduler jitter — synthetic 60Hz canary in desktop-bridge.
                   High p99/max ms = the desktop container's kernel scheduler is
                   preempting userspace tasks (CPU contention from co-tenant work). */}

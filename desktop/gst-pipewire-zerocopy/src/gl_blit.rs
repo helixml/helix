@@ -21,6 +21,7 @@
 //! created on and confined to the PipeWire loop thread (held as a local there,
 //! captured by the local process closure — never sent across threads).
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -51,6 +52,14 @@ pub struct GlBlitter {
     output: Option<GsBufferType>,
     out_w: u32,
     out_h: u32,
+    /// One persistent Dmabuf per PipeWire pool slot (keyed by the stable slot
+    /// fd). smithay caches dmabuf→GL-texture in a HashMap<WeakDmabuf, _> and
+    /// PRUNES entries when the Dmabuf drops. We used to build a fresh Dmabuf per
+    /// frame and drop it, so smithay's cache was pruned every frame → eglCreateImage
+    /// re-ran (~55ms spikes). Keeping one Dmabuf alive per slot keeps smithay's
+    /// texture cached → import_dmabuf is a cheap cache hit. The fd is kept valid
+    /// because the Dmabuf owns the dup'd fd for its lifetime.
+    slot_dmabufs: HashMap<i32, Dmabuf>,
 }
 
 impl GlBlitter {
@@ -72,12 +81,13 @@ impl GlBlitter {
             output: None,
             out_w: 0,
             out_h: 0,
+            slot_dmabufs: HashMap::new(),
         })
     }
 
     /// Import the capture dma-buf as a GL texture, blit it into our persistent
     /// CUDA buffer, and return a CUDAMemory GstBuffer for nvenc.
-    pub fn process(&mut self, dmabuf: &Dmabuf, pts_ns: i64) -> Result<FrameData, String> {
+    pub fn process(&mut self, dmabuf: &Dmabuf, pts_ns: i64, slot_fd: i32) -> Result<FrameData, String> {
         let w = dmabuf.width();
         let h = dmabuf.height();
         let drm_format = dmabuf.format();
@@ -94,11 +104,19 @@ impl GlBlitter {
 
         let t_total = std::time::Instant::now();
 
-        // Cheap per-frame import of the external capture buffer (OBS-style).
+        // Reuse one persistent Dmabuf per pool slot so smithay's dmabuf→texture
+        // cache stays warm (it prunes on Dmabuf drop). The persistent Dmabuf
+        // references the same slot memory Mutter keeps writing into; smithay
+        // refreshes the EGLImage binding on the cache-hit path, so we still get
+        // the current frame. import_dmabuf is then a cheap hit (no eglCreateImage).
         let t_import = std::time::Instant::now();
+        let persistent = self
+            .slot_dmabufs
+            .entry(slot_fd)
+            .or_insert_with(|| dmabuf.clone());
         let texture = self
             .renderer
-            .import_dmabuf(dmabuf, None)
+            .import_dmabuf(persistent, None)
             .map_err(|e| format!("import_dmabuf: {:?}", e))?;
         let import_us = t_import.elapsed().as_micros() as u32;
 

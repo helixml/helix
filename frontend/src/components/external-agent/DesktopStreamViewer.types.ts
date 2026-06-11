@@ -61,6 +61,7 @@ export interface VideoStats {
   avgRenderIntervalMs?: number;      // Average render interval
   receiveIntervalSamples?: number[]; // Rolling window of inter-arrival intervals (sparkline/burst)
   renderIntervalSamples?: number[];  // Rolling window of inter-render intervals (sparkline/burst)
+  playoutBufferMs?: number;          // Adaptive playout buffer depth (0 while interacting)
   // Debug flags
   usingSoftwareDecoder?: boolean;    // True if software decoding was forced (?softdecode=1)
   // Decoder health

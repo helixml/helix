@@ -924,6 +924,10 @@ fn run_pipewire_loop(
                 )
             };
 
+            // Stable per-slot DMA-BUF fd (PipeWire reuses a fixed buffer pool).
+            // Used as the key for the persistent-Dmabuf cache in the GL blitter.
+            let slot_fd = datas.first().map(|d| d.as_raw().fd as i32).unwrap_or(-1);
+
             let params = video_info.lock().clone();
             if let Some(frame) = extract_frame(datas, &params, pts_ns) {
                 // Point A: inter-arrival of frames from Mutter/PipeWire (measure-only).
@@ -959,7 +963,7 @@ fn run_pipewire_loop(
                             .borrow_mut()
                             .as_mut()
                             .unwrap()
-                            .process(dmabuf, *pts_ns);
+                            .process(dmabuf, *pts_ns, slot_fd);
                         match result {
                             Ok(cuda_frame) => {
                                 // Stage timing recorded inside blitter.process
