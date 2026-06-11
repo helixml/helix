@@ -18,17 +18,17 @@
 
 ## `mint_credential` MCP tool
 
-- [~] Add `MintCredential` to `Deps` (in `api/pkg/org/application/tools/builtins.go`): new field `CredentialProviders map[string]credential.Provider`. Default to an empty map in `DefaultDeps` so existing tests keep compiling.
-- [~] Add `api/pkg/org/application/tools/mint_credential.go` implementing `tool.Tool` (Name / Description / InputSchema / Invoke). Description is the exact text from `design.md` §3.3 (load-bearing — drives the mint→export→retry recovery loop). Schema has a single required `provider` string field; no `org_id` field exists in the schema.
-- [~] Read `orgID` from `inv.Caller.OrganizationID()` only — never from args. Return `mint_credential: caller has no OrgID` if empty (mirrors `create_stream`).
-- [~] Dispatch to the named provider; on unknown provider, return an error listing the registered provider names.
-- [~] Register `&MintCredential{deps: deps, providers: deps.CredentialProviders}` in `RegisterBuiltins`.
-- [~] Add `mint_credential_test.go` covering: happy path with a fake provider; unknown provider returns a listing error; missing OrgID returns the canonical error; a forged `org_id` field in raw args is ignored and the caller's OrgID is used; provider errors propagate with the provider name in the wrap.
+- [x] Add `MintCredential` to `Deps` (in `api/pkg/org/application/tools/builtins.go`): new field `CredentialProviders map[string]credential.Provider`. Default to an empty map in `DefaultDeps` so existing tests keep compiling.
+- [x] Add `api/pkg/org/application/tools/mint_credential.go` implementing `tool.Tool` (Name / Description / InputSchema / Invoke). Description is the exact text from `design.md` §3.3 (load-bearing — drives the mint→export→retry recovery loop). Schema has a single required `provider` string field; no `org_id` field exists in the schema.
+- [x] Read `orgID` from `inv.Caller.OrganizationID()` only — never from args. Return `mint_credential: caller has no OrgID` if empty (mirrors `create_stream`).
+- [x] Dispatch to the named provider; on unknown provider, return an error listing the registered provider names.
+- [x] Register `&MintCredential{deps: deps, providers: deps.CredentialProviders}` in `RegisterBuiltins`.
+- [x] Add `mint_credential_test.go` covering: happy path with a fake provider; unknown provider returns a listing error; missing OrgID returns the canonical error; a forged `org_id` field in raw args is ignored and the caller's OrgID is used; provider errors propagate with the provider name in the wrap. **Eight tests: happy path, unknown provider, missing provider arg, missing OrgID, forged-org_id regression, provider-error propagation, zero ExpiresAt omitted from JSON, description content. All pass.**
 
 ## Wiring
 
-- [ ] In `api/pkg/server/helix_org.go` near the existing `secretInjectors` block (`helix_org.go:283`), build `credentialProviders := map[string]credential.Provider{"github": githubtransport.NewCredentialProvider(identityResolver)}` and pass it through to `tools.RegisterBuiltins` via `deps.CredentialProviders`.
-- [ ] Confirm `tools.DefaultDeps` and any other callsites of `RegisterBuiltins` are updated.
+- [~] In `api/pkg/server/helix_org.go` near the existing `secretInjectors` block (`helix_org.go:283`), build `credentialProviders := map[string]credential.Provider{"github": githubtransport.NewCredentialProvider(identityResolver)}` and pass it through to `tools.RegisterBuiltins` via `deps.CredentialProviders`.
+- [~] Confirm `tools.DefaultDeps` and any other callsites of `RegisterBuiltins` are updated.
 
 ## Role / prompt integration
 
