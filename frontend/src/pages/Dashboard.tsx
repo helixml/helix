@@ -15,7 +15,6 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { useQuery } from "@tanstack/react-query";
 import LLMCallsTable from "../components/dashboard/LLMCallsTable";
 import Interaction from "../components/session/Interaction";
-import SessionBadgeKey from "../components/session/SessionBadgeKey";
 import SessionToolbar from "../components/session/SessionToolbar";
 import SessionSummary from "../components/session/SessionSummary";
 // Page wrapper removed - Dashboard is now rendered inside FullScreenDialog
@@ -166,7 +165,6 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                         justifyContent: "flex-end",
                     }}
                 >
-                    {tab === "runners" && <SessionBadgeKey />}
                 </Box>
             </Box>
             <Container

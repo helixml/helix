@@ -782,13 +782,7 @@ const Runners: FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Box>
-          <Typography variant="h5">Runners</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Aggregate view of all Helix Runners
-          </Typography>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 1 }}>
         <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
           {isLoading ? <CircularProgress size={24} /> : <RefreshIcon />}
         </IconButton>
