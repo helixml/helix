@@ -787,8 +787,13 @@ const Runners: FC = () => {
 
   // Keep the picker's selection consistent with the live data:
   //   - Reset to '' if the list goes empty
-  //   - Reset to the first runner if the current selection has dropped off
-  //   - Auto-select the first runner on initial load (single-runner UX)
+  //   - When picking automatically, prefer the first ONLINE runner so the
+  //     operator doesn't land on a stale offline row by default (which is
+  //     useless: the log stream errors immediately). Fall through to the
+  //     first runner overall only if every runner is offline (rare, but
+  //     better than showing an empty picker)
+  //   - If the operator explicitly picked an offline runner, leave it
+  //     alone - they're presumably debugging it
   useEffect(() => {
     if (sandboxes.length === 0) {
       if (selectedRunnerId !== '') setSelectedRunnerId('')
@@ -796,7 +801,8 @@ const Runners: FC = () => {
     }
     const stillExists = sandboxes.some((s) => s.id === selectedRunnerId)
     if (!stillExists) {
-      setSelectedRunnerId(sandboxes[0].id)
+      const firstOnline = sandboxes.find((s) => s.status === 'online')
+      setSelectedRunnerId((firstOnline ?? sandboxes[0]).id)
     }
   }, [sandboxes, selectedRunnerId])
 
