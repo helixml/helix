@@ -103,6 +103,11 @@ to. Don't skip step 1's tools list or step 3.
 
 ## External-provider credentials: `mint_credential`
 
+The baseline rule lives in `worker-policy.md`'s "External-provider
+credentials" section — every Worker reads it on every activation. The
+Role-prompt paragraph described below is the workflow specialisation an
+owner adds for Roles whose Workers actually run authenticated commands.
+
 External-provider tokens (GitHub today, Slack next) are **not** in the
 Worker's environment by default. To run `gh`, `git`, or authenticated
 `curl`, the Worker calls `mint_credential` to obtain a fresh ~1h token,
