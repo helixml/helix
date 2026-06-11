@@ -2,12 +2,12 @@
 
 ## Phase 1 — Session-layer threshold bump (ships first, quick mitigation)
 
-- [~] Change `defaultAutoWakeStuckThreshold` in `api/pkg/server/auto_wake_stuck_interactions.go` from `60 * time.Second` to `180 * time.Second`.
-- [ ] Rewrite the comment block above the constant (lines 190-209) to explain the new value: 180s covers realistic synchronous tool-call durations (`git push`, `npm install`, `gh pr view`, `find /`), with Decision 1 (org-layer timeout removal) as the real protection and this threshold as defence-in-depth.
-- [ ] Update the comment at `auto_wake_stuck_interactions.go:396-415` to correct the empirical claim: tool-call **cascades** touch `lastPublish` on every event, but a **single long-running** tool produces no events during execution, so the gate can decay during it. Document this limitation honestly.
-- [ ] Update any test in `auto_wake_stuck_interactions_test.go` that depends on the literal 60s value. Verify `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS` override still works (add a test case if not covered).
-- [ ] `go build ./api/pkg/server/...` to confirm compile.
-- [ ] Commit: `fix(api): raise auto-wake stuck threshold to 180s`.
+- [x] Change `defaultAutoWakeStuckThreshold` in `api/pkg/server/auto_wake_stuck_interactions.go` from `60 * time.Second` to `180 * time.Second`.
+- [x] Rewrite the comment block above the constant (lines 190-209) to explain the new value: 180s covers realistic synchronous tool-call durations (`git push`, `npm install`, `gh pr view`, `find /`), with Decision 1 (org-layer timeout removal) as the real protection and this threshold as defence-in-depth.
+- [x] Update the comment at `auto_wake_stuck_interactions.go:396-415` to correct the empirical claim: tool-call **cascades** touch `lastPublish` on every event, but a **single long-running** tool produces no events during execution, so the gate can decay during it. Document this limitation honestly.
+- [x] Update any test in `auto_wake_stuck_interactions_test.go` that depends on the literal 60s value. Verify `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS` override still works (add a test case if not covered). _Done: bumped fixture `Created` from -90s to -4m on the two cold-start tests that needed to clear the new threshold; added `TestAutoWakeStuckThresholdDefault` and `TestAutoWakeStuckThresholdOverride`._
+- [x] `go build ./api/pkg/server/...` to confirm compile.
+- [x] Commit: `fix(api): raise auto-wake stuck threshold to 180s`.
 
 ## Phase 2 — Org-layer: remove artificial poll-loop deadline
 
