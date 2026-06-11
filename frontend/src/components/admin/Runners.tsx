@@ -858,15 +858,14 @@ const Runners: FC = () => {
                 renderValue={(value) => {
                   const inst = sandboxes.find((s) => s.id === value)
                   if (!inst) return value
-                  const label = inst.hostname || inst.id
                   const bits = [inst.status]
                   if (inst.active_profile_id) bits.push(`profile: ${inst.active_profile_id}`)
-                  return `${label}  (${bits.join(', ')})`
+                  return `${inst.id}  (${bits.join(', ')})`
                 }}
               >
                 {sandboxes.map((sb) => (
                   <MenuItem key={sb.id} value={sb.id}>
-                    {sb.hostname || sb.id}
+                    {sb.id}
                     {sb.active_profile_id && ` — ${sb.active_profile_id}`}
                     {' '}({sb.status})
                   </MenuItem>
