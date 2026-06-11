@@ -9,23 +9,23 @@
       and prepend the cross-reference sentence from design.md §4 to
       the existing "External-provider credentials: `mint_credential`"
       section. Do not remove the existing per-Role paragraph.
-- [~] Run `cd api && go build ./pkg/org/...` to confirm the
+- [x] Run `cd api && go build ./pkg/org/...` to confirm the
       `//go:embed worker-policy.md` directive still resolves and the
       package compiles.
-- [ ] Run `cd api && go test ./pkg/org/application/agent/ -count=1`
+- [x] Run `cd api && go test ./pkg/org/application/agent/ -count=1`
       to confirm `prompt_test.go` still passes (no test asserts
       literal Policy contents, but the package must still compile and
       run cleanly).
-- [ ] Smoke-check the embedded text: `grep -n "mint_credential" api/pkg/org/application/agent/worker-policy.md`
+- [x] Smoke-check the embedded text: `grep -n "mint_credential" api/pkg/org/application/agent/worker-policy.md`
       should return the new section.
-- [ ] Commit on a feature branch with a conventional-commit message,
+- [~] Commit on a feature branch with a conventional-commit message,
       e.g. `docs(org): add mint_credential backstop to worker-policy`.
       Single commit; do not bundle unrelated Role edits.
-- [ ] Push the branch and open a PR against `helixml/helix:main`.
-      Reference the parent task 002092 and this task's design doc in
-      the PR body.
-- [ ] Watch CI (`gh pr checks <num>`) and fix any breakage. Expected:
-      green — text-only change to an embedded markdown file.
+- [ ] Push the branch. The Helix platform creates the GitHub PR
+      automatically when the user clicks "Open PR" in the UI — do
+      NOT run `gh pr create`.
+- [ ] Watch CI after the user opens the PR. Expected: green —
+      text-only change to an embedded markdown file.
 - [ ] (Optional, post-merge) In the inner Helix at `localhost:8080`,
       hire a Worker on a Role with no credential paragraph in its
       prompt, activate it, and confirm `.context/worker-policy.md` in
