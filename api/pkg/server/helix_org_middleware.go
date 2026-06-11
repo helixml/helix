@@ -15,6 +15,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -134,6 +135,17 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		rec := &topology.Reconciler{Store: s.orgStore}
 		if err := rec.ReconcileAll(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
+		}
+
+		// Backfill the universal read baseline on every Role in this
+		// org. Catches Roles created before BaseReadTools existed —
+		// e.g. an `r-qa-engineer` whose creator forgot `managers` and
+		// `reports` (issue #2546). Best-effort like the topology
+		// reconcile above: a failure logs and continues so a transient
+		// DB error doesn't lock users out of the org.
+		roleRec := &tools.RoleReconciler{Store: s.orgStore}
+		if err := roleRec.Reconcile(ctx, orgID); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 
 		// Mirror pre-existing workers (once per org per process).

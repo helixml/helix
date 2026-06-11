@@ -6,17 +6,12 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
-import Divider from '@mui/material/Divider'
-import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
-import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
-import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
@@ -24,8 +19,12 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import dagre from 'dagre'
 import {
   Background,
+  BaseEdge,
   Controls,
   Edge,
+  EdgeLabelRenderer,
+  EdgeProps,
+  getStraightPath,
   Handle,
   MiniMap,
   Node,
@@ -41,17 +40,16 @@ import '@xyflow/react/dist/style.css'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import HireWorkerDrawer from '../components/helix-org/HireWorkerDrawer'
+import NewRoleDialog from '../components/helix-org/NewRoleDialog'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
-  HireWorkerRequest,
   WorkerDTO,
-  useCreateHelixOrgRole,
   useDeleteHelixOrgRole,
   useDeleteHelixOrgStream,
   useFireHelixOrgWorker,
-  useHireHelixOrgWorker,
   useListHelixOrgRoles,
   useListHelixOrgStreams,
   useListHelixOrgWorkers,
@@ -433,6 +431,60 @@ type StreamSummary = {
 // that cross role boundaries. Workers sit in a horizontal row inside
 // their role's frame. Worker → Worker reporting edges and Worker →
 // Stream subscription edges are drawn on top.
+// layoutStreamColumns positions worker-anchored stream pseudo-nodes to
+// the right of the org tree without overlaps. Each stream prefers to sit
+// at its subject Worker's y (so the subscription edge is short and
+// roughly horizontal), but two streams may never occupy the same space.
+//
+// Algorithm:
+//  1. Sort streams by their anchor y (then id, for a stable order).
+//  2. Decide how many vertical columns are needed: a single column can
+//     hold `floor((band + gap) / slot)` streams within the tree's
+//     vertical extent. More streams than that spill into extra columns
+//     to the right, so the column never grows unboundedly tall and
+//     overruns the canvas.
+//  3. Split the sorted list into balanced, contiguous column chunks
+//     (contiguous in anchor-y, so each column owns a vertical band and
+//     edges don't criss-cross between columns).
+//  4. Within a column, place each stream at `max(anchorY, cursor)` and
+//     advance the cursor past it — anchor-biased greedy packing, which
+//     keeps streams beside their worker while guaranteeing no overlap.
+const STREAM_VERTICAL_GAP = 16
+const layoutStreamColumns = (
+  items: { stream: StreamSummary; anchorY: number }[],
+  opts: { columnX: number; columnGap: number; top: number; bottom: number },
+): { stream: StreamSummary; x: number; y: number }[] => {
+  if (items.length === 0) return []
+  const sorted = items
+    .slice()
+    .sort((a, b) => a.anchorY - b.anchorY || a.stream.id.localeCompare(b.stream.id))
+
+  const slot = STREAM_H + STREAM_VERTICAL_GAP
+  // A column should at least span the tree's height, but never spill to a
+  // second column until it holds a decent stack — otherwise a short tree
+  // (e.g. one Worker) would fan a handful of streams across many columns.
+  const MIN_PER_COLUMN = 6
+  const band = Math.max(opts.bottom - opts.top, slot)
+  const perColumn = Math.max(MIN_PER_COLUMN, Math.floor((band + STREAM_VERTICAL_GAP) / slot))
+  const columnCount = Math.ceil(sorted.length / perColumn)
+  // Re-balance so columns are evenly filled (e.g. 5 into 2 cols → 3 + 2,
+  // not 4 + 1) — avoids a near-empty trailing column.
+  const chunkSize = Math.ceil(sorted.length / columnCount)
+
+  const out: { stream: StreamSummary; x: number; y: number }[] = []
+  for (let col = 0; col < columnCount; col++) {
+    const x = opts.columnX + col * (STREAM_W + opts.columnGap)
+    let cursor = -Infinity
+    const chunk = sorted.slice(col * chunkSize, (col + 1) * chunkSize)
+    for (const it of chunk) {
+      const y = Math.max(it.anchorY, cursor)
+      out.push({ stream: it.stream, x, y })
+      cursor = y + slot
+    }
+  }
+  return out
+}
+
 const buildGraph = (
   groups: RoleGroup[],
   flat: FlatWorker[],
@@ -578,7 +630,7 @@ const buildGraph = (
       id: `report:${parentId}->${wk.id}`,
       source: `worker:${parentId}`,
       target: `worker:${wk.id}`,
-      type: 'default',
+      type: 'deletable',
       animated: false,
       data: { kind: 'report', childWorkerId: wk.id, parentWorkerId: parentId },
       style: {
@@ -591,11 +643,21 @@ const buildGraph = (
 
   // 5. Stream pseudo-nodes + subscription edges. Subscriptions are
   //    worker-anchored, so subscribers carries Worker ids — one dashed
-  //    edge per subscribed Worker. Streams sit in a column to the right
+  //    edge per subscribed Worker. Streams sit in column(s) to the right
   //    of the org tree. Each stream is vertically anchored to the
   //    "subject" Worker: for activation streams (`s-activations-<id>`)
   //    that's the encoded worker; otherwise created_by. Streams whose
   //    subject isn't on the chart park in an orphan strip below.
+  //
+  //    Layout engine (see `layoutStreamColumns`): the old code stacked
+  //    each worker-row's streams independently in ONE shared column with
+  //    no global collision check, so a tall stack from one row would
+  //    overrun the stack of the row below (streams literally overlapped).
+  //    The replacement is an anchor-biased, collision-free packer: it
+  //    sorts streams by their subject's y, splits them into as many
+  //    vertical columns as needed to fit the tree's height, then within
+  //    each column places each stream at `max(anchorY, cursor)` so it
+  //    stays beside its worker yet never overlaps the one above it.
   if (streams.length > 0) {
     const ACTIVATION_PREFIX = 's-activations-'
     const workerAbs = new Map<string, { x: number; y: number }>()
@@ -610,23 +672,22 @@ const buildGraph = (
       })
     }
 
-    let maxY = 0
+    let minTop = Infinity, maxY = 0
     let minLeft = Infinity, maxRight = -Infinity
     for (const ro of roleOrigin.values()) {
       const bottom = ro.y + ro.h
+      if (ro.y < minTop) minTop = ro.y
       if (bottom > maxY) maxY = bottom
       if (ro.x < minLeft) minLeft = ro.x
       if (ro.x + ro.w > maxRight) maxRight = ro.x + ro.w
     }
+    if (!isFinite(minTop)) minTop = 0
     if (!isFinite(minLeft)) minLeft = 0
     if (!isFinite(maxRight)) maxRight = 0
 
-    const STREAM_VERTICAL_GAP = 16
-    const STREAM_COLUMN_GAP = 120
     const STREAM_GAP_X = 32
+    const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
-    const streamColumnX = maxRight + STREAM_COLUMN_GAP
-    const stackByYRow = new Map<number, number>()
 
     const resolved: { stream: StreamSummary; subjectWorker: string | null }[] = []
     for (const s of streams) {
@@ -639,28 +700,35 @@ const buildGraph = (
       const onChart = subjectWorker && workerAbs.has(subjectWorker) ? subjectWorker : null
       resolved.push({ stream: s, subjectWorker: onChart })
     }
-    const orphans = resolved.filter((r) => !r.subjectWorker)
-    let orphanCursorX = (minLeft + maxRight) / 2
-    if (orphans.length > 0) {
-      const stripWidth = orphans.length * STREAM_W + (orphans.length - 1) * STREAM_GAP_X
-      orphanCursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+
+    // Anchored streams: lay them out beside their subject Worker.
+    const anchored = resolved.filter((r) => r.subjectWorker)
+    const placed = layoutStreamColumns(
+      anchored.map((r) => ({ stream: r.stream, anchorY: workerAbs.get(r.subjectWorker!)!.y })),
+      { columnX: maxRight + STREAM_COLUMN_GAP, columnGap: STREAM_COLUMN_GAP, top: minTop, bottom: maxY },
+    )
+    const streamPos = new Map<string, { x: number; y: number }>()
+    let streamsBottom = maxY
+    for (const p of placed) {
+      streamPos.set(p.stream.id, { x: p.x, y: p.y })
+      if (p.y + STREAM_H > streamsBottom) streamsBottom = p.y + STREAM_H
     }
 
-    for (const { stream: s, subjectWorker } of resolved) {
-      let x: number
-      let y: number
-      if (subjectWorker) {
-        const anchor = workerAbs.get(subjectWorker)!
-        const yRow = Math.round(anchor.y)
-        const stackIndex = stackByYRow.get(yRow) ?? 0
-        x = streamColumnX
-        y = anchor.y + stackIndex * (STREAM_H + STREAM_VERTICAL_GAP)
-        stackByYRow.set(yRow, stackIndex + 1)
-      } else {
-        x = orphanCursorX
-        y = maxY + ORPHAN_VERTICAL_GAP
-        orphanCursorX += STREAM_W + STREAM_GAP_X
+    // Orphans: a centred strip below everything else.
+    const orphans = resolved.filter((r) => !r.subjectWorker)
+    if (orphans.length > 0) {
+      const stripWidth = orphans.length * STREAM_W + (orphans.length - 1) * STREAM_GAP_X
+      let cursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+      const orphanY = streamsBottom + ORPHAN_VERTICAL_GAP
+      for (const r of orphans) {
+        streamPos.set(r.stream.id, { x: cursorX, y: orphanY })
+        cursorX += STREAM_W + STREAM_GAP_X
       }
+    }
+
+    for (const { stream: s } of resolved) {
+      const pos = streamPos.get(s.id)!
+      const { x, y } = pos
       nodes.push({
         id: `stream:${s.id}`,
         type: 'stream',
@@ -684,7 +752,7 @@ const buildGraph = (
           source: `worker:${wid}`,
           sourceHandle: 'stream',
           target: `stream:${s.id}`,
-          type: 'default',
+          type: 'deletable',
           animated: false,
           data: { kind: 'sub', workerId: wid, streamId: s.id },
           style: {
@@ -700,63 +768,7 @@ const buildGraph = (
   return { nodes, edges }
 }
 
-// ---- Dialogs (Create role, Confirm delete) -----------------------------
-
-const CreateRoleDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
-  const snackbar = useSnackbar()
-  const create = useCreateHelixOrgRole()
-  const [id, setId] = useState('')
-  const [content, setContent] = useState('')
-
-  const submit = async () => {
-    const trimmedId = id.trim()
-    if (!trimmedId) {
-      snackbar.error('Role ID is required')
-      return
-    }
-    try {
-      await create.mutateAsync({ id: trimmedId, content })
-      snackbar.success(`role ${trimmedId} created`)
-      setId(''); setContent(''); onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
-    }
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>New role</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <TextField
-            label="Role ID"
-            placeholder="r-engineer"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            helperText="Convention: r-<kebab-case>. Stays as-is — the LLM and operator both refer to roles by this handle."
-            autoFocus
-            fullWidth
-          />
-          <TextField
-            label="Content (markdown)"
-            placeholder="# Engineer&#10;Builds and ships software."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={6}
-            fullWidth
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={create.isPending}>
-          {create.isPending ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
+// ---- Dialogs (Confirm delete) -----------------------------------------
 
 const ConfirmDeleteDialog: FC<{
   open: boolean
@@ -780,80 +792,94 @@ const ConfirmDeleteDialog: FC<{
   </Dialog>
 )
 
-// ---- Hire drawer -------------------------------------------------------
-
-const HireDrawer: FC<{ roleId: string; onClose: () => void }> = ({ roleId, onClose }) => {
-  const snackbar = useSnackbar()
-  const hire = useHireHelixOrgWorker()
-  const [id, setId] = useState('')
-  const [kind, setKind] = useState<'ai' | 'human'>('human')
-  const [identity, setIdentity] = useState('')
-
-  const submit = async () => {
-    if (!identity.trim()) {
-      snackbar.error('identity content is required')
-      return
-    }
-    const body: HireWorkerRequest = {
-      role_id: roleId,
-      kind,
-      identity_content: identity,
-    }
-    if (id.trim()) body.id = id.trim()
-    try {
-      const res = await hire.mutateAsync(body)
-      snackbar.success(`hired ${res.id} — drag an edge from a manager to set who they report to`)
-      setId(''); setIdentity(''); onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'hire failed')
-    }
-  }
-
+// ---- Custom edge: deletable on hover -----------------------------------
+//
+// Wraps the default straight edge with a hover affordance: a small × button
+// appears at the edge midpoint while the pointer is over the edge (or the
+// button), and clicking it routes through ReactFlow's deleteElements API so
+// the existing onEdgesDelete dispatch fires unchanged. A transparent wider
+// stroke overlay widens the hover hit-area to ~20px so the 1.25–1.5px
+// visible line is not the only target.
+const DeletableEdge: FC<EdgeProps> = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  style,
+  markerEnd,
+  data,
+  selected,
+}) => {
+  const [hover, setHover] = useState(false)
+  const { deleteElements } = useReactFlow()
+  const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY })
+  const kind = (data as { kind?: string } | undefined)?.kind
+  const ariaLabel = kind === 'sub' ? 'Remove subscription' : 'Remove reporting line'
+  const show = hover || selected
   return (
-    <Box sx={{ p: 2.5, width: 380 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Hire worker</Typography>
-        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
-      </Stack>
-      <Stack spacing={1.5}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Role</Typography>
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{roleId}</Typography>
-        </Box>
-        <Divider sx={{ my: 1 }} />
-        <TextField select size="small" label="Kind" value={kind} onChange={(e) => setKind(e.target.value as 'ai' | 'human')} fullWidth>
-          <MenuItem value="human">Human</MenuItem>
-          <MenuItem value="ai">AI</MenuItem>
-        </TextField>
-        <TextField
-          size="small"
-          label="Handle (optional)"
-          placeholder="w-alice"
-          helperText="Lowercase first name, prefixed with w-. Leave blank to auto-assign."
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          fullWidth
-        />
-        <TextField
-          size="small"
-          label="Identity content"
-          placeholder="Short persona / profile in markdown."
-          value={identity}
-          onChange={(e) => setIdentity(e.target.value)}
-          multiline
-          minRows={6}
-          fullWidth
-        />
-        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-          <Button variant="contained" onClick={submit} disabled={hire.isPending}>
-            {hire.isPending ? 'Hiring…' : 'Hire'}
-          </Button>
-          <Button variant="text" onClick={onClose}>Cancel</Button>
-        </Stack>
-      </Stack>
-    </Box>
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
+      {/* invisible wider hit-area; must NOT inherit strokeDasharray or hover
+          becomes spotty between dashes on subscription edges */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        strokeDasharray="none"
+        style={{ cursor: 'pointer' }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      />
+      {show && (
+        <EdgeLabelRenderer>
+          <button
+            type="button"
+            aria-label={ariaLabel}
+            title={ariaLabel}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            onClick={(e) => {
+              e.stopPropagation()
+              deleteElements({ edges: [{ id }] })
+            }}
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              border: '1px solid rgba(0,0,0,0.2)',
+              background: '#ffffff',
+              color: '#444',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+              fontSize: 14,
+              lineHeight: 1,
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.outline = '2px solid #1976d2'
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.outline = 'none'
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            ×
+          </button>
+        </EdgeLabelRenderer>
+      )}
+    </>
   )
 }
+
+const edgeTypes = { deletable: DeletableEdge }
 
 // ---- ReactFlow canvas --------------------------------------------------
 
@@ -953,6 +979,7 @@ const ChartCanvas: FC<{
       onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
@@ -1240,7 +1267,7 @@ const HelixOrgChart: FC = () => {
         </Box>
       </Box>
 
-      <CreateRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />
+      <NewRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
         title={
@@ -1254,19 +1281,11 @@ const HelixOrgChart: FC = () => {
         pending={deleteRole.isPending || deleteStream.isPending || fireWorker.isPending}
       />
 
-      <Drawer
-        anchor="right"
-        open={selection.kind !== 'none'}
+      <HireWorkerDrawer
+        open={selection.kind === 'hire'}
         onClose={() => setSelection({ kind: 'none' })}
-        PaperProps={{ sx: { backgroundImage: 'none' } }}
-      >
-        {selection.kind === 'hire' && (
-          <HireDrawer
-            roleId={selection.roleId}
-            onClose={() => setSelection({ kind: 'none' })}
-          />
-        )}
-      </Drawer>
+        presetRoleId={selection.kind === 'hire' ? selection.roleId : undefined}
+      />
     </Page>
   )
 }

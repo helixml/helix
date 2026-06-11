@@ -74,7 +74,12 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	// The owner Role's Tools is the single source of truth for what
 	// MCP tools the owner Worker sees: the MCP handler reads
 	// Worker → Role.Tools live on every request.
-	defaults := []tool.Name{
+	//
+	// The owner gets every mutation in the system plus the universal
+	// base read set. The read half lives in tools.BaseReadTools so the
+	// reconciler and create_role can refer to the same list — keeping
+	// every Role's MCP surface consistent.
+	ownerMutationTools := []tool.Name{
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
 		tools.UpdateIdentityName,
@@ -86,19 +91,10 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.InviteWorkersName,
 		tools.PublishName,
 		tools.DMName,
-		tools.ListRolesName,
-		tools.GetRoleName,
-		tools.ListWorkersName,
-		tools.GetWorkerName,
-		tools.ManagersName,
-		tools.ReportsName,
-		tools.GetWorkerEnvironmentName,
-		tools.ListStreamsName,
-		tools.GetStreamName,
-		tools.ListStreamEventsName,
-		tools.ReadEventsName,
-		tools.WorkerLogName,
+		// (mint_credential is in tools.BaseReadTools, so every Role —
+		// owner included — gets it via MergeBaseReadTools.)
 	}
+	defaults := append(append([]tool.Name{}, ownerMutationTools...), tools.BaseReadTools...)
 
 	ownerRole, err := orgchart.NewRole("r-owner", ownerRoleContent, defaults, nil, now, params.OrganizationID)
 	if err != nil {

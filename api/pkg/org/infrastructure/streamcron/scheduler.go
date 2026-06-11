@@ -320,7 +320,7 @@ func (c *Scheduler) fire(ctx context.Context, orgID string, streamID streaming.S
 		return fmt.Errorf("append event: %w", err)
 	}
 	if c.hub != nil {
-		c.hub.Notify(streamID)
+		c.hub.Notify(orgID, streamID)
 	}
 	c.dispatcher.Dispatch(ctx, event)
 	return nil

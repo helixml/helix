@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v57/github"
@@ -112,9 +113,10 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 }
 
 // MintInstallationToken returns a raw GitHub App installation access token
-// string (valid ~1h) for an installation. It is the token injected as
-// GH_TOKEN and used as the git credential so a Worker's git/gh act as the
-// app bot rather than a human.
+// string (valid ~1h) for an installation. Workers obtain it on demand via
+// the mint_credential MCP tool (which goes through MintInstallationCredential
+// to also surface ExpiresAt); other server-side call sites — repo
+// aggregation, webhook install — use this string-only form directly.
 //
 // appID + installationID identify the installation; privateKey is the
 // PEM-encoded app private key used to sign the short-lived JWT that
@@ -125,15 +127,46 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 // so callers should treat this as a network operation (and tests should stub
 // it rather than call it).
 func MintInstallationToken(ctx context.Context, appID, installationID int64, privateKey, baseURL string) (string, error) {
-	itr, err := newInstallationTransport(appID, installationID, privateKey, baseURL)
+	cred, err := MintInstallationCredential(ctx, appID, installationID, privateKey, baseURL)
 	if err != nil {
 		return "", err
 	}
+	return cred.Token, nil
+}
+
+// InstallationCredential is the installation-token result paired with
+// the GitHub-reported expiry. ExpiresAt is what the mint_credential MCP
+// tool surfaces to the agent so it can plan when to refresh.
+type InstallationCredential struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
+// MintInstallationCredential is the sibling of MintInstallationToken
+// that also returns the GitHub-reported expiry. ghinstallation parses
+// `expires_at` from the access-token response into its internal cache;
+// we read it back via Transport.Expiry(). Same call shape and same
+// network cost (one POST /app/installations/{id}/access_tokens) as
+// MintInstallationToken — so callers that need the expiry should
+// prefer this entry point.
+func MintInstallationCredential(ctx context.Context, appID, installationID int64, privateKey, baseURL string) (InstallationCredential, error) {
+	itr, err := newInstallationTransport(appID, installationID, privateKey, baseURL)
+	if err != nil {
+		return InstallationCredential{}, err
+	}
 	tok, err := itr.Token(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to mint installation token: %w", err)
+		return InstallationCredential{}, fmt.Errorf("failed to mint installation token: %w", err)
 	}
-	return tok, nil
+	expiresAt, _, err := itr.Expiry()
+	if err != nil {
+		// Token() succeeded so the transport must have a cached token;
+		// an Expiry() error here is a library invariant break, not a
+		// network failure. Surface it rather than swallowing — callers
+		// rely on ExpiresAt to schedule refreshes.
+		return InstallationCredential{}, fmt.Errorf("installation token has no expiry: %w", err)
+	}
+	return InstallationCredential{Token: tok, ExpiresAt: expiresAt}, nil
 }
 
 // ListRepositories lists all repositories accessible to the authenticated user

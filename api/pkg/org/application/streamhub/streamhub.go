@@ -33,23 +33,33 @@ import (
 )
 
 // topicPrefix is the NATS subject prefix every wake topic shares.
-// Concrete topics are "<prefix>.<streamID>". The wildcard form
-// "<prefix>.>" matches every per-stream topic, used by SubscribeAll.
+// Concrete topics are "<prefix>.<orgID>.<streamID>". The org segment is
+// REQUIRED: stream IDs are unique only within an org (the store keys
+// streams by the composite (id, org_id)), so two orgs routinely share a
+// stream id — every org's owner activation stream is
+// `s-activations-w-owner`, and user-named streams like `s-general`
+// collide trivially. Without the org token, one org's Notify would wake
+// the other org's subscribers on a colliding id. The per-org wildcard
+// form "<prefix>.<orgID>.>" matches every per-stream topic in one org,
+// used by SubscribeAll.
 //
-// Stream IDs are kebab-case (`s-activations-w-alice` etc.) so they
-// never contain NATS-special characters (`.`, `*`, `>`, whitespace);
-// passing them as a single subject token is safe.
+// Org IDs (`org_…`) and stream IDs (`s-activations-w-alice` etc.) are
+// kebab/underscore tokens that never contain NATS-special characters
+// (`.`, `*`, `>`, whitespace), so passing each as a single subject
+// token is safe.
 const topicPrefix = "helix-org.stream-updates"
 
-// topicFor returns the NATS subject this stream's wake notifications
-// publish to.
-func topicFor(sid streaming.StreamID) string {
-	return topicPrefix + "." + string(sid)
+// topicFor returns the NATS subject this org's stream publishes wake
+// notifications to.
+func topicFor(orgID string, sid streaming.StreamID) string {
+	return topicPrefix + "." + orgID + "." + string(sid)
 }
 
-// wildcardTopic is the NATS-wildcard subscription that matches every
-// per-stream topic — used by SubscribeAll.
-const wildcardTopic = topicPrefix + ".>"
+// wildcardTopicFor is the NATS-wildcard subscription that matches every
+// per-stream topic within one org — used by SubscribeAll.
+func wildcardTopicFor(orgID string) string {
+	return topicPrefix + "." + orgID + ".>"
+}
 
 // Hub is safe for concurrent use. The zero value is not usable; use
 // New.
@@ -96,7 +106,7 @@ func signal(ch chan struct{}) {
 // they are done, typically via defer. Subscribing with an empty list
 // returns a never-woken channel — equivalent to the broadcast
 // behaviour.
-func (h *Hub) Subscribe(streamIDs []streaming.StreamID) chan struct{} {
+func (h *Hub) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struct{} {
 	ch := make(chan struct{}, 1)
 	if len(streamIDs) == 0 {
 		// Track the channel so Unsubscribe is still a no-op (rather
@@ -112,7 +122,7 @@ func (h *Hub) Subscribe(streamIDs []streaming.StreamID) chan struct{} {
 	}
 	pubsubSubs := make([]pubsub.Subscription, 0, len(streamIDs))
 	for _, sid := range streamIDs {
-		sub, err := h.ps.Subscribe(context.Background(), topicFor(sid), handler)
+		sub, err := h.ps.Subscribe(context.Background(), topicFor(orgID, sid), handler)
 		if err != nil {
 			// Tear down partial state to avoid leaking subscriptions.
 			for _, s := range pubsubSubs {
@@ -169,13 +179,14 @@ func (h *Hub) Unsubscribe(streamIDs []streaming.StreamID, ch chan struct{}) {
 // specific stream selected) to refresh whenever any worker writes
 // anywhere. Caller MUST defer UnsubscribeAll.
 //
-// Backed by a NATS wildcard subscription (`helix-org.stream-updates.>`)
-// so it matches every per-stream topic published via Notify. Both the
-// real NATS provider and the in-memory test provider honour wildcard
-// subscriptions.
-func (h *Hub) SubscribeAll() chan struct{} {
+// Backed by a per-org NATS wildcard subscription
+// (`helix-org.stream-updates.<orgID>.>`) so it matches every per-stream
+// topic published via Notify within that org — and ONLY that org. Both
+// the real NATS provider and the in-memory test provider honour
+// wildcard subscriptions.
+func (h *Hub) SubscribeAll(orgID string) chan struct{} {
 	ch := make(chan struct{}, 1)
-	sub, err := h.ps.Subscribe(context.Background(), wildcardTopic, func(_ []byte) error {
+	sub, err := h.ps.Subscribe(context.Background(), wildcardTopicFor(orgID), func(_ []byte) error {
 		signal(ch)
 		return nil
 	})
@@ -211,9 +222,9 @@ func (h *Hub) UnsubscribeAll(ch chan struct{}) {
 // the wake handler uses select/default, so a subscriber whose channel
 // buffer is full simply drops the signal (coalesced — the subscriber
 // is expected to re-query after waking).
-func (h *Hub) Notify(streamID streaming.StreamID) {
+func (h *Hub) Notify(orgID string, streamID streaming.StreamID) {
 	// Publish payload is nil — this is a pure wake signal. Ignoring
 	// publish errors matches broadcast's contract: Notify was a
 	// best-effort wake-only call with no return value.
-	_ = h.ps.Publish(context.Background(), topicFor(streamID), nil)
+	_ = h.ps.Publish(context.Background(), topicFor(orgID, streamID), nil)
 }

@@ -1953,6 +1953,31 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	return width, height, refreshRate
 }
 
+// SetRepoContext populates RepositoryIDs and PrimaryRepositoryID from the
+// given project repos. defaultRepoID is the project's preferred repo
+// (typically Project.DefaultRepoID); when empty the first repo wins.
+// No-op when repos is empty — caller-set values are preserved.
+func (z *DesktopAgent) SetRepoContext(repos []*GitRepository, defaultRepoID string) {
+	if len(repos) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		if repo != nil && repo.ID != "" {
+			ids = append(ids, repo.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	z.RepositoryIDs = ids
+	if defaultRepoID != "" {
+		z.PrimaryRepositoryID = defaultRepoID
+	} else {
+		z.PrimaryRepositoryID = ids[0]
+	}
+}
+
 // DesktopAgentAPIEnvVars returns the standard API-related environment variables
 // that desktop agents need for LLM access and Git operations.
 // This function ensures consistent env var names across all code paths.

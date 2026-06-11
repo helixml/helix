@@ -136,6 +136,125 @@ func TestProviderName(t *testing.T) {
 	}
 }
 
+func TestTaskBodyShape_BashInline(t *testing.T) {
+	// Validates the YD task wiring: TaskType=bash so YD's default
+	// /bin/bash handler is invoked with our arguments. We use the
+	// "bash -c <body> argv..." form so the embedded script body
+	// runs with $1, $2, $3 as helix_url, runner_token, helix_image.
+	// SANDBOX_INSTANCE_ID flows via the task Environment because
+	// the script reads $SANDBOX_INSTANCE_ID from its env.
+	f := newFakeServer(t)
+	var taskBody []byte
+	f.handler = func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/work/requirements":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"wr-1","name":"x","namespace":"test-ns","taskGroups":[{"id":"tg-1","name":"tg1"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/work/taskGroups/tg-1/tasks":
+			taskBody = f.bodies[len(f.bodies)-1]
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`[{"id":"task-1"}]`))
+		default:
+			http.Error(w, "unexpected", http.StatusBadRequest)
+		}
+	}
+	cfg := Config{
+		APIKeyID:             "k",
+		APISecret:            "s",
+		BaseURL:              f.srv.URL,
+		Namespace:            "test-ns",
+		DeploymentTag:        "test-dep",
+		WorkerTag:            "test-worker",
+		HTTPClient:           f.srv.Client(),
+		AllowInsecureBaseURL: true,
+		HelixURL:             "https://helix.example.com",
+		RunnerToken:          "secret-token-xyz",
+		HelixImage:           "ghcr.io/helixml/helix-sandbox:test-tag",
+	}
+	p, err := NewProvider(cfg)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = p.Provision(context.Background(), compute.Spec{
+		Labels: map[string]string{"helix.sandbox_id": "sbx_test123"},
+	})
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if taskBody == nil {
+		t.Fatal("task POST body was never captured")
+	}
+	var tasks []taskPayload
+	if err := json.Unmarshal(taskBody, &tasks); err != nil {
+		t.Fatalf("decode task body: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	task := tasks[0]
+
+	// TaskType must be "bash" - we no longer use the docker task
+	// type because YD agent registration is one-shot and adding
+	// docker via post-install userdata is fragile (see
+	// design/2026-06-09-yd-bash-script-alternatives.md).
+	if task.TaskType != "bash" {
+		t.Fatalf("TaskType = %q, want bash", task.TaskType)
+	}
+
+	// Argument shape: -c, <embedded body>, "yd-inline" ($0),
+	// helix_url ($1), runner_token ($2), helix_image ($3).
+	if len(task.Arguments) != 6 {
+		t.Fatalf("expected 6 arguments [-c body $0 $1 $2 $3], got %d: %v", len(task.Arguments), task.Arguments)
+	}
+	if task.Arguments[0] != "-c" {
+		t.Fatalf("Arguments[0] = %q, want -c", task.Arguments[0])
+	}
+	// Arguments[1] is the embedded script body. Spot-check that it
+	// references the positional args we'll pass.
+	if !strings.Contains(task.Arguments[1], "HELIX_URL=\"${1") {
+		t.Fatalf("embedded script body doesn't reference $1 as expected")
+	}
+	if task.Arguments[2] != "yd-inline" {
+		t.Fatalf("Arguments[2] = %q, want yd-inline ($0)", task.Arguments[2])
+	}
+	if task.Arguments[3] != "https://helix.example.com" {
+		t.Fatalf("Arguments[3] = %q, want helix URL ($1)", task.Arguments[3])
+	}
+	if task.Arguments[4] != "secret-token-xyz" {
+		t.Fatalf("Arguments[4] = %q, want runner token ($2)", task.Arguments[4])
+	}
+	if task.Arguments[5] != "ghcr.io/helixml/helix-sandbox:test-tag" {
+		t.Fatalf("Arguments[5] = %q, want image ($3)", task.Arguments[5])
+	}
+
+	// SANDBOX_INSTANCE_ID must be in the task Environment - the
+	// embedded script reads $SANDBOX_INSTANCE_ID from its process
+	// env to name the container + propagate to helix-sandbox.
+	if got := task.Environment["SANDBOX_INSTANCE_ID"]; got != "sbx_test123" {
+		t.Fatalf("Environment[SANDBOX_INSTANCE_ID] = %q, want sbx_test123", got)
+	}
+}
+
+func TestTaskArgumentsEmptyWhenConfigIncomplete(t *testing.T) {
+	// Defensive: if operator forgets HelixURL/RunnerToken/HelixImage,
+	// taskArguments returns nil so the task fails immediately on the
+	// worker rather than silently submitting bogus arguments.
+	cfg := Config{
+		APIKeyID: "k", APISecret: "s",
+		Namespace:     "n",
+		DeploymentTag: "d",
+		WorkerTag:     "w",
+		// HelixURL, RunnerToken, HelixImage all empty
+	}
+	p, err := NewProvider(cfg)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	if got := p.taskArguments(); got != nil {
+		t.Fatalf("expected nil arguments when config is incomplete, got %v", got)
+	}
+}
+
 func TestProviderNameDifferentDeploymentTags(t *testing.T) {
 	// Cross-tenancy regression guard: two Providers with the same
 	// kind but different deployment tags MUST report different
@@ -348,8 +467,8 @@ func TestListDecodesFlatArrayAndFiltersClientSide(t *testing.T) {
 			t.Fatalf("client-side filter let through foreign WR: %q", got)
 		}
 	}
-	if out[0].State != compute.StateReady {
-		t.Fatalf("expected StateReady for RUNNING WR, got %q", out[0].State)
+	if out[0].State != compute.StateProvisioning {
+		t.Fatalf("expected StateProvisioning for RUNNING WR (host has not registered yet), got %q", out[0].State)
 	}
 	if out[1].State != compute.StateTerminated {
 		t.Fatalf("expected StateTerminated for COMPLETED WR, got %q", out[1].State)
@@ -362,7 +481,13 @@ func TestHealthCheckMapsStatusToState(t *testing.T) {
 		want     compute.State
 		wantErr  bool
 	}{
-		{"RUNNING", compute.StateReady, false},
+		// RUNNING does NOT mean "host is up and serving". YD reports
+		// RUNNING as soon as the WR is accepted by the scheduler -
+		// the task may still be queued, the EC2 may still be booting,
+		// helix-sandbox may still be pulling its image. The only
+		// signal that the host is actually live is its WebSocket
+		// registration, which the auto-register bridge handles.
+		{"RUNNING", compute.StateProvisioning, false},
 		{"HELD", compute.StateProvisioning, false},
 		{"COMPLETED", compute.StateTerminated, true},
 		{"FAILED", compute.StateFailed, true},
@@ -592,8 +717,8 @@ func TestRetryOn500ThenSuccess(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("expected 2 calls (1 fail + 1 retry success), got %d", calls)
 	}
-	if h.State != compute.StateReady {
-		t.Fatalf("expected StateReady after retry, got %q", h.State)
+	if h.State != compute.StateProvisioning {
+		t.Fatalf("expected StateProvisioning after retry (RUNNING means WR accepted, not host up), got %q", h.State)
 	}
 }
 

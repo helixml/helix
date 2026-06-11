@@ -156,3 +156,53 @@ func TestQueueNilSpawnerIsNoop(t *testing.T) {
 	// No goroutine started, no panic; nothing to assert beyond
 	// "didn't crash" and the test returning normally.
 }
+
+// TestQueueIsolatesSameWorkerIDAcrossOrgs is the regression test for the
+// cross-tenant activation leak
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// Worker IDs are unique only within an org — every org's owner is
+// "w-owner". The lane key must therefore include the org. When it
+// didn't, two orgs' "w-owner" shared one lane: the second Enqueue
+// folded into the first's pending list (no parallel runner) and
+// overwrote lane.orgID, so activations ran under the wrong tenant.
+//
+// Here both orgs enqueue the SAME worker id and block in spawn. If they
+// share a lane only one spawn starts and the second test-loop receive
+// times out. With per-(org,worker) lanes both run in parallel, each
+// under its own org.
+func TestQueueIsolatesSameWorkerIDAcrossOrgs(t *testing.T) {
+	t.Parallel()
+	type call struct {
+		org string
+		w   orgchart.WorkerID
+	}
+	started := make(chan call, 2)
+	release := make(chan struct{})
+
+	spawn := func(_ context.Context, org string, w orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+		started <- call{org: org, w: w}
+		<-release
+		return nil
+	}
+
+	q := activation.NewQueue(spawn, nil)
+	q.Enqueue("org-a", "w-owner", "/env/a", activation.Trigger{Kind: activation.TriggerHire})
+	q.Enqueue("org-b", "w-owner", "/env/b", activation.Trigger{Kind: activation.TriggerHire})
+
+	deadline := time.After(2 * time.Second)
+	got := map[string]orgchart.WorkerID{}
+	for len(got) < 2 {
+		select {
+		case c := <-started:
+			got[c.org] = c.w
+		case <-deadline:
+			t.Fatalf("same worker id in two orgs did not run in parallel — they share a lane (cross-tenant); got %+v", got)
+		}
+	}
+	close(release)
+
+	if got["org-a"] != "w-owner" || got["org-b"] != "w-owner" {
+		t.Fatalf("activations not delivered per-org: %+v", got)
+	}
+}

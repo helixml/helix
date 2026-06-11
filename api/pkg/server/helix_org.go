@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -26,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -250,22 +250,37 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// ensureProject before this argument existed.)
 	// gitHubTokenResolver resolves a current GitHub OAuth access token
 	// for an org by walking the org's members + their oauth_connections
-	// (see helix_org_github.go). Drives BOTH the github stream
-	// transport's outbound `Token()` lookup AND the worker sandbox's
-	// `GH_TOKEN` env injection — one OAuth pipeline, exposed to the
-	// spawner via the transport's SpawnSecretInjector.
+	// (see helix_org_github.go). Drives the github stream transport's
+	// outbound `Token()` lookup; the worker-side mint path now flows
+	// through the mint_credential MCP tool + CredentialProvider, not a
+	// boot-time SecretInjector.
 	oauthResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
 	// identityResolver prefers the installed Helix App bot over a borrowed
 	// member OAuth token: if the org has a github_app ServiceConnection it
 	// mints a short-lived installation token (decrypting the stored PEM with
 	// the server encryption key), else it falls back to oauthResolver.
-	// github.MintInstallationToken is the production minter.
-	identityResolver := newOrgGitHubIdentityResolver(cfg.APIServer.getEncryptionKey, helixStore, oauthResolver, githubskill.MintInstallationToken)
+	// github.MintInstallationCredential is the production minter — it
+	// returns both the token and the server-reported expiry, which
+	// mint_credential surfaces to agents.
+	identityResolver := newOrgGitHubIdentityResolver(
+		cfg.APIServer.getEncryptionKey,
+		helixStore,
+		oauthResolver,
+		func(ctx context.Context, appID, installationID int64, pem, baseURL string) (MintedInstallation, error) {
+			cred, err := githubskill.MintInstallationCredential(ctx, appID, installationID, pem, baseURL)
+			if err != nil {
+				return MintedInstallation{}, err
+			}
+			return MintedInstallation{Token: cred.Token, ExpiresAt: cred.ExpiresAt}, nil
+		},
+	)
 	// gitHubTokenResolver is the bot-preferring token projection used by
-	// every "act as GitHub" touchpoint (worker GH_TOKEN injection, outbound
-	// transport, webhook install). Returns the App installation token when
-	// one exists, else the legacy member OAuth token — so once an org installs
-	// the Helix App, its agents act as the bot rather than a human.
+	// the outbound github stream transport and the webhook-install code
+	// path. Returns the App installation token when one exists, else the
+	// legacy member OAuth token — so once an org installs the Helix App,
+	// its agents act as the bot rather than a human. (Worker shell-tool
+	// credentials no longer flow through this projection; they go through
+	// the per-org CredentialProvider wired into mint_credential below.)
 	gitHubTokenResolver := func(ctx context.Context, orgID string) (string, error) {
 		id, err := identityResolver(ctx, orgID)
 		if err != nil {
@@ -274,15 +289,22 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return id.Token, nil
 	}
 
-	// secretInjectors gathers every transport's per-activation
-	// secret hook. The spawner iterates them on every activation
-	// (after ensureProject, before ensureSession) and upserts the
-	// returned secrets as project secrets — helix's existing
-	// container runtime exposes those as env vars on the next
-	// desktop boot. New transports plug in here; the spawner stays
-	// transport-agnostic.
-	secretInjectors := []runtimehelix.SpawnSecretInjector{
-		githubtransport.NewSecretInjector(githubtransport.TokenResolver(gitHubTokenResolver)),
+	// credentialProviders backs the mint_credential MCP tool — the
+	// single surface every Worker uses to obtain an org-scoped
+	// external-provider credential on demand. Adding a new provider
+	// (Slack, …) is a new file under
+	// infrastructure/transports/<name>/credential_provider.go plus
+	// one entry here — no edits to mint_credential.go.
+	deps.CredentialProviders = map[string]credential.Provider{
+		"github": githubtransport.NewCredentialProvider(
+			func(ctx context.Context, orgID string) (githubtransport.Identity, error) {
+				id, err := identityResolver(ctx, orgID)
+				if err != nil {
+					return githubtransport.Identity{}, err
+				}
+				return githubtransport.Identity{Token: id.Token, ExpiresAt: id.ExpiresAt}, nil
+			},
+		),
 	}
 	// Transcript mirror — process-wide singleton shared by the spawner
 	// (Ensure), bootstrap (EnsureAll), and lifecycle.Fire (Stop).
@@ -304,7 +326,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger: logger,
 	})
 
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, secretInjectors, deps.NewID, deps.Now, mirror)
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, deps.NewID, deps.Now, mirror)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -851,11 +873,6 @@ func buildHelixOrgSpawnerConfig(
 	// every AI activation), the bridge panicked at sessions.go:257.
 	ps pubsub.PubSub,
 	logger *slog.Logger,
-	// secretInjectors is the slice of per-activation hooks each
-	// transport registers to push secrets into the Worker's
-	// project. The spawner iterates them after ensureProject. See
-	// runtimehelix.SpawnSecretInjector for the contract.
-	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
@@ -909,31 +926,36 @@ func buildHelixOrgSpawnerConfig(
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return resolveUserHelixAPIKey(ctx, helixStore, userID)
 		},
-		SecretInjectors: secretInjectors,
 	}, nil
 }
 
-// lazyHelixOrgSpawner returns an runtime.Spawner that defers building
-// the underlying SpawnerConfig (and the wrapped helix.Spawner closure)
-// until the first activation arrives. Subsequent activations reuse
-// the same built Spawner — semaphore + MaxInflight live on the
-// inner closure, so they're shared across calls.
+// lazyHelixOrgSpawner returns a runtime.Spawner that builds a fresh
+// SpawnerConfig, scoped to the activating org, on every activation.
 //
-// Re-reads SpawnerConfig only if the first attempt failed; this lets
-// "pick an agent" flow seamlessly after API boot without restart.
+// It MUST NOT cache a single inner Spawner across orgs. SpawnerConfig
+// carries tenant-specific identity — OrgID and HelixOrgURL
+// (`/api/v1/mcp/helix-org/<orgID>`) — which the inner spawner stamps
+// onto every Worker's project (applyReq.OrganizationID, the
+// HELIX_ORG_URL project secret) and, critically, onto the helix-org
+// MCP entry it re-attaches to the Worker's agent app on every
+// activation. A cached spawner freezes the *first* activating org's
+// identity and replays it for every other org, so org B's owner ends
+// up with an MCP pointing at org A's gateway — and create_role /
+// hire_worker land in org A. (Root cause of the cross-tenant leak; see
+// design/2026-06-09-org-multitenancy-spawner-leak.md.)
 //
-// Worker.* drift handling: once the inner Spawner is built, its
-// captured SpawnerConfig.Runtime/Provider/Model/Credentials are frozen
-// for the life of the process. Those fields are only consumed inside
-// the spawner's own ensureProject call, so we run the dynamic applier
-// first — it re-reads worker.* on every activation and materialises
-// (or fast-paths) the per-Worker project with current settings. The
-// spawner's internal ensureProject then fast-paths against the project
-// our wrapper just touched, and the frozen fields are dead weight.
-// Net effect: changing worker.runtime / credentials / provider / model
-// via the settings page takes effect on the next activation, without
-// disturbing the shared MaxInflight semaphore inside the cached
-// spawner.
+// Building per activation is cheap (a handful of config-registry
+// reads) and also keeps worker.runtime/credentials/provider/model
+// current without any "drift" handling. The one thing the old cache
+// legitimately provided — a single process-wide inflight cap — is
+// preserved by minting one shared semaphore here and injecting it into
+// each per-activation config via SpawnerConfig.Sem.
+//
+// The dynamic applier still runs first: it provisions (or fast-paths)
+// the per-Worker project and attaches the MCP for owner-chat's benefit.
+// The inner spawner re-attaches the MCP after its own ensureProject
+// (ApplyProject wipes Config.Helix), so both must use the correct
+// per-org URL — which they now do.
 func lazyHelixOrgSpawner(
 	cfg *configregistry.Registry,
 	helixStore helixstore.Store,
@@ -944,49 +966,37 @@ func lazyHelixOrgSpawner(
 	ps pubsub.PubSub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
-	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
 	mirror *runtimehelix.Mirror,
 ) runtime.Spawner {
-	var (
-		mu      sync.Mutex
-		spawner runtime.Spawner
-	)
+	// One inflight cap shared across every per-org spawner config.
+	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
 	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
-		// worker.* settings before delegating. Without this, the cached
-		// spawner's first activation bakes whatever worker.* values
-		// were live at boot into the project; later edits via the
-		// settings page never propagate.
+		// worker.* settings before delegating.
 		if applier != nil {
 			if _, _, _, err := applier.Ensure(ctx, orgID, workerID); err != nil {
 				return fmt.Errorf("helix-org spawner: pre-apply project for %s: %w", workerID, err)
 			}
 		}
-		mu.Lock()
-		current := spawner
-		mu.Unlock()
-		if current == nil {
-			cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, secretInjectors, newID, now)
-			if err != nil {
-				return fmt.Errorf("helix-org spawner not configured: %w", err)
-			}
-			cfgVal.Mirror = mirror // shared singleton; not per-org config
-			built := runtimehelix.Spawner(cfgVal)
-			mu.Lock()
-			if spawner == nil {
-				spawner = built
-			}
-			current = spawner
-			mu.Unlock()
-			log.Info().
-				Str("helix_org_url", cfgVal.HelixOrgURL).
-				Str("runtime", cfgVal.Runtime).
-				Str("credentials", cfgVal.Credentials).
-				Msg("helix-org spawner built (zed_external workers)")
+		// Rebuild the SpawnerConfig for THIS org on every activation —
+		// never reuse another org's config. The shared semaphore keeps
+		// the global inflight cap intact.
+		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, newID, now)
+		if err != nil {
+			return fmt.Errorf("helix-org spawner not configured: %w", err)
 		}
-		return current(ctx, orgID, workerID, envPath, triggers)
+		cfgVal.Mirror = mirror // process-wide singleton; not per-org config
+		cfgVal.Sem = sem
+		log.Trace().
+			Str("org_id", orgID).
+			Str("worker_id", string(workerID)).
+			Str("helix_org_url", cfgVal.HelixOrgURL).
+			Str("runtime", cfgVal.Runtime).
+			Str("credentials", cfgVal.Credentials).
+			Msg("helix-org spawner: per-org activation")
+		return runtimehelix.Spawner(cfgVal)(ctx, orgID, workerID, envPath, triggers)
 	}
 }
 

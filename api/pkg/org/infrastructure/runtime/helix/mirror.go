@@ -51,7 +51,19 @@ type Mirror struct {
 	cfg  MirrorConfig
 
 	mu      sync.Mutex
-	tracked map[orgchart.WorkerID]context.CancelFunc
+	tracked map[mirrorKey]context.CancelFunc
+}
+
+// mirrorKey identifies a tracked worker. It MUST include orgID: worker
+// IDs are unique only within an org (the store keys workers by the
+// composite (org_id, id)), so every org's owner shares the id
+// "w-owner". Keying trackers by workerID alone collapses every org's
+// w-owner into one entry — the second org's Ensure sees the key already
+// present and no-ops, so that org's transcript is never mirrored, and
+// Stop tears down whichever org happens to hold the slot.
+type mirrorKey struct {
+	orgID    string
+	workerID orgchart.WorkerID
 }
 
 // NewMirror constructs a Mirror. base bounds every tracker (typically
@@ -63,7 +75,7 @@ func NewMirror(base context.Context, cfg MirrorConfig) *Mirror {
 	return &Mirror{
 		base:    base,
 		cfg:     cfg,
-		tracked: map[orgchart.WorkerID]context.CancelFunc{},
+		tracked: map[mirrorKey]context.CancelFunc{},
 	}
 }
 
@@ -81,13 +93,14 @@ func (m *Mirror) Ensure(orgID string, workerID orgchart.WorkerID) {
 	if m == nil || m.cfg.PubSub == nil {
 		return
 	}
+	key := mirrorKey{orgID: orgID, workerID: workerID}
 	m.mu.Lock()
-	if _, ok := m.tracked[workerID]; ok {
+	if _, ok := m.tracked[key]; ok {
 		m.mu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(m.base)
-	m.tracked[workerID] = cancel
+	m.tracked[key] = cancel
 	m.mu.Unlock()
 	go m.track(ctx, orgID, workerID)
 }
@@ -111,16 +124,19 @@ func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 	}
 }
 
-// Stop stops tracking a worker (on fire).
-func (m *Mirror) Stop(workerID orgchart.WorkerID) {
+// Stop stops tracking a worker (on fire). orgID is required — trackers
+// are keyed per (org, worker), so a bare workerID would tear down the
+// wrong tenant's tracker when two orgs share the id.
+func (m *Mirror) Stop(orgID string, workerID orgchart.WorkerID) {
 	if m == nil {
 		return
 	}
+	key := mirrorKey{orgID: orgID, workerID: workerID}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if cancel, ok := m.tracked[workerID]; ok {
+	if cancel, ok := m.tracked[key]; ok {
 		cancel()
-		delete(m.tracked, workerID)
+		delete(m.tracked, key)
 	}
 }
 

@@ -11,8 +11,8 @@ import (
 	helixorgconfig "github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -55,7 +55,6 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 		hub,
 		pubsub.NewNoop(), // PubSub — required since spawner.bridge.run calls SubscribeSessionUpdates
 		logger,
-		nil, // secretInjectors — not exercised here
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)
@@ -64,69 +63,6 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	// Same pointer round-tripped — confirms the builder copies the
 	// host-provided service, not some other one constructed inside.
 	require.Same(t, projectSvc, cfg.ProjectService.(*inProcHelixClient))
-}
-
-// TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors pins the
-// transport→spawner wiring. The host (helix_org.go) builds a slice
-// of SpawnSecretInjector instances — one per transport that wants
-// to push secrets — and passes them through to the spawner config.
-// The spawner iterates them on every activation. Without this
-// assertion the host could silently drop the injectors at the
-// boundary; workers would land in their desktops without their
-// per-transport secrets (GH_TOKEN, etc.) and the failure would
-// surface as a confusing "gh not authenticated" deep in the
-// runtime.
-func TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	orgStore := orggorm.GetOrgTestDB(t)
-	reg := helixorgconfig.New(orgStore.Configs)
-	registerHelixOrgConfigSpecs(reg)
-
-	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
-
-	_, _, projectSvc, _ := newInProcTestSetup(t)
-	hub := streamhub.New(pubsub.NewNoop())
-
-	// Stand up a single fake injector whose Name/InjectSecrets the
-	// test can interrogate after round-tripping through the
-	// builder.
-	var called int
-	injectors := []runtimehelix.SpawnSecretInjector{
-		runtimehelix.SpawnSecretInjectorFunc{
-			Label: "test-transport",
-			Fn: func(_ context.Context, gotOrg string) (map[string]string, error) {
-				called++
-				require.Equal(t, orgID, gotOrg)
-				return map[string]string{"TEST_SECRET": "round-trip-ok"}, nil
-			},
-		},
-	}
-
-	cfg, err := buildHelixOrgSpawnerConfig(
-		ctx, orgID, reg, nil,
-		nil,
-		projectSvc,
-		orgStore,
-		hub,
-		pubsub.NewNoop(),
-		slog.Default(),
-		injectors,
-		func() string { return "id" },
-		func() time.Time { return time.Unix(0, 0).UTC() },
-	)
-	require.NoError(t, err)
-	require.Len(t, cfg.SecretInjectors, 1, "SecretInjectors must be wired — without it the worker desktop has no transport-injected secrets")
-	require.Equal(t, "test-transport", cfg.SecretInjectors[0].Name(), "injector identity must round-trip")
-	// Round-trip a call to confirm it's the host-provided one, not
-	// some intermediate wrapper that drops the value.
-	got, ierr := cfg.SecretInjectors[0].InjectSecrets(ctx, orgID)
-	require.NoError(t, ierr)
-	require.Equal(t, "round-trip-ok", got["TEST_SECRET"])
-	require.Equal(t, 1, called)
 }
 
 // TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService pins the
@@ -153,7 +89,6 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 		orgStore, streamhub.New(pubsub.NewNoop()),
 		pubsub.NewNoop(),
 		slog.Default(),
-		nil, // secretInjectors
 		func() string { return "id" },
 		func() time.Time { return time.Unix(0, 0).UTC() },
 	)

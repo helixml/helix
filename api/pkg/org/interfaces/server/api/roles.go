@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -46,9 +47,14 @@ func (a *apiHandler) createRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("api not configured (missing Now)"))
 		return
 	}
-	tools := toToolNames(req.Tools)
+	// Union with the universal read baseline — same merge the MCP
+	// create_role tool applies. Without this, the REST POST path (used
+	// by the helix-org chart UI's "New Role" dialog, which doesn't
+	// expose a tools picker) would create Roles with empty tool lists
+	// and every Worker holding them would have no MCP surface at all.
+	mergedTools := tools.MergeBaseReadTools(toToolNames(req.Tools))
 	streams := toStreamIDs(req.Streams)
-	rl, err := orgchart.NewRole(orgchart.RoleID(strings.TrimSpace(req.ID)), req.Content, tools, streams, a.deps.Now().UTC(), orgID)
+	rl, err := orgchart.NewRole(orgchart.RoleID(strings.TrimSpace(req.ID)), req.Content, mergedTools, streams, a.deps.Now().UTC(), orgID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

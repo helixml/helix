@@ -1988,27 +1988,15 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 		agent.OrganizationID = session.OrganizationID
 	}
 
-	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
-	if err != nil {
+	// Resume path: project must exist (return 500 if it doesn't). The repo
+	// loading below tolerates a missing project, but this code path is the
+	// one that owns the "project must be present" contract for the session.
+	if _, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID); err != nil {
 		return nil, fmt.Errorf("failed to get project '%s': %w", agent.ProjectID, err)
 	}
 
-	projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: agent.ProjectID,
-	})
-	if err == nil && len(projectRepos) > 0 {
-		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-		for _, repo := range projectRepos {
-			if repo.ID != "" {
-				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-			}
-		}
-
-		primaryRepoID := project.DefaultRepoID
-		if primaryRepoID == "" {
-			primaryRepoID = projectRepos[0].ID
-		}
-		agent.PrimaryRepositoryID = primaryRepoID
+	if err := s.attachProjectContext(ctx, agent, agent.ProjectID); err != nil {
+		return nil, fmt.Errorf("attach project context: %w", err)
 	}
 
 	if session.ParentApp != "" {
@@ -2407,6 +2395,35 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	}, nil
 }
 
+// attachProjectContext sets agent.ProjectID and loads the project's
+// repositories, populating agent.RepositoryIDs and agent.PrimaryRepositoryID
+// via DesktopAgent.SetRepoContext. No-op when projectID is empty.
+//
+// All desktop-launch sites in this package must call this before handing the
+// agent to externalAgentExecutor.StartDesktop, otherwise HELIX_REPOSITORIES
+// will be empty in the container and helix-workspace-setup.sh will abort.
+func (s *HelixAPIServer) attachProjectContext(ctx context.Context, agent *types.DesktopAgent, projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+	agent.ProjectID = projectID
+
+	repos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: projectID})
+	if err != nil {
+		return fmt.Errorf("list git repositories for project %s: %w", projectID, err)
+	}
+	if len(repos) == 0 {
+		return nil
+	}
+
+	var defaultRepoID string
+	if project, err := s.Store.GetProject(ctx, projectID); err == nil && project != nil {
+		defaultRepoID = project.DefaultRepoID
+	}
+	agent.SetRepoContext(repos, defaultRepoID)
+	return nil
+}
+
 // getSessionOutput godoc
 // StartExternalAgentSession creates a new external agent session programmatically.
 // This implements cron.ExternalAgentStarter for use by the cron trigger system.
@@ -2442,29 +2459,46 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		return nil, err
 	}
 
-	session := &types.Session{
-		ID:             system.GenerateSessionID(),
-		Name:           s.getTemporarySessionName(message),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		ProjectID:      req.ProjectID,
-		Mode:           types.SessionModeInference,
-		Type:           types.SessionTypeText,
-		Provider:       string(req.Provider),
-		ModelName:      modelName,
-		ParentApp:      req.AppID,
-		OrganizationID: req.OrganizationID,
-		Owner:          userID,
-		OwnerType:      user.Type,
-		Metadata: types.SessionMetadata{
-			Stream:       true,
-			SystemPrompt: req.SystemPrompt,
-			HelixVersion: data.GetHelixVersion(),
-			AgentType:    req.AgentType,
-			ProjectID:    req.ProjectID,
-			SessionRole:  req.SessionRole,
-			CallbackURL:  req.CallbackURL,
-		},
+	// Exploratory sessions are project-scoped singletons — at most one
+	// row per (project_id, session_role="exploratory") so the UI's
+	// GetProjectExploratorySession LIMIT 1 lookup can't disagree with
+	// whichever id StartDesktop registered against the hydra session
+	// map. Reuse the existing row instead of minting a parallel one;
+	// minting a parallel one was the bug operators saw as "Resume
+	// Human Desktop succeeds but the project still shows stopped"
+	// (helix-specs:002090_ffs-looks-like-the-human).
+	var session *types.Session
+	if req.SessionRole == "exploratory" && req.ProjectID != "" {
+		existing, lookupErr := s.Store.GetProjectExploratorySession(ctx, req.ProjectID)
+		if lookupErr == nil && existing != nil {
+			session = existing
+		}
+	}
+	if session == nil {
+		session = &types.Session{
+			ID:             system.GenerateSessionID(),
+			Name:           s.getTemporarySessionName(message),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			ProjectID:      req.ProjectID,
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			Provider:       string(req.Provider),
+			ModelName:      modelName,
+			ParentApp:      req.AppID,
+			OrganizationID: req.OrganizationID,
+			Owner:          userID,
+			OwnerType:      user.Type,
+			Metadata: types.SessionMetadata{
+				Stream:       true,
+				SystemPrompt: req.SystemPrompt,
+				HelixVersion: data.GetHelixVersion(),
+				AgentType:    req.AgentType,
+				ProjectID:    req.ProjectID,
+				SessionRole:  req.SessionRole,
+				CallbackURL:  req.CallbackURL,
+			},
+		}
 	}
 
 	session, err = appendOrOverwrite(session, req)
@@ -2486,6 +2520,13 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		UserID:         userID,
 		Input:          "Initialize Zed development environment",
 		ProjectPath:    "workspace",
+	}
+
+	// Load the project's repos so HELIX_REPOSITORIES is populated in the
+	// container. Without this, helix-workspace-setup.sh aborts and
+	// start-zed-helix.sh loops on the setup-failed marker forever.
+	if err := s.attachProjectContext(ctx, zedAgent, session.ProjectID); err != nil {
+		return nil, fmt.Errorf("attach project context: %w", err)
 	}
 
 	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {

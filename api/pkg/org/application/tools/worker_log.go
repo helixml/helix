@@ -185,7 +185,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return marshalEvents(fresh), nil
 	}
 
-	wake := t.deps.Hub.Subscribe([]streaming.StreamID{streamID})
+	wake := t.deps.Hub.Subscribe(orgID, []streaming.StreamID{streamID})
 	defer t.deps.Hub.Unsubscribe([]streaming.StreamID{streamID}, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)

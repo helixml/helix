@@ -228,8 +228,47 @@ func TestMirrorStop(t *testing.T) {
 	if !waitForHandlers(ps, topic, 1) {
 		t.Fatal("mirror never subscribed")
 	}
-	m.Stop(wid)
+	m.Stop("org-test", wid)
 	if !waitForHandlers(ps, topic, 0) {
 		t.Fatal("Stop did not drop the subscription")
+	}
+}
+
+// TestMirrorIsolatesSameWorkerIDAcrossOrgs is the regression test for the
+// cross-tenant tracker collision (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// The Mirror is a process-wide singleton keyed per worker. Worker IDs
+// are unique only within an org — every org's owner is "w-owner" — so
+// keying trackers by workerID alone collapses two orgs into one entry:
+// the second org's Ensure no-ops (its transcript never mirrors) and a
+// Stop tears down whichever org holds the slot. Trackers must be keyed
+// by (org, worker).
+func TestMirrorIsolatesSameWorkerIDAcrossOrgs(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	ps := newFakePubSub()
+	m, _ := newTestMirror(t, s, ps, "u-owner")
+
+	m.Ensure("org-a", wid)
+	m.Ensure("org-b", wid) // same worker id, different org
+
+	count := func() int { m.mu.Lock(); defer m.mu.Unlock(); return len(m.tracked) }
+	has := func(org string) bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		_, ok := m.tracked[mirrorKey{orgID: org, workerID: wid}]
+		return ok
+	}
+
+	if count() != 2 {
+		t.Fatalf("tracked = %d, want 2 — same worker id in two orgs must track separately (cross-tenant)", count())
+	}
+	// Stopping one org must leave the other's tracker intact.
+	m.Stop("org-a", wid)
+	if has("org-a") {
+		t.Fatal("org-a tracker should be gone after its own Stop")
+	}
+	if !has("org-b") {
+		t.Fatal("org-b tracker was torn down by org-a's Stop — Stop is org-blind (cross-tenant)")
 	}
 }

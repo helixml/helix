@@ -121,7 +121,7 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
 
 	if s.Mirror != nil {
-		s.Mirror.Stop(id)
+		s.Mirror.Stop(orgID, id)
 	}
 
 	if s.Helix != nil && state.ProjectID != "" {

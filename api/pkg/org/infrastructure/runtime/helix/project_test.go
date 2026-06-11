@@ -365,19 +365,22 @@ func TestEnsureRequiresRepoToBeAttached(t *testing.T) {
 //
 // The fast path must:
 //
-//   - return the stored IDs (no fresh provisioning)
-//   - NOT create a new repo or re-publish canonical files (those
-//     would clobber any external edits the operator has made on the
-//     helix-specs branch since the last apply — canonical-content
-//     updates flow through Workspace.MirrorFile)
-//
-// It MUST re-call ApplyProject with the current Runtime/Provider/
-// Model/Credentials, so a change in worker.* via the Settings page
-// propagates to existing workers on the next activation. ApplyProject
-// is upsert-by-name and idempotent — calling it on every Ensure with
-// the fresh spec is the single mechanism that auto-applies settings
-// drift to pre-existing workers. See
-// TestEnsureFastPathRefreshesAgentSpec for the spec assertion.
+//   - return the stored IDs (no fresh provisioning — no
+//     CreateGitRepo / AttachRepoToProject calls)
+//   - re-call ApplyProject with the current Runtime/Provider/Model/
+//     Credentials so worker.* edits via the Settings page propagate
+//     to existing workers on the next activation. ApplyProject is
+//     upsert-by-name and idempotent. See
+//     TestEnsureFastPathRefreshesAgentSpec for the spec assertion.
+//   - re-publish canonical files (agent.md / role.md / identity.md)
+//     from the DB to the helix-specs branch so DB edits that don't
+//     go through update_role / update_identity (e.g. direct store
+//     mutation, role-reconciler reseeding) still reach Workers
+//     without a fire+re-hire round trip. That contract is what
+//     DefaultHelixSpecsMandate promises every Worker; the original
+//     feature lived at commit 4a6cb33c51, regressed at 4f7837ac0c.
+//     See TestEnsureFastPathPropagatesRoleEdits for the propagation
+//     assertion.
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role v1")
@@ -407,21 +410,29 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if svc.getProjectCalls < 1 {
 		t.Errorf("GetProject calls = %d, want >=1", svc.getProjectCalls)
 	}
-	// Fast path must NOT create a new repo, change branches, or re-push
-	// canonical files. Repo + files are first-activation provisioning.
+	// Fast path must NOT create a new repo. Repo creation is
+	// first-activation provisioning.
 	if svc.createGitRepoCalls != 0 {
 		t.Errorf("fast path must not create a new repo; got %d", svc.createGitRepoCalls)
 	}
 	if svc.attachRepoCalls != 0 {
 		t.Errorf("fast path must not attach a repo; got %d", svc.attachRepoCalls)
 	}
-	if atomic.LoadInt32(&git.branchCalls) != 0 {
-		t.Errorf("fast path must not create-branch; got %d", atomic.LoadInt32(&git.branchCalls))
+	// Fast path MUST ensure-branch + republish canonical files so DB
+	// edits propagate to the helix-specs branch on every activation.
+	if atomic.LoadInt32(&git.branchCalls) == 0 {
+		t.Errorf("fast path MUST ensure helix-specs branch exists before republish; got 0 CreateBranch calls")
 	}
 	git.mu.Lock()
 	defer git.mu.Unlock()
-	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; ok {
-		t.Errorf("fast path must not republish role.md (would clobber external edits)")
+	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v1" {
+		t.Errorf("fast path MUST republish role.md from DB; got %q, want %q", got, "# Role v1")
+	}
+	if got := git.putFileByPath["workers/w-eng/.context/identity.md"]; got != "# Identity content" {
+		t.Errorf("fast path MUST republish identity.md from DB; got %q, want %q", got, "# Identity content")
+	}
+	if got := git.putFileByPath[".context/agent.md"]; got != "# Org policy" {
+		t.Errorf("fast path MUST republish agent.md from AgentMD; got %q, want %q", got, "# Org policy")
 	}
 }
 
@@ -478,6 +489,66 @@ func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
 	}
 	if got.Model != "anthropic/claude-3-haiku" {
 		t.Errorf("Model = %q, want anthropic/claude-3-haiku", got.Model)
+	}
+}
+
+// TestEnsureFastPathPropagatesRoleEdits pins live-edit propagation: a
+// role.Content mutation made directly in the store (bypassing the
+// update_role MCP tool's MirrorFile push) must reach the helix-specs
+// branch on the next activation, without a fire+re-hire.
+//
+// This is the contract DefaultHelixSpecsMandate promises every Worker
+// and the contract the original feature commit 4a6cb33c51 validated
+// end-to-end. It silently regressed in commit 4f7837ac0c when the
+// fast-path republish was removed.
+func TestEnsureFastPathPropagatesRoleEdits(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, wid := newProjectTestStore(t, "# Role v1")
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{ID: "prj_existing", DefaultRepoID: "repo_existing"}
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	// First activation: republishes v1 to the branch.
+	if _, _, _, err := a.Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("first Ensure: %v", err)
+	}
+	git.mu.Lock()
+	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v1" {
+		git.mu.Unlock()
+		t.Fatalf("after first Ensure, role.md on branch = %q, want %q", got, "# Role v1")
+	}
+	// Reset capture so the second-call assertion only sees the second
+	// activation's push.
+	git.putFileByPath = map[string]string{}
+	git.mu.Unlock()
+
+	// Mutate the role's Content in the store, simulating any edit path
+	// that bypasses update_role/MirrorFile (direct DB edit,
+	// RoleReconciler reseed, restore-from-backup, …). The DB is the
+	// source of truth; the branch must reflect it on next activation.
+	existing, err := st.Roles.Get(ctx, "org-test", "r-eng")
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	existing.Content = "# Role v2"
+	existing.UpdatedAt = time.Now().UTC()
+	if err := st.Roles.Update(ctx, existing); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+
+	// Second activation: must republish v2.
+	if _, _, _, err := a.Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("second Ensure: %v", err)
+	}
+	git.mu.Lock()
+	defer git.mu.Unlock()
+	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v2" {
+		t.Errorf("after second Ensure, role.md on branch = %q, want %q — live-edit did not propagate", got, "# Role v2")
 	}
 }
 
@@ -627,5 +698,38 @@ func TestEnsureLogsButDoesNotFailOnPutFileError(t *testing.T) {
 
 	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
 		t.Fatalf("Ensure must not fail on PutFile error; got %v", err)
+	}
+}
+
+// TestEnsureScopesProjectToParamOrg_NotStructOrgID is the unit-level
+// pin for the cross-tenant leak fix
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// WorkerProject.Ensure takes an orgID parameter AND carries an OrgID
+// struct field. They are normally equal, but the production spawner
+// used to freeze one org's identity onto a process-wide SpawnerConfig
+// and replay it for every org — so a WorkerProject built for org A
+// would .Ensure() worker activations for org B. If Ensure stamps the
+// project with the struct field (a.OrgID) instead of the orgID it was
+// invoked for, org B's worker project lands in org A — the root of the
+// leak. This test forces the two apart and asserts the parameter wins.
+func TestEnsureScopesProjectToParamOrg_NotStructOrgID(t *testing.T) {
+	t.Parallel()
+	// Worker exists in org-test (newProjectTestStore seeds there).
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+	// Frozen, WRONG org on the struct — simulates a reused/cached config.
+	a.OrgID = "org-OTHER-TENANT"
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.lastApplyReq.OrganizationID != "org-test" {
+		t.Fatalf("ApplyProject OrganizationID = %q, want org-test — Ensure must scope to the org it was invoked for, not the struct's frozen OrgID (cross-tenant leak)", svc.lastApplyReq.OrganizationID)
 	}
 }

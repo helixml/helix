@@ -66,7 +66,7 @@ func PublishActivationEvent(
 		return "", err
 	}
 	if bc != nil {
-		bc.Notify(streamID)
+		bc.Notify(orgID, streamID)
 	}
 	return event.ID, nil
 }

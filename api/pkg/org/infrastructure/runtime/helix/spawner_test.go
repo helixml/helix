@@ -39,13 +39,26 @@ type fakeHelixClient struct {
 	lastStartParams StartSessionParams
 	lastSendSID     string
 	lastSendBody    string
+	// startBlock, when non-nil, blocks StartSession until the channel
+	// closes or the caller's context is done — lets tests verify that
+	// the spawner's SessionStartupTimeout actually bounds session
+	// creation. nil means StartSession returns immediately.
+	startBlock <-chan struct{}
 }
 
-func (f *fakeHelixClient) StartSession(_ context.Context, params StartSessionParams) (string, error) {
+func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
 	f.lastStartParams = params
+	block := f.startBlock
 	f.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	if f.startErr != nil {
 		return "", f.startErr
 	}
@@ -112,22 +125,23 @@ func newHelixCfg(t *testing.T, fc SpawnerClient, s *store.Store) SpawnerConfig {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return SpawnerConfig{
-		Client:            fc,
-		ProjectService:    newFakeProjectService(),
-		Workspace:         NewWorkspace(newFakeGitForProject(), s, "helix-specs", "helix-org", "ho@example.com"),
-		PubSub:            newFakePubSub(),
-		Snapshotter:       NoopSessionPreamble{},
-		HelixOrgURL:       "http://helix-org:8081",
-		Provider:          "openai",
-		Model:             "gpt-4o-mini",
-		ActivationTimeout: 2 * time.Second,
-		MaxInflight:       2,
-		PollInitial:       time.Millisecond,
-		PollMax:           5 * time.Millisecond,
-		Logger:            logger,
-		Store:             s,
-		Now:               func() time.Time { return time.Now().UTC() },
-		NewID:             func() string { return "id" },
+		Client:                 fc,
+		ProjectService:         newFakeProjectService(),
+		Workspace:              NewWorkspace(newFakeGitForProject(), s, "helix-specs", "helix-org", "ho@example.com"),
+		PubSub:                 newFakePubSub(),
+		Snapshotter:            NoopSessionPreamble{},
+		HelixOrgURL:            "http://helix-org:8081",
+		Provider:               "openai",
+		Model:                  "gpt-4o-mini",
+		SessionStartupTimeout:  2 * time.Second,
+		ActivationRunawayGuard: 2 * time.Second,
+		MaxInflight:            2,
+		PollInitial:            time.Millisecond,
+		PollMax:                5 * time.Millisecond,
+		Logger:                 logger,
+		Store:                  s,
+		Now:                    func() time.Time { return time.Now().UTC() },
+		NewID:                  func() string { return "id" },
 	}
 }
 
@@ -329,11 +343,78 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "waiting"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.ActivationTimeout = 30 * time.Millisecond
+	// ActivationRunawayGuard bounds pollUntilDone. With the session
+	// stuck in "waiting", the runaway guard fires and the spawner
+	// returns context.DeadlineExceeded.
+	cfg.ActivationRunawayGuard = 30 * time.Millisecond
 	sp := Spawner(cfg)
 	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
+	}
+}
+
+// TestSpawnerSessionStartupTimeoutBoundsStartup pins the split between
+// SessionStartupTimeout and ActivationRunawayGuard for startup work.
+// A hanging StartSession must fire SessionStartupTimeout long before
+// the runaway guard would. Regression test for the conflated
+// ActivationTimeout that used to bound both phases.
+func TestSpawnerSessionStartupTimeoutBoundsStartup(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	never := make(chan struct{}) // never closed
+	fc := &fakeHelixClient{
+		startSessionID: "ses_x",
+		startBlock:     never,
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.SessionStartupTimeout = 30 * time.Millisecond
+	cfg.ActivationRunawayGuard = 10 * time.Second // intentionally much larger
+
+	sp := Spawner(cfg)
+	start := time.Now()
+	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	elapsed := time.Since(start)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline error from SessionStartupTimeout, got %v", err)
+	}
+	// SessionStartupTimeout was 30ms; if the bigger runaway guard had
+	// bounded startup we'd see this elapsed time >>1s.
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("startup phase took %s — SessionStartupTimeout did not bound it (runaway guard fired instead?)", elapsed)
+	}
+}
+
+// TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout pins the other
+// half of the split: with SessionStartupTimeout=30ms and a fast
+// startup, a session stuck in "waiting" must keep polling until the
+// runaway guard fires, NOT exit at the old 30ms ActivationTimeout
+// boundary. This is the regression that caused decoy interactions —
+// the lane releasing on a stale startup timer while the session is
+// still being polled.
+func TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_x",
+		outputs:        []types.SessionOutputResponse{{Status: "waiting"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.SessionStartupTimeout = 30 * time.Millisecond
+	cfg.ActivationRunawayGuard = 300 * time.Millisecond
+
+	sp := Spawner(cfg)
+	start := time.Now()
+	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	elapsed := time.Since(start)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline error from runaway guard, got %v", err)
+	}
+	// If startup-timeout were still bounding polling we'd see ~30ms.
+	// The runaway guard is 300ms; expect the deadline to land near it.
+	if elapsed < 200*time.Millisecond {
+		t.Fatalf("poll phase exited after %s — SessionStartupTimeout bounded the poll loop, not the runaway guard", elapsed)
 	}
 }
 
@@ -351,7 +432,7 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 
 	cfg := newHelixCfg(t, fc, s)
 	cfg.MaxInflight = 1
-	cfg.ActivationTimeout = time.Second
+	cfg.ActivationRunawayGuard = time.Second
 
 	wrapped := &concurrencyClient{inner: fc, gate: gate, inflight: &inflight, peak: &peak}
 	cfg.Client = wrapped
@@ -554,83 +635,6 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	}
 }
 
-// TestSpawnerRunsRegisteredSecretInjectors pins the
-// transport→spawner secret-injection plumbing. When the spawner is
-// configured with one or more SpawnSecretInjector instances, every
-// activation must call each one and upsert the returned secrets as
-// project secrets so the desktop container's runtime can surface
-// them as env vars.
-//
-// Pin via the github-shaped case (GH_TOKEN), but the spawner has
-// no GitHub awareness — the injector is just a generic
-// SpawnSecretInjectorFunc, exactly like Postmark or any future
-// transport would register.
-func TestSpawnerRunsRegisteredSecretInjectors(t *testing.T) {
-	t.Parallel()
-	s, wid := newHelixTestStore(t)
-	fc := &fakeHelixClient{
-		startSessionID: "ses_new",
-		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-	}
-	cfg := newHelixCfg(t, fc, s)
-	cfg.SecretInjectors = []SpawnSecretInjector{
-		SpawnSecretInjectorFunc{
-			Label: "github",
-			Fn: func(_ context.Context, orgID string) (map[string]string, error) {
-				if orgID != "org-test" {
-					t.Errorf("injector got orgID = %q, want org-test", orgID)
-				}
-				return map[string]string{"GH_TOKEN": "gho_token_abc"}, nil
-			},
-		},
-	}
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	svc := cfg.ProjectService.(*fakeProjectService)
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	if svc.putSecretLast["GH_TOKEN"] != "gho_token_abc" {
-		t.Errorf("GH_TOKEN secret = %q, want %q (set keys: %v)", svc.putSecretLast["GH_TOKEN"], "gho_token_abc", svc.putSecretLast)
-	}
-}
-
-// TestSpawnerSkipsInjectorReturningEmptyMap pins the degraded-mode
-// path: an injector returning an empty map (e.g. "operator hasn't
-// connected this transport's auth yet") must NOT cause the
-// spawner to upsert an empty secret. That would shadow any
-// pre-existing value in the sandbox container.
-func TestSpawnerSkipsInjectorReturningEmptyMap(t *testing.T) {
-	t.Parallel()
-	s, wid := newHelixTestStore(t)
-	fc := &fakeHelixClient{
-		startSessionID: "ses_new",
-		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-	}
-	cfg := newHelixCfg(t, fc, s)
-	cfg.SecretInjectors = []SpawnSecretInjector{
-		SpawnSecretInjectorFunc{
-			Label: "github",
-			Fn: func(_ context.Context, _ string) (map[string]string, error) {
-				// Mirror the github injector's "no OAuth wired yet"
-				// behaviour: nil map, no error.
-				return nil, nil
-			},
-		},
-	}
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	svc := cfg.ProjectService.(*fakeProjectService)
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	if _, set := svc.putSecretLast["GH_TOKEN"]; set {
-		t.Errorf("GH_TOKEN should NOT be set when injector returns empty; got %q", svc.putSecretLast["GH_TOKEN"])
-	}
-}
-
 // TestSpawnerRecordsActivationRowOnError pins the failure path: a
 // Spawner error still records an activation row with StatusError
 // and the wrapped err.Error() text.
@@ -641,7 +645,7 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 		startErr: errors.New("desktop quota exceeded"),
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.ActivationTimeout = time.Second
+	cfg.SessionStartupTimeout = time.Second
 	sp := Spawner(cfg)
 	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
 		t.Fatal("spawn: nil error, want quota error")
@@ -662,5 +666,52 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 	}
 	if a.Outcome.Error == "" {
 		t.Error("Outcome.Error empty on error path")
+	}
+}
+
+// TestSpawnerHonorsSharedSemaphore pins the mechanism that replaced the
+// cross-tenant-leaking cached spawner
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// The old host wrapper cached ONE inner Spawner (and so one org's
+// frozen OrgID/HelixOrgURL) to share a single inflight cap. The fix
+// rebuilds a per-org SpawnerConfig every activation and instead shares
+// the cap via SpawnerConfig.Sem. If Spawner ignores cfg.Sem and mints
+// its own semaphore from MaxInflight, the global cap is silently lost.
+//
+// Here we inject a shared semaphore whose only slot is already taken.
+// A correct Spawner blocks on it and returns the context error without
+// starting a session; a Spawner that ignored cfg.Sem would sail past
+// and call StartChat.
+func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	sem := make(chan struct{}, 1)
+	sem <- struct{}{} // occupy the only slot — no inflight budget left
+	cfg.Sem = sem
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := Spawner(cfg)(ctx, "org-test", wid, "", []activation.Trigger{{Kind: activation.TriggerHire}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded while the shared semaphore is full, got %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Fatalf("StartChat fired %d times despite a full shared semaphore — Spawner ignored cfg.Sem and the global inflight cap is lost", got)
+	}
+
+	// Free the slot; the next activation must now proceed to completion,
+	// proving the gate was the semaphore and nothing else.
+	<-sem
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, "", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("activation with a free shared-semaphore slot must succeed, got %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Fatalf("StartChat calls = %d, want 1 after the slot freed", got)
 	}
 }

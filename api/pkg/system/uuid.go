@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -239,4 +240,27 @@ func GenerateSpecTaskAttachmentID() string {
 
 func GenerateOrgInvitationID() string {
 	return fmt.Sprintf("%s%s", OrgInvitationPrefix, newID())
+}
+
+// GenerateGitRepositoryID mints a unique id for a git repository row.
+//
+// Format: `<repoType>-<sanitizedName>-<ulid>`, e.g.
+// `code-w-mt-01jx3vqz2j4n8m9p0r5t6w7x8y`.
+//
+// The leading `<repoType>-<sanitizedName>-` segment is preserved (rather
+// than the short prefix-and-ulid shape used by other entities) for log
+// greppability — operators searching for a worker's repo across services
+// rely on `code-w-mt-` matching.
+//
+// The trailing ULID closes the cross-tenant collision class: two callers
+// in different orgs minting a repo for identically-named entities (e.g.
+// per-Worker repos for `w-mt` hired into two orgs in the same second)
+// previously collided on the global `git_repositories_pkey` constraint
+// with SQLSTATE 23505 because the suffix was `time.Now().Unix()`. ULIDs
+// give 80 random bits + monotonic-within-millisecond ordering, removing
+// the second-granularity collision window without a schema change.
+func GenerateGitRepositoryID(repoType types.GitRepositoryType, name string) string {
+	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
+	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
+	return fmt.Sprintf("%s-%s-%s", repoType, sanitizedName, newID())
 }
