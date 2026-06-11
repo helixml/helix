@@ -1002,6 +1002,35 @@ export class WebSocketStream {
   /** Record keyboard/mouse/touch activity so the playout buffer collapses for low latency. */
   private notifyInteraction() {
     this.lastInputMs = performance.now()
+    // Instant response: the FIRST input after an idle period collapses the
+    // smoothing buffer immediately rather than ramping it down over ~200ms.
+    // Without this, the frame that reflects this very keystroke arrives mid-ramp
+    // and is still held by the residual delay. Collapsing now zeros the delay so
+    // that frame hits the immediate-present fast path the moment it arrives.
+    // After the first input the buffer is already empty, so this is a no-op.
+    if (this.playoutDelayMs >= 4 || this.playoutQueue.length > 1) {
+      this.collapsePlayoutNow()
+    }
+  }
+
+  /** Snap the canvas to the freshest buffered frame and zero the playout delay,
+   *  dropping the older (now-stale) frames. Leaves the queue empty so the next
+   *  decoded frame — the one reflecting the user's input — is presented on
+   *  arrival with no added latency. */
+  private collapsePlayoutNow() {
+    let newest: { frame: VideoFrame; ptsUs: number; arrivalMs: number } | null = null
+    for (const item of this.playoutQueue) {
+      if (newest) { try { newest.frame.close() } catch { /* noop */ }; this.framesDropped++ }
+      newest = item
+    }
+    this.playoutQueue = []
+    this.playoutDelayMs = 0
+    this.playoutEpochLocalMs = null
+    if (this.playoutRaf !== null) {
+      cancelAnimationFrame(this.playoutRaf)
+      this.playoutRaf = null
+    }
+    if (newest) this.renderVideoFrame(newest.frame)
   }
 
   /** Drop all buffered frames and reset the playout clock (close/reconfig/discontinuity). */
