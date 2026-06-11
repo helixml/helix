@@ -183,6 +183,60 @@ func TestHandleWorkspaceCommitAndPush_Clean(t *testing.T) {
 	assert.Equal(t, "clean", resp.Repos[0].Action)
 }
 
+// TestHandleWorkspaceCommitAndPush_BranchRecovery covers the
+// production failure where the parent's container is sitting on
+// `main` (the post-clone default) with dirty files that morally
+// belong to the spec task's feature branch. Without recovery, the
+// push tries to update main and gets rejected by the remote's
+// pre-receive hook. With ExpectedBranch set, the handler switches
+// to the right branch first (git preserves dirty files across the
+// checkout), THEN commits and pushes — landing on the right ref.
+func TestHandleWorkspaceCommitAndPush_BranchRecovery(t *testing.T) {
+	workspaceDir, repoDir, originDir := setupTestRepoWithRemote(t, "testproj", false)
+	s := newDesktopTestServer(t, workspaceDir)
+
+	// Set up a feature branch on origin (so checkout can find it via
+	// origin/feature-x) and then put the local repo back on main with
+	// dirty files — mirroring the post-clone state of a spec-task
+	// container before the agent runs `git checkout`.
+	runIn(t, repoDir, "git", "checkout", "-b", "feature-x")
+	runIn(t, repoDir, "git", "push", "-u", "origin", "feature-x")
+	runIn(t, repoDir, "git", "checkout", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "marker.txt"), []byte("dirty on main\n"), 0644))
+
+	// Mark the repo as primary so the recovery path engages (the
+	// guard requires IsPrimary to avoid churning aux repos).
+	t.Setenv("HELIX_PRIMARY_REPO_NAME", "testproj")
+
+	body, _ := json.Marshal(WorkspaceCommitRequest{
+		Message:        "chore(fork): pre-fork checkpoint before switching to qwen_code",
+		ExpectedBranch: "feature-x",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/workspace/commit-and-push", bytes.NewReader(body))
+	s.handleWorkspaceCommitAndPush(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+	var resp WorkspaceCommitResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Success, "expected recovery to succeed: %+v", resp.Repos)
+	require.Len(t, resp.Repos, 1)
+	assert.Equal(t, "committed", resp.Repos[0].Action)
+
+	// Local repo should now be on feature-x.
+	branchOut, err := exec.Command("git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
+	require.NoError(t, err)
+	assert.Equal(t, "feature-x", strings.TrimSpace(string(branchOut)),
+		"recovery must switch HEAD to the expected branch")
+
+	// And the commit must be on origin/feature-x (NOT origin/main —
+	// that would have been rejected by a real pre-receive hook).
+	remoteOut, err := exec.Command("git", "-C", originDir, "log", "--pretty=%s", "-1", "feature-x").CombinedOutput()
+	require.NoError(t, err)
+	assert.Equal(t, "chore(fork): pre-fork checkpoint before switching to qwen_code",
+		strings.TrimSpace(string(remoteOut)))
+}
+
 // TestHandleWorkspaceCommitAndPush_HookRejection is the focussed
 // regression for the production failure: install a commit-msg hook
 // that rejects the previous (non-conventional) message format and

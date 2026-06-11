@@ -97,6 +97,21 @@ type WorkspaceCommitRequest struct {
 	// Message becomes the commit message for any repo that has
 	// uncommitted changes. Required — empty messages are rejected.
 	Message string `json:"message"`
+
+	// ExpectedBranch, when set, must match the repo's current HEAD or
+	// the handler will attempt to `git checkout <branch>` before
+	// committing. The motivating case: spec-task containers default
+	// to `main` after clone and rely on the agent's subsequent
+	// `git checkout <feature-branch>` to land on the right ref. If
+	// the user dirties the workspace before the agent does that
+	// checkout, a naive `git push origin HEAD` would target `main`
+	// and get rejected by the pre-receive hook ("This push is
+	// restricted to: helix-specs / your feature branch"). With
+	// ExpectedBranch set, we recover by switching to the right branch
+	// first — git's checkout preserves dirty files unless they'd
+	// overwrite tracked content, in which case we surface that error
+	// rather than corrupting state.
+	ExpectedBranch string `json:"expected_branch,omitempty"`
 }
 
 // WorkspaceCommitRepoResult is the per-repo outcome of the commit+push.
@@ -145,6 +160,42 @@ func (s *Server) handleWorkspaceCommitAndPush(w http.ResponseWriter, r *http.Req
 
 	for _, ws := range findAllWorkspaces() {
 		result := WorkspaceCommitRepoResult{Name: ws.Name, Path: ws.Path}
+
+		// If the caller specified an expected branch and this repo
+		// isn't on it, attempt to switch — git will carry uncommitted
+		// files across cleanly unless they'd overwrite tracked content.
+		// Limited to the primary repo (matched by `IsPrimary`) so we
+		// don't churn auxiliary repos like helix-specs that have their
+		// own branch convention.
+		if req.ExpectedBranch != "" && ws.IsPrimary {
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			currentBranch, err := runGit(ctx, ws.Path, "rev-parse", "--abbrev-ref", "HEAD")
+			cancel()
+			current := strings.TrimSpace(currentBranch)
+			if err == nil && current != req.ExpectedBranch {
+				ctx, cancel = context.WithTimeout(r.Context(), 30*time.Second)
+				_, _ = runGit(ctx, ws.Path, "fetch", "origin", req.ExpectedBranch)
+				cancel()
+				ctx, cancel = context.WithTimeout(r.Context(), 10*time.Second)
+				checkoutOut, checkoutErr := runGit(ctx, ws.Path, "checkout", req.ExpectedBranch)
+				cancel()
+				if checkoutErr != nil {
+					// Try creating a tracking branch from origin if
+					// the local branch doesn't exist yet.
+					ctx, cancel = context.WithTimeout(r.Context(), 10*time.Second)
+					_, retryErr := runGit(ctx, ws.Path, "checkout", "-b", req.ExpectedBranch, "origin/"+req.ExpectedBranch)
+					cancel()
+					if retryErr != nil {
+						result.Action = "failed"
+						result.Error = fmt.Sprintf("expected branch %s but was on %s; checkout failed: %v (output: %s)",
+							req.ExpectedBranch, current, checkoutErr, checkoutOut)
+						resp.Repos = append(resp.Repos, result)
+						resp.Success = false
+						continue
+					}
+				}
+			}
+		}
 
 		// Re-check status so we don't commit/push redundantly. Same
 		// timeouts as the status endpoint.

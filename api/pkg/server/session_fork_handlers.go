@@ -125,7 +125,19 @@ func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Re
 		// hook rejects anything else. `chore(fork): …` keeps the
 		// auto-generated checkpoint distinguishable from real work.
 		commitMsg := fmt.Sprintf("chore(fork): pre-fork checkpoint before switching to %s", string(targetRuntime))
-		if pushErr := apiServer.commitAndPushUncommittedRepos(ctx, parent.ID, commitMsg); pushErr != nil {
+
+		// Resolve the spec task's branch so the desktop can recover
+		// if the parent's container is still on `main` (which it will
+		// be if the agent hasn't run `git checkout <feature-branch>`
+		// yet — see commitAndPushUncommittedRepos doc for why).
+		expectedBranch := ""
+		if parent.Metadata.SpecTaskID != "" {
+			if specTask, err := apiServer.Store.GetSpecTask(ctx, parent.Metadata.SpecTaskID); err == nil && specTask != nil {
+				expectedBranch = specTask.BranchName
+			}
+		}
+
+		if pushErr := apiServer.commitAndPushUncommittedRepos(ctx, parent.ID, commitMsg, expectedBranch); pushErr != nil {
 			return nil, system.NewHTTPError409(
 				fmt.Sprintf("pre-fork commit+push failed; fork aborted, parent is still live. Fix git state and retry: %v", pushErr))
 		}

@@ -59,7 +59,8 @@ type desktopWorkspaceRepoStatus struct {
 }
 
 type desktopCommitReq struct {
-	Message string `json:"message"`
+	Message        string `json:"message"`
+	ExpectedBranch string `json:"expected_branch,omitempty"`
 }
 
 type desktopCommitResp struct {
@@ -271,6 +272,14 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 // Returns an error if ANY repo's commit or push fails — the fork
 // should abort rather than leave half-pushed-state-then-paused.
 //
+// expectedBranch (when non-empty) is passed through so the desktop
+// can switch to the right branch before committing. Spec-task
+// containers default to `main` after clone and depend on the agent
+// to `git checkout <feature-branch>` later; if the user dirties
+// files before that checkout happens, a naive push targets `main`
+// and gets rejected by the pre-receive hook. Telling the desktop
+// the expected branch up-front lets it recover.
+//
 // If the container isn't reachable, this is a no-op (we can't see
 // what's there to push, but we also can't pause an unreachable
 // container's worth of work — best effort is "proceed silently").
@@ -278,6 +287,7 @@ func (apiServer *HelixAPIServer) commitAndPushUncommittedRepos(
 	ctx context.Context,
 	parentSessionID string,
 	commitMessage string,
+	expectedBranch string,
 ) error {
 	conn, dialErr := apiServer.dialDesktop(ctx, parentSessionID)
 	if dialErr != nil {
@@ -288,7 +298,7 @@ func (apiServer *HelixAPIServer) commitAndPushUncommittedRepos(
 
 	var desktopResp desktopCommitResp
 	if err := callDesktopJSON(conn, http.MethodPost, "/workspace/commit-and-push",
-		desktopCommitReq{Message: commitMessage}, &desktopResp); err != nil {
+		desktopCommitReq{Message: commitMessage, ExpectedBranch: expectedBranch}, &desktopResp); err != nil {
 		// Older container images don't have this endpoint yet (rolled
 		// out with the fork safety-net change; needs build-ubuntu and
 		// a new session to take effect). Treat 404 as "feature not
