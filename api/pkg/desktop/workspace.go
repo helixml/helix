@@ -21,9 +21,43 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// validBranchNameRE enforces a safe subset of git ref names: letters,
+// digits, underscore, dot, dash, slash. Stricter than git's own
+// refname rules but covers every spec-task / feature-branch name
+// we generate. Critically, it forbids strings that LOOK like git
+// flags ("--orphan", "-D foo") — without this, a maliciously-shaped
+// expected_branch in the workspace-commit request would be passed
+// positionally to `git checkout` and git would interpret it as a
+// flag rather than a branch name (CodeQL's go/command-injection
+// concern, even when we already use exec.CommandContext with
+// separate args so there's no SHELL injection).
+var validBranchNameRE = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
+
+// validateBranchName returns an error when name is empty, starts
+// with `-` (would be parsed as a flag), or contains characters
+// outside the allow-list above. Branch names produced by helix
+// (spec_tasks.branch_name or services.GenerateFeatureBranchName)
+// all match this; rejecting anything else is conservative and the
+// right thing — the user-facing modal already shows the resolved
+// branch upfront, so the validator failing is a deterministic
+// "your request was malformed" rather than a surprise.
+func validateBranchName(name string) error {
+	if name == "" {
+		return fmt.Errorf("branch name is empty")
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("branch name %q starts with '-' which git would parse as a flag", name)
+	}
+	if !validBranchNameRE.MatchString(name) {
+		return fmt.Errorf("branch name %q contains characters outside [A-Za-z0-9_./-]", name)
+	}
+	return nil
+}
 
 // WorkspaceRepoStatus is the per-repo shape returned by
 // GET /workspace/status. UncommittedFiles is the count of paths
@@ -155,6 +189,17 @@ func (s *Server) handleWorkspaceCommitAndPush(w http.ResponseWriter, r *http.Req
 		http.Error(w, "message is required", http.StatusBadRequest)
 		return
 	}
+	// Reject expected-branch values that would arg-smuggle into git
+	// (leading '-' or non-allow-listed characters). The API caller
+	// always passes a branch name resolved from the spec task, which
+	// matches the allow-list — anything else is a malformed request,
+	// not a degraded fork case worth trying to recover from.
+	if req.ExpectedBranch != "" {
+		if err := validateBranchName(req.ExpectedBranch); err != nil {
+			http.Error(w, fmt.Sprintf("invalid expected_branch: %v", err), http.StatusBadRequest)
+			return
+		}
+	}
 
 	resp := WorkspaceCommitResponse{Repos: []WorkspaceCommitRepoResult{}, Success: true}
 
@@ -173,6 +218,13 @@ func (s *Server) handleWorkspaceCommitAndPush(w http.ResponseWriter, r *http.Req
 			cancel()
 			current := strings.TrimSpace(currentBranch)
 			if err == nil && current != req.ExpectedBranch {
+				// req.ExpectedBranch has already passed validateBranchName
+				// at request entry, so passing it positionally to git is
+				// safe: the regex rejects anything starting with `-` (the
+				// flag-smuggling vector) and limits chars to
+				// [A-Za-z0-9_./-]. CodeQL's go/command-injection rule
+				// flagged these call sites; the validator on the
+				// request struct is the sanitiser.
 				ctx, cancel = context.WithTimeout(r.Context(), 30*time.Second)
 				_, _ = runGit(ctx, ws.Path, "fetch", "origin", req.ExpectedBranch)
 				cancel()

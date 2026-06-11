@@ -183,6 +183,71 @@ func TestHandleWorkspaceCommitAndPush_Clean(t *testing.T) {
 	assert.Equal(t, "clean", resp.Repos[0].Action)
 }
 
+// TestValidateBranchName_Sanitiser pins the security boundary: the
+// validator must reject anything that could arg-smuggle into git
+// (leading '-' = flag) and accept the names spec-tasks actually
+// produce. This is the sanitiser CodeQL's go/command-injection rule
+// relies on — if it ever stops being strict, the alerts come back.
+func TestValidateBranchName_Sanitiser(t *testing.T) {
+	cases := []struct {
+		name    string
+		wantErr bool
+	}{
+		// Spec-task / common branch name shapes — must be accepted.
+		{"main", false},
+		{"feature/000011-please-tell-me-a-joke", false},
+		{"feat/some.thing-v1.2", false},
+		{"helix-specs", false},
+		{"a/b/c-d_e.f", false},
+
+		// Arg-smuggling vectors — must be rejected.
+		{"--orphan", true},
+		{"-D", true},
+		{"-x evil", true},
+		{"--upload-pack=...", true},
+
+		// Other unsafe shapes.
+		{"", true},
+		{"branch with spaces", true},
+		{"branch;rm -rf /", true},
+		{"branch\nwith\nnewlines", true},
+		{"$(cmd)", true},
+		{"`cmd`", true},
+		{"branch?", true},
+		{"branch*", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBranchName(tc.name)
+			if tc.wantErr {
+				assert.Error(t, err, "expected %q to be rejected", tc.name)
+			} else {
+				assert.NoError(t, err, "expected %q to be accepted", tc.name)
+			}
+		})
+	}
+}
+
+// TestHandleWorkspaceCommitAndPush_RejectsBadBranch confirms the
+// handler returns HTTP 400 (not a confusing 500 from a deep git
+// error) when expected_branch fails validation. The fork-handler
+// caller would treat this as the abort signal.
+func TestHandleWorkspaceCommitAndPush_RejectsBadBranch(t *testing.T) {
+	workspaceDir, _, _ := setupTestRepoWithRemote(t, "testproj", true)
+	s := newDesktopTestServer(t, workspaceDir)
+
+	body, _ := json.Marshal(WorkspaceCommitRequest{
+		Message:        "chore(fork): pre-fork checkpoint",
+		ExpectedBranch: "--orphan",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/workspace/commit-and-push", bytes.NewReader(body))
+	s.handleWorkspaceCommitAndPush(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "invalid expected_branch")
+}
+
 // TestHandleWorkspaceCommitAndPush_BranchRecovery covers the
 // production failure where the parent's container is sitting on
 // `main` (the post-clone default) with dirty files that morally
