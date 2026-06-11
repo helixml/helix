@@ -31,6 +31,7 @@ import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
+import DescriptionIcon from '@mui/icons-material/Description'
 
 import RunnerProfilesTable from '../dashboard/RunnerProfilesTable'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -244,6 +245,21 @@ const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) =
         {!isOnline && (
           <Chip label={sandbox.status} size="small" variant="outlined" color="default" />
         )}
+        <Box sx={{ flexGrow: 1 }} />
+        <Tooltip title="Open live-tail logs in a new tab">
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<DescriptionIcon sx={{ fontSize: 16 }} />}
+            component="a"
+            href={`/admin/runner-logs/${encodeURIComponent(sandbox.id)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ minWidth: 'auto', px: 1 }}
+          >
+            Logs
+          </Button>
+        </Tooltip>
       </Box>
       {profileID && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
