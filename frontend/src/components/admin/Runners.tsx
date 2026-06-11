@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useEffect, useState } from 'react'
 import {
   Box,
   Grid,
@@ -18,8 +18,8 @@ import {
   Button,
   FormControl,
   InputLabel,
-  Select,
   MenuItem,
+  Select,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import CloseIcon from '@mui/icons-material/Close'
@@ -29,7 +29,6 @@ import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
-import DescriptionIcon from '@mui/icons-material/Description'
 
 import RunnerLogs from './RunnerLogs'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -39,7 +38,6 @@ import {
   useAssignRunnerProfile,
   useClearRunnerProfile,
   useListCompatibleRunnerProfiles,
-  useListRunnerProfiles,
 } from '../../services/runnerProfilesService'
 
 // Types matching the backend response
@@ -701,23 +699,18 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
   )
 }
 
-interface AgentSandboxesProps {
-  selectedSandboxId?: string
-}
-
-const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
+const Runners: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
-  // Inference profile catalogue. Polled on the same 5s cadence as the
-  // debug query below so the card visibility tracks profile additions /
-  // deletions made in another tab without manual refresh.
-  const {
-    data: runnerProfiles,
-    isLoading: isLoadingRunnerProfiles,
-  } = useListRunnerProfiles({ refetchInterval: 5000 })
+  // Selected runner for the master-detail view. Auto-selects the first
+  // ONLINE runner so a single-runner deployment shows useful detail
+  // immediately and offline historical rows don't trap the operator on
+  // a broken log stream. Resets if the current selection drops off the
+  // list (e.g. runner taken offline by the reaper).
+  const [selectedRunnerId, setSelectedRunnerId] = useState<string>('')
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
@@ -728,7 +721,7 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     refetchInterval: 5000,
   })
 
-  // Stop session mutation
+  // Stop session mutation - kills a dev container.
   const stopMutation = useMutation({
     mutationFn: async (sessionId: string) => {
       setStoppingIds((prev) => new Set(prev).add(sessionId))
@@ -750,76 +743,46 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     stopMutation.mutate(sessionId)
   }
 
-  const allGpus = data?.gpus || []
-  const devContainers = data?.dev_containers || []
+  const gpus = data?.gpus || []
   const sandboxes = data?.sandboxes || []
+  const devContainers = data?.dev_containers || []
 
-  // Filter by selected sandbox if specified. Every GPU in the API response
-  // is tagged with its owning sandbox_id (see agent_sandboxes_handlers.go),
-  // so untagged GPUs under the current selection are dropped — they're
-  // either orphans or evidence of a backend bug worth flagging in the
-  // console rather than silently rendering under every Runner.
-  const gpus = selectedSandboxId
-    ? allGpus.filter((g) => {
-        if (!g.sandbox_id) {
-          // eslint-disable-next-line no-console
-          console.warn('[AgentSandboxes] dropping untagged GPU under specific-Runner filter', g)
-          return false
-        }
-        return g.sandbox_id === selectedSandboxId
-      })
-    : allGpus
-
-  const filteredContainers = selectedSandboxId
-    ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
-    : devContainers
-
-  // Sort containers by session_id for stable ordering
-  const sortedContainers = [...filteredContainers].sort((a, b) =>
+  // Sort containers by session_id for stable rendering across refetches.
+  const sortedContainers = [...devContainers].sort((a, b) =>
     a.session_id.localeCompare(b.session_id)
   )
 
-  // Filter sandboxes too for consistency
-  const filteredSandboxes = selectedSandboxId
-    ? sandboxes.filter((s) => s.id === selectedSandboxId)
-    : sandboxes
+  // Keep the picker's selection consistent with the live data:
+  //   - Reset to '' if the list goes empty
+  //   - When picking automatically, prefer the first ONLINE runner so the
+  //     operator doesn't land on a stale offline row by default (which is
+  //     useless: the log stream errors immediately). Fall through to the
+  //     first runner overall only if every runner is offline (rare, but
+  //     better than showing an empty picker)
+  //   - If the operator explicitly picked an offline runner, leave it
+  //     alone - they're presumably debugging it
+  useEffect(() => {
+    if (sandboxes.length === 0) {
+      if (selectedRunnerId !== '') setSelectedRunnerId('')
+      return
+    }
+    const stillExists = sandboxes.some((s) => s.id === selectedRunnerId)
+    if (!stillExists) {
+      const firstOnline = sandboxes.find((s) => s.status === 'online')
+      setSelectedRunnerId((firstOnline ?? sandboxes[0]).id)
+    }
+  }, [sandboxes, selectedRunnerId])
 
-  // Decide whether to render the Inference Profiles card. Visible when
-  // at least one Runner Profile is configured OR when any sandbox in the
-  // current view has a profile already assigned (so deleting the last
-  // catalogue entry mid-interaction doesn't hide a "Clear" button from
-  // the operator). During the initial load of the profiles query, keep
-  // the card mounted to avoid a flash-of-hidden-card on first paint —
-  // it'll hide on the next render if the load resolves to empty.
-  const anySandboxHasProfileAssigned = filteredSandboxes.some(
-    (s) => !!s.active_profile_id,
-  )
-  const hasRunnerProfiles = (runnerProfiles?.length ?? 0) > 0
-  const showInferenceProfilesCard =
-    isLoadingRunnerProfiles ||
-    hasRunnerProfiles ||
-    anySandboxHasProfileAssigned
+  const selectedRunner = sandboxes.find((s) => s.id === selectedRunnerId)
 
-  // Summary stats should reflect the current filter
-  // Note: sandbox status is "online"/"offline"/"degraded", not "running"
-  const runningSandboxes = filteredSandboxes.filter((s) => s.status === 'online').length
+  // Aggregate stats - "online" not "running" (sandbox status enum).
+  const runningRunners = sandboxes.filter((s) => s.status === 'online').length
   const runningContainers = sortedContainers.filter((c) => c.status === 'running').length
   const totalClients = sortedContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h5">
-            {selectedSandboxId ? `Sandbox: ${selectedSandboxId}` : 'All Agent Sandboxes'}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {selectedSandboxId
-              ? 'Dev containers and streaming stats for this sandbox'
-              : 'Aggregate view of all Hydra-managed dev containers'
-            }
-          </Typography>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 1 }}>
         <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
           {isLoading ? <CircularProgress size={24} /> : <RefreshIcon />}
         </IconButton>
@@ -827,37 +790,31 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
-          {error instanceof Error ? error.message : 'Failed to fetch sandbox data'}
+          {error instanceof Error ? error.message : 'Failed to fetch runner data'}
         </Alert>
       )}
 
-      {/* Summary Stats. "Running Sandboxes" only makes sense in the
-          all-sandboxes aggregate view - when a specific sandbox is
-          selected, the filter scope is a single row and the count is
-          always 1, which is noise. Hide it in the detail view and
-          rebalance the remaining two cards to fill the row. */}
+      {/* Top: aggregate stats - always global across all runners. */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        {!selectedSandboxId && (
-          <Grid item xs={12} sm={4}>
-            <Paper sx={{ p: 2, textAlign: 'center' }}>
-              <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-              <Typography variant="h4">{runningSandboxes}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Running Sandboxes
-              </Typography>
-            </Paper>
-          </Grid>
-        )}
-        <Grid item xs={12} sm={selectedSandboxId ? 6 : 4}>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+            <Typography variant="h4">{runningRunners}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Online Runners
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
             <Typography variant="h4">{runningContainers}</Typography>
             <Typography variant="body2" color="text.secondary">
-              Dev Containers
+              Active Sandboxes
             </Typography>
           </Paper>
         </Grid>
-        <Grid item xs={12} sm={selectedSandboxId ? 6 : 4}>
+        <Grid item xs={12} sm={4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
             <Typography variant="h4">{totalClients}</Typography>
@@ -868,102 +825,123 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
         </Grid>
       </Grid>
 
-      <Grid container spacing={3}>
-        {/* GPU Stats */}
-        {gpus.length > 0 && (
-          <Grid item xs={12}>
-            <GPUStatsCard gpus={gpus} />
-          </Grid>
-        )}
+      {/* GPU telemetry strip - global across all runners. */}
+      {gpus.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <GPUStatsCard gpus={gpus} />
+        </Box>
+      )}
 
-        {/* Inference Profile state per sandbox. See showInferenceProfilesCard
-            above for the visibility decision (configured profile, mid-load,
-            or any sandbox already assigned). */}
-        {showInferenceProfilesCard && filteredSandboxes.length > 0 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardHeader
-                avatar={<MemoryIcon />}
-                title="Inference Profiles"
-                subheader="Per-sandbox assignment, compose stack lifecycle, and model-weights download progress"
-              />
-              <CardContent>
-                <Grid container spacing={2}>
-                  {filteredSandboxes.map((sb) => (
-                    <Grid item xs={12} md={6} lg={4} key={sb.id}>
-                      <SandboxProfileCard sandbox={sb} />
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
+      {/* Master-detail: picker on top, selected-runner detail below. */}
+      {sandboxes.length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 6 }}>
+          <ComputerIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+          <Typography variant="body1" color="text.secondary">
+            No runners registered
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Provision one via YellowDog, or self-register a runner pointing at this control plane.
+          </Typography>
+        </Box>
+      ) : (
+        <Box>
+          {/* Runner picker. Shown even when there's only one runner so
+              the operator always sees which one they're looking at. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+            <FormControl size="small" sx={{ minWidth: 360, flexGrow: 1, maxWidth: 600 }}>
+              <InputLabel id="runner-picker-label" shrink>Runner</InputLabel>
+              <Select
+                labelId="runner-picker-label"
+                value={selectedRunnerId}
+                label="Runner"
+                onChange={(e) => setSelectedRunnerId(e.target.value)}
+                renderValue={(value) => {
+                  const inst = sandboxes.find((s) => s.id === value)
+                  if (!inst) return value
+                  const bits = [inst.status]
+                  if (inst.active_profile_id) bits.push(`profile: ${inst.active_profile_id}`)
+                  return `${inst.id}  (${bits.join(', ')})`
+                }}
+              >
+                {sandboxes.map((sb) => (
+                  <MenuItem key={sb.id} value={sb.id}>
+                    {sb.id}
+                    {sb.active_profile_id && ` — ${sb.active_profile_id}`}
+                    {' '}({sb.status})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {selectedRunner && (
+              <Tooltip title="Open the live-tail log stream in a new tab">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  component="a"
+                  href={`/admin/runner-logs/${encodeURIComponent(selectedRunner.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open logs
+                </Button>
+              </Tooltip>
+            )}
+          </Box>
 
-        {/* Runner Logs: live-tail hydra-aggregated logs from the selected
-            Runner. Requires a specific Runner selection — the stream is
-            per-Runner so "All Sandboxes" shows a prompt. */}
-        <Grid item xs={12}>
-          <Card>
-            <CardHeader
-              avatar={<DescriptionIcon />}
-              title="Runner Logs"
-              subheader="Live tail of hydra-aggregated logs (Runner stdout + inner desktop containers)"
-            />
-            <CardContent>
-              {selectedSandboxId ? (
-                <RunnerLogs runnerId={selectedSandboxId} compact />
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <DescriptionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="body2" color="text.secondary">
-                    Pick a Runner from the selector above to live-tail its logs.
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Dev Containers */}
-        <Grid item xs={12}>
-          <Card>
-            <CardHeader
-              avatar={<DesktopWindowsIcon />}
-              title="Dev Containers"
-              subheader={`${sortedContainers.length} container${sortedContainers.length !== 1 ? 's' : ''}`}
-            />
-            <CardContent>
-              {sortedContainers.length > 0 ? (
-                <Grid container spacing={2}>
-                  {sortedContainers.map((container) => (
-                    <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
-                      <DevContainerCard
-                        container={container}
-                        onStop={handleStopContainer}
-                        isStopping={stoppingIds.has(container.session_id)}
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <DesktopWindowsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="body1" color="text.secondary">
-                    No dev containers running
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Start a task to launch a desktop sandbox
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-      </Grid>
+          {/* Selected runner detail: profile assignment + inline logs +
+              this runner's sandboxes (filtered from the global container
+              list by sandbox_id). */}
+          {selectedRunner && (() => {
+            const containersForRunner = sortedContainers.filter(
+              (c) => c.sandbox_id === selectedRunner.id,
+            )
+            return (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <SandboxProfileCard sandbox={selectedRunner} />
+                <Card>
+                  <CardHeader
+                    title="Runner Logs"
+                    subheader="Live tail (control-plane + inner desktop containers, aggregated)"
+                  />
+                  <CardContent>
+                    <RunnerLogs runnerId={selectedRunner.id} compact />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader
+                    title="Sandboxes"
+                    subheader={`${containersForRunner.length} active on this runner`}
+                  />
+                  <CardContent>
+                    {containersForRunner.length > 0 ? (
+                      <Grid container spacing={2}>
+                        {containersForRunner.map((container) => (
+                          <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
+                            <DevContainerCard
+                              container={container}
+                              onStop={handleStopContainer}
+                              isStopping={stoppingIds.has(container.session_id)}
+                            />
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : (
+                      <Box sx={{ textAlign: 'center', py: 3 }}>
+                        <DesktopWindowsIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
+                        <Typography variant="body2" color="text.secondary">
+                          No active sandboxes on this runner
+                        </Typography>
+                      </Box>
+                    )}
+                  </CardContent>
+                </Card>
+              </Box>
+            )
+          })()}
+        </Box>
+      )}
     </Box>
   )
 }
 
-export default AgentSandboxes
+export default Runners
