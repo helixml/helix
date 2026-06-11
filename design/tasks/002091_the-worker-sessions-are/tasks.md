@@ -11,19 +11,17 @@
 
 ## Phase 2 — Org-layer: remove artificial poll-loop deadline
 
-- [~] In `api/pkg/org/infrastructure/runtime/helix/spawner.go`:
+- [x] In `api/pkg/org/infrastructure/runtime/helix/spawner.go`:
   - Rename `SpawnerConfig.ActivationTimeout` → `SessionStartupTimeout` (default `5 * time.Minute`).
   - Add `SpawnerConfig.ActivationRunawayGuard` (default `24 * time.Hour`).
-  - Update the default-population block at lines 146-148.
-- [ ] In `Spawner` body (lines 159+):
-  - Build a `startupCtx` from `ctx` with `SessionStartupTimeout`, use it for `cfg.ensureSession(...)`.
-  - Build a separate `pollCtx` from `ctx` with `ActivationRunawayGuard`, use it for `cfg.pollUntilDone(...)`.
-  - Cancel each at the appropriate point (defer cancel for each).
-- [ ] `grep -rn "ActivationTimeout" /home/retro/work/helix/api/` — rename every reference. Likely sites: test wirings, dev wirings, any config-parsing code, any documentation comments inside the package.
-- [ ] Audit callers of `Spawner` / `SpawnerConfig` in `api/pkg/server/helix_org.go` (or wherever the host wires the spawner) and update field names.
-- [ ] Add or update a unit test on `Spawner` covering: (a) `ensureSession` honours `SessionStartupTimeout` (fails if startup hangs past it); (b) `pollUntilDone` does NOT terminate at the 5-minute mark when the session is still being polled (lets it run past the old deadline); (c) `pollUntilDone` does eventually terminate at `ActivationRunawayGuard` if the session truly never reports terminal.
-- [ ] `go build ./api/pkg/org/... ./api/pkg/server/...`.
-- [ ] Commit: `refactor(org): remove poll-loop deadline; rename ActivationTimeout`.
+  - Update the default-population block.
+- [x] In `Spawner` body: build a shared `parentCtx` (with bearer token attached), derive `startupCtx` with `SessionStartupTimeout` for all pre-session work + `ensureSession`, derive `pollCtx` with `ActivationRunawayGuard` for `pollUntilDone`. Each has its own `defer cancel()`.
+- [x] `grep -rn "ActivationTimeout"` — all remaining references are in explanatory comments (the rename rationale); no live code refs.
+- [x] Production wiring at `api/pkg/server/helix_org.go:885` doesn't set `ActivationTimeout` — falls through to the new defaults. No edits required there.
+- [x] Add unit tests on `Spawner`: `TestSpawnerSessionStartupTimeoutBoundsStartup` (hanging StartSession fires SessionStartupTimeout before runaway guard) and `TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout` (poll loop runs past SessionStartupTimeout boundary, terminates at ActivationRunawayGuard). Existing `TestSpawnerTimeoutEmitsExitError` now exercises ActivationRunawayGuard.
+- [x] `go build ./api/pkg/org/... ./api/pkg/server/...` — clean.
+- [x] All 15 `TestSpawner*` tests pass; all auto-wake tests pass.
+- [x] Commit: `refactor(org): split ActivationTimeout into startup + runaway guard`.
 
 ## Phase 3 — End-to-end verification in inner Helix
 
