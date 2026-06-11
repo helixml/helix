@@ -138,8 +138,12 @@ export const WORKSPACE_STATUS_QUERY_KEY = (sessionId: string) => [
 //
 // enabled defaults to false because this triggers a real exec into the
 // running desktop container — callers should only enable it when the
-// modal is actually open. refetchInterval is disabled (the state is
-// static between user actions).
+// modal is actually open. We poll at a moderate interval while the
+// modal is open so a startup-race "container_reachable: false" gets
+// corrected once the desktop's RevDial connection registers (~1-2s
+// after a fresh container boot). Without this, the modal can show
+// stale "container isn't running" text even when the fork itself
+// works fine moments later.
 export function useWorkspaceStatus(sessionId: string, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -147,7 +151,10 @@ export function useWorkspaceStatus(sessionId: string, options?: { enabled?: bool
     queryKey: WORKSPACE_STATUS_QUERY_KEY(sessionId),
     queryFn: () => apiClient.v1SessionsWorkspaceStatusDetail(sessionId),
     enabled: options?.enabled ?? false,
-    refetchInterval: false,
+    // Recheck every 3s — picks up "container just became reachable"
+    // without spamming the desktop. Stops automatically when enabled
+    // flips back to false (modal closes).
+    refetchInterval: 3000,
     staleTime: 0,
   })
 }

@@ -242,12 +242,11 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
               fork will still try to commit & push if anything's dirty.
             </Alert>
           )}
-          {!workspaceFetching && workspace && !workspace.container_reachable && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              Desktop container isn't running — nothing to commit. The
-              child will start clean.
-            </Alert>
-          )}
+          {/* container_reachable=false is a transient race during desktop
+              startup — the polling will correct it. No need to nag the
+              user with an alert that's misleading when fork still
+              succeeds (which it does, because the backend's safety net
+              also handles unreachable containers silently). */}
           {/* "Cannot save" path: dirty changes exist but the safety
               net has nowhere viable to push them. Surface the reason
               and block the fork — let the user fix git state in the
