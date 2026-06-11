@@ -221,11 +221,13 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// first-apply file pushes — agent.md / role.md / identity.md)
 	// and update_role / update_identity (which call MirrorFile to
 	// re-push canonical content on demand). One place owns the
-	// on-branch path layout.
+	// on-branch path layout. Held in a local and injected into the
+	// project applier below — no package global.
+	var orgWorkspace *runtimehelix.Workspace
 	if cfg.GitRepositoryService != nil {
 		gitWriter := cfg.GitRepositoryService.(runtimehelix.WorkspaceGit)
-		helixOrgWorkspaceRef = runtimehelix.NewWorkspace(gitWriter, st, "helix-specs", "helix-org", "helix-org@helix.local")
-		deps.Workspace = helixOrgWorkspaceRef
+		orgWorkspace = runtimehelix.NewWorkspace(gitWriter, st, "helix-specs", "helix-org", "helix-org@helix.local")
+		deps.Workspace = orgWorkspace
 	}
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
@@ -258,6 +260,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		cfg:        configReg,
 		projectSvc: inProcClient,
 		Store:      st,
+		workspace:  orgWorkspace,
 		logger:     logger,
 	}
 
@@ -348,7 +351,20 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger: logger,
 	})
 
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, deps.NewID, deps.Now, mirror)
+	spawnerFn := lazyHelixOrgSpawner(spawnerDeps{
+		Cfg:           configReg,
+		HelixStore:    helixStore,
+		SpawnerClient: inProcClient,
+		ProjectSvc:    inProcClient,
+		OrgStore:      st,
+		Hub:           bc,
+		PubSub:        cfg.APIServer.pubsub,
+		Logger:        logger,
+		Applier:       projectApplier,
+		Mirror:        mirror,
+		NewID:         deps.NewID,
+		Now:           deps.Now,
+	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -597,7 +613,13 @@ type dynamicProjectApplier struct {
 	cfg        *configregistry.Registry
 	projectSvc runtimehelix.ProjectService
 	Store      *helixorgstore.Store
-	logger     *slog.Logger
+	// workspace is the single on-branch Workspace shared with the
+	// update_role/update_identity tools. Injected here (rather than read
+	// from a package global) so initialisation order is explicit. nil is
+	// allowed — the applier just builds WorkerProjects without a mirror
+	// (the in-memory / no-git wirings).
+	workspace *runtimehelix.Workspace
+	logger    *slog.Logger
 }
 
 // Ensure satisfies chat.ProjectEnsurer. Builds a fresh
@@ -612,7 +634,7 @@ type dynamicProjectApplier struct {
 // The Spawner does the same on its own activations; owner-chat goes
 // through this path only.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
-	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
+	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.workspace, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -653,6 +675,7 @@ func buildHelixOrgProjectApplier(
 	cfg *configregistry.Registry,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
+	workspace *runtimehelix.Workspace,
 	logger *slog.Logger,
 ) (*runtimehelix.WorkerProject, string, error) {
 	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
@@ -673,7 +696,7 @@ func buildHelixOrgProjectApplier(
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
 	return &runtimehelix.WorkerProject{
 		Service:     projectSvc,
-		Workspace:   helixOrgWorkspaceRef,
+		Workspace:   workspace,
 		Store:       orgStore,
 		HelixOrgURL: helixOrgURL,
 		OrgID:       orgID,
@@ -684,13 +707,6 @@ func buildHelixOrgProjectApplier(
 		Logger:      logger,
 	}, apiKey, nil
 }
-
-// helixOrgWorkspaceRef is the production Workspace, set at
-// initHelixOrgHandler time. buildHelixOrgProjectApplier picks it up
-// because it has no access to the helixOrgConfig directly. The same
-// Workspace also drives update_role / update_identity tools (the
-// only public WorkspaceSync surface).
-var helixOrgWorkspaceRef *runtimehelix.Workspace
 
 // resolveWorkerAgentConfig reads the four `worker.*` knobs and normalises
 // them into the (runtime, credentials, provider, model) tuple that
@@ -767,58 +783,59 @@ func buildInProcHelixClient(ctx context.Context, apiServer *HelixAPIServer, heli
 // session winds up owned by the human who hired the Worker — their
 // Claude subscription, their desktop quota, their audit trail —
 // without helix-org ever holding a token at rest.
-func buildHelixOrgSpawnerConfig(
-	ctx context.Context,
-	orgID string,
-	cfg *configregistry.Registry,
-	helixStore helixstore.Store,
-	spawnerClient runtimehelix.SpawnerClient,
-	// projectSvc lets the spawner's *internal* ensureProject pass
-	// (spawner.go:200 fast-path) verify the Helix project exists
-	// without a nil-deref. Forgetting it caused the chart UI to crash
-	// the API on any AI-worker click; we now require a non-nil value
-	// up front rather than letting the closure discover the missing
-	// dependency mid-activation.
-	projectSvc runtimehelix.ProjectService,
-	orgStore *helixorgstore.Store,
-	bc *streamhub.Hub,
-	// ps is the host API's NATS pubsub. The spawner's per-activation
-	// bridge calls SubscribeSessionUpdates on it to stream the helix
-	// session's events into the org-graph transcript. Without it (the
-	// bug behind the segfault that took the whole API process down on
-	// every AI activation), the bridge panicked at sessions.go:257.
-	ps pubsub.PubSub,
-	logger *slog.Logger,
-	newID func() string,
-	now func() time.Time,
-) (runtimehelix.SpawnerConfig, error) {
-	if ps == nil {
+// spawnerDeps groups the process-wide collaborators the helix-org
+// Spawner needs into one options struct — the alternative was ~13
+// positional params on both buildHelixOrgSpawnerConfig and
+// lazyHelixOrgSpawner (design §5.4). Populate the exported fields at the
+// call site so the wiring reads as names, not a positional wall.
+//
+// SpawnerClient and ProjectService are the same in-proc adapter in
+// production but kept separate so a future split (remote spawner, local
+// project service) doesn't churn the struct.
+type spawnerDeps struct {
+	Cfg           *configregistry.Registry
+	HelixStore    helixstore.Store
+	SpawnerClient runtimehelix.SpawnerClient
+	// ProjectSvc lets the spawner's *internal* ensureProject fast-path
+	// verify the Helix project exists without a nil-deref. Required.
+	ProjectSvc runtimehelix.ProjectService
+	OrgStore   *helixorgstore.Store
+	Hub        *streamhub.Hub
+	// PubSub is the host API's NATS pubsub; the per-activation bridge
+	// calls SubscribeSessionUpdates on it. Required.
+	PubSub  pubsub.PubSub
+	Logger  *slog.Logger
+	Applier *dynamicProjectApplier // used by lazyHelixOrgSpawner only
+	Mirror  *runtimehelix.Mirror   // process-wide singleton
+	NewID   func() string
+	Now     func() time.Time
+}
+
+func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps) (runtimehelix.SpawnerConfig, error) {
+	if d.PubSub == nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: PubSub is required")
 	}
-	if projectSvc == nil {
+	if d.ProjectSvc == nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: ProjectService is required")
 	}
-	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
+	apiKey, _ := d.Cfg.GetString(ctx, orgID, "helix.api_key")
 	if apiKey == "" {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
 	}
-	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
+	baseURL, err := d.Cfg.GetString(ctx, orgID, "helix.url")
 	if err != nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
 	}
 
-	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, cfg)
+	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, d.Cfg)
 	// HelixOrgMCPBackend.ServeHTTP parses `<org>/workers/<id>/mcp`
 	// from the suffix path, so the org segment is required in the
-	// URL Zed will dial. The previous form
-	// `/api/v1/mcp/helix-org/workers/<id>/mcp` made the backend read
-	// "workers" as the org slug and 404 every request — the helix-org
-	// MCP was effectively unreachable from inside the sandbox.
+	// URL Zed will dial.
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
-	specsMandate, _ := cfg.GetString(ctx, orgID, "worker.specs_mandate")
+	specsMandate, _ := d.Cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	return runtimehelix.SpawnerConfig{
-		Client:         spawnerClient,
-		ProjectService: projectSvc,
+		Client:         d.SpawnerClient,
+		ProjectService: d.ProjectSvc,
 		HelixOrgURL:    helixOrgURL,
 		OrgID:          orgID,
 		Runtime:        runtime,
@@ -827,20 +844,15 @@ func buildHelixOrgSpawnerConfig(
 		Model:          model,
 		MCPAuthBearer:  apiKey,
 		SpecsMandate:   specsMandate,
-		Store:          orgStore,
-		Hub:            bc,
-		// PubSub is the helix-host NATS pubsub; Snapshotter is the
-		// noop preamble — helix-org spawned sessions originate inside
-		// the spawner so there is no separately-tracked browser-WS
-		// snapshot to replay. Subscriber sees live frames only, which
-		// is correct for the bridge.
-		PubSub:      ps,
-		Snapshotter: runtimehelix.NoopSessionPreamble{},
-		Logger:      logger,
-		NewID:       newID,
-		Now:         now,
+		Store:          d.OrgStore,
+		Hub:            d.Hub,
+		PubSub:         d.PubSub,
+		Snapshotter:    runtimehelix.NoopSessionPreamble{},
+		Logger:         d.Logger,
+		NewID:          d.NewID,
+		Now:            d.Now,
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
-			return newHelixAPIKeys(helixStore, cfg).User(ctx, userID)
+			return newHelixAPIKeys(d.HelixStore, d.Cfg).User(ctx, userID)
 		},
 	}, nil
 }
@@ -872,38 +884,25 @@ func buildHelixOrgSpawnerConfig(
 // The inner spawner re-attaches the MCP after its own ensureProject
 // (ApplyProject wipes Config.Helix), so both must use the correct
 // per-org URL — which they now do.
-func lazyHelixOrgSpawner(
-	cfg *configregistry.Registry,
-	helixStore helixstore.Store,
-	spawnerClient runtimehelix.SpawnerClient,
-	projectSvc runtimehelix.ProjectService,
-	orgStore *helixorgstore.Store,
-	bc *streamhub.Hub,
-	ps pubsub.PubSub,
-	logger *slog.Logger,
-	applier *dynamicProjectApplier,
-	newID func() string,
-	now func() time.Time,
-	mirror *runtimehelix.Mirror,
-) runtime.Spawner {
+func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 	// One inflight cap shared across every per-org spawner config.
 	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
 	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating.
-		if applier != nil {
-			if _, _, _, err := applier.Ensure(ctx, orgID, workerID); err != nil {
+		if d.Applier != nil {
+			if _, _, _, err := d.Applier.Ensure(ctx, orgID, workerID); err != nil {
 				return fmt.Errorf("helix-org spawner: pre-apply project for %s: %w", workerID, err)
 			}
 		}
 		// Rebuild the SpawnerConfig for THIS org on every activation —
 		// never reuse another org's config. The shared semaphore keeps
 		// the global inflight cap intact.
-		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, newID, now)
+		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, d)
 		if err != nil {
 			return fmt.Errorf("helix-org spawner not configured: %w", err)
 		}
-		cfgVal.Mirror = mirror // process-wide singleton; not per-org config
+		cfgVal.Mirror = d.Mirror // process-wide singleton; not per-org config
 		cfgVal.Sem = sem
 		log.Trace().
 			Str("org_id", orgID).

@@ -47,17 +47,16 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	hub := streamhub.New(pubsub.NewNoop())
 	logger := slog.Default()
 
-	cfg, err := buildHelixOrgSpawnerConfig(
-		ctx, orgID, reg, nil,
-		nil,        // spawnerClient — not exercised here
-		projectSvc, // projectSvc — the field we're pinning
-		orgStore,
-		hub,
-		pubsub.NewNoop(), // PubSub — required since spawner.bridge.run calls SubscribeSessionUpdates
-		logger,
-		func() string { return "id" },
-		func() time.Time { return time.Unix(0, 0).UTC() },
-	)
+	cfg, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
+		Cfg:        reg,
+		ProjectSvc: projectSvc, // the field we're pinning
+		OrgStore:   orgStore,
+		Hub:        hub,
+		PubSub:     pubsub.NewNoop(), // required: spawner.bridge.run calls SubscribeSessionUpdates
+		Logger:     logger,
+		NewID:      func() string { return "id" },
+		Now:        func() time.Time { return time.Unix(0, 0).UTC() },
+	})
 	require.NoError(t, err)
 	require.NotNil(t, cfg.ProjectService, "ProjectService must be wired — its absence used to nil-deref WorkerProject.Ensure at project.go:156")
 	// Same pointer round-tripped — confirms the builder copies the
@@ -82,16 +81,16 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
 	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
 
-	_, err := buildHelixOrgSpawnerConfig(
-		ctx, orgID, reg, nil,
-		nil, // spawnerClient
-		nil, // projectSvc — explicitly nil
-		orgStore, streamhub.New(pubsub.NewNoop()),
-		pubsub.NewNoop(),
-		slog.Default(),
-		func() string { return "id" },
-		func() time.Time { return time.Unix(0, 0).UTC() },
-	)
+	_, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
+		Cfg:      reg,
+		// ProjectSvc explicitly nil — the case under test.
+		OrgStore: orgStore,
+		Hub:      streamhub.New(pubsub.NewNoop()),
+		PubSub:   pubsub.NewNoop(),
+		Logger:   slog.Default(),
+		NewID:    func() string { return "id" },
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProjectService is required")
 }
