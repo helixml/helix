@@ -384,21 +384,20 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	// any other first-message-on-a-forked-session) and prepends the
 	// transcript. The prompt is short and meaningful so the agent's
 	// acknowledgment is a useful confirmation, not noise.
-	prevAgent := strings.TrimSpace(string(parent.Metadata.CodeAgentRuntime))
-	if prevAgent == "" {
-		prevAgent = "the previous agent"
-	}
-	newAgent := strings.TrimSpace(string(targetRuntime))
-	if newAgent == "" {
-		newAgent = "the new agent"
-	}
+	//
+	// Labels include app name + framework + model so the new agent can
+	// distinguish itself from a sibling that happens to share the same
+	// framework (e.g. two Claude Code apps with different models —
+	// "you are claude_code; previous was claude_code" was useless).
+	prevLabel := apiServer.agentDescriptor(ctx, parent.ParentApp, parent.Metadata.CodeAgentRuntime, parent.ModelName, "the previous agent")
+	newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, parent.ModelName, "the new agent")
 	handoffPrompt := fmt.Sprintf(
-		"[System handoff: a new agent has just been switched in to continue this conversation. "+
-			"You are %s; the previous agent was %s. The full prior conversation transcript is "+
-			"included above. Please briefly acknowledge that you've reviewed it and are ready to "+
-			"continue — keep the acknowledgment to one or two sentences so the user can pick up "+
-			"with their next message.]",
-		newAgent, prevAgent,
+		"[System handoff: a new agent has just been switched in to continue this conversation.\n\n"+
+			"You are now: %s\nPrevious agent: %s\n\n"+
+			"The full prior conversation transcript is included above. Please briefly acknowledge "+
+			"that you've reviewed it and are ready to continue — keep the acknowledgment to one or "+
+			"two sentences so the user can pick up with their next message.]",
+		newLabel, prevLabel,
 	)
 	handoffInteraction := &types.Interaction{
 		Created:       now,
@@ -654,4 +653,69 @@ func (apiServer *HelixAPIServer) provisionForkedSessionDesktop(
 		}
 	}
 	return nil
+}
+
+// agentDescriptor renders a short, human-readable label for an agent
+// used in the auto-handoff prompt — designed so two apps that share a
+// framework but differ in model are clearly distinguishable. Format:
+//
+//	"AppName" (framework runtime, model claude-sonnet-4-5)
+//
+// Falls back through tighter combinations when any field is missing:
+//   - app lookup fails or has no zed_external assistant → just runtime
+//     and the session's ModelName
+//   - everything missing → the supplied `fallback` ("the new agent"
+//     etc.) so the prompt never reads "you are ()."
+func (apiServer *HelixAPIServer) agentDescriptor(
+	ctx context.Context,
+	appID string,
+	runtime types.CodeAgentRuntime,
+	fallbackModel string,
+	fallback string,
+) string {
+	name := ""
+	framework := string(runtime)
+	model := fallbackModel
+
+	if appID != "" {
+		if app, err := apiServer.Store.GetApp(ctx, appID); err == nil && app != nil {
+			if app.Config.Helix.Name != "" {
+				name = app.Config.Helix.Name
+			}
+			// Prefer the zed_external assistant's config for runtime
+			// and model — that's the most specific source we have.
+			for _, asst := range app.Config.Helix.Assistants {
+				if asst.AgentType != types.AgentTypeZedExternal {
+					continue
+				}
+				if string(asst.CodeAgentRuntime) != "" {
+					framework = string(asst.CodeAgentRuntime)
+				}
+				if asst.Model != "" {
+					model = asst.Model
+				}
+				break
+			}
+		}
+	}
+
+	parts := []string{}
+	if name != "" {
+		parts = append(parts, fmt.Sprintf("%q", name))
+	}
+	extras := []string{}
+	if framework != "" {
+		extras = append(extras, "framework "+framework)
+	}
+	if model != "" {
+		extras = append(extras, "model "+model)
+	}
+	if len(extras) > 0 {
+		parts = append(parts, "("+strings.Join(extras, ", ")+")")
+	}
+
+	if len(parts) == 0 {
+		return fallback
+	}
+	return strings.Join(parts, " ")
 }

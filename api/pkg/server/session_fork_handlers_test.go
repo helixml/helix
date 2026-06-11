@@ -402,3 +402,72 @@ func TestForkSessionFromParent_ChainDepth2PreservesFullAncestry(t *testing.T) {
 			"chain-inherited interactions must keep the fork_inherited marker")
 	}
 }
+
+// TestAgentDescriptor_DistinguishesSameRuntimeApps is the focussed
+// test for the user-reported handoff-message bug: two apps both using
+// claude_code with different models would have rendered as
+// "you are claude_code; previous was claude_code" — useless.
+// The descriptor must surface app name + framework + model so the new
+// agent can tell which sibling it is.
+func TestAgentDescriptor_DistinguishesSameRuntimeApps(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	mem.SeedApp(&types.App{
+		ID: "app_test1",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name: "test1",
+				Assistants: []types.AssistantConfig{{
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
+					Model:            "claude-opus-4-6",
+				}},
+			},
+		},
+	})
+	mem.SeedApp(&types.App{
+		ID: "app_test2",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name: "test2",
+				Assistants: []types.AssistantConfig{{
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
+					Model:            "claude-sonnet-4-5-20250929",
+				}},
+			},
+		},
+	})
+
+	test1 := srv.agentDescriptor(ctx, "app_test1", types.CodeAgentRuntimeClaudeCode, "", "fallback1")
+	test2 := srv.agentDescriptor(ctx, "app_test2", types.CodeAgentRuntimeClaudeCode, "", "fallback2")
+
+	assert.Contains(t, test1, `"test1"`, "must include the app name")
+	assert.Contains(t, test1, "framework claude_code")
+	assert.Contains(t, test1, "model claude-opus-4-6")
+
+	assert.Contains(t, test2, `"test2"`)
+	assert.Contains(t, test2, "framework claude_code")
+	assert.Contains(t, test2, "model claude-sonnet-4-5-20250929")
+
+	assert.NotEqual(t, test1, test2,
+		"two apps sharing a framework but differing in model must render distinguishably")
+}
+
+// TestAgentDescriptor_FallbackOnMissingApp asserts the descriptor
+// degrades gracefully when the app lookup fails (e.g. legacy fork
+// with a stale ParentApp id) — falls back to the runtime + session
+// model so the prompt never reads "you are ()."
+func TestAgentDescriptor_FallbackOnMissingApp(t *testing.T) {
+	srv, _ := newForkTestServer(t)
+
+	out := srv.agentDescriptor(context.Background(), "app_does_not_exist", types.CodeAgentRuntimeQwenCode, "qwen3-coder", "the previous agent")
+	assert.Contains(t, out, "framework qwen_code")
+	assert.Contains(t, out, "model qwen3-coder")
+	assert.NotEqual(t, "the previous agent", out, "should not fall back to the generic label when we have runtime+model")
+
+	// Genuine no-info case → use the fallback string.
+	bare := srv.agentDescriptor(context.Background(), "", "", "", "the previous agent")
+	assert.Equal(t, "the previous agent", bare)
+}
