@@ -487,6 +487,26 @@ func (apiServer *HelixAPIServer) provisionForkedSessionDesktop(
 		UserID:         user.ID,
 		Input:          "Continue forked session",
 		ProjectPath:    "workspace",
+		// SpecTaskID lets the container's startup script look up the
+		// task's branch_name via the API and check it out — without
+		// this the clone defaults to HEAD (main) and the new agent
+		// can't see the in-progress work that was just pushed to the
+		// feature branch by the pre-fork commit safety net.
+		SpecTaskID: child.Metadata.SpecTaskID,
+	}
+
+	// Best-effort: if we can resolve the spec task's branch right here,
+	// populate WorkingBranch directly so the container doesn't have to
+	// do the API lookup. The SpecTaskID env var still goes through as
+	// a fallback for any startup-script code path that prefers it.
+	if child.Metadata.SpecTaskID != "" {
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, child.Metadata.SpecTaskID); err == nil && specTask != nil && specTask.BranchName != "" {
+			zedAgent.WorkingBranch = specTask.BranchName
+			zedAgent.BranchMode = string(types.BranchModeExisting)
+			if specTask.BaseBranch != "" {
+				zedAgent.BaseBranch = specTask.BaseBranch
+			}
+		}
 	}
 
 	if child.ProjectID != "" {
