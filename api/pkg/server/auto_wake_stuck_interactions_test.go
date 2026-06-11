@@ -113,7 +113,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 // spt_01kreb7sevt5ecyagxhctv3ejh failure mode (container booting normally,
 // but retry budget burned before WS connect).
 func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
-	// Old enough to clear the SQL stuck threshold (60s default), but
+	// Old enough to clear the SQL stuck threshold (180s default), but
 	// firmly inside the 5-minute cold-start grace window — exactly the
 	// regime that used to burn the retry budget for nothing while the
 	// boot was still legitimately running.
@@ -122,7 +122,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 		SessionID:     "ses_starting",
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		Created:       time.Now().Add(-90 * time.Second),
+		Created:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -152,7 +152,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 // The grace-period gate has to defer during that "running, no WS" gap
 // or the worker burns the retry budget before Zed ever connects.
 func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
-	// Inside the 5-minute grace, comfortably past the 60s stuck threshold —
+	// Inside the 5-minute grace, comfortably past the 180s stuck threshold —
 	// the regime where the old "starting"-only gate fell through to the kick
 	// because status had already flipped to "running".
 	stuck := &types.Interaction{
@@ -160,7 +160,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
 		SessionID:     "ses_running",
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		Created:       time.Now().Add(-90 * time.Second),
+		Created:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -196,7 +196,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 		SessionID:     "ses_grace_expired",
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		// Older than both stuck threshold (60s) AND the 1-second grace.
+		// Older than both stuck threshold (180s) AND the 1-second grace.
 		Created:       time.Now().Add(-5 * time.Minute),
 		AutoWakeCount: 0,
 	}
@@ -284,4 +284,32 @@ func (s *AutoWakeColdStartSuite) TestSkipsWhenInteractionIsYoung() {
 
 	// No mocks set — gomock fails if any store method is called.
 	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
+// TestAutoWakeStuckThresholdDefault verifies the new 180s default.
+func TestAutoWakeStuckThresholdDefault(t *testing.T) {
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "")
+	if got := autoWakeStuckThreshold(); got != 180*time.Second {
+		t.Fatalf("default threshold: want 180s, got %s", got)
+	}
+}
+
+// TestAutoWakeStuckThresholdOverride verifies operators can still
+// override the default at runtime via env var without redeploying.
+func TestAutoWakeStuckThresholdOverride(t *testing.T) {
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "300")
+	if got := autoWakeStuckThreshold(); got != 300*time.Second {
+		t.Fatalf("override threshold: want 300s, got %s", got)
+	}
+
+	// Garbage and zero must fall back to the default rather than
+	// silently disabling the worker.
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "not-a-number")
+	if got := autoWakeStuckThreshold(); got != 180*time.Second {
+		t.Fatalf("garbage env: want 180s default, got %s", got)
+	}
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "0")
+	if got := autoWakeStuckThreshold(); got != 180*time.Second {
+		t.Fatalf("zero env: want 180s default, got %s", got)
+	}
 }
