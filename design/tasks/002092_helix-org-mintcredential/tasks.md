@@ -27,8 +27,8 @@
 
 ## Wiring
 
-- [~] In `api/pkg/server/helix_org.go` near the existing `secretInjectors` block (`helix_org.go:283`), build `credentialProviders := map[string]credential.Provider{"github": githubtransport.NewCredentialProvider(identityResolver)}` and pass it through to `tools.RegisterBuiltins` via `deps.CredentialProviders`.
-- [~] Confirm `tools.DefaultDeps` and any other callsites of `RegisterBuiltins` are updated.
+- [x] In `api/pkg/server/helix_org.go` near the existing `secretInjectors` block (`helix_org.go:283`), build `credentialProviders := map[string]credential.Provider{"github": githubtransport.NewCredentialProvider(identityResolver)}` and pass it through to `tools.RegisterBuiltins` via `deps.CredentialProviders`. **Done: built next to the SecretInjector block so both surfaces flow through the same identityResolver. The closure adapts `OrgGitHubIdentity` → `githubtransport.Identity`.**
+- [x] Confirm `tools.DefaultDeps` and any other callsites of `RegisterBuiltins` are updated. **`DefaultDeps` installs an empty map for tests; the only production wiring point is `helix_org.go`. Full `go build ./api/...` clean.**
 
 ## Role / prompt integration
 
