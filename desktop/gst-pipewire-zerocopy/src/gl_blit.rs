@@ -28,12 +28,14 @@ use smithay::backend::allocator::Buffer as _;
 use smithay::backend::drm::DrmNode;
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{Frame, ImportDma, Renderer};
+use smithay::backend::renderer::{Color32F, Frame, ImportDma, Renderer};
 use smithay::utils::{Physical, Point, Rectangle, Size, Transform};
 
-use gst_video::{VideoFormat, VideoInfo, VideoInfoDmaDrm};
+use gst_video::{VideoCapsBuilder, VideoFormat, VideoInfo, VideoInfoDmaDrm};
 
-use waylanddisplaycore::utils::allocator::cuda::CUDAContext;
+use waylanddisplaycore::utils::allocator::cuda::{
+    CUDAContext, CUDABufferPool, CAPS_FEATURE_MEMORY_CUDA_MEMORY,
+};
 use waylanddisplaycore::utils::allocator::{GsBuffer, GsBufferType, GsCUDABuf};
 
 use crate::pipewire_stream::FrameData;
@@ -109,8 +111,14 @@ impl GlBlitter {
         {
             let mut frame = self
                 .renderer
-                .render(&mut fb, size, Transform::Flipped180)
+                .render(&mut fb, size, Transform::Normal)
                 .map_err(|e| format!("render: {:?}", e))?;
+            // Clear first — the persistent buffer is reused every frame, and
+            // render_texture_at blends src-over. Without this, frames accumulate
+            // and saturate to white.
+            frame
+                .clear(Color32F::BLACK, &[full])
+                .map_err(|e| format!("clear: {:?}", e))?;
             frame
                 .render_texture_at(
                     &texture,
@@ -165,11 +173,30 @@ impl GlBlitter {
             .get_display_handle()
             .handle;
 
+        // Configured CUDA buffer pool so to_gst_buffer ACQUIRES a reused buffer
+        // each frame instead of allocating a fresh one (the per-frame alloc was
+        // fragmenting GPU memory and degrading the stream to single-digit fps).
+        let pool = {
+            let ctx = self.cuda_context.lock().unwrap();
+            let pool = CUDABufferPool::new(&ctx).map_err(|e| format!("CUDABufferPool::new: {}", e))?;
+            let caps = VideoCapsBuilder::new()
+                .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                .format(video_format)
+                .width(w as i32)
+                .height(h as i32)
+                .framerate(gst::Fraction::new(60, 1))
+                .build();
+            pool.configure_basic(&caps, w * h * 4, 8, 16)
+                .map_err(|e| format!("pool configure: {}", e))?;
+            pool.activate().map_err(|e| format!("pool activate: {}", e))?;
+            pool
+        };
+
         let buf = GsCUDABuf::new(
             self.render_node,
             self.cuda_context.clone(),
             video_info,
-            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(Some(pool))),
             &raw_display,
         )
         .ok_or_else(|| "GsCUDABuf::new returned None".to_string())?;
