@@ -2881,6 +2881,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           renderJitterMs: wsStats.renderJitterMs,
           avgReceiveIntervalMs: wsStats.avgReceiveIntervalMs,
           avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
+          receiveIntervalSamples: wsStats.receiveIntervalSamples,
+          renderIntervalSamples: wsStats.renderIntervalSamples,
           // Debug flags
           usingSoftwareDecoder: wsStats.usingSoftwareDecoder,
           // Decoder health

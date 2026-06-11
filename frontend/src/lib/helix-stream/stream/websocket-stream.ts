@@ -166,7 +166,7 @@ export class WebSocketStream {
   private lastFrameRenderTime = 0                     // When last frame was rendered (for render jitter)
   private receiveIntervalSamples: number[] = []       // Recent intervals between frame arrivals (ms)
   private renderIntervalSamples: number[] = []        // Recent intervals between frame renders (ms)
-  private readonly MAX_JITTER_SAMPLES = 60            // Track ~1 second of frames at 60fps
+  private readonly MAX_JITTER_SAMPLES = 300           // Track ~5 seconds of frames at 60fps (sparkline window)
   private minReceiveIntervalMs = 0                    // Min interval seen in current window
   private maxReceiveIntervalMs = 0                    // Max interval seen in current window
   private minRenderIntervalMs = 0                     // Min render interval seen
@@ -1998,6 +1998,8 @@ export class WebSocketStream {
     renderJitterMs: string           // "min-max" interval between frames rendering
     avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
     avgRenderIntervalMs: number      // Average render interval
+    receiveIntervalSamples: number[] // Rolling window of inter-arrival intervals (for sparkline/burst)
+    renderIntervalSamples: number[]  // Rolling window of inter-render intervals (for sparkline/burst)
     // FPS timestamp
     fpsUpdatedAt: number             // Wall clock timestamp of last FPS update
     // Debug flags
@@ -2076,6 +2078,9 @@ export class WebSocketStream {
       avgRenderIntervalMs: this.renderIntervalSamples.length > 0
         ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
         : 0,
+      // Raw sample arrays for sparkline + burst rendering (snapshot copies, not refs)
+      receiveIntervalSamples: this.receiveIntervalSamples.slice(),
+      renderIntervalSamples: this.renderIntervalSamples.slice(),
       // Debug flags
       usingSoftwareDecoder: this.forceSoftwareDecoding,
       // Frame health monitoring (for iOS Safari stall detection)

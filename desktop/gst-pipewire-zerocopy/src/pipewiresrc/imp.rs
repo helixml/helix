@@ -694,6 +694,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         pool: Some(pool),
                         configured: false,
                     })),
+                    egl_cuda_cache: parking_lot::Mutex::new(std::collections::HashMap::new()),
                 };
 
                 // Connect to PipeWire with NVIDIA DmaBuf modifiers AND CUDA resources
@@ -853,6 +854,9 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         // Wait for frame from PipeWire with timeout
         let frame = match stream.recv_frame_timeout(timeout) {
             Ok(f) => {
+                // Point B: inter-arrival at the GStreamer pull, i.e. after the
+                // bounded(8) channel (measure-only). Compare with Point A.
+                crate::metrics::CREATE.lock().tick();
                 // Log periodically
                 static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let count = FRAME_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
