@@ -212,7 +212,10 @@ func TestSafeGitArgRE_AtSink(t *testing.T) {
 		{"origin/feature/000011-foo", true},
 		{"refs/heads/main", true},
 		{"refs/remotes/origin/main", true},
-		{"@{u}..HEAD", false}, // contains '@', '{', '}'  — not in safe set; rev-list happens to not run through runGit's safe path but this is intentional doc
+		// '@{u}..HEAD' must be accepted — rev-list uses it to count
+		// unpushed commits and the regex specifically allows `@{}` so
+		// the rev-list call doesn't silently fail.
+		{"@{u}..HEAD", true},
 		{"rev-parse", true},
 		{"--abbrev-ref", true},
 		{"--count", true},

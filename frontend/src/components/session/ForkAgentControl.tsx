@@ -70,7 +70,10 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
   // (pendingTargetId != null). It execs `git status` in each repo of
   // the parent's desktop container — too expensive to do speculatively
   // on every dropdown open without user intent.
-  const { data: workspaceResp, isFetching: workspaceFetching, isError: workspaceErrored } = useWorkspaceStatus(
+  // Note: isError is intentionally not destructured here — the modal
+  // stays silent on workspace-check failures (see the comment in the
+  // render block above the dirty-state panels for why).
+  const { data: workspaceResp, isFetching: workspaceFetching } = useWorkspaceStatus(
     sessionId,
     { enabled: !!pendingTargetId },
   );
