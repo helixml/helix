@@ -43,13 +43,15 @@ The exception is recorded inline in `CLAUDE.md`, in
   ghinstallation-reported expiry; `OrgGitHubIdentity` and the `mintFn`
   seam grow an `ExpiresAt` field. `MintInstallationToken` stays as a
   thin wrapper for the one caller that only needs the string.
-- **Wiring** in `server/helix_org.go` builds the provider registry next to
-  the existing `secretInjectors` block so both surfaces flow through one
-  per-org identity resolver:
-  ```
-  SecretInjector      → push GH_TOKEN at boot
-  CredentialProvider  → pull fresh token on demand
-  ```
+- **Wiring** in `server/helix_org.go` builds the provider registry
+  reusing the same per-org identity resolver that used to feed the
+  GitHub `SecretInjector`. The github `SecretInjector` itself is
+  **removed** (the file is deleted) — with every Worker holding
+  `mint_credential` in its baseline tool set, the boot-time `GH_TOKEN`
+  env var was redundant and only taught the agent to expect a working
+  credential that silently expired mid-session. The generic
+  `secretInjectors` slice + spawner iteration stay (still useful for
+  future non-credential secrets); the slice is empty today.
 - **Role / prompt:** `MintCredentialName` added to `BaseReadTools` so
   every Role (owner included, plus every Worker hired now or in the
   future, plus all pre-existing Roles backfilled by `RoleReconciler` at

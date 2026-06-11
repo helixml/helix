@@ -54,11 +54,11 @@ and slightly harmful (it sets up the agent to expect a working env var
 that silently expires mid-session, masking the need for the
 mint→export→retry pattern from turn 1).
 
-- [~] Delete `api/pkg/org/infrastructure/transports/github/secret_injector.go` and `secret_injector_test.go`.
-- [~] In `api/pkg/server/helix_org.go`, remove the github `NewSecretInjector` registration. Keep the `secretInjectors` slice (empty) — the generic mechanism stays for future transports.
-- [~] Update doc comments referencing "two surfaces, one path" (push at boot + pull on demand) to reflect that only the pull surface remains for credentials.
-- [~] Update `BaseReadTools` doc comment in `defaults.go` (no longer references the boot-time TTL — the "high cost of absence" is now "the Worker has nothing to authenticate with until it mints").
-- [~] Update `owner_role.md` "Long-running credentials" section: it's no longer a long-running-only concern; the Worker needs to mint on first use.
+- [x] Delete `api/pkg/org/infrastructure/transports/github/secret_injector.go` and `secret_injector_test.go`. **Done.**
+- [x] In `api/pkg/server/helix_org.go`, remove the github `NewSecretInjector` registration. Keep the `secretInjectors` slice (empty) — the generic mechanism stays for future transports. **Done.**
+- [x] Update doc comments referencing "two surfaces, one path" (push at boot + pull on demand) to reflect that only the pull surface remains for credentials. **Done: credential_provider.go, helix_org.go (both comment blocks around the resolver), agent/skill/github/client.go MintInstallationToken comment.**
+- [x] Update `BaseReadTools` doc comment in `defaults.go` (no longer references the boot-time TTL — the "high cost of absence" is now "the Worker has nothing to authenticate with until it mints"). **Done.**
+- [x] Update `owner_role.md` "Long-running credentials" section: it's no longer a long-running-only concern; the Worker needs to mint on first use. **Done: section retitled to "External-provider credentials" with the mint-before-first-command instruction explicit. mint_credential tool description body also rewritten so the agent reads "no token in env by default, must mint" from turn 1.**
 
 ## Out-of-scope (do not implement in this task)
 

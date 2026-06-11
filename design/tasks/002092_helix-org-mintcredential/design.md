@@ -229,18 +229,28 @@ Adding a new provider (e.g. Slack) is then:
 That satisfies the philosophy guardrail *"new tools must be addable without
 editing the core"* (CLAUDE.md, "helix-org design philosophy").
 
-### 3.6 Symmetry with `SecretInjector`
+### 3.6 No more `SecretInjector` for credentials
 
-```text
-SecretInjector      → pushes credential into project env at container boot
-mint_credential     → pulls credential on demand from the agent
-                       └── both flow through the same per-provider
-                           minting path (identityResolver for GitHub)
-```
+**Update (after user feedback during implementation):** the GitHub
+`SecretInjector` (which pushed `GH_TOKEN` into the project env at
+container boot) is **removed**. With every Worker holding
+`mint_credential` in its baseline tool set, the boot-time env var is
+redundant — and slightly harmful: it teaches the agent that
+`gh`/`git` work without thinking about credentials, then silently
+fails ~1h in when the env var expires. Removing it forces the agent
+into the mint→export→retry pattern from turn 1, which is the same
+pattern it needs anyway on every subsequent refresh.
 
-Slack — *"agent needs a bearer token to `curl`"* — may need only the pull
-surface in the first cut, not the injector. The architecture supports either
-or both independently.
+The generic `SecretInjector` mechanism (the slice + per-activation
+iteration in the spawner) stays. It is still useful infrastructure
+for any future transport that needs to push a non-credential secret
+into project env (e.g. a webhook signing secret the agent never
+mints on demand). Today the slice is empty.
+
+`gitHubTokenResolver` (the bot-preferring string projection of the
+identity resolver) also stays — it still backs the outbound github
+stream transport's `Token()` lookup and the webhook-install flow.
+Only the Worker-shell-token surface moves to `mint_credential`.
 
 ## 4. Role / prompt changes
 
