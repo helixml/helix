@@ -1,18 +1,13 @@
 import ClearIcon from "@mui/icons-material/Clear";
-import StorageIcon from "@mui/icons-material/Storage";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Divider from "@mui/material/Divider";
-import FormControl from "@mui/material/FormControl";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import FormGroup from "@mui/material/FormGroup";
 import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
-import InputLabel from "@mui/material/InputLabel";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -38,11 +33,10 @@ import {
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
-import RunnerProfilesTable from "../components/dashboard/RunnerProfilesTable";
 import PricingTable from "../components/dashboard/PricingTable";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsTable";
-import AgentSandboxes from "../components/admin/AgentSandboxes";
+import Runners from "../components/admin/Runners";
 import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
 import UserDetailPanel from "../components/dashboard/UserDetailPanel";
@@ -70,7 +64,6 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
     const [viewingSession, setViewingSession] = useState<TypesSession>();
     const [active, setActive] = useState(START_ACTIVE);
     const [sessionFilter, setSessionFilter] = useState("");
-    const [selectedSandboxId, setSelectedSandboxId] = useState<string>("");
     const [sessionIdParam, setSessionIdParam] = useState<string>("");
     const [repoId, setRepoId] = useState<string>("");
     const [selectedUserId, setSelectedUserId] = useState<string>("");
@@ -78,45 +71,24 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
 
     const session_id = sessionIdParam;
 
-    // Fetch list of registered sandbox instances for the agent_sandboxes tab.
-    // v1SandboxesList returns every row including offline ones (good for
-    // /admin/runners/.../assignment use-cases that want history). The
-    // dropdown filters to online-only below so the operator only sees
-    // Runners that can actually be inspected.
-    const { data: allSandboxInstances, isLoading: isLoadingSandboxes } = useQuery({
+    // Fetch list of registered sandbox instances for the Runners tab.
+    // Used solely for the version-mismatch alert that surfaces when any
+    // online runner reports a helix_version different from the control
+    // plane. Tab-gated and only refetched while the tab is open.
+    const { data: allSandboxInstances } = useQuery({
         queryKey: ["sandbox-instances"],
         queryFn: async () => {
             const response = await apiClient.v1SandboxesList();
             return response.data;
         },
-        enabled: tab === "agent_sandboxes",
+        enabled: tab === "runners",
         refetchInterval: 10000,
     });
 
-    // Online-only view for the dropdown + downstream AgentSandboxes filter.
-    // The reaper flips stale rows to status="offline"; we hide those from
-    // the picker so the operator isn't confronted with dead-yesterday
-    // Runners they can't actually do anything with. If we ever need the
-    // full historical list (e.g. for an "include offline" toggle), the
-    // raw allSandboxInstances is still available above.
     const sandboxInstances = useMemo(
         () => allSandboxInstances?.filter((i) => i.status === "online"),
         [allSandboxInstances],
     );
-
-    // Don't auto-select — default to "All Sandboxes" view for aggregate monitoring.
-    // BUT if the currently-selected Runner has disappeared from the list (reaper
-    // flipped it to offline, then it dropped out of the API response, or it was
-    // deleted), reset to empty so the dropdown doesn't render an opaque sbx_…
-    // id with no hostname/icon and the downstream panel doesn't render empty
-    // arrays under a stale id.
-    useEffect(() => {
-        if (!selectedSandboxId || !sandboxInstances) return;
-        const stillExists = sandboxInstances.some((i) => i.id === selectedSandboxId);
-        if (!stillExists) {
-            setSelectedSandboxId("");
-        }
-    }, [sandboxInstances, selectedSandboxId]);
 
     const onViewSession = useCallback((session_id: string) => {
         setSessionIdParam(session_id);
@@ -267,23 +239,6 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     </Box>
                 )}
 
-                {tab === "runners" && (
-                    <Box sx={{ width: "100%", p: 3 }}>
-                        <Typography variant="h5" gutterBottom>GPU Runners</Typography>
-                        <Typography variant="body1" color="text.secondary" paragraph>
-                            The legacy runner / scheduler / slot dashboard has been retired in
-                            the sandbox-absorbs-runner pivot. What you used to see here now
-                            lives in:
-                        </Typography>
-                        <ul>
-                            <li><strong>Agent Sandboxes</strong> — connected sandboxes with their
-                            GPU inventory, active profile, and per-service health.</li>
-                            <li><strong>Runner Profiles</strong> — define and assign compose-based
-                            profiles to sandboxes.</li>
-                        </ul>
-                    </Box>
-                )}
-
                 {tab === "helix_models" && (
                     <Box
                         sx={{
@@ -291,12 +246,6 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                         }}
                     >
                         <HelixModelsTable />
-                    </Box>
-                )}
-
-                {tab === "runner_profiles" && account.admin && (
-                    <Box sx={{ width: "100%", p: 2 }}>
-                        <RunnerProfilesTable />
                     </Box>
                 )}
 
@@ -321,91 +270,43 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     </Box>
                 )}
 
-                {tab === "agent_sandboxes" && account.admin && (
+                {tab === "runners" && account.admin && (
                     <Box sx={{ width: "100%" }}>
-                        {/* Version Mismatch Alert - skip for dev builds (SHA1 hashes or unknown) */}
+                        {/* Version Mismatch Alert - skip for dev builds (SHA1 hashes or unknown).
+                            Kept at this layer (not inside Runners.tsx) so it's visible across
+                            every sub-tab, not just Overview. */}
                         {(() => {
                             const controlPlaneVersion = account.serverConfig?.version;
                             if (!controlPlaneVersion || !sandboxInstances) return null;
-                            
-                            // Skip alert for dev builds: <unknown> or SHA1 hash (40 hex chars)
+
                             if (controlPlaneVersion === "<unknown>") return null;
                             const isSha1Hash = /^[a-f0-9]{40}$/i.test(controlPlaneVersion);
                             if (isSha1Hash) return null;
-                            
-                            const mismatchedSandboxes = sandboxInstances.filter(
+
+                            const mismatched = sandboxInstances.filter(
                                 (s) => s.helix_version && s.status === "online" && s.helix_version !== controlPlaneVersion
                             );
-                            
-                            if (mismatchedSandboxes.length === 0) return null;
-                            
-                            const formatVersion = (v: string) => v.length > 7 ? v.substring(0, 7) : v;
-                            
+                            if (mismatched.length === 0) return null;
+
+                            const fmt = (v: string) => v.length > 7 ? v.substring(0, 7) : v;
                             return (
-                                <Alert 
-                                    severity="warning" 
+                                <Alert
+                                    severity="warning"
                                     icon={<WarningAmberIcon />}
-                                    sx={{ mb: 2 }}
+                                    sx={{ m: 2, mb: 0 }}
                                 >
-                                    <strong>Version Mismatch:</strong> {mismatchedSandboxes.length} sandbox{mismatchedSandboxes.length > 1 ? "es" : ""} running different version than control plane (v{formatVersion(controlPlaneVersion)}):
+                                    <strong>Version Mismatch:</strong> {mismatched.length} runner{mismatched.length > 1 ? "s" : ""} on a different version than control plane (v{fmt(controlPlaneVersion)}):
                                     {" "}
-                                    {mismatchedSandboxes.map((s, i) => (
+                                    {mismatched.map((s, i) => (
                                         <span key={s.id}>
                                             {i > 0 && ", "}
-                                            <strong>{s.hostname || s.id}</strong> (v{formatVersion(s.helix_version || "unknown")})
+                                            <strong>{s.hostname || s.id}</strong> (v{fmt(s.helix_version || "unknown")})
                                         </span>
                                     ))}
                                 </Alert>
                             );
                         })()}
-                        {/* Sandbox Selector */}
-                        <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-                            <FormControl size="small" sx={{ minWidth: 400 }}>
-                                <InputLabel id="sandbox-selector-label" shrink>Agent Sandbox</InputLabel>
-                                <Select
-                                    labelId="sandbox-selector-label"
-                                    value={selectedSandboxId}
-                                    label="Agent Sandbox"
-                                    displayEmpty
-                                    onChange={(e) => setSelectedSandboxId(e.target.value)}
-                                    disabled={isLoadingSandboxes || !sandboxInstances?.length}
-                                    startAdornment={<StorageIcon sx={{ mr: 1, color: "text.secondary" }} />}
-                                    renderValue={(value) => {
-                                        if (!value) return <em>All Sandboxes</em>
-                                        const inst = sandboxInstances?.find((i) => i.id === value)
-                                        if (!inst) return value
-                                        return `${inst.gpu_vendor ? "🖥️" : "💻"} ${inst.hostname || inst.id}`
-                                    }}
-                                >
-                                    <MenuItem value="">
-                                        <em>All Sandboxes</em>
-                                    </MenuItem>
-                                    {sandboxInstances?.map((instance) => {
-                                        const version = instance.helix_version;
-                                        const shortVersion = version && version.length > 7 ? version.substring(0, 7) : version;
-                                        return (
-                                            <MenuItem key={instance.id} value={instance.id}>
-                                                {instance.gpu_vendor ? "🖥️" : "💻"}{" "}
-                                                {instance.hostname || instance.id}
-                                                {shortVersion && ` (v${shortVersion})`}
-                                                {" "}- {instance.active_sandboxes || 0}/{instance.max_sandboxes || 10} sessions
-                                            </MenuItem>
-                                        );
-                                    })}
-                                </Select>
-                            </FormControl>
-                            {sandboxInstances && sandboxInstances.length > 0 && (
-                                <Typography variant="body2" color="text.secondary">
-                                    {sandboxInstances.length} sandbox{sandboxInstances.length !== 1 ? "es" : ""} registered
-                                </Typography>
-                            )}
-                            {!isLoadingSandboxes && (!sandboxInstances || sandboxInstances.length === 0) && (
-                                <Typography variant="body2" color="warning.main">
-                                    No agent sandboxes registered
-                                </Typography>
-                            )}
-                        </Box>
-                        <AgentSandboxes selectedSandboxId={selectedSandboxId} />
+                        <Runners />
                     </Box>
                 )}
 

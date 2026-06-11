@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useEffect, useState } from 'react'
 import {
   Box,
   Grid,
@@ -16,10 +16,8 @@ import {
   AvatarGroup,
   LinearProgress,
   Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
+  Tab,
+  Tabs,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import CloseIcon from '@mui/icons-material/Close'
@@ -29,9 +27,8 @@ import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
-import DescriptionIcon from '@mui/icons-material/Description'
 
-import RunnerLogs from './RunnerLogs'
+import RunnerProfilesTable from '../dashboard/RunnerProfilesTable'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from '../../contexts/account'
 import useApi from '../../hooks/useApi'
@@ -701,19 +698,47 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
   )
 }
 
-interface AgentSandboxesProps {
-  selectedSandboxId?: string
+// SubTab is one of four lenses on the same underlying dataset:
+//   overview  – aggregate stats + GPU panel (was the "Aggregate View" cards)
+//   fleet     – the list of runners themselves, one card per runner showing
+//               status + profile assignment (links into the runner-detail
+//               page for logs)
+//   sandboxes – user-facing dev containers (was "Dev Containers")
+//   profiles  – inference-profile config (was the standalone Runner Profiles
+//               admin tab; absorbed here because Profiles only make sense
+//               in the context of the runners that consume them)
+type SubTab = 'overview' | 'fleet' | 'sandboxes' | 'profiles'
+
+const SUBTAB_LS_KEY = 'admin-runners-subtab'
+
+function isSubTab(v: string | null): v is SubTab {
+  return v === 'overview' || v === 'fleet' || v === 'sandboxes' || v === 'profiles'
 }
 
-const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
+const Runners: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
-  // Inference profile catalogue. Polled on the same 5s cadence as the
-  // debug query below so the card visibility tracks profile additions /
-  // deletions made in another tab without manual refresh.
+  // Sub-tab state with localStorage persistence. URL-syncing would be nicer
+  // for deep-linking but the admin shell controls the top-level `dialog_tab`
+  // param and doesn't currently expose a nested-param hook; localStorage gets
+  // us 90% of the way (same operator returns to the same lens) without
+  // touching the shell.
+  const [subTab, setSubTab] = useState<SubTab>(() => {
+    if (typeof window === 'undefined') return 'overview'
+    const stored = window.localStorage.getItem(SUBTAB_LS_KEY)
+    return isSubTab(stored) ? stored : 'overview'
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(SUBTAB_LS_KEY, subTab)
+  }, [subTab])
+
+  // Inference profile catalogue. Polled on the same 5s cadence as the debug
+  // query below so the Profiles sub-tab tracks additions / deletions made
+  // elsewhere without manual refresh.
   const {
     data: runnerProfiles,
     isLoading: isLoadingRunnerProfiles,
@@ -728,7 +753,7 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     refetchInterval: 5000,
   })
 
-  // Stop session mutation
+  // Stop session mutation - kills a dev container.
   const stopMutation = useMutation({
     mutationFn: async (sessionId: string) => {
       setStoppingIds((prev) => new Set(prev).add(sessionId))
@@ -750,74 +775,38 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     stopMutation.mutate(sessionId)
   }
 
-  const allGpus = data?.gpus || []
-  const devContainers = data?.dev_containers || []
+  const gpus = data?.gpus || []
   const sandboxes = data?.sandboxes || []
+  const devContainers = data?.dev_containers || []
 
-  // Filter by selected sandbox if specified. Every GPU in the API response
-  // is tagged with its owning sandbox_id (see agent_sandboxes_handlers.go),
-  // so untagged GPUs under the current selection are dropped — they're
-  // either orphans or evidence of a backend bug worth flagging in the
-  // console rather than silently rendering under every Runner.
-  const gpus = selectedSandboxId
-    ? allGpus.filter((g) => {
-        if (!g.sandbox_id) {
-          // eslint-disable-next-line no-console
-          console.warn('[AgentSandboxes] dropping untagged GPU under specific-Runner filter', g)
-          return false
-        }
-        return g.sandbox_id === selectedSandboxId
-      })
-    : allGpus
-
-  const filteredContainers = selectedSandboxId
-    ? devContainers.filter((c) => c.sandbox_id === selectedSandboxId)
-    : devContainers
-
-  // Sort containers by session_id for stable ordering
-  const sortedContainers = [...filteredContainers].sort((a, b) =>
+  // Sort containers by session_id for stable rendering across refetches.
+  const sortedContainers = [...devContainers].sort((a, b) =>
     a.session_id.localeCompare(b.session_id)
   )
 
-  // Filter sandboxes too for consistency
-  const filteredSandboxes = selectedSandboxId
-    ? sandboxes.filter((s) => s.id === selectedSandboxId)
-    : sandboxes
-
-  // Decide whether to render the Inference Profiles card. Visible when
-  // at least one Runner Profile is configured OR when any sandbox in the
-  // current view has a profile already assigned (so deleting the last
-  // catalogue entry mid-interaction doesn't hide a "Clear" button from
-  // the operator). During the initial load of the profiles query, keep
-  // the card mounted to avoid a flash-of-hidden-card on first paint —
-  // it'll hide on the next render if the load resolves to empty.
-  const anySandboxHasProfileAssigned = filteredSandboxes.some(
-    (s) => !!s.active_profile_id,
-  )
+  // Decide whether the Profiles assignment panel inside Fleet should render.
+  // Visible when at least one Runner Profile is configured OR when any runner
+  // already has a profile assigned (so deleting the last catalogue entry
+  // mid-interaction doesn't hide a "Clear" button from the operator).
+  const anySandboxHasProfileAssigned = sandboxes.some((s) => !!s.active_profile_id)
   const hasRunnerProfiles = (runnerProfiles?.length ?? 0) > 0
-  const showInferenceProfilesCard =
+  const showInferenceProfilesPanel =
     isLoadingRunnerProfiles ||
     hasRunnerProfiles ||
     anySandboxHasProfileAssigned
 
-  // Summary stats should reflect the current filter
-  // Note: sandbox status is "online"/"offline"/"degraded", not "running"
-  const runningSandboxes = filteredSandboxes.filter((s) => s.status === 'online').length
+  // Aggregate stats - "online" not "running" (sandbox status enum).
+  const runningRunners = sandboxes.filter((s) => s.status === 'online').length
   const runningContainers = sortedContainers.filter((c) => c.status === 'running').length
   const totalClients = sortedContainers.reduce((sum, c) => sum + (c.clients?.length || 0), 0)
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
-          <Typography variant="h5">
-            {selectedSandboxId ? `Sandbox: ${selectedSandboxId}` : 'All Agent Sandboxes'}
-          </Typography>
+          <Typography variant="h5">Runners</Typography>
           <Typography variant="body2" color="text.secondary">
-            {selectedSandboxId
-              ? 'Dev containers and streaming stats for this sandbox'
-              : 'Aggregate view of all Hydra-managed dev containers'
-            }
+            Aggregate view of all Helix Runners
           </Typography>
         </Box>
         <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
@@ -827,143 +816,131 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
-          {error instanceof Error ? error.message : 'Failed to fetch sandbox data'}
+          {error instanceof Error ? error.message : 'Failed to fetch runner data'}
         </Alert>
       )}
 
-      {/* Summary Stats. "Running Sandboxes" only makes sense in the
-          all-sandboxes aggregate view - when a specific sandbox is
-          selected, the filter scope is a single row and the count is
-          always 1, which is noise. Hide it in the detail view and
-          rebalance the remaining two cards to fill the row. */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {!selectedSandboxId && (
-          <Grid item xs={12} sm={4}>
-            <Paper sx={{ p: 2, textAlign: 'center' }}>
-              <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-              <Typography variant="h4">{runningSandboxes}</Typography>
+      <Tabs
+        value={subTab}
+        onChange={(_, v) => setSubTab(v as SubTab)}
+        sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
+      >
+        <Tab value="overview" label="Overview" />
+        <Tab value="fleet" label="Fleet" />
+        <Tab value="sandboxes" label="Sandboxes" />
+        <Tab value="profiles" label="Profiles" />
+      </Tabs>
+
+      {subTab === 'overview' && (
+        <Box>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} sm={4}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+                <Typography variant="h4">{runningRunners}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Online Runners
+                </Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
+                <Typography variant="h4">{runningContainers}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Active Sandboxes
+                </Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
+                <Typography variant="h4">{totalClients}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Connected Users
+                </Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {gpus.length > 0 && <GPUStatsCard gpus={gpus} />}
+          {gpus.length === 0 && (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="body2" color="text.secondary">
-                Running Sandboxes
+                No GPU stats reported. Bring up a runner to see GPU telemetry.
               </Typography>
-            </Paper>
-          </Grid>
-        )}
-        <Grid item xs={12} sm={selectedSandboxId ? 6 : 4}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
-            <Typography variant="h4">{runningContainers}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Dev Containers
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} sm={selectedSandboxId ? 6 : 4}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
-            <Typography variant="h4">{totalClients}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Connected Users
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+            </Box>
+          )}
+        </Box>
+      )}
 
-      <Grid container spacing={3}>
-        {/* GPU Stats */}
-        {gpus.length > 0 && (
-          <Grid item xs={12}>
-            <GPUStatsCard gpus={gpus} />
-          </Grid>
-        )}
-
-        {/* Inference Profile state per sandbox. See showInferenceProfilesCard
-            above for the visibility decision (configured profile, mid-load,
-            or any sandbox already assigned). */}
-        {showInferenceProfilesCard && filteredSandboxes.length > 0 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardHeader
-                avatar={<MemoryIcon />}
-                title="Inference Profiles"
-                subheader="Per-sandbox assignment, compose stack lifecycle, and model-weights download progress"
-              />
-              <CardContent>
-                <Grid container spacing={2}>
-                  {filteredSandboxes.map((sb) => (
-                    <Grid item xs={12} md={6} lg={4} key={sb.id}>
-                      <SandboxProfileCard sandbox={sb} />
-                    </Grid>
-                  ))}
+      {subTab === 'fleet' && (
+        <Box>
+          {showInferenceProfilesPanel && sandboxes.length > 0 ? (
+            <Grid container spacing={2}>
+              {sandboxes.map((sb) => (
+                <Grid item xs={12} md={6} lg={4} key={sb.id}>
+                  <SandboxProfileCard sandbox={sb} />
                 </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-
-        {/* Runner Logs: live-tail hydra-aggregated logs from the selected
-            Runner. Requires a specific Runner selection — the stream is
-            per-Runner so "All Sandboxes" shows a prompt. */}
-        <Grid item xs={12}>
-          <Card>
-            <CardHeader
-              avatar={<DescriptionIcon />}
-              title="Runner Logs"
-              subheader="Live tail of hydra-aggregated logs (Runner stdout + inner desktop containers)"
-            />
-            <CardContent>
-              {selectedSandboxId ? (
-                <RunnerLogs runnerId={selectedSandboxId} compact />
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <DescriptionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="body2" color="text.secondary">
-                    Pick a Runner from the selector above to live-tail its logs.
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Dev Containers */}
-        <Grid item xs={12}>
-          <Card>
-            <CardHeader
-              avatar={<DesktopWindowsIcon />}
-              title="Dev Containers"
-              subheader={`${sortedContainers.length} container${sortedContainers.length !== 1 ? 's' : ''}`}
-            />
-            <CardContent>
-              {sortedContainers.length > 0 ? (
-                <Grid container spacing={2}>
-                  {sortedContainers.map((container) => (
-                    <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
-                      <DevContainerCard
-                        container={container}
-                        onStop={handleStopContainer}
-                        isStopping={stoppingIds.has(container.session_id)}
-                      />
-                    </Grid>
-                  ))}
+              ))}
+            </Grid>
+          ) : sandboxes.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <ComputerIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+              <Typography variant="body1" color="text.secondary">
+                No runners registered
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Provision one via YellowDog, or self-register a runner pointing at this control plane.
+              </Typography>
+            </Box>
+          ) : (
+            <Grid container spacing={2}>
+              {sandboxes.map((sb) => (
+                <Grid item xs={12} md={6} lg={4} key={sb.id}>
+                  <SandboxProfileCard sandbox={sb} />
                 </Grid>
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <DesktopWindowsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="body1" color="text.secondary">
-                    No dev containers running
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Start a task to launch a desktop sandbox
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+              ))}
+            </Grid>
+          )}
+        </Box>
+      )}
 
-      </Grid>
+      {subTab === 'sandboxes' && (
+        <Box>
+          {sortedContainers.length > 0 ? (
+            <Grid container spacing={2}>
+              {sortedContainers.map((container) => (
+                <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
+                  <DevContainerCard
+                    container={container}
+                    onStop={handleStopContainer}
+                    isStopping={stoppingIds.has(container.session_id)}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <DesktopWindowsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+              <Typography variant="body1" color="text.secondary">
+                No dev containers running
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Start a task to launch a desktop sandbox.
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {subTab === 'profiles' && (
+        <Box>
+          <RunnerProfilesTable />
+        </Box>
+      )}
     </Box>
   )
 }
 
-export default AgentSandboxes
+export default Runners
