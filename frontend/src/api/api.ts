@@ -1007,6 +1007,25 @@ export interface ServerExposedPort {
   url?: string;
 }
 
+export interface ServerForkSessionRequest {
+  /**
+   * AutoCommitUncommitted, when true, runs `git add -A && git commit
+   * && git push` per dirty repo in the parent's container BEFORE the
+   * parent is paused. Without this, any uncommitted file edits or
+   * unpushed commits in the parent's container would be invisible to
+   * the child (which boots a fresh clone). Defaults to true at the
+   * API level — pass false explicitly to opt out (loses changes).
+   * Push failures abort the fork; the parent is NOT paused.
+   */
+  auto_commit_uncommitted?: boolean;
+  code_agent_runtime?: TypesCodeAgentRuntime;
+  helix_app_id?: string;
+}
+
+export interface ServerForkSessionResponse {
+  new_session_id?: string;
+}
+
 export interface ServerGPUInfoWithSandbox {
   index?: number;
   memory_free_bytes?: number;
@@ -1665,6 +1684,59 @@ export interface ServerVideoStreamingStats {
   client_count?: number;
   frames_received?: number;
   gop_buffer_size?: number;
+}
+
+export interface ServerWorkspaceRepoStatus {
+  branch?: string;
+  /**
+   * Error is set when we couldn't determine the status (container
+   * unreachable, path missing, git command failed). The repo is then
+   * excluded from "dirty" totals — we don't refuse a fork because we
+   * can't see one repo's state.
+   */
+  error?: string;
+  name?: string;
+  repo_id?: string;
+  uncommitted_files?: number;
+  unpushed_commits?: number;
+}
+
+export interface ServerWorkspaceStatusResponse {
+  /**
+   * CanSaveChanges is false when there ARE dirty changes but the
+   * fork's pre-commit safety net has nowhere viable to push them.
+   * Concretely: the session has no spec task, or the spec task has
+   * no branch name set, or the spec task's branch is a protected
+   * branch (main / master) that the remote pre-receive hook will
+   * reject. In any of those cases the frontend should refuse to
+   * offer "Fork with auto-commit" — the user has to fix git state
+   * manually (commit/push to a feature branch from the terminal)
+   * before forking, OR explicitly abandon the changes.
+   */
+  can_save_changes?: boolean;
+  /**
+   * CannotSaveReason is a human-readable explanation surfaced in
+   * the blocking modal. Empty when CanSaveChanges is true.
+   */
+  cannot_save_reason?: string;
+  /**
+   * ContainerReachable=false means we couldn't talk to the desktop
+   * at all (e.g. it's been reaped). The frontend should treat this
+   * as "unknown" and let the user decide whether to fork anyway.
+   */
+  container_reachable?: boolean;
+  /**
+   * ExpectedBranch is the branch the pre-fork commit will target,
+   * resolved from the spec task. Empty for sessions without a
+   * spec task. Exposed so the frontend can say "will commit to
+   * <branch>" instead of just "will commit" — helps the user
+   * understand what's about to happen.
+   */
+  expected_branch?: string;
+  is_dirty?: boolean;
+  repos?: ServerWorkspaceRepoStatus[];
+  session_id?: string;
+  total_dirty?: number;
 }
 
 export interface ServerAddLabelRequest {
@@ -5443,12 +5515,26 @@ export interface TypesSessionMetadata {
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
+  forked_at?: string;
+  forked_at_interaction_id?: string;
   /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
   gpu_vendor?: string;
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
   manually_review_questions?: boolean;
+  /**
+   * Fork lineage — set on a session created by forking from a parent.
+   * See design/tasks/002081_kickoff-mid-session/design.md.
+   */
+  parent_session_id?: string;
+  /**
+   * Pause state — sessions cannot accept new messages while paused.
+   * PausedReason is the only producer in v1: "forked_to:<child_id>".
+   */
+  paused?: boolean;
+  paused_at?: string;
+  paused_reason?: string;
   /** Path to saved screenshot when agent is paused */
   paused_screenshot_path?: string;
   /** NEW: SpecTask phase (planning, implementation) */
@@ -10280,10 +10366,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/knowledge
      * @secure
      */
-    v1KnowledgeList: (params: RequestParams = {}) =>
+    v1KnowledgeList: (
+      query?: {
+        /** Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge. */
+        organization_id?: string;
+        /** Filter by app ID */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesKnowledge[], any>({
         path: `/api/v1/knowledge`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -12078,7 +12173,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + grants + env dir + env row, then the worker row. Activations are preserved as audit.
+     * @description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersDelete
@@ -13995,7 +14090,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List secrets for the user.
+     * @description List secrets for the user, or for an organization when organization_id is set.
      *
      * @tags secrets
      * @name V1SecretsList
@@ -14003,10 +14098,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/secrets
      * @secure
      */
-    v1SecretsList: (params: RequestParams = {}) =>
+    v1SecretsList: (
+      query?: {
+        /** Organization ID or name. When set, lists org-owned secrets instead of personal secrets. */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSecret[], any>({
         path: `/api/v1/secrets`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -14377,6 +14479,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.
+     *
+     * @tags sessions
+     * @name V1SessionsForkCreate
+     * @summary Fork a session to a different agent (fork-and-pause)
+     * @request POST:/api/v1/sessions/{id}/fork
+     * @secure
+     */
+    v1SessionsForkCreate: (id: string, request: ServerForkSessionRequest, params: RequestParams = {}) =>
+      this.request<ServerForkSessionResponse, any>({
+        path: `/api/v1/sessions/${id}/fork`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List interactions for a session with pagination
      *
      * @tags interactions
@@ -14656,6 +14778,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Used by the fork-confirm modal so we can show "N files will be committed & pushed" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as "unknown".
+     *
+     * @tags sessions
+     * @name V1SessionsWorkspaceStatusDetail
+     * @summary Check uncommitted / unpushed git state in a session's desktop container
+     * @request GET:/api/v1/sessions/{id}/workspace-status
+     * @secure
+     */
+    v1SessionsWorkspaceStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerWorkspaceStatusResponse, any>({
+        path: `/api/v1/sessions/${id}/workspace-status`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

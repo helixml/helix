@@ -483,6 +483,13 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
 	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
+	// Workspace git plumbing used by the fork-and-pause safety net.
+	// Kept as dedicated endpoints (not /exec) because /exec is
+	// allowlist-restricted by design — adding git status/add/commit/push
+	// to the allowlist would weaken that gate. These run trusted, fixed
+	// command sequences with no caller-controlled command strings.
+	mux.HandleFunc("/workspace/status", s.handleWorkspaceStatus)
+	mux.HandleFunc("/workspace/commit-and-push", s.handleWorkspaceCommitAndPush)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

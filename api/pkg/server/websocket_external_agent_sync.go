@@ -545,6 +545,11 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Msg("🔗 [HELIX] Resuming in existing Zed thread after reconnect")
 		}
 
+		// Forked sessions: if this is the first message (no Zed thread yet) and a
+		// fork_seed interaction exists, prepend the parent transcript. No-op on
+		// non-forked sessions and on reconnect-to-existing-thread.
+		fullMessage = apiServer.maybePrependTranscript(ctx, helixSession, fullMessage)
+
 		command := types.ExternalAgentCommand{
 			Type: "chat_message",
 			Data: map[string]interface{}{
@@ -993,6 +998,20 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 	if session.Metadata.AgentType != "zed_external" {
 		// Not an external agent session, nothing to do
 		return nil
+	}
+
+	// Refuse to push new input to a paused session. This is defence-in-depth:
+	// the HTTP ingress paths (sendSessionMessage / startChatSessionHandler /
+	// sendQueuedPromptToSession) all check pause state before calling here,
+	// but a future caller that bypasses them would otherwise silently wake
+	// a frozen-checkpoint session.
+	if session.Metadata.Paused {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("interaction_id", interaction.ID).
+			Str("paused_reason", session.Metadata.PausedReason).
+			Msg("notify: refusing to push new interaction to paused session")
+		return fmt.Errorf("session is paused (reason: %s)", session.Metadata.PausedReason)
 	}
 
 	log.Info().
@@ -1934,10 +1953,15 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		_ = apiServer.Controller.Options.Store.TouchSession(ctx, sessionID)
 	}
 
+	// Forked sessions get the parent's transcript prepended on the very first
+	// message (when ZedThreadID=="" so Zed will create a new thread). No-op
+	// on regular sessions and on follow-up messages.
+	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, message)
+
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"message":       message,
+			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
 			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
@@ -3090,6 +3114,22 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
+	// Drop queued prompts targeting a paused session. The user paused the
+	// session (or it was paused by being forked) after this prompt was
+	// queued; delivering it now would resurrect a frozen checkpoint.
+	if session.Metadata.Paused {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("prompt_id", prompt.ID).
+			Str("paused_reason", session.Metadata.PausedReason).
+			Msg("queue: dropping queued prompt — target session is paused")
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, prompt.ID,
+			fmt.Sprintf("session paused (%s)", session.Metadata.PausedReason)); markErr != nil {
+			log.Warn().Err(markErr).Str("prompt_id", prompt.ID).Msg("queue: failed to mark prompt failed after paused-session drop")
+		}
+		return nil
+	}
+
 	// Re-check session idle state right before creating the interaction.
 	// A Zed user message may have arrived between processPromptQueue's initial
 	// check and now, creating a new Waiting interaction. Without this guard the
@@ -3203,13 +3243,19 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Str("session_id", sessionID).
 		Msg("🔗 [QUEUE] Stored request_id->session mapping for thread creation")
 
+	// Forked sessions: prepend parent transcript on the first outgoing message
+	// (when ZedThreadID is empty so Zed will create a new thread). No-op on
+	// regular / follow-up sends. maybePrependTranscript loads the seed from
+	// the fork_seed interaction's ResponseMessage exactly once.
+	outgoingMessage := apiServer.maybePrependTranscript(ctx, session, prompt.Content)
+
 	// Create the command to send to the external agent
 	// NOTE: acp_thread_id can be empty on first message - this triggers thread creation in Zed
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
 			"acp_thread_id": session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
-			"message":       prompt.Content,
+			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"agent_name":    agentName,
 			"from_queue":    true,         // Indicate this came from the queue

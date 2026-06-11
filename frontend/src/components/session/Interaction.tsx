@@ -21,6 +21,93 @@ import {
   TypesInteractionState,
 } from "../../api/api";
 
+/**
+ * Inline divider rendered in place of a normal user/assistant turn for
+ * synthetic fork_seed interactions. The seed's prompt_message is a
+ * human-readable summary ("Session forked from ses_X at turn N");
+ * response_message holds the parent's serialized transcript, hidden
+ * behind a disclosure for users who want to verify what was sent.
+ */
+const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
+  interaction,
+}) => {
+  const [expanded, setExpanded] = React.useState(false);
+  const transcript = interaction.response_message || "";
+  return (
+    <Box sx={{ my: 3 }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          color: "text.secondary",
+        }}
+      >
+        <Box sx={{ flex: 1, borderTop: "1px dashed", borderColor: "divider" }} />
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 0.25,
+            px: 1,
+          }}
+        >
+          <Box
+            sx={{
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            {interaction.prompt_message || "Forked from prior session"}
+          </Box>
+          {transcript && (
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              sx={{
+                background: "transparent",
+                border: "none",
+                color: "primary.main",
+                fontSize: "0.7rem",
+                cursor: "pointer",
+                p: 0,
+                "&:hover": { textDecoration: "underline" },
+              }}
+            >
+              {expanded ? "Hide transcript" : `Show transcript (${transcript.length.toLocaleString()} chars)`}
+            </Box>
+          )}
+        </Box>
+        <Box sx={{ flex: 1, borderTop: "1px dashed", borderColor: "divider" }} />
+      </Box>
+      {expanded && transcript && (
+        <Box
+          sx={{
+            mt: 1,
+            p: 1.5,
+            border: "1px dashed",
+            borderColor: "divider",
+            borderRadius: 1,
+            backgroundColor: "action.hover",
+            fontSize: "0.75rem",
+            fontFamily: "monospace",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            maxHeight: 400,
+            overflowY: "auto",
+          }}
+        >
+          {transcript}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   // Compare serverConfig
@@ -197,6 +284,16 @@ export const Interaction: FC<InteractionProps> = ({
     }
     setIsEditing(false);
   };
+
+  // Synthetic fork_seed interactions are the UI-visible marker that this
+  // session was created by forking another. Render as a centred divider
+  // with an expandable disclosure for the raw seeded transcript instead
+  // of as a normal user/assistant turn (the agent never sees the
+  // prompt_message — it's a placeholder; the actual seed payload lives
+  // in response_message and is injected via maybePrependTranscript).
+  if (interaction.trigger === "fork_seed") {
+    return <ForkSeedDivider interaction={interaction} />;
+  }
 
   return (
     <Box

@@ -1563,6 +1563,28 @@ definitions:
       url:
         type: string
     type: object
+  server.ForkSessionRequest:
+    properties:
+      auto_commit_uncommitted:
+        description: |-
+          AutoCommitUncommitted, when true, runs `git add -A && git commit
+          && git push` per dirty repo in the parent's container BEFORE the
+          parent is paused. Without this, any uncommitted file edits or
+          unpushed commits in the parent's container would be invisible to
+          the child (which boots a fresh clone). Defaults to true at the
+          API level — pass false explicitly to opt out (loses changes).
+          Push failures abort the fork; the parent is NOT paused.
+        type: boolean
+      code_agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      helix_app_id:
+        type: string
+    type: object
+  server.ForkSessionResponse:
+    properties:
+      new_session_id:
+        type: string
+    type: object
   server.GPUInfoWithSandbox:
     properties:
       index:
@@ -2658,6 +2680,70 @@ definitions:
       frames_received:
         type: integer
       gop_buffer_size:
+        type: integer
+    type: object
+  server.WorkspaceRepoStatus:
+    properties:
+      branch:
+        type: string
+      error:
+        description: |-
+          Error is set when we couldn't determine the status (container
+          unreachable, path missing, git command failed). The repo is then
+          excluded from "dirty" totals — we don't refuse a fork because we
+          can't see one repo's state.
+        type: string
+      name:
+        type: string
+      repo_id:
+        type: string
+      uncommitted_files:
+        type: integer
+      unpushed_commits:
+        type: integer
+    type: object
+  server.WorkspaceStatusResponse:
+    properties:
+      can_save_changes:
+        description: |-
+          CanSaveChanges is false when there ARE dirty changes but the
+          fork's pre-commit safety net has nowhere viable to push them.
+          Concretely: the session has no spec task, or the spec task has
+          no branch name set, or the spec task's branch is a protected
+          branch (main / master) that the remote pre-receive hook will
+          reject. In any of those cases the frontend should refuse to
+          offer "Fork with auto-commit" — the user has to fix git state
+          manually (commit/push to a feature branch from the terminal)
+          before forking, OR explicitly abandon the changes.
+        type: boolean
+      cannot_save_reason:
+        description: |-
+          CannotSaveReason is a human-readable explanation surfaced in
+          the blocking modal. Empty when CanSaveChanges is true.
+        type: string
+      container_reachable:
+        description: |-
+          ContainerReachable=false means we couldn't talk to the desktop
+          at all (e.g. it's been reaped). The frontend should treat this
+          as "unknown" and let the user decide whether to fork anyway.
+        type: boolean
+      expected_branch:
+        description: |-
+          ExpectedBranch is the branch the pre-fork commit will target,
+          resolved from the spec task. Empty for sessions without a
+          spec task. Exposed so the frontend can say "will commit to
+          <branch>" instead of just "will commit" — helps the user
+          understand what's about to happen.
+        type: string
+      is_dirty:
+        type: boolean
+      repos:
+        items:
+          $ref: '#/definitions/server.WorkspaceRepoStatus'
+        type: array
+      session_id:
+        type: string
+      total_dirty:
         type: integer
     type: object
   server.addLabelRequest:
@@ -8788,6 +8874,10 @@ definitions:
       external_agent_status:
         description: 'NEW: External agent status (running, stopped, terminated_idle)'
         type: string
+      forked_at:
+        type: string
+      forked_at_interaction_id:
+        type: string
       gpu_vendor:
         description: GPU vendor of sandbox running this session (nvidia, amd, intel,
           none)
@@ -8799,6 +8889,20 @@ definitions:
         type: integer
       manually_review_questions:
         type: boolean
+      parent_session_id:
+        description: |-
+          Fork lineage — set on a session created by forking from a parent.
+          See design/tasks/002081_kickoff-mid-session/design.md.
+        type: string
+      paused:
+        description: |-
+          Pause state — sessions cannot accept new messages while paused.
+          PausedReason is the only producer in v1: "forked_to:<child_id>".
+        type: boolean
+      paused_at:
+        type: string
+      paused_reason:
+        type: string
       paused_screenshot_path:
         description: Path to saved screenshot when agent is paused
         type: string
@@ -15845,6 +15949,16 @@ paths:
       - organizations
   /api/v1/knowledge:
     get:
+      parameters:
+      - description: Organization ID or name. When set, lists org-owned knowledge
+          instead of personal knowledge.
+        in: query
+        name: organization_id
+        type: string
+      - description: Filter by app ID
+        in: query
+        name: app_id
+        type: string
       responses:
         "200":
           description: OK
@@ -17919,8 +18033,8 @@ paths:
   /api/v1/orgs/{org}/workers/{id}:
     delete:
       description: 'Delete a Worker. Cascades: stops sessions, deletes the Helix project
-        + agent app, clears runtime state, deletes subscriptions + env dir
-        + env row, then the worker row. Activations are preserved as audit.'
+        + agent app, clears runtime state, deletes subscriptions + env dir + env row,
+        then the worker row. Activations are preserved as audit.'
       parameters:
       - description: Worker ID
         in: path
@@ -20812,7 +20926,14 @@ paths:
       - Search
   /api/v1/secrets:
     get:
-      description: List secrets for the user.
+      description: List secrets for the user, or for an organization when organization_id
+        is set.
+      parameters:
+      - description: Organization ID or name. When set, lists org-owned secrets instead
+          of personal secrets.
+        in: query
+        name: organization_id
+        type: string
       responses:
         "200":
           description: OK
@@ -21412,6 +21533,36 @@ paths:
       summary: Unexpose a port from the session's dev container
       tags:
       - sessions
+  /api/v1/sessions/{id}/fork:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new session with the target agent, seeded with the parent's
+        transcript, and pauses the parent. The parent remains as a frozen checkpoint.
+      parameters:
+      - description: Source session ID to fork from
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Target runtime selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.ForkSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ForkSessionResponse'
+      security:
+      - BearerAuth: []
+      summary: Fork a session to a different agent (fork-and-pause)
+      tags:
+      - sessions
   /api/v1/sessions/{id}/interactions:
     get:
       description: List interactions for a session with pagination
@@ -21894,6 +22045,30 @@ paths:
       summary: Get interaction by turn number
       tags:
       - Sessions
+  /api/v1/sessions/{id}/workspace-status:
+    get:
+      description: Used by the fork-confirm modal so we can show "N files will be
+        committed & pushed" or just proceed silently when the workspace is clean.
+        Aborts gracefully on unreachable containers — the frontend treats that as
+        "unknown".
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.WorkspaceStatusResponse'
+      security:
+      - BearerAuth: []
+      summary: Check uncommitted / unpushed git state in a session's desktop container
+      tags:
+      - sessions
   /api/v1/sessions/{id}/zed-config:
     get:
       consumes:

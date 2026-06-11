@@ -537,6 +537,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
+		if pauseErr := requireUnpaused(session); pauseErr != nil {
+			http.Error(rw, pauseErr.Message, pauseErr.StatusCode)
+			return
+		}
+
 		// Load interactions for the session
 		interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    session.ID,
@@ -2284,6 +2289,10 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 
 	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if err := requireUnpaused(session); err != nil {
+		return nil, err
 	}
 
 	requestID, interactionID, err := s.sendMessageToSession(ctx, sessionID, body.Content, body.NotifyUserID, body.Interrupt)

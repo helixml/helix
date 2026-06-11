@@ -8418,6 +8418,24 @@
                         "BearerAuth": []
                     }
                 ],
+                "parameters": [
+                    {
+                        "description": "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge.",
+                        "name": "organization_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -17671,11 +17689,21 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List secrets for the user.",
+                "description": "List secrets for the user, or for an organization when organization_id is set.",
                 "tags": [
                     "secrets"
                 ],
                 "summary": "List secrets",
+                "parameters": [
+                    {
+                        "description": "Organization ID or name. When set, lists org-owned secrets instead of personal secrets.",
+                        "name": "organization_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -18875,6 +18903,54 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/fork": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Fork a session to a different agent (fork-and-pause)",
+                "parameters": [
+                    {
+                        "description": "Source session ID to fork from",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.ForkSessionRequest"
+                            }
+                        }
+                    },
+                    "description": "Target runtime selection",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ForkSessionResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/interactions": {
             "get": {
                 "security": [
@@ -19769,6 +19845,43 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/workspace-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Used by the fork-confirm modal so we can show \"N files will be committed & pushed\" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as \"unknown\".",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Check uncommitted / unpushed git state in a session's desktop container",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.WorkspaceStatusResponse"
                                 }
                             }
                         }
@@ -26638,6 +26751,29 @@
                     }
                 }
             },
+            "server.ForkSessionRequest": {
+                "type": "object",
+                "properties": {
+                    "auto_commit_uncommitted": {
+                        "description": "AutoCommitUncommitted, when true, runs `git add -A && git commit\n&& git push` per dirty repo in the parent's container BEFORE the\nparent is paused. Without this, any uncommitted file edits or\nunpushed commits in the parent's container would be invisible to\nthe child (which boots a fresh clone). Defaults to true at the\nAPI level — pass false explicitly to opt out (loses changes).\nPush failures abort the fork; the parent is NOT paused.",
+                        "type": "boolean"
+                    },
+                    "code_agent_runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
+                    "helix_app_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.ForkSessionResponse": {
+                "type": "object",
+                "properties": {
+                    "new_session_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.GPUInfoWithSandbox": {
                 "type": "object",
                 "properties": {
@@ -28276,6 +28412,66 @@
                         "type": "integer"
                     },
                     "gop_buffer_size": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "server.WorkspaceRepoStatus": {
+                "type": "object",
+                "properties": {
+                    "branch": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "description": "Error is set when we couldn't determine the status (container\nunreachable, path missing, git command failed). The repo is then\nexcluded from \"dirty\" totals — we don't refuse a fork because we\ncan't see one repo's state.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "repo_id": {
+                        "type": "string"
+                    },
+                    "uncommitted_files": {
+                        "type": "integer"
+                    },
+                    "unpushed_commits": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "server.WorkspaceStatusResponse": {
+                "type": "object",
+                "properties": {
+                    "can_save_changes": {
+                        "description": "CanSaveChanges is false when there ARE dirty changes but the\nfork's pre-commit safety net has nowhere viable to push them.\nConcretely: the session has no spec task, or the spec task has\nno branch name set, or the spec task's branch is a protected\nbranch (main / master) that the remote pre-receive hook will\nreject. In any of those cases the frontend should refuse to\noffer \"Fork with auto-commit\" — the user has to fix git state\nmanually (commit/push to a feature branch from the terminal)\nbefore forking, OR explicitly abandon the changes.",
+                        "type": "boolean"
+                    },
+                    "cannot_save_reason": {
+                        "description": "CannotSaveReason is a human-readable explanation surfaced in\nthe blocking modal. Empty when CanSaveChanges is true.",
+                        "type": "string"
+                    },
+                    "container_reachable": {
+                        "description": "ContainerReachable=false means we couldn't talk to the desktop\nat all (e.g. it's been reaped). The frontend should treat this\nas \"unknown\" and let the user decide whether to fork anyway.",
+                        "type": "boolean"
+                    },
+                    "expected_branch": {
+                        "description": "ExpectedBranch is the branch the pre-fork commit will target,\nresolved from the spec task. Empty for sessions without a\nspec task. Exposed so the frontend can say \"will commit to\n<branch>\" instead of just \"will commit\" — helps the user\nunderstand what's about to happen.",
+                        "type": "string"
+                    },
+                    "is_dirty": {
+                        "type": "boolean"
+                    },
+                    "repos": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.WorkspaceRepoStatus"
+                        }
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "total_dirty": {
                         "type": "integer"
                     }
                 }
@@ -36731,6 +36927,12 @@
                         "description": "NEW: External agent status (running, stopped, terminated_idle)",
                         "type": "string"
                     },
+                    "forked_at": {
+                        "type": "string"
+                    },
+                    "forked_at_interaction_id": {
+                        "type": "string"
+                    },
                     "gpu_vendor": {
                         "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
                         "type": "string"
@@ -36744,6 +36946,20 @@
                     },
                     "manually_review_questions": {
                         "type": "boolean"
+                    },
+                    "parent_session_id": {
+                        "description": "Fork lineage — set on a session created by forking from a parent.\nSee design/tasks/002081_kickoff-mid-session/design.md.",
+                        "type": "string"
+                    },
+                    "paused": {
+                        "description": "Pause state — sessions cannot accept new messages while paused.\nPausedReason is the only producer in v1: \"forked_to:<child_id>\".",
+                        "type": "boolean"
+                    },
+                    "paused_at": {
+                        "type": "string"
+                    },
+                    "paused_reason": {
+                        "type": "string"
                     },
                     "paused_screenshot_path": {
                         "description": "Path to saved screenshot when agent is paused",
