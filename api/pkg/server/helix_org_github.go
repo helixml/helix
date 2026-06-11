@@ -7,10 +7,14 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/go-github/v61/github"
 	"github.com/rs/zerolog/log"
 
+	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/oauth"
+	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -223,4 +227,182 @@ func newOrgGitHubIdentityResolver(
 		}
 		return oauth(ctx, orgID)
 	}
+}
+
+// serviceConnections is the narrow slice of the host store the GitHub
+// integration needs — small enough to fake in a unit test.
+type serviceConnections interface {
+	ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error)
+	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	DeleteServiceConnection(ctx context.Context, id string) error
+}
+
+// gitHubIntegration owns the host-side GitHub-App reads the helix-org
+// REST API needs: the New Stream "Install Helix" gate (InstallationStatus)
+// and the repo picker (AppRepos). Lifted verbatim out of the inline
+// closures that used to live in initHelixOrgHandler — that function is a
+// composition root, not a home for GitHub-integration logic.
+//
+// The GitHub-call seams (decrypt / listInstalls / mintToken /
+// installRepos) are struct fields so the install-status sync (stale-conn
+// delete, installation-id + owner backfill) is unit-testable against a
+// fake store without hitting GitHub or real crypto.
+type gitHubIntegration struct {
+	conns   serviceConnections
+	decrypt func(*types.ServiceConnection) (string, error)
+	appSlug string // operator's BYO/pre-existing app slug fallback
+	webURL  string // GitHub web base URL for install/manage links
+
+	listInstalls func(ctx context.Context, appID int64, privateKey, baseURL string) ([]*github.Installation, error)
+	mintToken    func(ctx context.Context, appID, installationID int64, privateKey, baseURL string) (string, error)
+	installRepos func(ctx context.Context, token, baseURL string) ([]string, error)
+}
+
+// newGitHubIntegration wires the production seams: decrypt via the
+// server encryption key, and the real go-github / skill calls.
+func newGitHubIntegration(conns serviceConnections, getKey func() ([]byte, error), appSlug, webURL string) *gitHubIntegration {
+	return &gitHubIntegration{
+		conns:        conns,
+		decrypt:      func(c *types.ServiceConnection) (string, error) { return decryptAppKey(getKey, c) },
+		appSlug:      appSlug,
+		webURL:       webURL,
+		listInstalls: githubclient.ListAppInstallations,
+		mintToken:    githubskill.MintInstallationToken,
+		installRepos: func(ctx context.Context, token, baseURL string) ([]string, error) {
+			client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token, BaseURL: baseURL})
+			if err != nil {
+				return nil, err
+			}
+			return client.LoadInstallationRepos()
+		},
+	}
+}
+
+// InstallationStatus backs the New Stream "Install Helix" gate. It checks
+// for a github_app ServiceConnection with an installation id (no token
+// minting — cheaper than the identity resolver for a UI probe), verifying
+// against GitHub on every check so the gate reflects reality: it syncs
+// the installation id (incl. down to 0 when the user uninstalls) and
+// removes the stored connection when the app has been deleted on GitHub
+// (so the gate reverts to "Create the Helix app"). Transient errors fall
+// back to the stored state rather than mutating it.
+func (g *gitHubIntegration) InstallationStatus(ctx context.Context, orgID string) (helixorgapi.GitHubInstallationStatus, error) {
+	conns, err := g.conns.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
+	if err != nil {
+		return helixorgapi.GitHubInstallationStatus{}, fmt.Errorf("list github_app service connections: %w", err)
+	}
+	appExists := false
+	installed := false
+	slug := g.appSlug // BYO/pre-existing app fallback
+	var owner string
+	for _, c := range conns {
+		if c == nil || c.GitHubAppID == 0 {
+			continue
+		}
+		if pem, derr := g.decrypt(c); derr == nil {
+			insts, ierr := g.listInstalls(ctx, c.GitHubAppID, pem, c.BaseURL)
+			switch {
+			case errors.Is(ierr, githubclient.ErrAppNotFound):
+				log.Warn().Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("Helix GitHub App no longer exists on GitHub; removing stale connection")
+				if derr := g.conns.DeleteServiceConnection(ctx, c.ID); derr == nil {
+					continue // gone — don't count it
+				} else {
+					log.Error().Err(derr).Str("org_id", orgID).Msg("delete stale github app connection failed")
+				}
+			case ierr != nil:
+				log.Warn().Err(ierr).Str("org_id", orgID).Msg("verify github app installation failed; using stored state")
+			default:
+				var newInstallID int64
+				if len(insts) > 0 {
+					newInstallID = insts[0].GetID()
+				}
+				// Backfill the owner (for the manage URL) on apps created
+				// before the field existed — for our org-owned/installed-on-
+				// same-org flow the install account is the owner.
+				newOwner := c.GitHubAppOwner
+				if newOwner == "" && len(insts) > 0 {
+					newOwner = insts[0].GetAccount().GetLogin()
+				}
+				if newInstallID != c.GitHubInstallationID || newOwner != c.GitHubAppOwner {
+					c.GitHubInstallationID = newInstallID
+					c.GitHubAppOwner = newOwner
+					if uerr := g.conns.UpdateServiceConnection(ctx, c); uerr != nil {
+						log.Warn().Err(uerr).Str("org_id", orgID).Msg("persist synced installation id failed")
+					} else {
+						log.Info().Str("org_id", orgID).Int64("installation_id", newInstallID).Msg("synced Helix GitHub App installation from GitHub")
+					}
+				}
+			}
+		}
+		appExists = true
+		if c.GitHubAppSlug != "" {
+			slug = c.GitHubAppSlug // prefer the created app's own slug
+		}
+		if c.GitHubAppOwner != "" {
+			owner = c.GitHubAppOwner
+		}
+		if c.GitHubInstallationID != 0 {
+			installed = true
+		}
+	}
+	var installURL, manageURL string
+	if slug != "" {
+		installURL = g.webURL + "/apps/" + slug + "/installations/new"
+	}
+	if slug != "" && owner != "" {
+		manageURL = g.webURL + "/organizations/" + owner + "/settings/apps/" + slug
+	}
+	return helixorgapi.GitHubInstallationStatus{AppExists: appExists, Installed: installed, InstallURL: installURL, ManageURL: manageURL}, nil
+}
+
+// AppRepos aggregates repos across every installation of the org's Helix
+// App(s) — so one app installed on multiple GitHub orgs returns all of
+// their repos. Mints a per-installation token and lists the installation
+// repositories for each. isApp is false when the org has no app (caller
+// then falls back to the user's OAuth repos).
+func (g *gitHubIntegration) AppRepos(ctx context.Context, orgID string) ([]string, bool, error) {
+	conns, err := g.conns.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
+	if err != nil {
+		return nil, false, fmt.Errorf("list github_app service connections: %w", err)
+	}
+	isApp := false
+	seen := map[string]struct{}{}
+	var repos []string
+	for _, c := range conns {
+		if c == nil || c.GitHubAppID == 0 || c.GitHubPrivateKey == "" {
+			continue
+		}
+		isApp = true
+		pem, derr := g.decrypt(c)
+		if derr != nil {
+			continue
+		}
+		installs, ierr := g.listInstalls(ctx, c.GitHubAppID, pem, c.BaseURL)
+		if ierr != nil {
+			// App deleted or a transient error — skip this app rather than
+			// fail the whole listing (other apps may still resolve).
+			log.Warn().Err(ierr).Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("list app installations for repo picker failed")
+			continue
+		}
+		for _, inst := range installs {
+			tok, terr := g.mintToken(ctx, c.GitHubAppID, inst.GetID(), pem, c.BaseURL)
+			if terr != nil {
+				log.Warn().Err(terr).Str("org_id", orgID).Int64("installation_id", inst.GetID()).Msg("mint installation token for repo picker failed")
+				continue
+			}
+			names, lerr := g.installRepos(ctx, tok, c.BaseURL)
+			if lerr != nil {
+				log.Warn().Err(lerr).Str("org_id", orgID).Int64("installation_id", inst.GetID()).Msg("list installation repos failed")
+				continue
+			}
+			for _, n := range names {
+				if _, ok := seen[n]; ok {
+					continue
+				}
+				seen[n] = struct{}{}
+				repos = append(repos, n)
+			}
+		}
+	}
+	return repos, isApp, nil
 }

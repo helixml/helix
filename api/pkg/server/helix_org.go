@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,7 +16,6 @@ import (
 	"github.com/gorilla/mux"
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
-	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
@@ -46,7 +44,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
@@ -408,6 +405,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Mirror:   mirror, // Fire stops the fired worker's subscription
 	}
 
+	// GitHub-App integration (install-status gate + repo picker) — owned
+	// by the gitHubIntegration adapter rather than inline closures here.
+	gitHubInt := newGitHubIntegration(helixStore, cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.AppSlug, cfg.APIServer.Cfg.GitHub.WebURL())
+
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
@@ -464,140 +465,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 				BaseURL:        id.BaseURL,
 			}, nil
 		},
-		// GitHubInstallation backs the New Stream "Install Helix" gate. It
-		// checks for a github_app ServiceConnection with an installation id
-		// (no token minting — cheaper than GitHubIdentity for a UI probe)
-		// and builds the install URL from the operator's public app slug.
-		GitHubInstallation: func(ctx context.Context, orgID string) (helixorgapi.GitHubInstallationStatus, error) {
-			conns, err := helixStore.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
-			if err != nil {
-				return helixorgapi.GitHubInstallationStatus{}, fmt.Errorf("list github_app service connections: %w", err)
-			}
-			appExists := false
-			installed := false
-			slug := cfg.APIServer.Cfg.GitHub.AppSlug // BYO/pre-existing app fallback
-			var owner string
-			for _, c := range conns {
-				if c == nil || c.GitHubAppID == 0 {
-					continue
-				}
-				// Verify against GitHub on every check so the gate reflects
-				// reality: syncs the installation id (incl. down to 0 when the
-				// user uninstalls), and removes the stored connection when the
-				// app has been deleted on GitHub (so the gate reverts to
-				// "Create the Helix app"). Transient errors fall back to the
-				// stored state rather than mutating it.
-				if pem, derr := decryptAppKey(cfg.APIServer.getEncryptionKey, c); derr == nil {
-					insts, ierr := githubclient.ListAppInstallations(ctx, c.GitHubAppID, pem, c.BaseURL)
-					switch {
-					case errors.Is(ierr, githubclient.ErrAppNotFound):
-						log.Warn().Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("Helix GitHub App no longer exists on GitHub; removing stale connection")
-						if derr := helixStore.DeleteServiceConnection(ctx, c.ID); derr == nil {
-							continue // gone — don't count it
-						} else {
-							log.Error().Err(derr).Str("org_id", orgID).Msg("delete stale github app connection failed")
-						}
-					case ierr != nil:
-						log.Warn().Err(ierr).Str("org_id", orgID).Msg("verify github app installation failed; using stored state")
-					default:
-						var newInstallID int64
-						if len(insts) > 0 {
-							newInstallID = insts[0].GetID()
-						}
-						// Backfill the owner (for the manage URL) on apps
-						// created before the field existed — for our
-						// org-owned/installed-on-same-org flow the install
-						// account is the owner.
-						newOwner := c.GitHubAppOwner
-						if newOwner == "" && len(insts) > 0 {
-							newOwner = insts[0].GetAccount().GetLogin()
-						}
-						if newInstallID != c.GitHubInstallationID || newOwner != c.GitHubAppOwner {
-							c.GitHubInstallationID = newInstallID
-							c.GitHubAppOwner = newOwner
-							if uerr := helixStore.UpdateServiceConnection(ctx, c); uerr != nil {
-								log.Warn().Err(uerr).Str("org_id", orgID).Msg("persist synced installation id failed")
-							} else {
-								log.Info().Str("org_id", orgID).Int64("installation_id", newInstallID).Msg("synced Helix GitHub App installation from GitHub")
-							}
-						}
-					}
-				}
-				appExists = true
-				if c.GitHubAppSlug != "" {
-					slug = c.GitHubAppSlug // prefer the created app's own slug
-				}
-				if c.GitHubAppOwner != "" {
-					owner = c.GitHubAppOwner
-				}
-				if c.GitHubInstallationID != 0 {
-					installed = true
-				}
-			}
-			webURL := cfg.APIServer.Cfg.GitHub.WebURL()
-			var installURL, manageURL string
-			if slug != "" {
-				installURL = webURL + "/apps/" + slug + "/installations/new"
-			}
-			if slug != "" && owner != "" {
-				manageURL = webURL + "/organizations/" + owner + "/settings/apps/" + slug
-			}
-			return helixorgapi.GitHubInstallationStatus{AppExists: appExists, Installed: installed, InstallURL: installURL, ManageURL: manageURL}, nil
-		},
-		// GitHubAppRepos aggregates repos across every installation of the
-		// org's Helix App(s) — so one app installed on multiple GitHub orgs
-		// returns all of their repos. Mints a per-installation token and lists
-		// /installation/repositories for each.
-		GitHubAppRepos: func(ctx context.Context, orgID string) ([]string, bool, error) {
-			conns, err := helixStore.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
-			if err != nil {
-				return nil, false, fmt.Errorf("list github_app service connections: %w", err)
-			}
-			isApp := false
-			seen := map[string]struct{}{}
-			var repos []string
-			for _, c := range conns {
-				if c == nil || c.GitHubAppID == 0 || c.GitHubPrivateKey == "" {
-					continue
-				}
-				isApp = true
-				pem, derr := decryptAppKey(cfg.APIServer.getEncryptionKey, c)
-				if derr != nil {
-					continue
-				}
-				installs, ierr := githubclient.ListAppInstallations(ctx, c.GitHubAppID, pem, c.BaseURL)
-				if ierr != nil {
-					// App deleted or a transient error — skip this app rather
-					// than fail the whole listing (other apps may still resolve).
-					log.Warn().Err(ierr).Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("list app installations for repo picker failed")
-					continue
-				}
-				for _, inst := range installs {
-					tok, terr := githubskill.MintInstallationToken(ctx, c.GitHubAppID, inst.GetID(), pem, c.BaseURL)
-					if terr != nil {
-						log.Warn().Err(terr).Str("org_id", orgID).Int64("installation_id", inst.GetID()).Msg("mint installation token for repo picker failed")
-						continue
-					}
-					client, cerr := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: tok, BaseURL: c.BaseURL})
-					if cerr != nil {
-						continue
-					}
-					names, lerr := client.LoadInstallationRepos()
-					if lerr != nil {
-						log.Warn().Err(lerr).Str("org_id", orgID).Int64("installation_id", inst.GetID()).Msg("list installation repos failed")
-						continue
-					}
-					for _, n := range names {
-						if _, ok := seen[n]; ok {
-							continue
-						}
-						seen[n] = struct{}{}
-						repos = append(repos, n)
-					}
-				}
-			}
-			return repos, isApp, nil
-		},
+		// GitHubInstallation backs the New Stream "Install Helix" gate;
+		// GitHubAppRepos backs the repo picker. Both are owned by the
+		// gitHubIntegration adapter (helix_org_github.go) — this
+		// composition root just constructs it and passes method values.
+		GitHubInstallation: gitHubInt.InstallationStatus,
+		GitHubAppRepos:     gitHubInt.AppRepos,
 		// GitHubManifestStart builds the "create the Helix app" manifest flow.
 		GitHubManifestStart: newGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL()),
 		// PublicServerURL is the externally-reachable base URL the

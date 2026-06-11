@@ -552,15 +552,19 @@ each PHASE behind its own PR; phases are sequential but tasks within the
 - [x] D4. Grep-clean: no `interfaces/server` adapter references a store
   repository. Build + full `./pkg/org/...` suite green.
 
-### Phase E — GitHub integration out of the root
+### Phase E — GitHub integration out of the root ✅
 
-- [ ] E1. Add `gitHubIntegration` type in `helix_org_github.go` with
-  methods `InstallationStatus`, `AppRepos`, `ManifestStart` (moved verbatim
-  from the inline closures `helix_org.go:403-534`).
-- [ ] E2. Add a unit test for the install-status sync logic (stale-conn
-  delete, installation-id backfill) — currently untestable as a closure.
-- [ ] E3. `initHelixOrgHandler` constructs `gitHubIntegration` and passes
-  method values into `apiDeps`; the big closures leave `helix_org.go`.
+- [x] E1. Added `gitHubIntegration` type in `helix_org_github.go` with
+  methods `InstallationStatus` + `AppRepos` (moved verbatim from the
+  inline closures). GitHub-call seams (decrypt / listInstalls / mintToken
+  / installRepos) are struct fields so the logic is testable.
+  (`ManifestStart` already lived in `newGitHubManifestStart`.)
+- [x] E2. Added `helix_org_github_integration_test.go` covering the
+  install-status sync: install-id + owner backfill, stale-connection
+  delete, no-mutation-when-in-sync — against a hand-written fake.
+- [x] E3. `initHelixOrgHandler` constructs `gitHubIntegration` and passes
+  `InstallationStatus`/`AppRepos` method values into `apiDeps`; the ~130
+  lines of closures left `helix_org.go`.
 
 ### Phase F — invert API-key provisioning
 
