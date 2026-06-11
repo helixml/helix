@@ -11,7 +11,7 @@
 
 ## Phase 2 — Org-layer: remove artificial poll-loop deadline
 
-- [ ] In `api/pkg/org/infrastructure/runtime/helix/spawner.go`:
+- [~] In `api/pkg/org/infrastructure/runtime/helix/spawner.go`:
   - Rename `SpawnerConfig.ActivationTimeout` → `SessionStartupTimeout` (default `5 * time.Minute`).
   - Add `SpawnerConfig.ActivationRunawayGuard` (default `24 * time.Hour`).
   - Update the default-population block at lines 146-148.
