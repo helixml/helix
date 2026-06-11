@@ -214,6 +214,11 @@ func (s *Workers) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 	if id == "" {
 		id = orgchart.WorkerID("w-" + s.newID())
 	}
+	// The id becomes a path segment under envsDir below — reject any
+	// traversal ("../…") or separator before it reaches the filesystem.
+	if err := orgchart.ValidID(string(id)); err != nil {
+		return HireResult{}, fmt.Errorf("worker id: %w", err)
+	}
 	envPath := filepath.Join(s.envsDir, string(id))
 
 	var wkr orgchart.Worker

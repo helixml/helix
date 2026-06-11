@@ -767,6 +767,12 @@ func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
+	// The id becomes a path segment under EnvsDir below — reject any
+	// traversal before it reaches the filesystem (path injection).
+	if err := orgchart.ValidID(string(id)); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("worker id: %w", err))
+		return
+	}
 	if _, err := a.deps.Queries.GetWorker(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return

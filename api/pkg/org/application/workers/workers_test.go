@@ -283,6 +283,31 @@ func TestWorkersHire_RejectsUnknownKind(t *testing.T) {
 	}
 }
 
+// TestWorkersHire_RejectsPathTraversalID pins the path-injection guard:
+// a worker id that would escape the envs directory is rejected before
+// any os.MkdirAll, and nothing is created under the temp envs root.
+func TestWorkersHire_RejectsPathTraversalID(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	envs := t.TempDir()
+	svc := newServiceEnv(st, envs)
+	ctx := context.Background()
+	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, fixedClock(), "org-test")
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.Hire(ctx, "org-test", HireParams{
+		ID: "../../escape", RoleID: "r-eng", Kind: orgchart.WorkerKindAI, IdentityContent: "x",
+	})
+	if err == nil {
+		t.Fatal("Hire with traversal id: want error")
+	}
+	// No worker row persisted.
+	if _, gerr := st.Workers.Get(ctx, "org-test", "../../escape"); gerr == nil {
+		t.Fatal("traversal worker should not have been created")
+	}
+}
+
 func TestWorkersHire_UnknownRole(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
