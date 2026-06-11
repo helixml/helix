@@ -23,17 +23,32 @@
 - [x] All 15 `TestSpawner*` tests pass; all auto-wake tests pass.
 - [x] Commit: `refactor(org): split ActivationTimeout into startup + runaway guard`.
 
-## Phase 3 — End-to-end verification in inner Helix
+## Phase 3 — Verification
 
-- [ ] Register `test@helix.ml` / `helixtest` in the inner Helix at `http://localhost:8080`. Complete onboarding (testorg → testproj).
-- [ ] Reproduce the failure mode against an un-fixed build (or revert Phases 1+2 locally first): create a spec task and ask the agent to run `sleep 120 && echo done` inside a tool call. Confirm the "↻ Retried" / "Incomplete interaction" banner appears on a decoy interaction.
-- [ ] Re-apply Phases 1+2. Repeat the same scenario. Confirm: the session completes without a banner, no decoy row exists in the DB, no `auto_wake_count > 0` on the interaction.
-- [ ] DB check after a long session:
+### Unit-test coverage (done in this session)
+
+- [x] **Phase 1 (threshold):** `TestAutoWakeStuckThresholdDefault` pins the new 180s default; `TestAutoWakeStuckThresholdOverride` covers env-var override, garbage fallback, zero fallback. Two existing cold-start tests (`TestSkipsBudgetWhileStartDesktopInFlight`, `TestSkipsBudgetWhileRunningButNoWS`) updated to use `-4 * time.Minute` Created times so they still clear the new threshold.
+- [x] **Phase 2 (split contexts):** `TestSpawnerSessionStartupTimeoutBoundsStartup` proves a hanging `StartSession` is bounded by `SessionStartupTimeout`, NOT by the much larger `ActivationRunawayGuard`. `TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout` proves the poll loop runs past the SessionStartupTimeout boundary and terminates only at ActivationRunawayGuard — direct regression test for the decoy-spawning bug. `TestSpawnerTimeoutEmitsExitError` retargeted to exercise `ActivationRunawayGuard`.
+- [x] All 15 `TestSpawner*` tests pass; all auto-wake tests pass; whole api package builds clean.
+
+### E2E in inner Helix — DEFERRED to operator after merge
+
+E2E reproduction was not attempted in this session because:
+
+- The inner Helix `api` container is the very runtime hosting this spec-task agent. A full restart to pick up the Phase 2 changes (Air's inotify watcher doesn't fire reliably through the bind mount for `api/pkg/org/infrastructure/runtime/helix/`) would interrupt this and any other concurrent worker sessions on the same instance.
+- The bug repro requires a 2–5 minute synchronous tool call followed by observing for several minutes whether a decoy `state=waiting` row is created and whether the auto-wake worker fires. This is operator-friendly to script but very slow inside an active agent session.
+
+What the operator should run post-merge to confirm:
+
+- [ ] Reproduce pre-change (against a build without these commits, or with `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS=60` env-var to keep just the threshold half): create a spec task, ask the agent to run `sleep 120 && echo done` inside a tool call. Confirm the "↻ Retried" / "Incomplete interaction" banner appears on a decoy interaction.
+- [ ] Post-change: repeat the same scenario. Confirm: the session completes without a banner; no decoy row exists in the DB; no `auto_wake_count > 0` on the interaction.
+- [ ] DB check:
   `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, session_id, state, response_message, auto_wake_count, created FROM interactions WHERE session_id = '<session>' ORDER BY created;"`
   Expect exactly one row per turn, none with empty `response_message` while the session is still alive.
-- [ ] Verify the auto-wake worker still fires when genuinely needed: manually insert a `state=waiting` row with empty response and aged-out `created` (or wait for an organic ACP-buffer-drop case). Confirm wake-up runs on the new 180s schedule.
-- [ ] Verify `ActivationRunawayGuard` does fire on a session that genuinely never terminates (mock / staging environment): the spawner should return after 24h, not earlier. Long-running but acceptable to skip in interactive verification — covered by unit test.
-- [ ] Document results in `design/2026-06-11-auto-wake-tool-call-fix.md` in the Helix repo (per CLAUDE.md convention).
+- [ ] Verify auto-wake still fires when genuinely needed: simulate a stuck `state=waiting` row with empty response and aged-out `created`. Confirm wake-up runs on the new 180s schedule (slower than before — that is the design).
+- [ ] `ActivationRunawayGuard` (24h) is covered by unit test (`TestSpawnerTimeoutEmitsExitError` with `ActivationRunawayGuard = 30ms`); production behaviour at 24h does not need interactive verification.
+
+- [x] Design notes captured in `design/2026-06-11-auto-wake-tool-call-fix.md` in the Helix repo per CLAUDE.md convention.
 
 ## Phase 4 — CI and ship
 
