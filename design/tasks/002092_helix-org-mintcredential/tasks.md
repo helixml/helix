@@ -60,6 +60,22 @@ mint→export→retry pattern from turn 1).
 - [x] Update `BaseReadTools` doc comment in `defaults.go` (no longer references the boot-time TTL — the "high cost of absence" is now "the Worker has nothing to authenticate with until it mints"). **Done.**
 - [x] Update `owner_role.md` "Long-running credentials" section: it's no longer a long-running-only concern; the Worker needs to mint on first use. **Done: section retitled to "External-provider credentials" with the mint-before-first-command instruction explicit. mint_credential tool description body also rewritten so the agent reads "no token in env by default, must mint" from turn 1.**
 
+## Remove the now-unused `SpawnSecretInjector` mechanism
+
+After removing the only registration (github), the entire generic
+mechanism has zero callers — ~250 lines of dead infrastructure. Per
+CLAUDE.md (`NO FALLBACKS`, `CLEAN UP DEAD CODE immediately`,
+`don't design for hypothetical future requirements`), remove it.
+If a future transport needs push-at-boot secrets, `PutProjectSecret`
+is already a public method on `ProjectService` — bringing this back
+is one file.
+
+- [~] Delete `api/pkg/org/infrastructure/runtime/helix/spawn_hooks.go` and `spawn_hooks_test.go`.
+- [~] Remove `SecretInjectors []SpawnSecretInjector` field from `SpawnerConfig` in `spawner.go` and the call site that ran them per activation.
+- [~] Remove `TestSpawnerRunsRegisteredSecretInjectors` (and any related test scaffolding) from `spawner_test.go`.
+- [~] Remove the `secretInjectors` parameter from `lazyHelixOrgSpawner` / `buildHelixOrgSpawnerConfig` in `helix_org.go` and drop the empty slice at the call site.
+- [~] Remove `TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors` from `helix_org_spawner_test.go` and update remaining tests' calls to drop the `nil` injectors arg.
+
 ## Out-of-scope (do not implement in this task)
 
 - [ ] Slack `CredentialProvider` — ships with the Slack transport when it lands.
