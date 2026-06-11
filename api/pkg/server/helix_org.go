@@ -136,6 +136,42 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	}, nil
 }
 
+// orgServices bundles the application services the REST adapter (and the
+// per-Worker MCP server) consume. Assembled once by buildOrgServices at
+// the composition root — the "Module struct holds the assembled
+// services" shape from design §5.4.
+type orgServices struct {
+	Roles         *roles.Roles
+	Streams       *streams.Streams
+	Workers       *workers.Workers
+	Subscriptions *subscriptions.Subscriptions
+	Publishing    *publishing.Publishing
+	Queries       *queries.Queries
+	Activations   *activations.Activations
+}
+
+// buildOrgServices constructs every org application service from the
+// store + collaborators. One place owns the wiring so the apiDeps
+// literal reads as a list of pre-built services, not seven inline
+// constructors. deps carries the clock / id-gen / topology / hire-hook
+// seams (a tools.Deps is already assembled by the caller).
+func buildOrgServices(st *helixorgstore.Store, deps tools.Deps, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher, envsDir string) orgServices {
+	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: tools.BaseReadTools})
+	return orgServices{
+		Roles:   rolesSvc,
+		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
+		Workers: workers.New(workers.Deps{
+			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: deps.Topology,
+			Environments: st.Environments, Activations: st.Activations, Dispatcher: dispatcher,
+			HireHook: deps.HireHook, EnvsDir: envsDir, Now: deps.Now, NewID: deps.NewID,
+		}),
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
+		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),
+		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: deps.Now, NewID: deps.NewID}),
+	}
+}
+
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
 	if cfg.APIServer == nil {
 		log.Warn().Msg("helix-org disabled: no HelixAPIServer threaded into helixOrgConfig")
@@ -426,19 +462,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
-	orgRolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: tools.BaseReadTools})
+	svc := buildOrgServices(st, deps, bc, dispatcher, envsDir)
 	apiDeps := helixorgapi.Deps{
-		Streams:       streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
-		Roles:         orgRolesSvc,
-		Workers: workers.New(workers.Deps{
-			Workers: st.Workers, Roles: orgRolesSvc, Lines: st.ReportingLines, Topology: deps.Topology,
-			Environments: st.Environments, Activations: st.Activations, Dispatcher: dispatcher,
-			HireHook: deps.HireHook, EnvsDir: envsDir, Now: deps.Now, NewID: deps.NewID,
-		}),
-		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
-		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
-		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),
-		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: deps.Now, NewID: deps.NewID}),
+		Streams:       svc.Streams,
+		Roles:         svc.Roles,
+		Workers:       svc.Workers,
+		Subscriptions: svc.Subscriptions,
+		Publishing:    svc.Publishing,
+		Queries:       svc.Queries,
+		Activations:   svc.Activations,
 		WorkerRuntime: orgWorkerRuntime{st: st},
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching streams + appends events, so it holds the store
