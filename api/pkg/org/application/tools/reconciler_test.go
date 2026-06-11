@@ -59,6 +59,7 @@ func TestRoleReconcilerBackfillsMissingBaseline(t *testing.T) {
 		ListStreamEventsName,
 		WorkerLogName,
 		GetWorkerEnvironmentName,
+		MintCredentialName,
 	}
 	if !reflect.DeepEqual(got.Tools, want) {
 		t.Fatalf("reconciled tools drifted.\n got: %v\nwant: %v", got.Tools, want)

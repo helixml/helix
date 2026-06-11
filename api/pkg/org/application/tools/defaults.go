@@ -15,6 +15,12 @@ import "github.com/helixml/helix/api/pkg/org/domain/tool"
 //
 // Order matters: it is preserved when appending to a Role's tool list,
 // so the reconciled output is deterministic.
+//
+// `mint_credential` is the sole non-read entry. It mints an external-
+// provider credential (it does not mutate the org graph), and without
+// it a Worker has nothing to authenticate gh/git/auth-curl with — there
+// is no boot-time env-var fallback. Every Worker needs this, so it sits
+// in the baseline.
 var BaseReadTools = []tool.Name{
 	ManagersName,
 	ReportsName,
@@ -28,6 +34,7 @@ var BaseReadTools = []tool.Name{
 	ReadEventsName,
 	WorkerLogName,
 	GetWorkerEnvironmentName,
+	MintCredentialName,
 }
 
 // MergeBaseReadTools returns the union of `existing` and BaseReadTools.

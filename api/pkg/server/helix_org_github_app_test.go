@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/store"
@@ -46,9 +47,9 @@ func TestOrgGitHubIdentityResolver_NoAppFallsBackToOAuth(t *testing.T) {
 		Return([]*types.ServiceConnection{}, nil)
 
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
-	mint := func(_ context.Context, _, _ int64, _, _ string) (string, error) {
+	mint := func(_ context.Context, _, _ int64, _, _ string) (MintedInstallation, error) {
 		t.Fatal("mintFn must not be called when no app is installed")
-		return "", nil
+		return MintedInstallation{}, nil
 	}
 
 	resolve := newOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
@@ -56,6 +57,7 @@ func TestOrgGitHubIdentityResolver_NoAppFallsBackToOAuth(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "oauth", id.Mode)
 	require.Equal(t, "oauth-token", id.Token)
+	require.True(t, id.ExpiresAt.IsZero(), "oauth mode has no per-mint expiry")
 }
 
 func TestOrgGitHubIdentityResolver_AppMintsBotToken(t *testing.T) {
@@ -67,9 +69,10 @@ func TestOrgGitHubIdentityResolver_AppMintsBotToken(t *testing.T) {
 
 	var gotAppID, gotInstallID int64
 	var gotPEM string
-	mint := func(_ context.Context, appID, installID int64, pem, _ string) (string, error) {
+	expiry := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	mint := func(_ context.Context, appID, installID int64, pem, _ string) (MintedInstallation, error) {
 		gotAppID, gotInstallID, gotPEM = appID, installID, pem
-		return "bot-token", nil
+		return MintedInstallation{Token: "bot-token", ExpiresAt: expiry}, nil
 	}
 	oauth := func(_ context.Context, _ string) (string, error) {
 		t.Fatal("oauth fallback must not be called when the app mints successfully")
@@ -81,6 +84,7 @@ func TestOrgGitHubIdentityResolver_AppMintsBotToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "app", id.Mode)
 	require.Equal(t, "bot-token", id.Token)
+	require.Equal(t, expiry, id.ExpiresAt, "minter expiry must travel onto OrgGitHubIdentity")
 	require.Equal(t, int64(111), id.AppID)
 	require.Equal(t, int64(222), id.InstallationID)
 	// The PEM handed to the minter must be the DECRYPTED key.
@@ -101,9 +105,9 @@ func TestOrgGitHubIdentityResolver_NewestAppWins(t *testing.T) {
 		}, nil)
 
 	var gotAppID int64
-	mint := func(_ context.Context, appID, _ int64, _, _ string) (string, error) {
+	mint := func(_ context.Context, appID, _ int64, _, _ string) (MintedInstallation, error) {
 		gotAppID = appID
-		return "bot-token", nil
+		return MintedInstallation{Token: "bot-token", ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
 
@@ -121,8 +125,8 @@ func TestOrgGitHubIdentityResolver_MintErrorFallsBackToOAuth(t *testing.T) {
 		ListServiceConnectionsByType(gomock.Any(), "org-1", types.ServiceConnectionTypeGitHubApp).
 		Return([]*types.ServiceConnection{newGitHubApp(t, 111, 222, "FAKE_PEM")}, nil)
 
-	mint := func(_ context.Context, _, _ int64, _, _ string) (string, error) {
-		return "", errors.New("github says no")
+	mint := func(_ context.Context, _, _ int64, _, _ string) (MintedInstallation, error) {
+		return MintedInstallation{}, errors.New("github says no")
 	}
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
 
@@ -147,9 +151,9 @@ func TestOrgGitHubIdentityResolver_DecryptErrorFallsBackToOAuth(t *testing.T) {
 		ListServiceConnectionsByType(gomock.Any(), "org-1", types.ServiceConnectionTypeGitHubApp).
 		Return([]*types.ServiceConnection{corrupt}, nil)
 
-	mint := func(_ context.Context, _, _ int64, _, _ string) (string, error) {
+	mint := func(_ context.Context, _, _ int64, _, _ string) (MintedInstallation, error) {
 		t.Fatal("mintFn must not be called when the PEM cannot be decrypted")
-		return "", nil
+		return MintedInstallation{}, nil
 	}
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
 

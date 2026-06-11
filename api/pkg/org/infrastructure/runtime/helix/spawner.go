@@ -83,24 +83,6 @@ type SpawnerConfig struct {
 	// or empty return means "use the static Client's api_key" — the
 	// service-account fallback.
 	BearerForUser func(ctx context.Context, userID string) (string, error)
-	// SecretInjectors are per-activation hooks every transport (or
-	// other extension) registers to push secrets into the Worker's
-	// per-Worker project. The spawner calls each one after
-	// ensureProject and before ensureSession on every activation,
-	// upserting the returned {name: value} pairs via
-	// ProjectService.PutProjectSecret. Helix's existing
-	// GetProjectSecretsAsEnvVars surfaces those as env vars on
-	// container start so the worker picks them up the next time the
-	// desktop boots.
-	//
-	// The spawner itself is transport-agnostic — it knows nothing
-	// about GitHub, Postmark, or any future transport. Each
-	// transport's infrastructure package exposes a constructor
-	// (e.g. github.NewSecretInjector(resolver)) that returns a
-	// SpawnSecretInjector; the host wires the slice up. Empty map /
-	// nil resolver / errors all soft-skip — see SpawnSecretInjector
-	// docstring for the full contract.
-	SecretInjectors []SpawnSecretInjector
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
 	OrgID string
@@ -295,19 +277,6 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// update and wipes the MCP list. This is the last write to the
 		// agent app's MCPs before the desktop boots its Zed runtime.
 		cfg.ensureHelixOrgMCP(startupCtx, orgID, workerID)
-
-		// Run every registered secret injector. Each transport (or
-		// other extension) plugs in via the SpawnSecretInjector
-		// interface; the spawner stays transport-agnostic. Soft-skips
-		// + best-effort error logging live inside runSecretInjectors,
-		// so a misbehaving injector cannot fail the activation.
-		if len(cfg.SecretInjectors) > 0 {
-			if state, err := LoadState(startupCtx, cfg.Store, orgID, workerID); err == nil && state.ProjectID != "" && cfg.ProjectService != nil {
-				cfg.runSecretInjectors(startupCtx, orgID, state.ProjectID, cfg.ProjectService.PutProjectSecret)
-			} else if err != nil && cfg.Logger != nil {
-				cfg.Logger.Warn("helix spawner: load state for secret injection", "worker", workerID, "err", err)
-			}
-		}
 
 		// Register the worker with the transcript mirror (idempotent;
 		// the tracker persists across activations and follows the

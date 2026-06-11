@@ -91,6 +91,8 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.InviteWorkersName,
 		tools.PublishName,
 		tools.DMName,
+		// (mint_credential is in tools.BaseReadTools, so every Role —
+		// owner included — gets it via MergeBaseReadTools.)
 	}
 	defaults := append(append([]tool.Name{}, ownerMutationTools...), tools.BaseReadTools...)
 
