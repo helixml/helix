@@ -52,7 +52,7 @@ What the operator should run post-merge to confirm:
 
 ## Phase 4 — CI and ship
 
-- [~] Write per-repo PR description (`pull_request_helix.md`).
-- [ ] Merge `origin/main` into `feature/002091-stop-auto-wake-from` and resolve any conflicts.
-- [ ] Push `feature/002091-stop-auto-wake-from` to origin. (Helix platform auto-creates the GitHub PR.)
+- [x] Write per-repo PR description (`pull_request_helix.md`).
+- [x] Merge `origin/main` into `feature/002091-stop-auto-wake-from` — clean merge, no conflicts. Build + tests still green.
+- [x] Push `feature/002091-stop-auto-wake-from` to origin. (Helix platform auto-creates the GitHub PR.)
 - [ ] On merge, post in the relevant ops channel: operators can drop custom `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS=600+` overrides — 180s is now the safe default, and the decoy-spawning bug is gone.
