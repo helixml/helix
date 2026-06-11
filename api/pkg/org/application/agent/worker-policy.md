@@ -116,6 +116,26 @@ across the org, escalate to a manager or brief through your team stream
 and let the chain of command carry it — that's the point of the
 hierarchy, not a limitation to work around.
 
+## External-provider credentials
+
+Your shell has no provider tokens by default. Anything that needs to
+authenticate to an external system — `gh`, `git push`/`git fetch`
+against a private remote, `curl` to an authenticated endpoint — will
+fail unless you mint a credential first.
+
+- **Before** the first authenticated command in an activation, call
+  `mint_credential` with the provider name (e.g. `"github"`) and
+  `export` the returned token into your shell:
+  `export GH_TOKEN=$(...)`. The minted token is short-lived (~1 hour).
+- **On any 401 / 403** from a command that should have worked, assume
+  the token has expired. Call `mint_credential` again, re-export,
+  retry once. Do not abandon the task on a stale token; expired
+  tokens are expected on any session that runs longer than ~1 hour.
+
+Your Role describes *which* providers and *which* commands apply.
+This section is the rule that holds even if the Role text predates
+the `mint_credential` flow.
+
 ## Errors and exits
 
 If you cannot make progress (missing tool, ambiguous request,
