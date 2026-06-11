@@ -3,12 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -49,25 +47,8 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return nil, fmt.Errorf("subscribe: caller has no OrgID")
 	}
 	streamID := streaming.StreamID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
-		return nil, fmt.Errorf("stream %q: %w", streamID, err)
-	}
-
 	workerID := inv.Caller.ID()
-	if _, err := t.deps.Store.Workers.Get(ctx, orgID, workerID); err != nil {
-		return nil, fmt.Errorf("get caller worker %q: %w", workerID, err)
-	}
-	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, workerID, streamID); err == nil {
-		return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return nil, err
-	}
-
-	sub, err := streaming.NewSubscription(string(workerID), streamID, t.deps.Now(), orgID)
-	if err != nil {
-		return nil, err
-	}
-	if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
+	if _, _, err := t.deps.subscriptionsService().Subscribe(ctx, orgID, workerID, streamID); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})

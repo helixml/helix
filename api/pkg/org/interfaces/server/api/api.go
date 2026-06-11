@@ -18,9 +18,11 @@ import (
 	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
@@ -300,9 +302,49 @@ func (a *apiHandler) rolesService() *roles.Roles {
 // content through the roles service (tools/streams preserved).
 func (a *apiHandler) workersService() *workers.Workers {
 	return workers.New(workers.Deps{
-		Workers: a.deps.Store.Workers,
-		Roles:   a.rolesService(),
+		Workers:  a.deps.Store.Workers,
+		Roles:    a.rolesService(),
+		Lines:    a.deps.Store.ReportingLines,
+		Topology: a.deps.Topology,
 	})
+}
+
+// subscriptionsService builds the subscription application service the
+// REST subscribe/unsubscribe handlers delegate to.
+func (a *apiHandler) subscriptionsService() *subscriptions.Subscriptions {
+	now := a.deps.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return subscriptions.New(subscriptions.Deps{
+		Subscriptions: a.deps.Store.Subscriptions,
+		Streams:       a.deps.Store.Streams,
+		Workers:       a.deps.Store.Workers,
+		Now:           now,
+	})
+}
+
+// publishingService builds the publish application service the REST
+// publishToStream handler delegates to. Hub/Dispatcher are assigned
+// only when non-nil to avoid the typed-nil-in-interface trap.
+func (a *apiHandler) publishingService() *publishing.Publishing {
+	now := a.deps.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	pd := publishing.Deps{
+		Streams: a.deps.Store.Streams,
+		Events:  a.deps.Store.Events,
+		Now:     now,
+		NewID:   a.deps.NewID,
+	}
+	if a.deps.Hub != nil {
+		pd.Hub = a.deps.Hub
+	}
+	if a.deps.Dispatcher != nil {
+		pd.Dispatcher = a.deps.Dispatcher
+	}
+	return publishing.New(pd)
 }
 
 // streamsService builds the stream-mutation application service the
@@ -959,71 +1001,19 @@ func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("parent_id is required"))
 		return
 	}
-	if a.deps.Store.ReportingLines == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("reporting lines not wired"))
-		return
+	// The service validates both endpoints, guards the DAG against
+	// cycles, wires the line, and reconciles the activation/team Streams
+	// the new edge implies — one place, shared invariants.
+	switch err := a.workersService().AddParent(ctx, orgID, id, managerID); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, workers.ErrReportingLinesUnavailable):
+		writeError(w, http.StatusNotImplemented, err)
+	case errors.Is(err, workers.ErrReportingCycle):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, errStatus(err), err)
 	}
-	// Both endpoints must exist before we wire them.
-	if _, err := a.deps.Store.Workers.Get(ctx, orgID, id); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
-		return
-	}
-	if _, err := a.deps.Store.Workers.Get(ctx, orgID, managerID); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get manager %s: %w", managerID, err))
-		return
-	}
-
-	line, err := orgchart.NewReportingLine(orgID, managerID, id)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	// Cycle guard over the DAG: if {id} is already an ancestor of the
-	// proposed manager, adding manager → {id} closes a loop. Walk up
-	// from the manager via all reporting lines (BFS) and reject if we
-	// reach {id}.
-	lines, err := a.deps.Store.ReportingLines.List(ctx, orgID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("list reporting lines: %w", err))
-		return
-	}
-	managersOf := map[orgchart.WorkerID][]orgchart.WorkerID{}
-	for _, l := range lines {
-		managersOf[l.ReportID] = append(managersOf[l.ReportID], l.ManagerID)
-	}
-	seen := map[orgchart.WorkerID]bool{}
-	queue := []orgchart.WorkerID{managerID}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		if cur == id {
-			writeError(w, http.StatusConflict, fmt.Errorf("making %s report to %s would create a reporting cycle", id, managerID))
-			return
-		}
-		if seen[cur] {
-			continue
-		}
-		seen[cur] = true
-		queue = append(queue, managersOf[cur]...)
-	}
-
-	if err := a.deps.Store.ReportingLines.Add(ctx, line); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("add reporting line: %w", err))
-		return
-	}
-
-	// Settle the streams the new edge implies: subscribe the manager to
-	// the report's activation stream and add the report to the manager's
-	// team stream (creating it on the manager's first report). Pass both
-	// endpoints so the manager's team stream is in the reconcile scope.
-	if a.deps.Topology != nil {
-		if err := a.deps.Topology.Reconcile(ctx, orgID, id, managerID); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("reconcile topology: %w", err))
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // removeWorkerParent drops one reporting line: the Worker at {id} no
@@ -1052,28 +1042,17 @@ func (a *apiHandler) removeWorkerParent(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, errors.New("worker id and parent_id are required"))
 		return
 	}
-	if a.deps.Store.ReportingLines == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("reporting lines not wired"))
-		return
+	// The service drops the line and reconciles the Streams the dropped
+	// edge implies (unsubscribe ex-manager from the report's activation
+	// stream, remove report from the ex-manager's team stream).
+	switch err := a.workersService().RemoveParent(ctx, orgID, id, managerID); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, workers.ErrReportingLinesUnavailable):
+		writeError(w, http.StatusNotImplemented, err)
+	default:
+		writeError(w, errStatus(err), err)
 	}
-	if err := a.deps.Store.ReportingLines.Remove(ctx, orgID, id, managerID); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("remove reporting line %s→%s: %w", id, managerID, err))
-		return
-	}
-
-	// Settle the streams the dropped edge implies: unsubscribe the
-	// ex-manager from the report's activation stream and remove the
-	// report from the ex-manager's team stream (tearing it down if that
-	// was the manager's last report). Pass both endpoints — the
-	// ex-manager is no longer in ListManagers(id), so it must be named
-	// explicitly to fall in the reconcile scope.
-	if a.deps.Topology != nil {
-		if err := a.deps.Topology.Reconcile(ctx, orgID, id, managerID); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("reconcile topology: %w", err))
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // updateWorkerRole rewrites the role.md of the Role the Worker's
@@ -1746,43 +1725,19 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("body is required"))
 		return
 	}
-	st, err := a.deps.Store.Streams.Get(ctx, orgID, streamID)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
-		return
-	}
-	if st.Transport.Kind == transport.KindGitHub {
-		writeError(w, http.StatusConflict, errors.New("github transport is inbound only"))
-		return
-	}
-	owner := orgchart.WorkerID(a.deps.Owner)
 	msg := streaming.Message{
-		From:    string(owner),
 		To:      req.To,
 		Subject: strings.TrimSpace(req.Subject),
 		Body:    req.Body,
 	}
-	ev, err := streaming.NewMessageEvent(
-		streaming.EventID("e-"+a.deps.NewID()),
-		streamID,
-		owner,
-		msg,
-		a.deps.Now(),
-		orgID,
-	)
+	ev, err := a.publishingService().Publish(ctx, orgID, streamID, a.deps.Owner, msg)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		if errors.Is(err, publishing.ErrPublishToGitHub) {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
+		writeError(w, errStatus(err), fmt.Errorf("publish to stream %s: %w", streamID, err))
 		return
-	}
-	if err := a.deps.Store.Events.Append(ctx, ev); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("append event: %w", err))
-		return
-	}
-	if a.deps.Hub != nil {
-		a.deps.Hub.Notify(orgID, streamID)
-	}
-	if a.deps.Dispatcher != nil {
-		a.deps.Dispatcher.Dispatch(ctx, ev)
 	}
 	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(ev.ID)})
 }
@@ -1863,35 +1818,16 @@ func (a *apiHandler) subscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream_id is required"))
 		return
 	}
-	if _, err := a.deps.Store.Workers.Get(ctx, orgID, wid); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", wid, err))
-		return
-	}
-	if _, err := a.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
-		return
-	}
-	if existing, err := a.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
-		writeJSON(w, http.StatusOK, WorkerSubscriptionDTO{
-			StreamID:  string(existing.StreamID),
-			CreatedAt: existing.CreatedAt.Format(time.RFC3339),
-		})
-		return
-	}
-	now := time.Now().UTC()
-	if a.deps.Now != nil {
-		now = a.deps.Now()
-	}
-	sub, err := streaming.NewSubscription(string(wid), streamID, now, orgID)
+	sub, created, err := a.subscriptionsService().Subscribe(ctx, orgID, wid, streamID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, errStatus(err), fmt.Errorf("subscribe worker %s: %w", wid, err))
 		return
 	}
-	if err := a.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("create subscription: %w", err))
-		return
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
 	}
-	writeJSON(w, http.StatusCreated, WorkerSubscriptionDTO{
+	writeJSON(w, status, WorkerSubscriptionDTO{
 		StreamID:  string(sub.StreamID),
 		CreatedAt: sub.CreatedAt.Format(time.RFC3339),
 	})
@@ -1920,7 +1856,7 @@ func (a *apiHandler) unsubscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id and stream id are required"))
 		return
 	}
-	if err := a.deps.Store.Subscriptions.Delete(ctx, orgID, wid, streamID); err != nil {
+	if err := a.subscriptionsService().Unsubscribe(ctx, orgID, wid, streamID); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete subscription: %w", err))
 		return
 	}

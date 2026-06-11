@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -18,7 +19,12 @@ func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UT
 
 func newService(st *store.Store) *Workers {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: fixedClock, NewID: func() string { return "id" }})
-	return New(Deps{Workers: st.Workers, Roles: rolesSvc})
+	return New(Deps{
+		Workers:  st.Workers,
+		Roles:    rolesSvc,
+		Lines:    st.ReportingLines,
+		Topology: &topology.Reconciler{Store: st, Now: fixedClock},
+	})
 }
 
 // seedWorker creates a role + AI worker so the update tests have a
@@ -122,5 +128,102 @@ func TestWorkersUpdateRole_WorkerNotFound(t *testing.T) {
 	_, err := svc.UpdateRole(context.Background(), "org-test", "w-missing", "x")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// seedTwoWorkers creates manager + report workers (no line yet).
+func seedTwoWorkers(t *testing.T, st *store.Store, orgID string) {
+	t.Helper()
+	ctx := context.Background()
+	role, _ := orgchart.NewRole("r-eng", "# Engineer", []tool.Name{"publish"}, nil, fixedClock(), orgID)
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	for _, id := range []orgchart.WorkerID{"w-boss", "w-report"} {
+		wk, _ := orgchart.NewAIWorker(id, "r-eng", "id", orgID)
+		if err := st.Workers.Create(ctx, wk); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+}
+
+func TestWorkersAddParent_WiresLineAndReconciles(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+	seedTwoWorkers(t, st, "org-test")
+
+	if err := svc.AddParent(ctx, "org-test", "w-report", "w-boss"); err != nil {
+		t.Fatalf("AddParent: %v", err)
+	}
+	managers, _ := st.ReportingLines.ListManagers(ctx, "org-test", "w-report")
+	if len(managers) != 1 || managers[0] != "w-boss" {
+		t.Fatalf("managers = %v, want [w-boss]", managers)
+	}
+	// Idempotent re-add.
+	if err := svc.AddParent(ctx, "org-test", "w-report", "w-boss"); err != nil {
+		t.Fatalf("AddParent (repeat): %v", err)
+	}
+}
+
+func TestWorkersAddParent_CycleRejected(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+	seedTwoWorkers(t, st, "org-test")
+	if err := svc.AddParent(ctx, "org-test", "w-report", "w-boss"); err != nil {
+		t.Fatalf("AddParent: %v", err)
+	}
+	// Now make w-boss report to w-report → cycle.
+	err := svc.AddParent(ctx, "org-test", "w-boss", "w-report")
+	if !errors.Is(err, ErrReportingCycle) {
+		t.Fatalf("err = %v, want ErrReportingCycle", err)
+	}
+}
+
+func TestWorkersAddParent_UnknownWorker(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+	seedTwoWorkers(t, st, "org-test")
+	err := svc.AddParent(ctx, "org-test", "w-report", "w-ghost")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestWorkersRemoveParent(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+	seedTwoWorkers(t, st, "org-test")
+	if err := svc.AddParent(ctx, "org-test", "w-report", "w-boss"); err != nil {
+		t.Fatalf("AddParent: %v", err)
+	}
+	if err := svc.RemoveParent(ctx, "org-test", "w-report", "w-boss"); err != nil {
+		t.Fatalf("RemoveParent: %v", err)
+	}
+	managers, _ := st.ReportingLines.ListManagers(ctx, "org-test", "w-report")
+	if len(managers) != 0 {
+		t.Fatalf("managers = %v, want empty", managers)
+	}
+	// Removing again → not found.
+	if err := svc.RemoveParent(ctx, "org-test", "w-report", "w-boss"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestWorkersAddParent_NoLinesRepo(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: fixedClock, NewID: func() string { return "id" }})
+	svc := New(Deps{Workers: st.Workers, Roles: rolesSvc}) // no Lines
+	err := svc.AddParent(context.Background(), "org-test", "w-report", "w-boss")
+	if !errors.Is(err, ErrReportingLinesUnavailable) {
+		t.Fatalf("err = %v, want ErrReportingLinesUnavailable", err)
 	}
 }

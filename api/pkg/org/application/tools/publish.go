@@ -9,7 +9,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // Publish appends an Event to a named Stream, attributed to the caller.
@@ -65,18 +64,6 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		return nil, fmt.Errorf("publish: caller has no OrgID")
 	}
 	streamID := streaming.StreamID(args.StreamID)
-	stream, err := t.deps.Store.Streams.Get(ctx, orgID, streamID)
-	if err != nil {
-		return nil, fmt.Errorf("stream %q: %w", streamID, err)
-	}
-	// GitHub streams are inbound-only. Acting on a repo (label,
-	// comment, review, open PR) is the Worker's job via `gh` in its
-	// Environment — wrapping each github action behind publish would
-	// reinvent the gh CLI's flag set with worse ergonomics. Surface
-	// the mistake loudly rather than silently no-op'ing.
-	if stream.Transport.Kind == transport.KindGitHub {
-		return nil, fmt.Errorf("stream %q: publish is not supported on github transport streams; use `gh` from your Environment to act on the repo", streamID)
-	}
 	msg := streaming.Message{
 		From:            string(inv.Caller.ID()),
 		To:              args.To,
@@ -88,27 +75,12 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		MessageID:       args.MessageID,
 		Attachments:     args.Attachments,
 	}
-	event, err := streaming.NewMessageEvent(
-		streaming.EventID("e-"+t.deps.NewID()),
-		streamID,
-		inv.Caller.ID(),
-		msg,
-		t.deps.Now(),
-		orgID,
-	)
+	// The service owns the append→notify→dispatch trio and rejects
+	// github-transport streams (inbound only — act on the repo with `gh`
+	// from the Environment) with ErrPublishToGitHub.
+	event, err := t.deps.publishingService().Publish(ctx, orgID, streamID, string(inv.Caller.ID()), msg)
 	if err != nil {
 		return nil, err
-	}
-	if err := t.deps.Store.Events.Append(ctx, event); err != nil {
-		return nil, err
-	}
-	// Wake long-poll observers (read_events with wait>0).
-	if t.deps.Hub != nil {
-		t.deps.Hub.Notify(orgID, streamID)
-	}
-	// Activate every subscribed AI Worker. Background; returns immediately.
-	if t.deps.Dispatcher != nil {
-		t.deps.Dispatcher.Dispatch(ctx, event)
 	}
 	return json.Marshal(map[string]string{"id": string(event.ID), "streamId": string(streamID)})
 }

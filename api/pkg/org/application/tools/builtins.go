@@ -7,9 +7,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -108,13 +110,47 @@ type Deps struct {
 	CredentialProviders map[string]credential.Provider
 }
 
+// subscriptionsService builds the subscription application service from
+// the tool deps. The MCP subscribe/unsubscribe/invite_workers tools are
+// thin adapters over it.
+func (d Deps) subscriptionsService() *subscriptions.Subscriptions {
+	return subscriptions.New(subscriptions.Deps{
+		Subscriptions: d.Store.Subscriptions,
+		Streams:       d.Store.Streams,
+		Workers:       d.Store.Workers,
+		Now:           d.Now,
+	})
+}
+
+// publishingService builds the publish application service from the tool
+// deps. Hub/Dispatcher are assigned only when non-nil to avoid wrapping
+// a typed-nil *streamhub.Hub in the Notifier interface (which would make
+// the nil check inside the service pass and then panic).
+func (d Deps) publishingService() *publishing.Publishing {
+	pd := publishing.Deps{
+		Streams: d.Store.Streams,
+		Events:  d.Store.Events,
+		Now:     d.Now,
+		NewID:   d.NewID,
+	}
+	if d.Hub != nil {
+		pd.Hub = d.Hub
+	}
+	if d.Dispatcher != nil {
+		pd.Dispatcher = d.Dispatcher
+	}
+	return publishing.New(pd)
+}
+
 // workersService builds the worker-mutation application service from
 // the tool deps. UpdateRole delegates to the roles service so the
 // held-Role content rewrite preserves tools/streams.
 func (d Deps) workersService() *workers.Workers {
 	return workers.New(workers.Deps{
-		Workers: d.Store.Workers,
-		Roles:   d.rolesService(),
+		Workers:  d.Store.Workers,
+		Roles:    d.rolesService(),
+		Lines:    d.Store.ReportingLines,
+		Topology: d.Topology,
 	})
 }
 

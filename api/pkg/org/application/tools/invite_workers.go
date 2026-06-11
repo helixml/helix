@@ -3,13 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -56,37 +54,14 @@ func (t *InviteWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		return nil, fmt.Errorf("invite_workers: caller has no OrgID")
 	}
 	streamID := streaming.StreamID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
-		return nil, fmt.Errorf("stream %q: %w", streamID, err)
-	}
-
 	workerIDs := make([]orgchart.WorkerID, 0, len(args.WorkerIDs))
 	for _, raw := range args.WorkerIDs {
-		if raw == "" {
-			return nil, fmt.Errorf("workerIds contains an empty entry")
-		}
-		wid := orgchart.WorkerID(raw)
-		if _, err := t.deps.Store.Workers.Get(ctx, orgID, wid); err != nil {
-			return nil, fmt.Errorf("worker %q: %w", wid, err)
-		}
-		workerIDs = append(workerIDs, wid)
+		workerIDs = append(workerIDs, orgchart.WorkerID(raw))
 	}
-
-	// Subscriptions are worker-anchored. Subscribe each invited
-	// worker. Idempotent per worker.
-	for _, wid := range workerIDs {
-		if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, wid, streamID); err == nil {
-			continue
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		sub, err := streaming.NewSubscription(string(wid), streamID, t.deps.Now(), orgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-			return nil, err
-		}
+	// The service validates the stream + every worker up front and
+	// subscribes each (idempotent per worker).
+	if err := t.deps.subscriptionsService().Invite(ctx, orgID, streamID, workerIDs); err != nil {
+		return nil, err
 	}
 
 	workerIDStrings := make([]string, len(workerIDs))
