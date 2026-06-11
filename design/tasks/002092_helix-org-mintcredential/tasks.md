@@ -32,8 +32,8 @@
 
 ## Role / prompt integration
 
-- [ ] Add `mint_credential` to `Role.Tools` for the Role(s) used by inner-Helix Worker sessions (identify exact role(s) during implementation; likely the default Worker role and any role that has `gh`/`git` in its environment).
-- [ ] Append a short paragraph to the corresponding Role prompt body matching the tool description's final paragraph (mint → export → on 401/403, re-mint, re-export, retry). Prompt edit only — no Go logic.
+- [~] Add `mint_credential` to `Role.Tools` for the Role(s) used by inner-Helix Worker sessions (identify exact role(s) during implementation; likely the default Worker role and any role that has `gh`/`git` in its environment). **Discovery: only one seed role exists in this codebase — the owner Role built in `bootstrap.go`. Worker Roles are created at runtime by the owner via `create_role` (no per-Worker template). Adding `mint_credential` to `ownerMutationTools` so the owner can self-use it AND grant it to Worker Roles via `create_role`.**
+- [~] Append a short paragraph to the corresponding Role prompt body matching the tool description's final paragraph (mint → export → on 401/403, re-mint, re-export, retry). Prompt edit only — no Go logic. **Updating `templates/owner_role.md` to extend the hiring-playbook section with explicit guidance: any Role whose Worker needs `gh`/`git`/authenticated `curl` must include `mint_credential` in its tools list, and the Role prompt must instruct the Worker to mint→export→retry on 401/403.**
 
 ## Verification
 
