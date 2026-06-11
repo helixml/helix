@@ -704,19 +704,18 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
 
 // SubTab is one of four lenses on the same underlying dataset:
 //   overview  – aggregate stats + GPU panel (was the "Aggregate View" cards)
-//   fleet     – the list of runners themselves, one card per runner showing
-//               status + profile assignment (links into the runner-detail
-//               page for logs)
+//   hosts     – the list of runner hosts themselves, one card per runner
+//               showing status + profile assignment
 //   sandboxes – user-facing dev containers (was "Dev Containers")
 //   profiles  – inference-profile config (was the standalone Runner Profiles
 //               admin tab; absorbed here because Profiles only make sense
 //               in the context of the runners that consume them)
-type SubTab = 'overview' | 'fleet' | 'sandboxes' | 'profiles'
+type SubTab = 'overview' | 'hosts' | 'sandboxes' | 'profiles'
 
 const SUBTAB_LS_KEY = 'admin-runners-subtab'
 
 function isSubTab(v: string | null): v is SubTab {
-  return v === 'overview' || v === 'fleet' || v === 'sandboxes' || v === 'profiles'
+  return v === 'overview' || v === 'hosts' || v === 'sandboxes' || v === 'profiles'
 }
 
 const Runners: FC = () => {
@@ -788,7 +787,7 @@ const Runners: FC = () => {
     a.session_id.localeCompare(b.session_id)
   )
 
-  // Decide whether the Profiles assignment panel inside Fleet should render.
+  // Decide whether the Profiles assignment panel inside Hosts should render.
   // Visible when at least one Runner Profile is configured OR when any runner
   // already has a profile assigned (so deleting the last catalogue entry
   // mid-interaction doesn't hide a "Clear" button from the operator).
@@ -830,7 +829,7 @@ const Runners: FC = () => {
         sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
       >
         <Tab value="overview" label="Overview" />
-        <Tab value="fleet" label="Fleet" />
+        <Tab value="hosts" label="Hosts" />
         <Tab value="sandboxes" label="Sandboxes" />
         <Tab value="profiles" label="Profiles" />
       </Tabs>
@@ -878,7 +877,7 @@ const Runners: FC = () => {
         </Box>
       )}
 
-      {subTab === 'fleet' && (
+      {subTab === 'hosts' && (
         <Box>
           {showInferenceProfilesPanel && sandboxes.length > 0 ? (
             <Grid container spacing={2}>
