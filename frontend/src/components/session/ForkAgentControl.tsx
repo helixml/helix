@@ -1,13 +1,15 @@
-import React, { FC, useMemo, useState } from "react";
+import React, { FC, useEffect, useMemo, useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Tooltip from "@mui/material/Tooltip";
 import AgentDropdown from "../agent/AgentDropdown";
 import useApps from "../../hooks/useApps";
@@ -78,6 +80,15 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
     [workspace],
   );
   const [forkError, setForkError] = useState<string | null>(null);
+  // Checked by default — the safe behaviour is to push uncommitted
+  // edits to the child's branch before forking so the new agent sees
+  // them. Unchecking is the explicit "I know what I'm doing, abandon
+  // these changes" opt-out. Reset to true whenever a new fork is
+  // staged so a previously-unchecked state doesn't carry over.
+  const [autoCommit, setAutoCommit] = useState(true);
+  useEffect(() => {
+    if (pendingTargetId) setAutoCommit(true);
+  }, [pendingTargetId]);
 
   // Filter to zed_external agents. Forking only makes sense between
   // external-agent frameworks; non-zed_external apps would have no
@@ -123,7 +134,7 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
       // opt-out without a separate API change.
       const result = await forkMutation.mutateAsync({
         helix_app_id: targetId,
-        auto_commit_uncommitted: true,
+        auto_commit_uncommitted: autoCommit,
       });
       const newId = result?.new_session_id;
       if (!newId) {
@@ -238,13 +249,15 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
             </Alert>
           )}
           {!workspaceFetching && workspace?.container_reachable && dirtyRepos.length > 0 && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              Pre-fork checkpoint: the following changes will be
-              committed and pushed before the fork so the new agent
-              sees them:
-              <Box component="ul" sx={{ pl: 2.5, mt: 0.5, mb: 0 }}>
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <Box sx={{ mb: 1 }}>
+                The current session has uncommitted changes in the
+                workspace. The forked child boots a fresh clone, so
+                anything not pushed will be invisible to the new agent:
+              </Box>
+              <Box component="ul" sx={{ pl: 2.5, mt: 0, mb: 1 }}>
                 {dirtyRepos.map((r) => (
-                  <li key={r.repo_id}>
+                  <li key={r.repo_id || r.name}>
                     <strong>{r.name}</strong>
                     {r.branch ? ` (${r.branch})` : ""}
                     {": "}
@@ -258,6 +271,24 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
                   </li>
                 ))}
               </Box>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoCommit}
+                    onChange={(e) => setAutoCommit(e.target.checked)}
+                    size="small"
+                    disabled={pending}
+                  />
+                }
+                label="Commit and push these changes before forking (recommended)"
+                sx={{ display: "block", mt: 0, mb: 0 }}
+              />
+              {!autoCommit && (
+                <Box sx={{ fontSize: "0.8rem", color: "warning.dark", mt: 0.5 }}>
+                  The fork will proceed but these changes will be
+                  abandoned — the new agent won't see them.
+                </Box>
+              )}
             </Alert>
           )}
           {forkError && (
