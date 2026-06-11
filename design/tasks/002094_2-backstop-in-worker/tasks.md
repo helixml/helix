@@ -1,11 +1,11 @@
 # Implementation Tasks: Add Credentials Backstop Paragraph to worker-policy.md
 
-- [~] Open `api/pkg/org/application/agent/worker-policy.md` and add the
+- [x] Open `api/pkg/org/application/agent/worker-policy.md` and add the
       new "External-provider credentials" section between the
       "Chain of command" and "Errors and exits" sections, using the
       proposed text in design.md §3 verbatim (or trivially edited for
       house style).
-- [ ] Open `api/pkg/org/application/bootstrap/templates/owner_role.md`
+- [~] Open `api/pkg/org/application/bootstrap/templates/owner_role.md`
       and prepend the cross-reference sentence from design.md §4 to
       the existing "External-provider credentials: `mint_credential`"
       section. Do not remove the existing per-Role paragraph.
