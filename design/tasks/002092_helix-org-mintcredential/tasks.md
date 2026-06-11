@@ -32,7 +32,7 @@
 
 ## Role / prompt integration
 
-- [x] Add `mint_credential` to `Role.Tools` for the Role(s) used by inner-Helix Worker sessions (identify exact role(s) during implementation; likely the default Worker role and any role that has `gh`/`git` in its environment). **Done: `MintCredentialName` added to `ownerMutationTools` in `bootstrap.go`. Worker Roles inherit this surface when the owner cascades it via `create_role`; the owner's prompt now tells them to do so for any Worker that runs `gh`/`git`/auth `curl`.**
+- [x] Add `mint_credential` to `Role.Tools` for the Role(s) used by inner-Helix Worker sessions (identify exact role(s) during implementation; likely the default Worker role and any role that has `gh`/`git` in its environment). **Done — and superseded by user feedback: `MintCredentialName` is now in `BaseReadTools` so EVERY Role (owner + every Worker hired later, including ones reconciled from before this change) gets it automatically. Removed the redundant entry from `ownerMutationTools`. Updated `defaults_test.go`, `reconciler_test.go`, `create_role_test.go` golden lists.**
 - [x] Append a short paragraph to the corresponding Role prompt body matching the tool description's final paragraph (mint → export → on 401/403, re-mint, re-export, retry). Prompt edit only — no Go logic. **Done: added "Long-running credentials" section to `templates/owner_role.md` covering the two hiring-time obligations (include the tool, put mint→export→retry guidance in the Role prompt) plus a note that the owner can call it directly.**
 
 ## Verification

@@ -50,11 +50,15 @@ The exception is recorded inline in `CLAUDE.md`, in
   SecretInjector      → push GH_TOKEN at boot
   CredentialProvider  → pull fresh token on demand
   ```
-- **Role / prompt:** `MintCredentialName` added to `ownerMutationTools`
-  in `bootstrap.go`; `templates/owner_role.md` gains a "Long-running
-  credentials" section telling the owner to (a) include the tool in any
-  Role whose Worker runs `gh`/`git`/auth `curl` and (b) put the
-  mint → export → retry-on-401/403 guidance in that Worker's Role prompt.
+- **Role / prompt:** `MintCredentialName` added to `BaseReadTools` so
+  every Role (owner included, plus every Worker hired now or in the
+  future, plus all pre-existing Roles backfilled by `RoleReconciler` at
+  API start) automatically gets the tool. `defaults_test.go`,
+  `reconciler_test.go`, and `create_role_test.go` golden lists updated.
+  `templates/owner_role.md` gains a "Long-running credentials" section
+  telling the owner to put the mint → export → retry-on-401/403 guidance
+  in any Worker Role whose Worker runs `gh`/`git`/auth `curl` — the tool
+  is automatic but the prompt signal for *when* to reach for it is not.
 - **Tests:**
   - 8 in `mint_credential_test.go`: happy path, unknown provider, missing
     provider arg, missing OrgID, **forged-`org_id` regression**, provider

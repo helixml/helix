@@ -244,16 +244,25 @@ or both independently.
 
 ## 4. Role / prompt changes
 
-The relevant Role(s) (the inner-Helix Worker Role used in §6 tests; the
-specific list lives in the task implementation step) gain:
+**Update (after user feedback during implementation):** `mint_credential`
+is part of `BaseReadTools` (the universal baseline that every Role gets
+via `MergeBaseReadTools` and the `RoleReconciler`). The argument:
 
-- `mint_credential` added to `Role.Tools`.
-- A short paragraph appended to the Role prompt body — same words as the
-  tool description's final paragraph, just inlined where the agent reads it
-  during planning. Pure prompt edit, no Go logic.
+- It does not mutate the org graph (it returns an external-provider
+  credential).
+- The cost of a Worker not having it is high — silent mid-task auth
+  failures on any session that outlives its boot-time `GH_TOKEN`'s ~1h
+  TTL.
+- The same argument applies to *every* Worker, not just some Roles.
 
-Both edits are data, not code, consistent with *"prefer data and text over
-code"*.
+That makes the per-Role tools-list edit unnecessary. The remaining
+hiring-time obligation is the prompt paragraph in any Worker Role whose
+Worker runs `gh`/`git`/auth `curl` — without that paragraph the Worker
+has the tool but no signal for when to reach for it. Pure prompt
+edit, no Go logic.
+
+A note in `BaseReadTools`' doc comment records that `mint_credential` is
+the sole non-read entry and why it is justified.
 
 ## 5. Security & privacy
 
