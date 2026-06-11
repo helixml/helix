@@ -92,11 +92,15 @@ impl GlBlitter {
             self.out_h = h;
         }
 
+        let t_total = std::time::Instant::now();
+
         // Cheap per-frame import of the external capture buffer (OBS-style).
+        let t_import = std::time::Instant::now();
         let texture = self
             .renderer
             .import_dmabuf(dmabuf, None)
             .map_err(|e| format!("import_dmabuf: {:?}", e))?;
+        let import_us = t_import.elapsed().as_micros() as u32;
 
         let size: Size<i32, Physical> = (w as i32, h as i32).into();
         let full = Rectangle::<i32, Physical>::from_size(size);
@@ -104,6 +108,7 @@ impl GlBlitter {
         // Bind on a CLONE of the buffer handle (GsBufferType is Arc-backed) so the
         // mutable bind borrow and the immutable to_gs_buffer borrow don't conflict
         // — this mirrors wolf's create_frame.
+        let t_render = std::time::Instant::now();
         let mut bind_handle = self.output.as_ref().expect("output set above").clone();
         let mut fb = bind_handle
             .bind(&mut self.renderer)
@@ -133,14 +138,25 @@ impl GlBlitter {
                 .map_err(|e| format!("render_texture_at: {:?}", e))?;
             let _sync = frame.finish().map_err(|e| format!("finish: {:?}", e))?;
         }
+        let render_us = t_render.elapsed().as_micros() as u32;
 
         // Map our persistent buffer's cached CUDA registration → GstBuffer.
+        let t_copy = std::time::Instant::now();
         let buffer = self
             .output
             .as_ref()
             .expect("output set above")
             .to_gs_buffer(&mut fb, &mut self.renderer)
             .map_err(|e| format!("to_gs_buffer: {}", e))?;
+        let copy_us = t_copy.elapsed().as_micros() as u32;
+
+        // Record stage breakdown: cuda.egl=import, cuda.reg=render, cuda.copy=copy.
+        crate::metrics::PRODUCER.lock().record_cuda(
+            import_us,
+            render_us,
+            copy_us,
+            t_total.elapsed().as_micros() as u32,
+        );
 
         Ok(FrameData::CudaBuffer {
             buffer,

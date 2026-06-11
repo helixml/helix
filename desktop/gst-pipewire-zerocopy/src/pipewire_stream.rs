@@ -962,10 +962,9 @@ fn run_pipewire_loop(
                             .process(dmabuf, *pts_ns);
                         match result {
                             Ok(cuda_frame) => {
-                                let total = t.elapsed().as_micros() as u32;
-                                // egl/reg now 0 (done once at buffer creation); the
-                                // per-frame GPU work is the GL blit + CUDA map+copy.
-                                crate::metrics::PRODUCER.lock().record_cuda(0, 0, total, total);
+                                // Stage timing recorded inside blitter.process
+                                // (cuda.egl=import, cuda.reg=render, cuda.copy=copy).
+                                let _ = t;
                                 Some(cuda_frame)
                             }
                             Err(e) => {
