@@ -85,9 +85,32 @@ type SpawnerConfig struct {
 	BearerForUser func(ctx context.Context, userID string) (string, error)
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
-	OrgID             string
-	ActivationTimeout time.Duration
-	MaxInflight       int
+	OrgID string
+	// SessionStartupTimeout bounds how long ensureSession is allowed to
+	// take — creating / picking the session row, opening the Helix
+	// chat session, attaching the live transcript WebSocket. Five
+	// minutes covers a cold sandbox boot with margin; if startup
+	// genuinely hangs past it, returning the deadline error is the
+	// right outcome. Defaults to 5 * time.Minute when zero.
+	//
+	// Previously called ActivationTimeout — that name conflated startup
+	// with the whole activation lifetime and was applied to
+	// pollUntilDone as well, which caused the spawner to release its
+	// per-Worker serialisation lane on a stale 5-minute timer even when
+	// the underlying session was still actively producing work.
+	// pollUntilDone now uses ActivationRunawayGuard instead.
+	SessionStartupTimeout time.Duration
+	// ActivationRunawayGuard is the hard upper bound on how long
+	// pollUntilDone is allowed to run before giving up. It is NOT a
+	// liveness threshold and not operator-tunable — it exists only to
+	// prevent a session that never reports terminal status from
+	// pinning a Queue lane forever. Defaults to 24 * time.Hour when
+	// zero. Real "is the session stuck?" detection lives at the
+	// session layer (see api/pkg/server/auto_wake_stuck_interactions.go)
+	// — the org layer's job is to serialise per-Worker and trust the
+	// session API.
+	ActivationRunawayGuard time.Duration
+	MaxInflight            int
 	// Sem, when non-nil, is the inflight semaphore the Spawner acquires
 	// a slot from instead of minting its own from MaxInflight. The host
 	// builds one fresh SpawnerConfig per activation (so OrgID /
@@ -125,8 +148,11 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if cfg.PollMax == 0 {
 		cfg.PollMax = 30 * time.Second
 	}
-	if cfg.ActivationTimeout == 0 {
-		cfg.ActivationTimeout = 5 * time.Minute
+	if cfg.SessionStartupTimeout == 0 {
+		cfg.SessionStartupTimeout = 5 * time.Minute
+	}
+	if cfg.ActivationRunawayGuard == 0 {
+		cfg.ActivationRunawayGuard = 24 * time.Hour
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
@@ -198,31 +224,49 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		}
 		publish(fmt.Sprintf("=== activation: %s ===", agent.DescribeTriggers(triggers)))
 
-		actCtx, cancel := context.WithTimeout(ctx, cfg.ActivationTimeout)
-		defer cancel()
+		// Two deadlines, two phases. Startup work (project apply, MCP
+		// re-attach, secret injection, session creation, transcript WS
+		// dial) is bounded by SessionStartupTimeout — five minutes is
+		// generous and a hang here is a real failure. The poll loop
+		// that waits for the session to report terminal status is
+		// bounded only by ActivationRunawayGuard (24h default) — it
+		// must not be torpedoed by an arbitrary mid-activation deadline,
+		// because doing so releases the per-Worker Queue lane and
+		// causes a decoy interaction to be spawned on top of a healthy
+		// long-running session.
+		//
+		// Both contexts derive from a shared `parentCtx` so the bearer
+		// token attached during the bearer-lookup phase below is
+		// inherited by both phases without re-resolving.
+		parentCtx := ctx
 
 		// Resolve the hiring user's bearer for THIS activation, if a
 		// host-provided callback is wired. The bearer is stashed on
-		// actCtx via the BearerToken context key; every subsequent
+		// parentCtx via the BearerToken context key; every subsequent
 		// client call inside this activation (project apply, session
 		// open, MCP attach, transcript subscribe) picks it up so the
 		// Worker's footprint in Helix is attributed to the hiring
 		// user, not the service account. Empty / nil / error all
 		// degrade to "use the static client api_key".
 		if cfg.BearerForUser != nil {
-			if state, err := LoadState(actCtx, cfg.Store, orgID, workerID); err == nil && state.HiringUserID != "" {
-				if bearer, berr := cfg.BearerForUser(actCtx, state.HiringUserID); berr == nil && bearer != "" {
-					actCtx = WithBearerToken(actCtx, bearer)
+			bearerCtx, bearerCancel := context.WithTimeout(parentCtx, cfg.SessionStartupTimeout)
+			if state, err := LoadState(bearerCtx, cfg.Store, orgID, workerID); err == nil && state.HiringUserID != "" {
+				if bearer, berr := cfg.BearerForUser(bearerCtx, state.HiringUserID); berr == nil && bearer != "" {
+					parentCtx = WithBearerToken(parentCtx, bearer)
 				} else if berr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: BearerForUser failed; falling back to service key", "worker", workerID, "user_id", state.HiringUserID, "err", berr.Error())
 				}
 			}
+			bearerCancel()
 		}
+
+		startupCtx, startupCancel := context.WithTimeout(parentCtx, cfg.SessionStartupTimeout)
+		defer startupCancel()
 
 		// Make sure the Worker has a Helix project. First activation
 		// (activation.TriggerHire, or a activation.TriggerEvent before hire fully ran)
 		// applies one and persists the IDs.
-		if err := cfg.ensureProject(actCtx, orgID, workerID); err != nil {
+		if err := cfg.ensureProject(startupCtx, orgID, workerID); err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
@@ -232,7 +276,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// project-apply, which wholesale-replaces Config.Helix on
 		// update and wipes the MCP list. This is the last write to the
 		// agent app's MCPs before the desktop boots its Zed runtime.
-		cfg.ensureHelixOrgMCP(actCtx, orgID, workerID)
+		cfg.ensureHelixOrgMCP(startupCtx, orgID, workerID)
 
 		// Register the worker with the transcript mirror (idempotent;
 		// the tracker persists across activations and follows the
@@ -241,13 +285,22 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			cfg.Mirror.Ensure(orgID, workerID)
 		}
 
-		sessionID, err := cfg.ensureSession(actCtx, orgID, workerID, prompt, publish)
+		sessionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
 		}
 
-		err = cfg.pollUntilDone(actCtx, sessionID, publish)
+		// Poll phase. Long-running but healthy sessions are normal — a
+		// docs-writing activation, a slow `git push`, a `npm install`
+		// can each easily exceed the old 5-minute ActivationTimeout.
+		// The session API reports terminal status when the work is
+		// genuinely done; until then the Queue lane stays held for
+		// this Worker, which is the correct serialisation behaviour.
+		// ActivationRunawayGuard is the resource-safety backstop only.
+		pollCtx, pollCancel := context.WithTimeout(parentCtx, cfg.ActivationRunawayGuard)
+		defer pollCancel()
+		err = cfg.pollUntilDone(pollCtx, sessionID, publish)
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
