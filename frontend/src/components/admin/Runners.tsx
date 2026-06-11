@@ -40,7 +40,6 @@ import {
   useAssignRunnerProfile,
   useClearRunnerProfile,
   useListCompatibleRunnerProfiles,
-  useListRunnerProfiles,
 } from '../../services/runnerProfilesService'
 
 // Types matching the backend response
@@ -702,20 +701,22 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
   )
 }
 
-// SubTab is one of four lenses on the same underlying dataset:
-//   overview  – aggregate stats + GPU panel (was the "Aggregate View" cards)
-//   hosts     – the list of runner hosts themselves, one card per runner
-//               showing status + profile assignment
+// SubTab is one of three lenses on the same underlying dataset:
+//   overview  – aggregate stats + GPU panel + per-host runner cards
+//               (all of "what runners do I have, how are they doing" in
+//               one place; the host list was briefly a sibling sub-tab
+//               but felt redundant - operators want the totals + the
+//               list on the same view)
 //   sandboxes – user-facing dev containers (was "Dev Containers")
 //   profiles  – inference-profile config (was the standalone Runner Profiles
 //               admin tab; absorbed here because Profiles only make sense
 //               in the context of the runners that consume them)
-type SubTab = 'overview' | 'hosts' | 'sandboxes' | 'profiles'
+type SubTab = 'overview' | 'sandboxes' | 'profiles'
 
 const SUBTAB_LS_KEY = 'admin-runners-subtab'
 
 function isSubTab(v: string | null): v is SubTab {
-  return v === 'overview' || v === 'hosts' || v === 'sandboxes' || v === 'profiles'
+  return v === 'overview' || v === 'sandboxes' || v === 'profiles'
 }
 
 const Runners: FC = () => {
@@ -738,14 +739,6 @@ const Runners: FC = () => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(SUBTAB_LS_KEY, subTab)
   }, [subTab])
-
-  // Inference profile catalogue. Polled on the same 5s cadence as the debug
-  // query below so the Profiles sub-tab tracks additions / deletions made
-  // elsewhere without manual refresh.
-  const {
-    data: runnerProfiles,
-    isLoading: isLoadingRunnerProfiles,
-  } = useListRunnerProfiles({ refetchInterval: 5000 })
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
@@ -787,17 +780,6 @@ const Runners: FC = () => {
     a.session_id.localeCompare(b.session_id)
   )
 
-  // Decide whether the Profiles assignment panel inside Hosts should render.
-  // Visible when at least one Runner Profile is configured OR when any runner
-  // already has a profile assigned (so deleting the last catalogue entry
-  // mid-interaction doesn't hide a "Clear" button from the operator).
-  const anySandboxHasProfileAssigned = sandboxes.some((s) => !!s.active_profile_id)
-  const hasRunnerProfiles = (runnerProfiles?.length ?? 0) > 0
-  const showInferenceProfilesPanel =
-    isLoadingRunnerProfiles ||
-    hasRunnerProfiles ||
-    anySandboxHasProfileAssigned
-
   // Aggregate stats - "online" not "running" (sandbox status enum).
   const runningRunners = sandboxes.filter((s) => s.status === 'online').length
   const runningContainers = sortedContainers.filter((c) => c.status === 'running').length
@@ -829,13 +811,13 @@ const Runners: FC = () => {
         sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
       >
         <Tab value="overview" label="Overview" />
-        <Tab value="hosts" label="Hosts" />
         <Tab value="sandboxes" label="Sandboxes" />
         <Tab value="profiles" label="Profiles" />
       </Tabs>
 
       {subTab === 'overview' && (
         <Box>
+          {/* Top: aggregate stats. */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={12} sm={4}>
               <Paper sx={{ p: 2, textAlign: 'center' }}>
@@ -866,28 +848,15 @@ const Runners: FC = () => {
             </Grid>
           </Grid>
 
-          {gpus.length > 0 && <GPUStatsCard gpus={gpus} />}
-          {gpus.length === 0 && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <Typography variant="body2" color="text.secondary">
-                No GPU stats reported. Bring up a runner to see GPU telemetry.
-              </Typography>
+          {/* Middle: GPU telemetry strip. */}
+          {gpus.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <GPUStatsCard gpus={gpus} />
             </Box>
           )}
-        </Box>
-      )}
 
-      {subTab === 'hosts' && (
-        <Box>
-          {showInferenceProfilesPanel && sandboxes.length > 0 ? (
-            <Grid container spacing={2}>
-              {sandboxes.map((sb) => (
-                <Grid item xs={12} md={6} lg={4} key={sb.id}>
-                  <SandboxProfileCard sandbox={sb} />
-                </Grid>
-              ))}
-            </Grid>
-          ) : sandboxes.length === 0 ? (
+          {/* Bottom: one card per runner host. */}
+          {sandboxes.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <ComputerIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
               <Typography variant="body1" color="text.secondary">
