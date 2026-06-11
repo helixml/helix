@@ -289,20 +289,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return id.Token, nil
 	}
 
-	// secretInjectors gathers every transport's per-activation
-	// secret hook. The spawner iterates them on every activation
-	// (after ensureProject, before ensureSession) and upserts the
-	// returned secrets as project secrets — helix's existing
-	// container runtime exposes those as env vars on the next
-	// desktop boot. New transports plug in here; the spawner stays
-	// transport-agnostic. Currently empty: github used to push
-	// `GH_TOKEN` here but every Worker now has `mint_credential` in
-	// its baseline tool set (BaseReadTools) and mints its own token
-	// on first use, which eliminates the boot-time env var's silent-
-	// expiry-mid-session failure mode and removes the need for
-	// duplicate state.
-	secretInjectors := []runtimehelix.SpawnSecretInjector{}
-
 	// credentialProviders backs the mint_credential MCP tool — the
 	// single surface every Worker uses to obtain an org-scoped
 	// external-provider credential on demand. Adding a new provider
@@ -340,7 +326,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger: logger,
 	})
 
-	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, secretInjectors, deps.NewID, deps.Now, mirror)
+	spawnerFn := lazyHelixOrgSpawner(configReg, helixStore, inProcClient, inProcClient, st, bc, cfg.APIServer.pubsub, logger, projectApplier, deps.NewID, deps.Now, mirror)
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	deps.Dispatcher = dispatcher
 
@@ -887,11 +873,6 @@ func buildHelixOrgSpawnerConfig(
 	// every AI activation), the bridge panicked at sessions.go:257.
 	ps pubsub.PubSub,
 	logger *slog.Logger,
-	// secretInjectors is the slice of per-activation hooks each
-	// transport registers to push secrets into the Worker's
-	// project. The spawner iterates them after ensureProject. See
-	// runtimehelix.SpawnSecretInjector for the contract.
-	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
 ) (runtimehelix.SpawnerConfig, error) {
@@ -945,7 +926,6 @@ func buildHelixOrgSpawnerConfig(
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
 			return resolveUserHelixAPIKey(ctx, helixStore, userID)
 		},
-		SecretInjectors: secretInjectors,
 	}, nil
 }
 
@@ -986,7 +966,6 @@ func lazyHelixOrgSpawner(
 	ps pubsub.PubSub,
 	logger *slog.Logger,
 	applier *dynamicProjectApplier,
-	secretInjectors []runtimehelix.SpawnSecretInjector,
 	newID func() string,
 	now func() time.Time,
 	mirror *runtimehelix.Mirror,
@@ -1004,7 +983,7 @@ func lazyHelixOrgSpawner(
 		// Rebuild the SpawnerConfig for THIS org on every activation —
 		// never reuse another org's config. The shared semaphore keeps
 		// the global inflight cap intact.
-		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, secretInjectors, newID, now)
+		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, cfg, helixStore, spawnerClient, projectSvc, orgStore, bc, ps, logger, newID, now)
 		if err != nil {
 			return fmt.Errorf("helix-org spawner not configured: %w", err)
 		}
