@@ -79,12 +79,21 @@ Two compounding bugs, fixed at the right layer each:
 - `go build ./api/pkg/org/... ./api/pkg/server/...` — clean.
 - All 15 `TestSpawner*` tests pass (including the two new ones).
 - All `AutoWake*` tests pass.
-- E2E reproduction in the inner Helix is deferred to operator after
-  merge — see the spec task's `tasks.md` Phase 3 for the script.
-  Air's inotify watcher does not fire reliably through the bind mount
-  for `api/pkg/org/infrastructure/runtime/helix/` in this sandbox,
-  and restarting the API container to pick up the changes would
-  interrupt the very Helix instance hosting this spec-task agent.
+- **E2E verified in inner Helix** (after restarting api + frontend to
+  pick up the changes):
+  - Startup log confirms Phase 1 live:
+    `[AUTO_WAKE] Started auto-wake worker ... stuck_threshold=180000`.
+  - Created spec task #000001 with a `sleep 200 && echo "tool finished"`
+    tool-call payload. Agent ran the full 200-second sleep.
+  - Throughout ~10 minutes of session lifetime: exactly one interaction
+    row, `auto_wake_count=0`, transitioned cleanly from `state=waiting`
+    → `state=complete`. **No decoy interaction ever spawned**, including
+    well past the old 5-minute `ActivationTimeout` boundary.
+  - Zero `AUTO_WAKE` log entries in the 12-minute test window.
+  - UI shows the agent's final reply (`"It printed: tool finished"`)
+    with no "↻ Retried" or "Incomplete interaction" banner.
+  - Screenshots in
+    `design/tasks/002091_the-worker-sessions-are/screenshots/`.
 
 ## Operator notes
 
