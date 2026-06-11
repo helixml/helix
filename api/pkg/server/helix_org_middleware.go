@@ -119,9 +119,9 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		}
 
 		// Provision a per-org Helix service api_key. Tied to the
-		// first admin user found — see ensureHelixOrgServiceAPIKey
-		// for the idempotency story.
-		if _, err := ensureHelixOrgServiceAPIKey(ctx, orgID, s.helixStore, s.configs); err != nil {
+		// first admin user found — see helixAPIKeys.Service for the
+		// idempotency story.
+		if _, err := newHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
 		}
 

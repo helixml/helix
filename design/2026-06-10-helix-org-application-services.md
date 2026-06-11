@@ -568,12 +568,20 @@ each PHASE behind its own PR; phases are sequential but tasks within the
 
 ### Phase F — invert API-key provisioning
 
-- [ ] F1. Declare interface `APIKeys { Service(ctx, orgID); User(ctx,
-  userID) }` in the org module (application or a port package).
-- [ ] F2. Implement it in `server` against `helixStore` (move
-  `ensureHelixOrgServiceAPIKey`/`resolveUserHelixAPIKey` bodies in).
-- [ ] F3. Org-module consumers take `APIKeys`; test them against a fake
-  `APIKeys`. Build + suite.
+- [x] F1. Declared `APIKeys { Service(ctx, orgID); User(ctx, userID) }`.
+  **Deviation:** declared in the `server` package, not the org module —
+  both consumers (the bootstrap middleware and the runtime's
+  `BearerForUser` func) are host-side, and the org runtime already
+  inverts via its `BearerForUser` func port, so there is no org-module
+  code that should depend on an `APIKeys` abstraction. The win the design
+  asked for — credential provisioning *out of the composition file,
+  behind a small noun port* — is achieved.
+- [x] F2. Implemented as `helixAPIKeys` in `helix_org_apikeys.go` (bodies
+  of `ensureHelixOrgServiceAPIKey`/`resolveUserHelixAPIKey` moved in);
+  deleted from the `helix_org_chat.go` composition file.
+- [x] F3. Middleware + spawner `BearerForUser` route through it. Tested
+  the impl against the gomock host store + a real config registry
+  (User existing/mint, Service mint+flag-grant+cache, no-admin error).
 
 ### Phase G — decompose the composition root
 

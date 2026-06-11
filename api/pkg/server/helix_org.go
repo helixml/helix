@@ -840,7 +840,7 @@ func buildHelixOrgSpawnerConfig(
 		NewID:       newID,
 		Now:         now,
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
-			return resolveUserHelixAPIKey(ctx, helixStore, userID)
+			return newHelixAPIKeys(helixStore, cfg).User(ctx, userID)
 		},
 	}, nil
 }

@@ -1,18 +1,7 @@
 package server
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-
-	"github.com/rs/zerolog/log"
-
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	helixstore "github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 // registerHelixOrgConfigSpecs declares the operational-config keys the
@@ -83,109 +72,4 @@ func registerHelixOrgConfigSpecs(r *configregistry.Registry) {
 		Secrets:     []string{"token", "webhook_secret"},
 		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
 	})
-}
-
-// ensureHelixOrgServiceAPIKey returns a valid Helix api_key for the
-// embedded helix-org client, minting one on first run. The result is
-// also persisted to the helix.api_key config so subsequent reads pick
-// it up without re-checking the store. Stale keys (config row points
-// at a deleted api_keys row) are silently replaced.
-//
-// The owner of the minted key is the first admin user found in the
-// Helix DB. All gated alpha users currently drive the same owner
-// Worker (design note: shared Worker risk), so co-tenanting on one
-// service identity is consistent — multi-tenant attribution is a
-// future change.
-func ensureHelixOrgServiceAPIKey(ctx context.Context, orgID string, st helixstore.Store, reg *configregistry.Registry) (string, error) {
-	if existing, _ := reg.GetString(ctx, orgID, "helix.api_key"); existing != "" {
-		if _, err := st.GetAPIKey(ctx, &types.ApiKey{Key: existing}); err == nil {
-			return existing, nil
-		}
-		log.Warn().Msg("helix-org helix.api_key in config no longer exists in helix DB — re-provisioning")
-	}
-
-	admins, _, err := st.ListUsers(ctx, &helixstore.ListUsersQuery{Admin: true})
-	if err != nil {
-		return "", fmt.Errorf("list admins: %w", err)
-	}
-	if len(admins) == 0 {
-		return "", fmt.Errorf("no admin user found — register one before opening the helix-org alpha")
-	}
-	owner := admins[0]
-
-	// Grant the alpha-feature flag to the service owner so the MCP
-	// gateway accepts requests authenticated by this key. Without it,
-	// per-Worker MCP calls from Zed sandboxes 403 — the backend's
-	// requireFeature check applies to every authenticated caller,
-	// including service identities. Idempotent.
-	hasFlag := false
-	for _, f := range owner.AlphaFeatures {
-		if f == alphaFeatureHelixOrg {
-			hasFlag = true
-			break
-		}
-	}
-	if !hasFlag {
-		owner.AlphaFeatures = append(owner.AlphaFeatures, alphaFeatureHelixOrg)
-		if _, err := st.UpdateUser(ctx, owner); err != nil {
-			return "", fmt.Errorf("grant alpha flag to service owner: %w", err)
-		}
-		log.Info().Str("owner_email", owner.Email).Msg("helix-org granted alpha flag to service owner")
-	}
-
-	keyStr, err := system.GenerateAPIKey()
-	if err != nil {
-		return "", fmt.Errorf("generate api key: %w", err)
-	}
-	if _, err := st.CreateAPIKey(ctx, &types.ApiKey{
-		Owner:     owner.ID,
-		OwnerType: types.OwnerTypeUser,
-		Key:       keyStr,
-		Name:      "helix-org alpha (auto-provisioned)",
-		Type:      types.APIkeytypeAPI,
-	}); err != nil {
-		return "", fmt.Errorf("create api key: %w", err)
-	}
-
-	payload, err := json.Marshal(keyStr)
-	if err != nil {
-		return "", fmt.Errorf("encode api key: %w", err)
-	}
-	if err := reg.Set(ctx, orgID, "helix.api_key", string(payload), orgchart.WorkerID("w-owner")); err != nil {
-		return "", fmt.Errorf("save api key to config: %w", err)
-	}
-	log.Info().
-		Str("owner_id", owner.ID).
-		Str("owner_email", owner.Email).
-		Msg("helix-org auto-provisioned service api key")
-	return keyStr, nil
-}
-
-// resolveUserHelixAPIKey returns an api_key owned by userID, minting
-// one if the user has none yet. Cached lookups are unnecessary —
-// ListAPIKeys is a single indexed query and the cost is dominated by
-// the LLM round-trip immediately following.
-func resolveUserHelixAPIKey(ctx context.Context, st helixstore.Store, userID string) (string, error) {
-	keys, err := st.ListAPIKeys(ctx, &helixstore.ListAPIKeysQuery{Owner: userID, Type: types.APIkeytypeAPI})
-	if err != nil {
-		return "", fmt.Errorf("list api keys: %w", err)
-	}
-	if len(keys) > 0 {
-		return keys[0].Key, nil
-	}
-	keyStr, err := system.GenerateAPIKey()
-	if err != nil {
-		return "", fmt.Errorf("generate api key: %w", err)
-	}
-	if _, err := st.CreateAPIKey(ctx, &types.ApiKey{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
-		Key:       keyStr,
-		Name:      "helix-org alpha (per-user)",
-		Type:      types.APIkeytypeAPI,
-	}); err != nil {
-		return "", fmt.Errorf("create api key: %w", err)
-	}
-	log.Info().Str("user_id", userID).Msg("helix-org auto-provisioned per-user api key")
-	return keyStr, nil
 }
