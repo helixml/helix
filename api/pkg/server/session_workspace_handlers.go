@@ -34,10 +34,33 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// resolveExpectedBranch returns the branch the fork's pre-commit step
+// should target. Reads from the spec task's BranchName first (set when
+// the task transitions to implementation), then falls back to the
+// generated default (feature/NNNNNN-shortname) when BranchName is
+// empty — the case where the user is forking from a session whose
+// task is still in planning/spec_review and hasn't yet had the
+// implementation transition compute the canonical name.
+//
+// Returns empty string when there's no spec task to resolve against.
+func resolveExpectedBranch(specTask *types.SpecTask) string {
+	if specTask == nil {
+		return ""
+	}
+	if specTask.BranchName != "" {
+		return specTask.BranchName
+	}
+	// Lazy fallback. GenerateFeatureBranchName needs at least a
+	// TaskNumber (or BranchPrefix); without those it falls through to
+	// an ID-based name which is still pushable.
+	return services.GenerateFeatureBranchName(specTask)
+}
 
 // Wire types mirroring api/pkg/desktop/workspace.go. Duplicated
 // rather than imported because the desktop package pulls in
@@ -285,10 +308,12 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 
 	// Resolve the spec-task's branch_name so the frontend can show it
 	// in the modal ("will commit to <branch>") AND so we can compute
-	// whether the pre-fork safety net has a viable target.
+	// whether the pre-fork safety net has a viable target. Falls back
+	// to the generated default when the spec task hasn't yet computed
+	// its canonical name (still in planning / spec_review).
 	if session.Metadata.SpecTaskID != "" {
 		if specTask, stErr := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); stErr == nil && specTask != nil {
-			resp.ExpectedBranch = specTask.BranchName
+			resp.ExpectedBranch = resolveExpectedBranch(specTask)
 		}
 	}
 

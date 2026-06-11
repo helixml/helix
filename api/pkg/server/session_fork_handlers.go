@@ -129,11 +129,14 @@ func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Re
 		// Resolve the spec task's branch so the desktop can recover
 		// if the parent's container is still on `main` (which it will
 		// be if the agent hasn't run `git checkout <feature-branch>`
-		// yet — see commitAndPushUncommittedRepos doc for why).
+		// yet — see commitAndPushUncommittedRepos doc for why). Uses
+		// resolveExpectedBranch so we fall back to the generated
+		// default when BranchName hasn't been materialised yet (tasks
+		// in planning / spec_review).
 		expectedBranch := ""
 		if parent.Metadata.SpecTaskID != "" {
 			if specTask, err := apiServer.Store.GetSpecTask(ctx, parent.Metadata.SpecTaskID); err == nil && specTask != nil {
-				expectedBranch = specTask.BranchName
+				expectedBranch = resolveExpectedBranch(specTask)
 			}
 		}
 
@@ -570,12 +573,16 @@ func (apiServer *HelixAPIServer) provisionForkedSessionDesktop(
 	// populate WorkingBranch directly so the container doesn't have to
 	// do the API lookup. The SpecTaskID env var still goes through as
 	// a fallback for any startup-script code path that prefers it.
+	// Uses resolveExpectedBranch so we fall back to the generated
+	// default when BranchName hasn't been materialised yet.
 	if child.Metadata.SpecTaskID != "" {
-		if specTask, err := apiServer.Store.GetSpecTask(ctx, child.Metadata.SpecTaskID); err == nil && specTask != nil && specTask.BranchName != "" {
-			zedAgent.WorkingBranch = specTask.BranchName
-			zedAgent.BranchMode = string(types.BranchModeExisting)
-			if specTask.BaseBranch != "" {
-				zedAgent.BaseBranch = specTask.BaseBranch
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, child.Metadata.SpecTaskID); err == nil && specTask != nil {
+			if resolved := resolveExpectedBranch(specTask); resolved != "" {
+				zedAgent.WorkingBranch = resolved
+				zedAgent.BranchMode = string(types.BranchModeExisting)
+				if specTask.BaseBranch != "" {
+					zedAgent.BaseBranch = specTask.BaseBranch
+				}
 			}
 		}
 	}
