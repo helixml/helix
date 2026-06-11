@@ -2,143 +2,145 @@
 
 ## Summary
 
-Two changes, layered. Either alone reduces the symptom; together they
-eliminate it for realistic tool-call workloads.
+Two changes, each landing at the correct layer.
 
-1. **Hold the activation Queue lane until the session reaches terminal
-   status, not until `ActivationTimeout` fires.** Eliminates the decoy
-   interaction at its source. This is the load-bearing fix — when there
-   is no decoy row, there is nothing for the auto-wake SQL filter to
-   match against.
-2. **Raise `defaultAutoWakeStuckThreshold` from 60s → 180s and make the
-   constant explicit about why.** Defence in depth: even if a decoy
-   ever does appear (e.g. from a bug path we haven't found), the gate
-   won't false-positive on a 90s tool call.
+1. **Org layer (`api/pkg/org/...`): stop deciding sessions are stuck.**
+   The 5-minute `ActivationTimeout` on the spawner's poll loop is what
+   causes the lane to release on a still-running session, which spawns
+   a decoy interaction. Remove that timeout from the poll loop. The org
+   layer's job is to serialise activations per Worker and call the
+   session API faithfully — it is not the org layer's job to second-
+   guess whether the session is healthy.
+2. **Session layer (`api/pkg/server/auto_wake_stuck_interactions.go`):
+   raise `defaultAutoWakeStuckThreshold` from 60s to 180s.** Stuck
+   detection lives here. Today it false-positives on common tool-call
+   gaps because the threshold is shorter than typical tool durations.
 
-Both ship together. We do not pick one. The threshold bump is the
-quick mitigation; the lane-holding fix is what makes the worker stop
-seeing decoys in the first place.
+Both ship together. They are independent — either alone would help,
+but together they cleanly separate concerns:
 
-## Decision 1 — Lane held until session-terminal, not actCtx-terminal
+- Org layer: "I serialise; I trust the session API."
+- Session layer: "I detect stuck sessions and wake them; I own that
+  policy."
+
+## Why stuck detection does not belong at the org layer
+
+The `Queue` invariants in `api/pkg/org/domain/activation/queue.go`
+are simple: at most one in-flight `Spawn` per Worker; triggers that
+arrive during a spawn coalesce into the next batch; distinct Workers
+run independently. None of those invariants require the org layer to
+know what "stuck" looks like.
+
+The current `ActivationTimeout = 5 * time.Minute` at
+`api/pkg/org/infrastructure/runtime/helix/spawner.go:147` is an
+embedded liveness assumption: "any healthy activation completes within
+5 minutes." That assumption is wrong (docs-writing, large bundles,
+slow remote pushes all exceed it) and it leaks into the org layer in
+the worst possible way — by releasing the per-Worker serialisation lane
+mid-session.
+
+The right place to ask "is the session stuck?" is the session layer.
+The session layer already does this via the auto-wake worker, which
+has access to all the signals (WebSocket connection state, streaming
+context, `session.Updated`, response-message progression). The org
+layer has none of those signals and should not be in the business.
+
+So the fix isn't "make the org layer's stuck detection smarter." It's
+"stop making the org layer do stuck detection at all."
+
+## Decision 1 — Remove the artificial poll-loop deadline
 
 ### Current behaviour
 
-`Spawner` at `api/pkg/org/infrastructure/runtime/helix/spawner.go:219`
-creates a 5-minute `actCtx` and passes it into `pollUntilDone` at
-:281. When `actCtx` deadlines, `pollUntilDone` returns
-`context.DeadlineExceeded`, `Spawner` returns, `Queue.activate` returns,
-`Queue.run` drains the next batch from `pending`. If anything is
-pending, the Queue calls `spawn` again, which materialises a new
-interaction on the still-running session.
+`Spawner` at `spawner.go:219` creates a single `actCtx` with the
+5-minute `ActivationTimeout`. That same context is used for both
+`ensureSession` (which should be quick) and `pollUntilDone` (which can
+run for the entire length of a real worker task). When the deadline
+fires on a slow-but-healthy `pollUntilDone`, the spawner returns
+`context.DeadlineExceeded`, the Queue releases the lane, and any
+pending trigger drains and spawns a decoy interaction on top of the
+still-running session.
 
 ### New behaviour
 
-When `pollUntilDone` returns `context.DeadlineExceeded` AND the live
-session is **demonstrably still alive**, the spawner does NOT return.
-It extends its deadline and keeps polling.
+Split the contexts:
 
-"Demonstrably still alive" means one of:
+- **`ensureSession`** keeps a bounded timeout. Bringing a session up
+  (creating the row, dialing the WS, applying project state) should
+  not take 5 minutes; if it does, that genuinely is a failure and we
+  should surface it. Keep the 5-minute budget here.
+- **`pollUntilDone`** no longer uses an artificial deadline. It polls
+  until `IsTerminalOutput(out)` returns true, the parent context is
+  cancelled, or a runaway guard fires (see below). Individual
+  `GetOutput` requests retain their own request-level timeouts via
+  the HTTP client — network hangs are bounded per-call, not per-loop.
 
-- A WebSocket connection to the external agent exists for this
-  session (`externalAgentWSManager.getConnection(sessionID).connected
-  == true`), AND
-- The session has had a streaming-context publish OR a
-  `session.Updated` bump within the last `ActivationTimeout`
-  (i.e. the agent has produced visible work since we started waiting).
+### What about the genuinely-stuck case?
 
-If neither holds, treat the timeout as terminal as today and return.
-This preserves the existing behaviour for sessions that are genuinely
-hung — we keep the bounded blast radius of the original 5-minute cap.
+This is the question that motivates having a timeout at all. Two
+answers:
 
-The extension is implemented as a loop with a per-iteration deadline
-equal to `ActivationTimeout`. There is no hard upper bound on total
-duration; the loop exits when the session reports terminal status
-(`IsTerminalOutput`) or when liveness can no longer be demonstrated
-within one extension window.
+1. **Stuck sessions surface via the session layer, not the org layer.**
+   When `auto_wake_stuck_interactions` decides a row is stuck and
+   retries hit `autoWakeMaxRetries = 2`, the interaction is marked
+   `state=error`. The session's `GetOutput` then reports a terminal
+   status; `pollUntilDone` sees it and returns naturally. The org
+   layer doesn't need its own clock — the session layer's terminal
+   transition is the signal.
 
-### Why this is correct
+2. **A runaway guard prevents unbounded resource pinning in the worst
+   case.** Cap `pollUntilDone` at something genuinely runaway (e.g.
+   24 hours, via a renamed `cfg.ActivationRunawayGuard`, default
+   `24 * time.Hour`). This is *not* a stuck-detection knob; it is a
+   "no activation should ever take a calendar day" backstop, equivalent
+   to the `autoWakeMaxRetries = 1000` runaway-loop backstop already in
+   the codebase. The Queue lane releases only on terminal status from
+   the session API or on the backstop firing — both of which are
+   legitimate end-of-life signals.
 
-The Queue's contract is "at most one in-flight Spawn per Worker"
-(`queue.go:26-29`). The current code violates the *spirit* of that
-contract: when `actCtx` fires on a still-running session, a second
-spawn lands on top of it. Holding the lane while the session is
-provably alive enforces the spirit of the invariant.
+### Rename, don't repurpose
 
-The change is local to `pollUntilDone`. The Queue, Dispatcher, and
-event-fan-out paths are unchanged. The next pending trigger continues
-to coalesce via the existing `pending []Trigger` mechanism in
-`workerLane`; it just waits longer before being drained.
+`cfg.ActivationTimeout` becomes:
+
+- `cfg.SessionStartupTimeout` (default `5 * time.Minute`) — applied to
+  `ensureSession` only.
+- `cfg.ActivationRunawayGuard` (default `24 * time.Hour`) — applied to
+  `pollUntilDone` only.
+
+Renaming makes the intent explicit at the call site and prevents a
+future change re-conflating them. Operators who currently override
+`HELIX_ACTIVATION_TIMEOUT_SECONDS` (if any) get a deprecation log line
+and the value applied to `SessionStartupTimeout`; the runaway guard is
+not operator-tunable in this change — it should never need to be.
+
+### What this avoids
+
+- No new `LivenessProbe` injected from the API server into the org
+  layer. That was the wrong direction — it would have moved more
+  session-layer state into the org layer instead of less.
+- No cross-layer coupling between `org/infrastructure/runtime/helix`
+  and `server/externalAgentWSManager` / `server/streamingContexts`.
+  The two layers stay independent: the org layer calls the session
+  API; the session API encapsulates session liveness.
 
 ### Where the change lives
 
 - `api/pkg/org/infrastructure/runtime/helix/spawner.go`
-  - `Spawner` (line 159 onward): change the polling loop, OR
-  - `pollUntilDone` (line 478): take an extra liveness probe and a
-    `parentCtx` so it can extend its own deadline.
+  - Rename `SpawnerConfig.ActivationTimeout` → `SessionStartupTimeout`,
+    add `ActivationRunawayGuard`.
+  - Update the default-population block at lines 146-148.
+  - `Spawner` body: build two contexts. One short-deadline for
+    `ensureSession`; one long-runaway-guard for `pollUntilDone`.
+  - `pollUntilDone` signature unchanged; only the context handed to
+    it changes.
+- Any test / production wiring that sets `ActivationTimeout`: rename
+  to `SessionStartupTimeout`. Audit `grep -rn "ActivationTimeout"
+  /home/retro/work/helix/api/`.
 
-The liveness probe needs to consult:
+## Decision 2 — Raise auto-wake threshold 60s → 180s
 
-- `externalAgentWSManager.getConnection(sessionID)` — same gate
-  auto-wake uses. The wsmanager lives in `api/pkg/server/` and the
-  spawner lives in `api/pkg/org/infrastructure/runtime/helix/`, so we
-  cannot import it directly without a layering violation. Inject the
-  probe as a `SpawnerConfig.LivenessProbe func(sessionID string) bool`
-  and wire it from the API server at construction time, mirroring how
-  `Client`, `Store`, `Hub` are already injected.
-- The session-streaming-context's `lastPublish` (only meaningful in
-  the API server process). Same wiring story — exposed via the
-  injected probe.
-
-Sketch:
-
-```go
-type LivenessProbe func(ctx context.Context, sessionID string) bool
-
-type SpawnerConfig struct {
-    // ...existing fields...
-    Liveness LivenessProbe // nil → behave as today (no extension)
-}
-```
-
-`pollUntilDone` extension logic (conceptual):
-
-```go
-for {
-    out, err := c.Client.GetOutput(ctx, sessionID)
-    if err == nil && IsTerminalOutput(out) { return ... }
-    select {
-    case <-ctx.Done():
-        if errors.Is(ctx.Err(), context.DeadlineExceeded) &&
-           c.Liveness != nil && c.Liveness(parentCtx, sessionID) {
-            // Renew deadline and continue.
-            newCtx, cancel := context.WithTimeout(parentCtx, c.ActivationTimeout)
-            ctx, releaseCtx = newCtx, cancel
-            continue
-        }
-        return ctx.Err()
-    case <-time.After(delay):
-    }
-    delay = backoff(delay, c.PollMax)
-}
-```
-
-The exact refactor — single function vs. two — is an implementation
-detail. The behavioural contract is: while the session is alive, the
-spawner does not return.
-
-### Cost / risk
-
-- An activation can now run indefinitely on a chatty session. This is
-  fine: the Queue serialises per-Worker, so one Worker burning a slot
-  doesn't block other Workers; the `MaxInflight` semaphore at
-  spawner.go:155 caps global concurrency regardless.
-- The audit row's `EndedAt` is recorded later than today (after real
-  completion instead of after 5 min). This is *more* correct, not less.
-- If `LivenessProbe` returns a false positive (says alive when actually
-  dead), we delay the eventual error by one `ActivationTimeout` per
-  cycle. Bounded and self-correcting (next probe will say dead).
-
-## Decision 2 — Raise default threshold to 180 s
+This is the session-layer fix. It does not change *where* stuck
+detection happens; it tunes the worker that already owns it.
 
 ### Current
 
@@ -149,86 +151,85 @@ spawner does not return.
 
 `defaultAutoWakeStuckThreshold = 180 * time.Second`.
 
-### Why 180 and not 300 or 600
+### Why 180
 
-- 180s covers the empirically observed gap (~61s in the user's
-  report) with a 3× safety margin.
+- Covers empirically observed gaps (~61s in the user's report) with a
+  3× safety margin.
 - Covers typical slow-tool durations: `git push` over a slow network
   (5-90s), `npm install` for a small project (30-120s), `gh pr view`
-  on a chatty PR (10-40s), a `find` over a large tree (10-60s).
-- Doesn't cover *every* possible long tool (a kernel build, a
-  multi-GB upload). For those the lane-held fix (Decision 1) is the
-  protection — the threshold is a safety net.
-- Keeps the worker reasonably responsive when wake-up IS warranted.
-  300+ seconds means the user stares at a frozen chat for 5 minutes
-  before the worker engages on a genuine ACP-buffer drop.
+  on a chatty PR (10-40s), a `find /` (10-60s).
+- Doesn't cover *every* possible long tool (kernel build, multi-GB
+  upload). With Decision 1 in place there's no decoy row for those
+  cases, so the worker has nothing to mis-fire on.
+- Keeps the worker responsive when wake-up IS warranted (claude-agent-acp
+  buffering the tail of a turn). 300+ seconds means the user stares at
+  a frozen chat for 5 minutes before the worker engages.
 
 ### Where the change lives
 
 - `api/pkg/server/auto_wake_stuck_interactions.go:210` — change the
   constant.
-- The comment block above the constant (lines 190-209) needs an
-  update: today it explains "60s targets the dominant failure mode"
-  and references the streaming-context gate; rewrite to acknowledge
-  that the dominant *false-positive* mode is long synchronous tool
-  calls and 180s is calibrated to cover them.
-- Update the comment at lines 396-415 that claims "tool-call cascades
-  and thinking bursts touch lastPublish on every event" — the user's
-  analysis showed this is true for cascades of *many short* tools, false
-  for one *long* tool. Document the limitation; do not pretend it's
-  not there.
+- Rewrite the comment block above (lines 190-209) to acknowledge that
+  the dominant *false-positive* mode is long synchronous tool calls,
+  and 180s is calibrated to cover them.
+- Update the comment at lines 396-415 that claims tool-call cascades
+  reliably touch `lastPublish`. True for cascades of many short tools;
+  false for a single long tool. Document the limitation honestly.
 
 ### Operator override unchanged
 
 `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS` continues to override the
-default at `autoWakeStuckThreshold()` (line 259). No code change
-needed; just verify the test covers the new default.
+default. No code change at `autoWakeStuckThreshold()` (line 259).
 
 ## What we considered and rejected
 
-### Rejected: bump threshold to 600s only, don't touch the Queue
+### Rejected: inject a `LivenessProbe` from the API server into the org spawner
 
-Treats the symptom. A session running `find /` for 11 minutes is still
-broken. And the decoy interactions still exist — they just sit longer
-before the worker engages on them. Future operators reading the SQL
-filter will wonder why empty waiting rows pile up on healthy sessions.
-Fix the root cause.
+This was the previous iteration of this design. The reviewer flagged
+it as wrong-layered and the call is right: stuck detection belongs in
+the session layer, not the org layer. Plumbing WS / streaming-context
+state into `api/pkg/org/infrastructure/runtime/helix/spawner.go` would
+have entrenched the layering violation. Removing the org-layer
+timeout entirely is both simpler and architecturally cleaner.
 
-### Rejected: emit a heartbeat from the spawner side over the WS
+### Rejected: bump the auto-wake threshold only, don't touch the org layer
 
-We can't. The spawner runs in the helix-api process; the agent runs
-in a container. The WS in question is owned by the agent end. We have
-no in-band channel to inject keep-alives from our side.
+Treats the symptom. The decoy interactions still exist; they just sit
+longer before the worker engages on them. Future operators reading the
+SQL filter would find empty waiting rows piling up on healthy sessions
+and wonder why. Fix the root cause at the org layer.
 
-### Rejected: add a separate "session is busy" flag at session.Updated
+### Rejected: keep `ActivationTimeout` as-is, just longer (e.g. 4 hours)
 
-Could be made to work but duplicates state that already exists. The
-WebSocket connection is the canonical "agent end is reachable" signal;
-the streaming context's `lastPublish` is the canonical "agent has
-spoken recently" signal. Use both, don't invent a third.
+A longer timeout still embeds the same wrong-layer assumption — "the
+org layer knows when an activation is too old to be alive." Picking 4
+hours instead of 5 minutes still false-positives for any task that
+legitimately runs longer (training runs, large migrations, batch
+processing). The runaway guard at 24 hours exists for resource safety,
+not for liveness detection.
 
 ### Rejected: change the SQL filter to exclude decoys
 
 You can't reliably exclude a decoy at the SQL layer — by construction
 it looks exactly like a real stuck row. The only way to make the
-filter ignore it is to never create it.
+filter ignore it is to never create it. Decision 1 does that.
 
 ## Patterns picked up
 
-- `getConnection` returns `(*conn, bool)` — many call sites in
-  `auto_wake_stuck_interactions.go` already check both halves. Mirror
-  that shape in the new `LivenessProbe` so the wiring reads naturally.
-- Constants tunable via env vars use the pattern at lines 259-279:
-  read once per call, parse defensively, fall through to the default.
-  Do not invent a new pattern.
-- `SpawnerConfig` already takes optional callbacks (`BearerForUser`,
-  `Mirror`, `Logger`) and degrades to no-op when nil. `LivenessProbe`
-  fits the same shape — when nil, `pollUntilDone` behaves exactly as
-  today.
+- Constants tunable via env vars use the read-once-per-call pattern at
+  `auto_wake_stuck_interactions.go:259-279`. The runaway guard is not
+  tunable; do not invent a new pattern, simply use a const.
+- `SpawnerConfig` already separates concerns via distinct fields with
+  individual defaults populated at the top of `Spawner` (lines
+  140-150). Splitting `ActivationTimeout` into two fields follows
+  the existing shape.
+- Renames need a `grep` over the whole repo. Test wirings, dev wirings,
+  documentation, and config-parsing code all reference the old name.
 
 ## Quick mitigation while the fix rolls out
 
 Operators on affected instances can set
 `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS=180` (or higher) immediately
-without redeploying. This will not eliminate decoys but will stop the
-gate from false-positiving on common tool-call gaps.
+without redeploying. This is Decision 2 applied at runtime. Decoy
+interactions will still appear (because Decision 1 is not deployed)
+but the gate will not false-positive on them.
