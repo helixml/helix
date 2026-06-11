@@ -6,8 +6,10 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
@@ -121,17 +123,23 @@ func deriveDeploymentTag(cfg config.Compute) string {
 func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.Provider, error) {
 	switch cfg.Provider {
 	case "yellowdog":
-		// Auto-derive WorkerTag from Namespace when unset, matching
-		// the yd-provision POC convention (`worker_tag = "worker-<tag>"`).
-		// Operator who set up their pool per the POC docs gets a
-		// working default; anyone with a custom pool naming scheme
-		// overrides via HELIX_YD_WORKER_TAG.
-		workerTag := cfg.Yellowdog.WorkerTag
-		if workerTag == "" && cfg.Yellowdog.Namespace != "" {
-			workerTag = "worker-" + cfg.Yellowdog.Namespace
-			log.Info().
-				Str("worker_tag", workerTag).
-				Msg("compute: HELIX_YD_WORKER_TAG auto-derived from namespace; override if your YD worker pool advertises a different tag")
+		// WorkerTag resolution order:
+		//   1. HELIX_YD_WORKER_TAG explicit  -> use verbatim
+		//   2. Discover from YD nodes        -> query GET /workerPools/nodes,
+		//                                       use the unique tag if there
+		//                                       is exactly one across all
+		//                                       online nodes
+		//   3. Namespace-derived fallback    -> "worker-<namespace>"
+		//
+		// (2) replaces blind (3) as the primary path. The 2026-06-10 E2E
+		// run showed that the POC's `worker_tag = "worker-{{username}}"`
+		// convention is incompatible with naive namespace derivation: a
+		// pool registered as `worker-psamuel` would silently never accept
+		// WRs Helix submitted with `worker-development`. Discovery reads
+		// the truth from the running pool.
+		workerTag, err := resolveWorkerTag(cfg.Yellowdog)
+		if err != nil {
+			return nil, err
 		}
 		sandboxImage, err := helixSandboxImage()
 		if err != nil {
@@ -184,6 +192,72 @@ var sentinelVersions = map[string]bool{
 
 func helixSandboxImage() (string, error) {
 	return helixSandboxImageFor(data.GetHelixVersion())
+}
+
+// resolveWorkerTag picks the YD WorkerTag for the Provider, preferring
+// an explicit operator override, then discovery from online nodes, then
+// a namespace-derived fallback.
+//
+// Returns (tag, err). err is non-nil only when the operator MUST act:
+// either Namespace is missing (no possible default) or discovery saw
+// multiple distinct tags in scope (ambiguous - pick one).
+//
+// Discovery transport errors fall through to the namespace-derived
+// fallback rather than failing boot: a transient YD outage shouldn't
+// prevent Helix from starting, and if the fallback turns out wrong the
+// operator will see WRs sit PENDING and can fix it.
+//
+// The discoverFn parameter is injectable for tests.
+var discoverFn = yellowdog.DiscoverOnlineWorkerTags
+
+func resolveWorkerTag(yd config.Yellowdog) (string, error) {
+	if yd.WorkerTag != "" {
+		log.Info().
+			Str("worker_tag", yd.WorkerTag).
+			Msg("compute: HELIX_YD_WORKER_TAG provided by operator")
+		return yd.WorkerTag, nil
+	}
+	if yd.Namespace == "" {
+		return "", errors.New(
+			"compute: HELIX_YD_NAMESPACE is required (cannot derive WorkerTag without it; alternatively set HELIX_YD_WORKER_TAG explicitly)",
+		)
+	}
+
+	// Discovery: query YD for the unique workerTag(s) currently visible
+	// to this API key. Bounded timeout so a hung YD doesn't pin boot.
+	discoverCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tags, err := discoverFn(discoverCtx, yellowdog.Config{
+		APIKeyID:  yd.APIKeyID,
+		APISecret: yd.APISecret,
+		BaseURL:   yd.BaseURL,
+	})
+
+	fallback := "worker-" + yd.Namespace
+
+	switch {
+	case err != nil:
+		log.Warn().
+			Err(err).
+			Str("worker_tag", fallback).
+			Msg("compute: WorkerTag discovery failed; falling back to namespace-derived default. Set HELIX_YD_WORKER_TAG explicitly to override if WRs sit PENDING.")
+		return fallback, nil
+	case len(tags) == 1:
+		log.Info().
+			Str("worker_tag", tags[0]).
+			Msg("compute: WorkerTag auto-discovered from online YD nodes")
+		return tags[0], nil
+	case len(tags) == 0:
+		log.Warn().
+			Str("worker_tag", fallback).
+			Msg("compute: no online YD nodes visible for discovery; falling back to namespace-derived default. If your pool advertises a different tag and is currently offline, set HELIX_YD_WORKER_TAG explicitly.")
+		return fallback, nil
+	default:
+		return "", fmt.Errorf(
+			"compute: discovery found multiple distinct YD workerTags %v - cannot pick one automatically. Set HELIX_YD_WORKER_TAG explicitly to disambiguate.",
+			tags,
+		)
+	}
 }
 
 // helixSandboxImageFor is the testable inner. Tests inject specific
