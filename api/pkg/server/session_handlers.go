@@ -2450,29 +2450,46 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		return nil, err
 	}
 
-	session := &types.Session{
-		ID:             system.GenerateSessionID(),
-		Name:           s.getTemporarySessionName(message),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		ProjectID:      req.ProjectID,
-		Mode:           types.SessionModeInference,
-		Type:           types.SessionTypeText,
-		Provider:       string(req.Provider),
-		ModelName:      modelName,
-		ParentApp:      req.AppID,
-		OrganizationID: req.OrganizationID,
-		Owner:          userID,
-		OwnerType:      user.Type,
-		Metadata: types.SessionMetadata{
-			Stream:       true,
-			SystemPrompt: req.SystemPrompt,
-			HelixVersion: data.GetHelixVersion(),
-			AgentType:    req.AgentType,
-			ProjectID:    req.ProjectID,
-			SessionRole:  req.SessionRole,
-			CallbackURL:  req.CallbackURL,
-		},
+	// Exploratory sessions are project-scoped singletons — at most one
+	// row per (project_id, session_role="exploratory") so the UI's
+	// GetProjectExploratorySession LIMIT 1 lookup can't disagree with
+	// whichever id StartDesktop registered against the hydra session
+	// map. Reuse the existing row instead of minting a parallel one;
+	// minting a parallel one was the bug operators saw as "Resume
+	// Human Desktop succeeds but the project still shows stopped"
+	// (helix-specs:002090_ffs-looks-like-the-human).
+	var session *types.Session
+	if req.SessionRole == "exploratory" && req.ProjectID != "" {
+		existing, lookupErr := s.Store.GetProjectExploratorySession(ctx, req.ProjectID)
+		if lookupErr == nil && existing != nil {
+			session = existing
+		}
+	}
+	if session == nil {
+		session = &types.Session{
+			ID:             system.GenerateSessionID(),
+			Name:           s.getTemporarySessionName(message),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			ProjectID:      req.ProjectID,
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			Provider:       string(req.Provider),
+			ModelName:      modelName,
+			ParentApp:      req.AppID,
+			OrganizationID: req.OrganizationID,
+			Owner:          userID,
+			OwnerType:      user.Type,
+			Metadata: types.SessionMetadata{
+				Stream:       true,
+				SystemPrompt: req.SystemPrompt,
+				HelixVersion: data.GetHelixVersion(),
+				AgentType:    req.AgentType,
+				ProjectID:    req.ProjectID,
+				SessionRole:  req.SessionRole,
+				CallbackURL:  req.CallbackURL,
+			},
+		}
 	}
 
 	session, err = appendOrOverwrite(session, req)
