@@ -2,8 +2,8 @@
 
 ## Domain layer
 
-- [~] Create `api/pkg/org/domain/credential/credential.go` with the `Provider` interface (`Name()`, `Mint(ctx, orgID) (Credential, error)`) and the `Credential` struct (`Token`, `ExpiresAt`, `Usage`).
-- [~] Add a short package doc comment explaining that `Provider` implementations live with their transports under `infrastructure/transports/<name>/`.
+- [x] Create `api/pkg/org/domain/credential/credential.go` with the `Provider` interface (`Name()`, `Mint(ctx, orgID) (Credential, error)`) and the `Credential` struct (`Token`, `ExpiresAt`, `Usage`).
+- [x] Add a short package doc comment explaining that `Provider` implementations live with their transports under `infrastructure/transports/<name>/`.
 
 ## Resolver widening (GitHub identity)
 
