@@ -46,6 +46,20 @@
 - [x] Add a short note to `CLAUDE.md` under "helix-org design philosophy" (or alongside it) recording the recorded exception: a generic *credential-minting primitive* is allowed under the "keep MCP surface small" rule; per-action wrappers (`publish_to_blog`, `fetch_url`) remain banned. **Done: inline addendum on the "Keep the MCP surface small" bullet pointing at this task's design doc.**
 - [x] In the `mint_credential.go` doc comment, link back to this design document and explicitly note the MCP-surface exception so future reviewers do not have to re-derive the rationale. **Done: top-of-file comment in `mint_credential.go` records the exception, references CLAUDE.md and the design doc.**
 
+## Remove boot-time `GH_TOKEN` injection (user request)
+
+Now that `mint_credential` is in `BaseReadTools`, every Worker can mint
+its own token on first use. The boot-time `SecretInjector` is redundant
+and slightly harmful (it sets up the agent to expect a working env var
+that silently expires mid-session, masking the need for the
+mint→export→retry pattern from turn 1).
+
+- [~] Delete `api/pkg/org/infrastructure/transports/github/secret_injector.go` and `secret_injector_test.go`.
+- [~] In `api/pkg/server/helix_org.go`, remove the github `NewSecretInjector` registration. Keep the `secretInjectors` slice (empty) — the generic mechanism stays for future transports.
+- [~] Update doc comments referencing "two surfaces, one path" (push at boot + pull on demand) to reflect that only the pull surface remains for credentials.
+- [~] Update `BaseReadTools` doc comment in `defaults.go` (no longer references the boot-time TTL — the "high cost of absence" is now "the Worker has nothing to authenticate with until it mints").
+- [~] Update `owner_role.md` "Long-running credentials" section: it's no longer a long-running-only concern; the Worker needs to mint on first use.
+
 ## Out-of-scope (do not implement in this task)
 
 - [ ] Slack `CredentialProvider` — ships with the Slack transport when it lands.
