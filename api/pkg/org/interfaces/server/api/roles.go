@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -47,20 +46,19 @@ func (a *apiHandler) createRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("api not configured (missing Now)"))
 		return
 	}
-	// Union with the universal read baseline — same merge the MCP
-	// create_role tool applies. Without this, the REST POST path (used
-	// by the helix-org chart UI's "New Role" dialog, which doesn't
-	// expose a tools picker) would create Roles with empty tool lists
-	// and every Worker holding them would have no MCP surface at all.
-	mergedTools := tools.MergeBaseReadTools(toToolNames(req.Tools))
-	streams := toStreamIDs(req.Streams)
-	rl, err := orgchart.NewRole(orgchart.RoleID(strings.TrimSpace(req.ID)), req.Content, mergedTools, streams, a.deps.Now().UTC(), orgID)
+	// The service unions the caller's tools with the universal read
+	// baseline — same merge the MCP create_role tool applies. Without
+	// this, the chart UI's "New Role" dialog (no tools picker) would
+	// create Roles with empty tool lists and every Worker holding them
+	// would have no MCP surface at all.
+	rl, err := a.rolesService().Create(r.Context(), orgID, roles.CreateParams{
+		ID:      strings.TrimSpace(req.ID),
+		Content: req.Content,
+		Tools:   toToolNames(req.Tools),
+		Streams: toStreamIDs(req.Streams),
+	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := a.deps.Store.Roles.Create(r.Context(), rl); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("create role: %w", err))
+		writeError(w, errStatus(err), fmt.Errorf("create role: %w", err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, roleDTO(rl))
@@ -124,30 +122,26 @@ func (a *apiHandler) updateRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	existing, err := a.deps.Store.Roles.Get(r.Context(), orgID, id)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get role %s: %w", id, err))
-		return
-	}
-	if req.Content != nil {
-		existing.Content = *req.Content
-	}
+	var toolsPatch *[]tool.Name
 	if req.Tools != nil {
-		existing.Tools = toToolNames(req.Tools)
+		t := toToolNames(req.Tools)
+		toolsPatch = &t
 	}
+	var streamsPatch *[]streaming.StreamID
 	if req.Streams != nil {
-		existing.Streams = toStreamIDs(req.Streams)
+		s := toStreamIDs(req.Streams)
+		streamsPatch = &s
 	}
-	if a.deps.Now != nil {
-		existing.UpdatedAt = a.deps.Now().UTC()
-	} else {
-		existing.UpdatedAt = time.Now().UTC()
-	}
-	if err := a.deps.Store.Roles.Update(r.Context(), existing); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("update role: %w", err))
+	updated, err := a.rolesService().Update(r.Context(), orgID, id, roles.UpdateParams{
+		Content: req.Content,
+		Tools:   toolsPatch,
+		Streams: streamsPatch,
+	})
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("update role: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, roleDTO(existing))
+	writeJSON(w, http.StatusOK, roleDTO(updated))
 }
 
 // deleteRole fires every Worker holding the Role then removes the

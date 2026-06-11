@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -58,21 +59,18 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	}
 	roleID := orgchart.RoleID(args.RoleID)
 
-	existing, err := t.deps.Store.Roles.Get(ctx, orgID, roleID)
-	if err != nil {
-		return nil, fmt.Errorf("role %q: %w", roleID, err)
-	}
-
-	updated := orgchart.Role{
-		ID:             existing.ID,
-		OrganizationID: orgID,
-		Content:        args.Content,
-		CreatedAt:      existing.CreatedAt,
-		UpdatedAt:      t.deps.Now(),
-	}
-	if err := t.deps.Store.Roles.Update(ctx, updated); err != nil {
+	// Content-only patch: the service preserves Tools and Streams (the
+	// old inline path here rebuilt the Role with only Content and
+	// silently wiped both — see application/roles).
+	if _, err := t.deps.rolesService().Update(ctx, orgID, roleID, roles.UpdateParams{Content: &args.Content}); err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
+
+	// Mirror the new content into each holding Worker's Environment so a
+	// running session sees it without waiting for the next activation.
+	// This is a workspace side-effect, not store state, so it stays in
+	// the MCP adapter (the REST chart UI doesn't need it — the Spawner
+	// re-projects current Role state at the start of every activation).
 	workers, _ := t.deps.Store.Workers.List(ctx, orgID)
 	for _, w := range workers {
 		if w.RoleID() != roleID {

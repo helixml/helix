@@ -55,13 +55,14 @@ func (t *UpdateIdentity) Invoke(ctx context.Context, inv tool.Invocation) (json.
 		return nil, fmt.Errorf("update_identity: caller has no OrgID")
 	}
 
-	existing, err := t.deps.Store.Workers.Get(ctx, orgID, orgchart.WorkerID(args.WorkerID))
-	if err != nil {
+	if _, err := t.deps.workersService().UpdateIdentity(ctx, orgID, orgchart.WorkerID(args.WorkerID), args.Content); err != nil {
 		return nil, fmt.Errorf("worker %q: %w", args.WorkerID, err)
 	}
-	if err := t.deps.Store.Workers.Update(ctx, existing.WithIdentityContent(args.Content)); err != nil {
-		return nil, fmt.Errorf("update worker: %w", err)
-	}
+	// Mirror the new identity into the Worker's Environment so a running
+	// session sees it without waiting for the next activation. Workspace
+	// side-effect, not store state, so it stays in the MCP adapter (the
+	// REST chart UI doesn't need it — the Spawner re-projects identity at
+	// the start of every activation).
 	_ = t.deps.Workspace.MirrorFile(ctx, orgID, orgchart.WorkerID(args.WorkerID), "identity.md", args.Content, fmt.Sprintf("update_identity: %s", args.WorkerID))
 	return json.Marshal(map[string]string{"id": args.WorkerID})
 }

@@ -1,6 +1,9 @@
 package tools
 
-import "github.com/helixml/helix/api/pkg/org/domain/tool"
+import (
+	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/domain/tool"
+)
 
 // BaseReadTools is the set of MCP tools that every Role must expose. The
 // principle: a tool belongs here only if exposing it to every Worker is
@@ -48,21 +51,5 @@ var BaseReadTools = []tool.Name{
 // dedup semantics, and adding a new entry point only requires a single
 // call to this helper.
 func MergeBaseReadTools(existing []tool.Name) []tool.Name {
-	seen := make(map[tool.Name]struct{}, len(existing)+len(BaseReadTools))
-	out := make([]tool.Name, 0, len(existing)+len(BaseReadTools))
-	for _, name := range existing {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	for _, name := range BaseReadTools {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out
+	return roles.MergeTools(existing, BaseReadTools)
 }

@@ -7,9 +7,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -104,6 +106,28 @@ type Deps struct {
 	// the empty list to callers; the same shape DefaultDeps installs
 	// for tests that do not exercise the credential path.
 	CredentialProviders map[string]credential.Provider
+}
+
+// workersService builds the worker-mutation application service from
+// the tool deps. UpdateRole delegates to the roles service so the
+// held-Role content rewrite preserves tools/streams.
+func (d Deps) workersService() *workers.Workers {
+	return workers.New(workers.Deps{
+		Workers: d.Store.Workers,
+		Roles:   d.rolesService(),
+	})
+}
+
+// rolesService builds the role-mutation application service from the
+// tool deps, injecting BaseReadTools as the universal baseline so the
+// MCP create_role tool and the REST role handlers union the same set.
+func (d Deps) rolesService() *roles.Roles {
+	return roles.New(roles.Deps{
+		Roles:     d.Store.Roles,
+		Now:       d.Now,
+		NewID:     d.NewID,
+		BaseTools: BaseReadTools,
+	})
 }
 
 // streamsService builds the stream-mutation application service from

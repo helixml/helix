@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -53,21 +53,17 @@ func (t *CreateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("create_role: caller has no OrgID")
 	}
-	id := orgchart.RoleID(args.ID)
-	if id == "" {
-		id = orgchart.RoleID("r-" + t.deps.NewID())
-	}
-	// Union the caller-supplied tools with the universal baseline. The
-	// caller's order is preserved; any baseline names not already present
-	// are appended at the end. A caller that supplies an empty/missing
-	// tools field still gets the base set — there is no way to create a
-	// Role that lacks the read primitives every Worker needs.
-	r, err := orgchart.NewRole(id, args.Content, MergeBaseReadTools(args.Tools), args.Streams, t.deps.Now(), orgID)
+	// The service unions the caller-supplied tools with the universal
+	// baseline (caller order preserved, baseline appended, deduped) so a
+	// Role can never miss the read primitives every Worker needs.
+	r, err := t.deps.rolesService().Create(ctx, orgID, roles.CreateParams{
+		ID:      args.ID,
+		Content: args.Content,
+		Tools:   args.Tools,
+		Streams: args.Streams,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := t.deps.Store.Roles.Create(ctx, r); err != nil {
-		return nil, err
-	}
-	return json.Marshal(map[string]string{"id": string(id)})
+	return json.Marshal(map[string]string{"id": string(r.ID)})
 }

@@ -18,10 +18,12 @@ import (
 	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -275,6 +277,32 @@ func Handler(deps Deps) http.Handler {
 
 type apiHandler struct {
 	deps Deps
+}
+
+// rolesService builds the role-mutation application service the REST
+// role handlers delegate to. BaseReadTools is injected as the universal
+// baseline so REST and MCP create_role union the same set.
+func (a *apiHandler) rolesService() *roles.Roles {
+	now := a.deps.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return roles.New(roles.Deps{
+		Roles:     a.deps.Store.Roles,
+		Now:       now,
+		NewID:     a.deps.NewID,
+		BaseTools: tools.BaseReadTools,
+	})
+}
+
+// workersService builds the worker-mutation application service the
+// REST worker handlers delegate to. UpdateRole rewrites the held Role's
+// content through the roles service (tools/streams preserved).
+func (a *apiHandler) workersService() *workers.Workers {
+	return workers.New(workers.Deps{
+		Workers: a.deps.Store.Workers,
+		Roles:   a.rolesService(),
+	})
 }
 
 // streamsService builds the stream-mutation application service the
@@ -878,13 +906,8 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	existing, err := a.deps.Store.Workers.Get(ctx, orgID, id)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
-		return
-	}
-	if err := a.deps.Store.Workers.Update(ctx, existing.WithIdentityContent(req.Identity)); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("update worker: %w", err))
+	if _, err := a.workersService().UpdateIdentity(ctx, orgID, id, req.Identity); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("update worker %s: %w", id, err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1088,24 +1111,12 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	wk, err := a.deps.Store.Workers.Get(ctx, orgID, id)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
-		return
-	}
-	rid := wk.RoleID()
-	if rid == "" {
-		writeError(w, http.StatusConflict, errors.New("worker has no role"))
-		return
-	}
-	existing, err := a.deps.Store.Roles.Get(ctx, orgID, rid)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get role %s: %w", rid, err))
-		return
-	}
-	existing.Content = req.Content
-	if err := a.deps.Store.Roles.Update(ctx, existing); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("update role: %w", err))
+	if _, err := a.workersService().UpdateRole(ctx, orgID, id, req.Content); err != nil {
+		if errors.Is(err, workers.ErrWorkerHasNoRole) {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
+		writeError(w, errStatus(err), fmt.Errorf("update worker role %s: %w", id, err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
