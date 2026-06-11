@@ -24224,9 +24224,21 @@ const docTemplate = `{
         "server.WorkspaceStatusResponse": {
             "type": "object",
             "properties": {
+                "can_save_changes": {
+                    "description": "CanSaveChanges is false when there ARE dirty changes but the\nfork's pre-commit safety net has nowhere viable to push them.\nConcretely: the session has no spec task, or the spec task has\nno branch name set, or the spec task's branch is a protected\nbranch (main / master) that the remote pre-receive hook will\nreject. In any of those cases the frontend should refuse to\noffer \"Fork with auto-commit\" — the user has to fix git state\nmanually (commit/push to a feature branch from the terminal)\nbefore forking, OR explicitly abandon the changes.",
+                    "type": "boolean"
+                },
+                "cannot_save_reason": {
+                    "description": "CannotSaveReason is a human-readable explanation surfaced in\nthe blocking modal. Empty when CanSaveChanges is true.",
+                    "type": "string"
+                },
                 "container_reachable": {
                     "description": "ContainerReachable=false means we couldn't talk to the desktop\nat all (e.g. it's been reaped). The frontend should treat this\nas \"unknown\" and let the user decide whether to fork anyway.",
                     "type": "boolean"
+                },
+                "expected_branch": {
+                    "description": "ExpectedBranch is the branch the pre-fork commit will target,\nresolved from the spec task. Empty for sessions without a\nspec task. Exposed so the frontend can say \"will commit to\n\u003cbranch\u003e\" instead of just \"will commit\" — helps the user\nunderstand what's about to happen.",
+                    "type": "string"
                 },
                 "is_dirty": {
                     "type": "boolean"

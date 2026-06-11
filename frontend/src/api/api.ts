@@ -1703,11 +1703,36 @@ export interface ServerWorkspaceRepoStatus {
 
 export interface ServerWorkspaceStatusResponse {
   /**
+   * CanSaveChanges is false when there ARE dirty changes but the
+   * fork's pre-commit safety net has nowhere viable to push them.
+   * Concretely: the session has no spec task, or the spec task has
+   * no branch name set, or the spec task's branch is a protected
+   * branch (main / master) that the remote pre-receive hook will
+   * reject. In any of those cases the frontend should refuse to
+   * offer "Fork with auto-commit" — the user has to fix git state
+   * manually (commit/push to a feature branch from the terminal)
+   * before forking, OR explicitly abandon the changes.
+   */
+  can_save_changes?: boolean;
+  /**
+   * CannotSaveReason is a human-readable explanation surfaced in
+   * the blocking modal. Empty when CanSaveChanges is true.
+   */
+  cannot_save_reason?: string;
+  /**
    * ContainerReachable=false means we couldn't talk to the desktop
    * at all (e.g. it's been reaped). The frontend should treat this
    * as "unknown" and let the user decide whether to fork anyway.
    */
   container_reachable?: boolean;
+  /**
+   * ExpectedBranch is the branch the pre-fork commit will target,
+   * resolved from the spec task. Empty for sessions without a
+   * spec task. Exposed so the frontend can say "will commit to
+   * <branch>" instead of just "will commit" — helps the user
+   * understand what's about to happen.
+   */
+  expected_branch?: string;
   is_dirty?: boolean;
   repos?: ServerWorkspaceRepoStatus[];
   session_id?: string;

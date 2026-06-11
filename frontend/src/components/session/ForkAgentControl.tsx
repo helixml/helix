@@ -248,7 +248,42 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
               child will start clean.
             </Alert>
           )}
-          {!workspaceFetching && workspace?.container_reachable && dirtyRepos.length > 0 && (
+          {/* "Cannot save" path: dirty changes exist but the safety
+              net has nowhere viable to push them. Surface the reason
+              and block the fork — let the user fix git state in the
+              terminal first (or explicitly opt to abandon changes via
+              the checkbox below). */}
+          {!workspaceFetching && workspace?.container_reachable && dirtyRepos.length > 0 && workspace?.can_save_changes === false && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              <Box sx={{ fontWeight: 600, mb: 1 }}>
+                Outstanding changes can't be saved automatically
+              </Box>
+              <Box sx={{ mb: 1 }}>
+                {workspace?.cannot_save_reason || "The safety net can't decide where to commit your changes."}
+              </Box>
+              <Box component="ul" sx={{ pl: 2.5, mt: 0, mb: 1 }}>
+                {dirtyRepos.map((r) => (
+                  <li key={r.repo_id || r.name}>
+                    <strong>{r.name}</strong>
+                    {r.branch ? ` (on ${r.branch})` : ""}
+                    {": "}
+                    {(r.uncommitted_files || 0) > 0 && (
+                      <>{r.uncommitted_files} file{r.uncommitted_files === 1 ? "" : "s"} uncommitted</>
+                    )}
+                    {(r.uncommitted_files || 0) > 0 && (r.unpushed_commits || 0) > 0 && ", "}
+                    {(r.unpushed_commits || 0) > 0 && (
+                      <>{r.unpushed_commits} commit{r.unpushed_commits === 1 ? "" : "s"} unpushed</>
+                    )}
+                  </li>
+                ))}
+              </Box>
+            </Alert>
+          )}
+
+          {/* "Can save" path: normal dirty-state UX with the checkbox.
+              Hidden when the can-save block above is shown so the user
+              isn't offered conflicting options. */}
+          {!workspaceFetching && workspace?.container_reachable && dirtyRepos.length > 0 && workspace?.can_save_changes !== false && (
             <Alert severity="warning" sx={{ mt: 2 }}>
               <Box sx={{ mb: 1 }}>
                 The current session has uncommitted changes in the
@@ -280,7 +315,11 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
                     disabled={pending}
                   />
                 }
-                label="Commit and push these changes before forking (recommended)"
+                label={
+                  workspace?.expected_branch
+                    ? `Commit and push these changes to ${workspace.expected_branch} before forking (recommended)`
+                    : "Commit and push these changes before forking (recommended)"
+                }
                 sx={{ display: "block", mt: 0, mb: 0 }}
               />
               {!autoCommit && (
@@ -301,9 +340,16 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
           <Button onClick={cancelFork} disabled={pending}>
             Cancel
           </Button>
-          <Button onClick={runFork} disabled={pending || workspaceFetching} variant="contained" autoFocus>
-            {pending ? "Forking…" : "Fork"}
-          </Button>
+          {/* Block the Fork button entirely when we know the safety
+              net can't save the user's outstanding changes — better
+              UX than letting them click Fork and hit a confusing
+              git-push error. They can still cancel + fix git state
+              + retry. */}
+          {!(workspace?.container_reachable && dirtyRepos.length > 0 && workspace?.can_save_changes === false) && (
+            <Button onClick={runFork} disabled={pending || workspaceFetching} variant="contained" autoFocus>
+              {pending ? "Forking…" : "Fork"}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </>

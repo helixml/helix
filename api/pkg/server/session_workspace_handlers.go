@@ -102,14 +102,34 @@ func (r WorkspaceRepoStatus) IsDirty() bool {
 // WorkspaceStatusResponse is the shape returned by
 // GET /api/v1/sessions/{id}/workspace-status.
 type WorkspaceStatusResponse struct {
-	SessionID   string                `json:"session_id"`
-	Repos       []WorkspaceRepoStatus `json:"repos"`
-	TotalDirty  int                   `json:"total_dirty"`
-	IsDirty     bool                  `json:"is_dirty"`
+	SessionID  string                `json:"session_id"`
+	Repos      []WorkspaceRepoStatus `json:"repos"`
+	TotalDirty int                   `json:"total_dirty"`
+	IsDirty    bool                  `json:"is_dirty"`
 	// ContainerReachable=false means we couldn't talk to the desktop
 	// at all (e.g. it's been reaped). The frontend should treat this
 	// as "unknown" and let the user decide whether to fork anyway.
 	ContainerReachable bool `json:"container_reachable"`
+
+	// CanSaveChanges is false when there ARE dirty changes but the
+	// fork's pre-commit safety net has nowhere viable to push them.
+	// Concretely: the session has no spec task, or the spec task has
+	// no branch name set, or the spec task's branch is a protected
+	// branch (main / master) that the remote pre-receive hook will
+	// reject. In any of those cases the frontend should refuse to
+	// offer "Fork with auto-commit" — the user has to fix git state
+	// manually (commit/push to a feature branch from the terminal)
+	// before forking, OR explicitly abandon the changes.
+	CanSaveChanges bool `json:"can_save_changes"`
+	// CannotSaveReason is a human-readable explanation surfaced in
+	// the blocking modal. Empty when CanSaveChanges is true.
+	CannotSaveReason string `json:"cannot_save_reason,omitempty"`
+	// ExpectedBranch is the branch the pre-fork commit will target,
+	// resolved from the spec task. Empty for sessions without a
+	// spec task. Exposed so the frontend can say "will commit to
+	// <branch>" instead of just "will commit" — helps the user
+	// understand what's about to happen.
+	ExpectedBranch string `json:"expected_branch,omitempty"`
 }
 
 // dialDesktop opens a RevDial connection to the session's desktop
@@ -261,6 +281,30 @@ func (apiServer *HelixAPIServer) workspaceStatus(_ http.ResponseWriter, req *htt
 			resp.IsDirty = true
 		}
 		resp.Repos = append(resp.Repos, status)
+	}
+
+	// Resolve the spec-task's branch_name so the frontend can show it
+	// in the modal ("will commit to <branch>") AND so we can compute
+	// whether the pre-fork safety net has a viable target.
+	if session.Metadata.SpecTaskID != "" {
+		if specTask, stErr := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); stErr == nil && specTask != nil {
+			resp.ExpectedBranch = specTask.BranchName
+		}
+	}
+
+	// Decide whether the pre-fork commit can actually save changes.
+	// Default to "can save" — only flip false when there ARE dirty
+	// changes and we can prove the safety net would fail.
+	resp.CanSaveChanges = true
+	if resp.IsDirty {
+		switch {
+		case resp.ExpectedBranch == "":
+			resp.CanSaveChanges = false
+			resp.CannotSaveReason = "This session isn't linked to a feature branch — the safety net can't decide where to commit your changes. Commit and push them from the desktop terminal first, then try switching agent."
+		case resp.ExpectedBranch == "main" || resp.ExpectedBranch == "master":
+			resp.CanSaveChanges = false
+			resp.CannotSaveReason = fmt.Sprintf("The branch for this session is %q, which the repository protects from direct pushes. Commit your changes to a feature branch from the desktop terminal first, then try switching agent.", resp.ExpectedBranch)
+		}
 	}
 
 	return resp, nil
