@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -274,6 +275,21 @@ func Handler(deps Deps) http.Handler {
 
 type apiHandler struct {
 	deps Deps
+}
+
+// streamsService builds the stream-mutation application service the
+// REST stream handlers delegate to. Same service the MCP create_stream
+// tool uses, so REST and chat creations produce identical store state.
+func (a *apiHandler) streamsService() *streams.Streams {
+	now := a.deps.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return streams.New(streams.Deps{
+		Streams: a.deps.Store.Streams,
+		Now:     now,
+		NewID:   a.deps.NewID,
+	})
 }
 
 // ---- Org overview -------------------------------------------------------
@@ -1318,13 +1334,9 @@ func (a *apiHandler) createStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("name is required"))
 		return
 	}
-	id := streaming.StreamID(strings.TrimSpace(req.ID))
-	if id == "" {
-		if a.deps.NewID == nil {
-			writeError(w, http.StatusInternalServerError, errors.New("NewID not wired"))
-			return
-		}
-		id = streaming.StreamID("s-" + a.deps.NewID())
+	if strings.TrimSpace(req.ID) == "" && a.deps.NewID == nil {
+		writeError(w, http.StatusInternalServerError, errors.New("NewID not wired"))
+		return
 	}
 	tr := transport.Transport{}
 	if req.Transport != nil {
@@ -1338,17 +1350,14 @@ func (a *apiHandler) createStream(w http.ResponseWriter, r *http.Request) {
 			tr.Config = raw
 		}
 	}
-	now := time.Now().UTC()
-	if a.deps.Now != nil {
-		now = a.deps.Now()
-	}
-	owner := orgchart.WorkerID(a.deps.Owner)
-	s, err := streaming.NewStream(id, req.Name, req.Description, owner, now, tr, orgID)
+	s, err := a.streamsService().Create(ctx, orgID, streams.CreateParams{
+		ID:          strings.TrimSpace(req.ID),
+		Name:        req.Name,
+		Description: req.Description,
+		CreatedBy:   a.deps.Owner,
+		Transport:   tr,
+	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := a.deps.Store.Streams.Create(ctx, s); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("create stream: %w", err))
 		return
 	}
@@ -1491,38 +1500,28 @@ func (a *apiHandler) updateStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("name is required"))
 		return
 	}
-	existing, err := a.deps.Store.Streams.Get(ctx, orgID, id)
-	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", id, err))
-		return
-	}
-	// Start from the existing transport; replace fully when the
-	// caller supplies `transport` with both kind and config; replace
-	// only the config when only the config is supplied (typical
-	// "tweak the github repo or events whitelist" flow).
-	tr := existing.Transport
+	// Build the transport patch: replace the kind when the caller
+	// supplies a non-empty kind, replace the config when the caller
+	// supplies one (the typical "tweak the github repo or events
+	// whitelist" flow). The service owns the read-modify-write merge.
+	var patch *streams.TransportPatch
 	if req.Transport != nil {
-		if k := strings.TrimSpace(req.Transport.Kind); k != "" {
-			tr.Kind = transport.Kind(k)
-		}
+		patch = &streams.TransportPatch{Kind: strings.TrimSpace(req.Transport.Kind)}
 		if req.Transport.Config != nil {
 			raw, err := json.Marshal(req.Transport.Config)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, fmt.Errorf("encode transport config: %w", err))
 				return
 			}
-			tr.Config = raw
+			patch.Config = raw
 		}
 	}
-	updated, err := streaming.NewStream(
-		existing.ID, req.Name, req.Description,
-		existing.CreatedBy, existing.CreatedAt, tr, existing.OrganizationID,
-	)
+	updated, err := a.streamsService().Update(ctx, orgID, id, streams.UpdateParams{
+		Name:        req.Name,
+		Description: req.Description,
+		Transport:   patch,
+	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := a.deps.Store.Streams.Update(ctx, updated); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update stream: %w", err))
 		return
 	}
@@ -1582,7 +1581,7 @@ func (a *apiHandler) deleteStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	if err := a.deps.Store.Streams.Delete(ctx, orgID, id); err != nil {
+	if err := a.streamsService().Delete(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete stream: %w", err))
 		return
 	}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
@@ -104,10 +104,6 @@ func (t *CreateStream) Invoke(ctx context.Context, inv tool.Invocation) (json.Ra
 	if orgID == "" {
 		return nil, fmt.Errorf("create_stream: caller has no OrgID")
 	}
-	id := streaming.StreamID(args.ID)
-	if id == "" {
-		id = streaming.StreamID("s-" + t.deps.NewID())
-	}
 	tr := transport.Transport{}
 	if args.Transport != nil {
 		tr = transport.Transport{
@@ -115,12 +111,15 @@ func (t *CreateStream) Invoke(ctx context.Context, inv tool.Invocation) (json.Ra
 			Config: args.Transport.Config,
 		}
 	}
-	s, err := streaming.NewStream(id, args.Name, args.Description, inv.Caller.ID(), t.deps.Now(), tr, orgID)
+	s, err := t.deps.streamsService().Create(ctx, orgID, streams.CreateParams{
+		ID:          args.ID,
+		Name:        args.Name,
+		Description: args.Description,
+		CreatedBy:   inv.Caller.ID(),
+		Transport:   tr,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := t.deps.Store.Streams.Create(ctx, s); err != nil {
-		return nil, err
-	}
-	return json.Marshal(map[string]string{"id": string(id)})
+	return json.Marshal(map[string]string{"id": string(s.ID)})
 }

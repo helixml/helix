@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
@@ -103,6 +104,18 @@ type Deps struct {
 	// the empty list to callers; the same shape DefaultDeps installs
 	// for tests that do not exercise the credential path.
 	CredentialProviders map[string]credential.Provider
+}
+
+// streamsService builds the stream-mutation application service from
+// the tool deps. The MCP stream tools are thin adapters over it, so the
+// create/update/delete logic lives in exactly one place (shared with
+// the REST handlers).
+func (d Deps) streamsService() *streams.Streams {
+	return streams.New(streams.Deps{
+		Streams: d.Store.Streams,
+		Now:     d.Now,
+		NewID:   d.NewID,
+	})
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
