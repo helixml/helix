@@ -100,6 +100,7 @@ func TestCreateRoleUnionWithCallerTools(t *testing.T) {
 		ReadEventsName,
 		WorkerLogName,
 		GetWorkerEnvironmentName,
+		MintCredentialName,
 	}
 	if !reflect.DeepEqual(role.Tools, want) {
 		t.Fatalf("create_role union drifted.\n got: %v\nwant: %v", role.Tools, want)
