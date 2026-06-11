@@ -183,15 +183,28 @@ func (s *Server) handleWorkspaceCommitAndPush(w http.ResponseWriter, r *http.Req
 					// Try creating a tracking branch from origin if
 					// the local branch doesn't exist yet.
 					ctx, cancel = context.WithTimeout(r.Context(), 10*time.Second)
-					_, retryErr := runGit(ctx, ws.Path, "checkout", "-b", req.ExpectedBranch, "origin/"+req.ExpectedBranch)
+					_, originRetryErr := runGit(ctx, ws.Path, "checkout", "-b", req.ExpectedBranch, "origin/"+req.ExpectedBranch)
 					cancel()
-					if retryErr != nil {
-						result.Action = "failed"
-						result.Error = fmt.Sprintf("expected branch %s but was on %s; checkout failed: %v (output: %s)",
-							req.ExpectedBranch, current, checkoutErr, checkoutOut)
-						resp.Repos = append(resp.Repos, result)
-						resp.Success = false
-						continue
+					if originRetryErr != nil {
+						// Final fallback: the branch doesn't exist
+						// locally OR on origin — create it from the
+						// current HEAD. This is what a fresh spec
+						// task hits, where the agent never got round
+						// to its own `git checkout -b` because the
+						// user was faster. Dirty files travel along;
+						// the subsequent push will create the branch
+						// on origin.
+						ctx, cancel = context.WithTimeout(r.Context(), 10*time.Second)
+						_, createRetryErr := runGit(ctx, ws.Path, "checkout", "-b", req.ExpectedBranch)
+						cancel()
+						if createRetryErr != nil {
+							result.Action = "failed"
+							result.Error = fmt.Sprintf("expected branch %s but was on %s; checkout failed: %v (output: %s)",
+								req.ExpectedBranch, current, checkoutErr, checkoutOut)
+							resp.Repos = append(resp.Repos, result)
+							resp.Success = false
+							continue
+						}
 					}
 				}
 			}

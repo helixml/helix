@@ -237,6 +237,54 @@ func TestHandleWorkspaceCommitAndPush_BranchRecovery(t *testing.T) {
 		strings.TrimSpace(string(remoteOut)))
 }
 
+// TestHandleWorkspaceCommitAndPush_BranchRecoveryFreshTask covers
+// the brand-new-task variant of branch recovery: the spec task's
+// expected branch doesn't exist yet anywhere (no local ref, no
+// remote ref) because the agent hasn't pushed anything yet. The
+// recovery must create the branch from the current HEAD so the
+// dirty files have somewhere to land, and the subsequent push will
+// create the remote ref. This is the typical state immediately
+// after creating a fresh spec task — agent boots, user dirties
+// files, user forks before the agent has its own chance to
+// `git checkout -b`.
+func TestHandleWorkspaceCommitAndPush_BranchRecoveryFreshTask(t *testing.T) {
+	// `false` here means setupTestRepoWithRemote doesn't write the
+	// marker files for us — we control them after seeding the brand-
+	// new state, before dirtying.
+	workspaceDir, repoDir, originDir := setupTestRepoWithRemote(t, "testproj", false)
+	s := newDesktopTestServer(t, workspaceDir)
+
+	// Brand-new task: no feature branch on origin, none locally,
+	// container sitting on main with a dirty file.
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "marker.txt"), []byte("dirty on main\n"), 0644))
+	t.Setenv("HELIX_PRIMARY_REPO_NAME", "testproj")
+
+	body, _ := json.Marshal(WorkspaceCommitRequest{
+		Message:        "chore(fork): pre-fork checkpoint before switching to qwen_code",
+		ExpectedBranch: "feature/000099-brand-new",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/workspace/commit-and-push", bytes.NewReader(body))
+	s.handleWorkspaceCommitAndPush(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+	var resp WorkspaceCommitResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Success, "fresh-task recovery must succeed: %+v", resp.Repos)
+	require.Len(t, resp.Repos, 1)
+	assert.Equal(t, "committed", resp.Repos[0].Action)
+
+	branchOut, err := exec.Command("git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
+	require.NoError(t, err)
+	assert.Equal(t, "feature/000099-brand-new", strings.TrimSpace(string(branchOut)))
+
+	// The push should have CREATED the branch on origin.
+	remoteOut, err := exec.Command("git", "-C", originDir, "log", "--pretty=%s", "-1", "feature/000099-brand-new").CombinedOutput()
+	require.NoError(t, err, "remote branch must exist after push: %s", string(remoteOut))
+	assert.Equal(t, "chore(fork): pre-fork checkpoint before switching to qwen_code",
+		strings.TrimSpace(string(remoteOut)))
+}
+
 // TestHandleWorkspaceCommitAndPush_HookRejection is the focussed
 // regression for the production failure: install a commit-msg hook
 // that rejects the previous (non-conventional) message format and
