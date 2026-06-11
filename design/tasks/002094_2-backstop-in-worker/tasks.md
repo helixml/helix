@@ -18,10 +18,10 @@
       run cleanly).
 - [x] Smoke-check the embedded text: `grep -n "mint_credential" api/pkg/org/application/agent/worker-policy.md`
       should return the new section.
-- [~] Commit on a feature branch with a conventional-commit message,
+- [x] Commit on a feature branch with a conventional-commit message,
       e.g. `docs(org): add mint_credential backstop to worker-policy`.
       Single commit; do not bundle unrelated Role edits.
-- [ ] Push the branch. The Helix platform creates the GitHub PR
+- [x] Push the branch. The Helix platform creates the GitHub PR
       automatically when the user clicks "Open PR" in the UI — do
       NOT run `gh pr create`.
 - [ ] Watch CI after the user opens the PR. Expected: green —
