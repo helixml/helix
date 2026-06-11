@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -111,9 +112,16 @@ func newGitHubOAuthResolver(manager *oauth.Manager, st helixstore.Store) func(co
 // GH_TOKEN / use as the git credential. AppID, InstallationID and BaseURL
 // are populated in "app" mode so callers (e.g. the repo picker) can drive
 // installation-scoped GitHub API calls.
+//
+// ExpiresAt is populated for Mode="app" — GitHub App installation tokens
+// have a server-reported expiry (~1h) that the mint_credential MCP tool
+// surfaces to the calling agent. It is the zero Time for Mode="oauth"
+// because borrowed user OAuth tokens have no comparable per-mint expiry
+// here.
 type OrgGitHubIdentity struct {
 	Mode           string // "app" | "oauth"
 	Token          string
+	ExpiresAt      time.Time
 	AppID          int64
 	InstallationID int64
 	BaseURL        string
@@ -130,9 +138,11 @@ type OrgGitHubIdentity struct {
 // that OAuth could still serve. Returns Mode="oauth" with an empty Token when
 // neither path yields anything (identical to the pre-app behaviour).
 //
-// mintFn is a seam: production wiring passes github.MintInstallationToken;
-// unit tests stub it so they never make the live GitHub call ghinstallation's
-// Token() performs.
+// mintFn is a seam: production wiring passes
+// github.MintInstallationCredential; unit tests stub it so they never make
+// the live GitHub call ghinstallation's Token() performs. The returned
+// expiry travels onto OrgGitHubIdentity.ExpiresAt so the mint_credential
+// MCP tool can pass it back to the agent.
 // decryptAppKey decrypts a github_app ServiceConnection's stored PEM with the
 // server encryption key. Shared by the install-status, repo-aggregation and
 // identity resolvers so the decrypt + error wrapping lives in one place.
@@ -151,11 +161,19 @@ func decryptAppKey(getKey func() ([]byte, error), conn *types.ServiceConnection)
 	return string(pem), nil
 }
 
+// MintedInstallation is the bundle returned by the mint-fn seam: the
+// installation access token and its server-reported expiry. Kept in this
+// package so test seams don't have to depend on api/pkg/agent/skill/github.
+type MintedInstallation struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
 func newOrgGitHubIdentityResolver(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
 	oauthFallback func(context.Context, string) (string, error),
-	mintFn func(ctx context.Context, appID, installationID int64, pem, baseURL string) (string, error),
+	mintFn func(ctx context.Context, appID, installationID int64, pem, baseURL string) (MintedInstallation, error),
 ) func(context.Context, string) (OrgGitHubIdentity, error) {
 	oauth := func(ctx context.Context, orgID string) (OrgGitHubIdentity, error) {
 		if oauthFallback == nil {
@@ -189,14 +207,15 @@ func newOrgGitHubIdentityResolver(
 				log.Warn().Err(err).Str("org_id", orgID).Str("conn_id", c.ID).Msg("decrypt github app key failed; trying next connection")
 				continue
 			}
-			tok, err := mintFn(ctx, c.GitHubAppID, c.GitHubInstallationID, pem, c.BaseURL)
+			minted, err := mintFn(ctx, c.GitHubAppID, c.GitHubInstallationID, pem, c.BaseURL)
 			if err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Int64("app_id", c.GitHubAppID).Msg("mint installation token failed; falling back to OAuth")
 				break
 			}
 			return OrgGitHubIdentity{
 				Mode:           "app",
-				Token:          tok,
+				Token:          minted.Token,
+				ExpiresAt:      minted.ExpiresAt,
 				AppID:          c.GitHubAppID,
 				InstallationID: c.GitHubInstallationID,
 				BaseURL:        c.BaseURL,

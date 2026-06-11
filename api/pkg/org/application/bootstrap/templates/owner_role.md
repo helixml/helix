@@ -100,3 +100,29 @@ can see no MCP tools at all and will fall back to writing files
 instead of publishing/DMing, which is wrong. A Worker hired without
 their streams subscribed is half-hired — they have nothing to listen
 to. Don't skip step 1's tools list or step 3.
+
+## Long-running credentials: `mint_credential`
+
+External-provider tokens (GitHub today, Slack next) are injected into
+a Worker's desktop **once** at container boot and expire after about an
+hour. A Worker whose session outlives the TTL will start seeing 401 /
+403 from `gh`, `git`, and authenticated `curl` even though the
+credential was valid at boot. `mint_credential` is the fix — it mints
+a fresh short-lived token on demand for the Worker's org.
+
+When you create a Role whose Worker will run `gh`, `git`, or any
+authenticated `curl` against a supported provider:
+
+1. **Include `mint_credential` in the Role's `tools` list.** Without
+   it the Worker cannot self-refresh and will give up on the first
+   auth error.
+2. **Put the mint → export → retry guidance in the Role prompt.** A
+   single paragraph is enough; the agent has to know to call
+   `mint_credential`, `export` the result into its shell (e.g.
+   `export GH_TOKEN=$(...)`), and **retry whenever a command fails with
+   401/403**. Without this paragraph the Worker may have the tool but
+   not know when to reach for it.
+
+You can call `mint_credential` yourself too — it returns
+`{ token, expires_at, usage }` for any provider configured on the
+server.

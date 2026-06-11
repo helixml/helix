@@ -25,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -258,8 +259,21 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// member OAuth token: if the org has a github_app ServiceConnection it
 	// mints a short-lived installation token (decrypting the stored PEM with
 	// the server encryption key), else it falls back to oauthResolver.
-	// github.MintInstallationToken is the production minter.
-	identityResolver := newOrgGitHubIdentityResolver(cfg.APIServer.getEncryptionKey, helixStore, oauthResolver, githubskill.MintInstallationToken)
+	// github.MintInstallationCredential is the production minter — it
+	// returns both the token and the server-reported expiry, which
+	// mint_credential surfaces to agents.
+	identityResolver := newOrgGitHubIdentityResolver(
+		cfg.APIServer.getEncryptionKey,
+		helixStore,
+		oauthResolver,
+		func(ctx context.Context, appID, installationID int64, pem, baseURL string) (MintedInstallation, error) {
+			cred, err := githubskill.MintInstallationCredential(ctx, appID, installationID, pem, baseURL)
+			if err != nil {
+				return MintedInstallation{}, err
+			}
+			return MintedInstallation{Token: cred.Token, ExpiresAt: cred.ExpiresAt}, nil
+		},
+	)
 	// gitHubTokenResolver is the bot-preferring token projection used by
 	// every "act as GitHub" touchpoint (worker GH_TOKEN injection, outbound
 	// transport, webhook install). Returns the App installation token when
@@ -282,6 +296,26 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// transport-agnostic.
 	secretInjectors := []runtimehelix.SpawnSecretInjector{
 		githubtransport.NewSecretInjector(githubtransport.TokenResolver(gitHubTokenResolver)),
+	}
+
+	// credentialProviders backs the mint_credential MCP tool. The
+	// SecretInjector above pushes the same per-org GitHub token into
+	// project env at boot; this map lets a long-running Worker pull
+	// a fresh one on demand mid-session (the boot-time env var has a
+	// fixed ~1h TTL and is immutable for the life of the container).
+	// Adding a new provider (Slack, …) is a new file under
+	// infrastructure/transports/<name>/credential_provider.go plus
+	// one entry here — no edits to mint_credential.go.
+	deps.CredentialProviders = map[string]credential.Provider{
+		"github": githubtransport.NewCredentialProvider(
+			func(ctx context.Context, orgID string) (githubtransport.Identity, error) {
+				id, err := identityResolver(ctx, orgID)
+				if err != nil {
+					return githubtransport.Identity{}, err
+				}
+				return githubtransport.Identity{Token: id.Token, ExpiresAt: id.ExpiresAt}, nil
+			},
+		),
 	}
 	// Transcript mirror — process-wide singleton shared by the spawner
 	// (Ensure), bootstrap (EnsureAll), and lifecycle.Fire (Stop).

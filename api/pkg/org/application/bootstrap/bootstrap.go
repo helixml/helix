@@ -91,6 +91,12 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.InviteWorkersName,
 		tools.PublishName,
 		tools.DMName,
+		// mint_credential refreshes expiring external-provider tokens
+		// (GitHub today, Slack next). The owner needs it so they can
+		// demonstrate the mint→export→retry flow themselves and, more
+		// importantly, knows to include it in Worker Roles whose Workers
+		// run gh/git/authenticated curl. See owner_role.md hiring playbook.
+		tools.MintCredentialName,
 	}
 	defaults := append(append([]tool.Name{}, ownerMutationTools...), tools.BaseReadTools...)
 

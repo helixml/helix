@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -89,6 +90,19 @@ type Deps struct {
 	// nil Reconciler is a no-op (tests / runtimes without topology),
 	// but DefaultDeps wires one so the standard path is always covered.
 	Topology *topology.Reconciler
+
+	// CredentialProviders is the registry the mint_credential MCP tool
+	// dispatches on. Keys are provider names (e.g. "github", "slack")
+	// matching the agent-supplied `provider` arg; values are minted
+	// on-demand by the per-transport Provider implementation. Wire
+	// providers in helix-org's bootstrap (api/pkg/server/helix_org.go)
+	// — adding a new provider is a new file in its transport package
+	// plus one map entry there, with no edits to mint_credential.
+	//
+	// nil/empty map is allowed: mint_credential will register and report
+	// the empty list to callers; the same shape DefaultDeps installs
+	// for tests that do not exercise the credential path.
+	CredentialProviders map[string]credential.Provider
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time,
@@ -97,12 +111,13 @@ type Deps struct {
 // left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
 	d := Deps{
-		Store:         s,
-		Now:           func() time.Time { return time.Now().UTC() },
-		NewID:         uuid.NewString,
-		Workspace:     runtime.NoopWorkspaceSync{},
-		HireHook:      runtime.NoopHireHook{},
-		ProjectConfig: runtime.NoopProjectConfig{},
+		Store:               s,
+		Now:                 func() time.Time { return time.Now().UTC() },
+		NewID:               uuid.NewString,
+		Workspace:           runtime.NoopWorkspaceSync{},
+		HireHook:            runtime.NoopHireHook{},
+		ProjectConfig:       runtime.NoopProjectConfig{},
+		CredentialProviders: map[string]credential.Provider{},
 	}
 	d.Topology = &topology.Reconciler{Store: s, Now: d.Now}
 	return d
@@ -122,6 +137,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&UpdateIdentity{deps: deps},
 		&HireWorker{deps: deps},
 		&CreateStream{deps: deps},
+		&MintCredential{deps: deps, providers: deps.CredentialProviders},
 		&StreamMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
