@@ -534,17 +534,23 @@ each PHASE behind its own PR; phases are sequential but tasks within the
   guard + reconcile); handlers stop calling `Store.ReportingLines.*`.
 - [x] C7. Parity + ordering tests; live-API publish/subscribe smoke.
 
-### Phase D — enforce the seam (the gate)
+### Phase D — enforce the seam (the gate) ✅
 
-- [ ] D1. Remove `Store *store.Store` from `interfaces/server/api.Deps`
-  (`api.go:79`). Fix every compile error by routing through a service.
-- [ ] D2. Remove the `store` field from `server.Server`
-  (`server.go:31`); route `mcp.go:80,86` and `webhook.go:53,94` through
-  services. (Bootstrap-time direct store use stays — it's not an adapter.)
-- [ ] D3. Update the stale `server.go:1-5` package doc ("exactly one
-  endpoint" / "CLI opens the store directly" is no longer true).
-- [ ] D4. Confirm the compiler now forbids any interface adapter touching
-  a repository. Build + full `./pkg/org/...` suite.
+- [x] D1. Removed `Store *store.Store` from `interfaces/server/api.Deps`;
+  it now holds the constructed services + a `queries.Queries` read facade
+  + `Activations` + a `WorkerRuntime` port + a `GitHubInbound` factory.
+  All reads route through `Queries`; the activation pre-create through
+  `activations`; the github inbound transport is built at the composition
+  root and injected. Builder helpers deleted (construction moved out).
+- [x] D2. Removed the `store` field from `server.Server`; it now holds
+  `queries` + `publishing`. `mcp.go` resolves worker/role via `queries`;
+  `webhook.go` reads the stream via `queries` and appends via
+  `publishing`. `NewFromStore` is the composition-time convenience that
+  builds those from a store (the Server never holds the store).
+- [x] D3. Rewrote the `server.go` package doc to describe the MCP +
+  webhook surface routing through services.
+- [x] D4. Grep-clean: no `interfaces/server` adapter references a store
+  repository. Build + full `./pkg/org/...` suite green.
 
 ### Phase E — GitHub integration out of the root
 

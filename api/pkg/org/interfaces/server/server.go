@@ -1,52 +1,80 @@
-// Package server exposes the HTTP surface. There is exactly one
-// endpoint: /workers/{id}/mcp — every Worker is its own MCP server,
-// scoped to the tools listed in that Worker's Role, and used for both
-// reads and mutations of the org graph. The CLI bootstraps by opening
-// the store directly; there is no other HTTP write path.
+// Package server exposes the HTTP surface: the per-Worker MCP endpoint
+// (/orgs/{org}/workers/{id}/mcp — every Worker is its own MCP server,
+// scoped to the tools in its Role) and the inbound webhook endpoint
+// (/webhooks/{org}/{streamID}). Neither handler touches a store
+// repository: caller/role resolution and stream reads go through the
+// queries read facade, and inbound events go through the publishing
+// service (append → notify → dispatch). The store stays in the
+// composition root, behind those services.
 package server
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
-// Dispatcher is the subset of the dispatcher this package needs:
-// fan an Event out to subscribed AI Workers. Defining the interface
-// here (rather than importing dispatch) keeps the import edge
-// one-directional — dispatch already imports server's siblings.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, event streaming.Event)
-}
+// Dispatcher fans an Event out to subscribed AI Workers. Alias of the
+// publishing service's port so callers (and tests) keep a stable name.
+type Dispatcher = publishing.Dispatcher
 
-// Server wires handlers over a store and the tool registry.
+// Server wires the MCP + webhook handlers over the application services.
 type Server struct {
-	store       *store.Store
-	registry    *tools.Registry
-	prompts     *prompts.Registry
-	broadcaster *streamhub.Hub
-	dispatcher  Dispatcher
-	logger      *slog.Logger
+	queries    *queries.Queries
+	publishing *publishing.Publishing
+	registry   *tools.Registry
+	prompts    *prompts.Registry
+	logger     *slog.Logger
 }
 
-// New returns a Server bound to the given store, registry, broadcaster,
-// dispatcher and logger. If logger is nil, a discard logger is used.
-// The broadcaster wakes long-poll readers; it may be nil in tests.
-// The dispatcher is required only for routes that fan-out events to
-// subscribed Workers (e.g. /webhooks/{streamID}); leave it nil in
-// tests that don't exercise those paths.
-func New(s *store.Store, registry *tools.Registry, broadcaster *streamhub.Hub, dispatcher Dispatcher, logger *slog.Logger) *Server {
+// New returns a Server bound to the read facade, the publishing service,
+// the tool registry and a logger. If logger is nil, a discard logger is
+// used. publishing may be nil in tests that don't exercise the inbound
+// webhook route.
+func New(q *queries.Queries, pub *publishing.Publishing, registry *tools.Registry, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
-	return &Server{store: s, registry: registry, broadcaster: broadcaster, dispatcher: dispatcher, logger: logger}
+	return &Server{queries: q, publishing: pub, registry: registry, logger: logger}
+}
+
+// NewFromStore is the composition-time convenience constructor: it
+// builds the read facade and the publishing service from a store (+
+// broadcaster + dispatcher) and returns a Server over them. The Server
+// itself never holds the store — this just keeps the wiring (and tests)
+// terse. broadcaster/dispatcher may be nil (the publish trio then skips
+// the corresponding step).
+func NewFromStore(s *store.Store, registry *tools.Registry, broadcaster *streamhub.Hub, dispatcher Dispatcher, logger *slog.Logger) *Server {
+	q := queries.New(queries.Deps{
+		Roles:          s.Roles,
+		Workers:        s.Workers,
+		ReportingLines: s.ReportingLines,
+		Streams:        s.Streams,
+		Subscriptions:  s.Subscriptions,
+		Events:         s.Events,
+	})
+	pd := publishing.Deps{
+		Streams: s.Streams,
+		Events:  s.Events,
+		Now:     func() time.Time { return time.Now().UTC() },
+		NewID:   uuid.NewString,
+	}
+	if broadcaster != nil {
+		pd.Hub = broadcaster
+	}
+	if dispatcher != nil {
+		pd.Dispatcher = dispatcher
+	}
+	return New(q, publishing.New(pd), registry, logger)
 }
 
 // WithPrompts attaches a prompts.Registry so the per-worker MCP server

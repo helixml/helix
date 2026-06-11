@@ -42,16 +42,12 @@ func (a *apiHandler) createRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("id is required"))
 		return
 	}
-	if a.deps.Now == nil {
-		writeError(w, http.StatusInternalServerError, errors.New("api not configured (missing Now)"))
-		return
-	}
 	// The service unions the caller's tools with the universal read
 	// baseline — same merge the MCP create_role tool applies. Without
 	// this, the chart UI's "New Role" dialog (no tools picker) would
 	// create Roles with empty tool lists and every Worker holding them
 	// would have no MCP surface at all.
-	rl, err := a.rolesService().Create(r.Context(), orgID, roles.CreateParams{
+	rl, err := a.deps.Roles.Create(r.Context(), orgID, roles.CreateParams{
 		ID:      strings.TrimSpace(req.ID),
 		Content: req.Content,
 		Tools:   toToolNames(req.Tools),
@@ -86,7 +82,7 @@ func (a *apiHandler) getRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("role id is required"))
 		return
 	}
-	rl, err := a.deps.Store.Roles.Get(r.Context(), orgID, id)
+	rl, err := a.deps.Queries.GetRole(r.Context(), orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get role %s: %w", id, err))
 		return
@@ -132,7 +128,7 @@ func (a *apiHandler) updateRole(w http.ResponseWriter, r *http.Request) {
 		s := toStreamIDs(req.Streams)
 		streamsPatch = &s
 	}
-	updated, err := a.rolesService().Update(r.Context(), orgID, id, roles.UpdateParams{
+	updated, err := a.deps.Roles.Update(r.Context(), orgID, id, roles.UpdateParams{
 		Content: req.Content,
 		Tools:   toolsPatch,
 		Streams: streamsPatch,

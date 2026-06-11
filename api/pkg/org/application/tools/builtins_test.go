@@ -46,7 +46,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -188,7 +188,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -297,7 +297,7 @@ func TestStreamMembers(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -367,7 +367,7 @@ func TestInviteWorkers(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -461,7 +461,7 @@ func TestDM(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -588,7 +588,7 @@ func TestReadsOverMCP(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -707,7 +707,7 @@ func TestWorkerLog(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -820,7 +820,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -992,7 +992,7 @@ func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	session := connectMCP(t, srv.URL, "w-owner")
@@ -1038,7 +1038,7 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")

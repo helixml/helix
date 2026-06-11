@@ -7,24 +7,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -32,8 +31,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
-	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 
 	"path/filepath"
@@ -81,10 +78,38 @@ type ProjectEnsurer interface {
 // page surfaces (today they come from CLI flags; the SaaS embedding
 // leaves PublicURL empty).
 type Deps struct {
-	Store      *store.Store
+	// Application services. The REST handlers are thin adapters over
+	// these — constructed once at the composition root (and in the test
+	// helper). The api package holds NO store.* repository, so the
+	// compiler now forbids any handler reaching past a service into the
+	// store (the Phase-D enforcement gate).
+	Streams       *streams.Streams
+	Roles         *roles.Roles
+	Workers       *workers.Workers
+	Subscriptions *subscriptions.Subscriptions
+	Publishing    *publishing.Publishing
+	Activations   *activations.Activations
+	// Queries is the read facade for every projection the read handlers
+	// render. One service spanning several repos (reads carry no
+	// invariants to split on).
+	Queries *queries.Queries
+
 	Configs    *configregistry.Registry
 	Hub        *streamhub.Hub
 	Dispatcher Dispatcher
+
+	// WorkerRuntime reads a Worker's runtime-state sidecar (project /
+	// agent-app / session ids). A small port so the worker-detail and
+	// activate handlers don't touch the store; implemented at the
+	// composition root over runtimehelix.LoadState. nil → those fields
+	// render empty.
+	WorkerRuntime WorkerRuntime
+
+	// GitHubInbound builds the inbound GitHub-webhook handler for an org
+	// (the transport reads matching streams + appends events). Built at
+	// the composition root so the api adapter never holds the store. nil
+	// → POST /github/webhook returns 503.
+	GitHubInbound func(orgID string) http.Handler
 
 	Owner     string
 	PublicURL string
@@ -118,13 +143,6 @@ type Deps struct {
 	// app teardown, store cleanup, env-dir removal). nil disables
 	// DELETE /workers/{id} (returns 501).
 	Lifecycle *lifecycle.Service
-
-	// Topology reconciles activation/team Streams after a reporting
-	// line is added or removed via the chart UI. Without it,
-	// addWorkerParent / removeWorkerParent write the line but leave the
-	// activation-stream observers and team-stream membership stale
-	// (the reparent-desync bug). nil is a no-op.
-	Topology *topology.Reconciler
 
 	// GitHubTokenResolver is the production hook for "reinstate the
 	// GitHub stream + reuse the existing GitHub integration for
@@ -177,11 +195,23 @@ type Deps struct {
 	// unset — the install-webhook handler refuses on localhost so
 	// operators don't paste an unreachable URL into a real repo.
 	PublicServerURL string
+}
 
-	// NewID and Now are seams for tests. Production wiring passes
-	// system.GenerateID / time.Now.
-	NewID func() string
-	Now   func() time.Time
+// WorkerRuntimeInfo is the subset of a Worker's runtime-state sidecar
+// the REST adapter surfaces: the per-project deep-link ids and the
+// current desktop session id.
+type WorkerRuntimeInfo struct {
+	ProjectID  string
+	AgentAppID string
+	SessionID  string
+}
+
+// WorkerRuntime resolves a Worker's runtime-state sidecar. Declared here
+// (implemented at the composition root over runtimehelix.LoadState) so
+// the worker-detail and activate handlers read project/agent/session ids
+// without the api adapter touching the store.
+type WorkerRuntime interface {
+	State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (WorkerRuntimeInfo, error)
 }
 
 // GitHubIdentity is the resolved GitHub identity for an org. Mirrors
@@ -281,87 +311,6 @@ type apiHandler struct {
 	deps Deps
 }
 
-// rolesService builds the role-mutation application service the REST
-// role handlers delegate to. BaseReadTools is injected as the universal
-// baseline so REST and MCP create_role union the same set.
-func (a *apiHandler) rolesService() *roles.Roles {
-	now := a.deps.Now
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
-	}
-	return roles.New(roles.Deps{
-		Roles:     a.deps.Store.Roles,
-		Now:       now,
-		NewID:     a.deps.NewID,
-		BaseTools: tools.BaseReadTools,
-	})
-}
-
-// workersService builds the worker-mutation application service the
-// REST worker handlers delegate to. UpdateRole rewrites the held Role's
-// content through the roles service (tools/streams preserved).
-func (a *apiHandler) workersService() *workers.Workers {
-	return workers.New(workers.Deps{
-		Workers:  a.deps.Store.Workers,
-		Roles:    a.rolesService(),
-		Lines:    a.deps.Store.ReportingLines,
-		Topology: a.deps.Topology,
-	})
-}
-
-// subscriptionsService builds the subscription application service the
-// REST subscribe/unsubscribe handlers delegate to.
-func (a *apiHandler) subscriptionsService() *subscriptions.Subscriptions {
-	now := a.deps.Now
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
-	}
-	return subscriptions.New(subscriptions.Deps{
-		Subscriptions: a.deps.Store.Subscriptions,
-		Streams:       a.deps.Store.Streams,
-		Workers:       a.deps.Store.Workers,
-		Now:           now,
-	})
-}
-
-// publishingService builds the publish application service the REST
-// publishToStream handler delegates to. Hub/Dispatcher are assigned
-// only when non-nil to avoid the typed-nil-in-interface trap.
-func (a *apiHandler) publishingService() *publishing.Publishing {
-	now := a.deps.Now
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
-	}
-	pd := publishing.Deps{
-		Streams: a.deps.Store.Streams,
-		Events:  a.deps.Store.Events,
-		Now:     now,
-		NewID:   a.deps.NewID,
-	}
-	if a.deps.Hub != nil {
-		pd.Hub = a.deps.Hub
-	}
-	if a.deps.Dispatcher != nil {
-		pd.Dispatcher = a.deps.Dispatcher
-	}
-	return publishing.New(pd)
-}
-
-// streamsService builds the stream-mutation application service the
-// REST stream handlers delegate to. Same service the MCP create_stream
-// tool uses, so REST and chat creations produce identical store state.
-func (a *apiHandler) streamsService() *streams.Streams {
-	now := a.deps.Now
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
-	}
-	return streams.New(streams.Deps{
-		Streams: a.deps.Store.Streams,
-		Now:     now,
-		NewID:   a.deps.NewID,
-	})
-}
-
 // ---- Org overview -------------------------------------------------------
 
 // getOverview returns the workers-grouped-by-role payload used by the
@@ -381,12 +330,12 @@ func (a *apiHandler) getOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	workers, err := a.deps.Store.Workers.List(ctx, orgID)
+	workers, err := a.deps.Queries.ListWorkers(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
 	}
-	roles, err := a.deps.Store.Roles.List(ctx, orgID)
+	roles, err := a.deps.Queries.ListRoles(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list roles: %w", err))
 		return
@@ -454,7 +403,7 @@ func (a *apiHandler) listRoles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	roles, err := a.deps.Store.Roles.List(r.Context(), orgID)
+	roles, err := a.deps.Queries.ListRoles(r.Context(), orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list roles: %w", err))
 		return
@@ -498,7 +447,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	workers, err := a.deps.Store.Workers.List(ctx, orgID)
+	workers, err := a.deps.Queries.ListWorkers(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list workers: %w", err))
 		return
@@ -506,8 +455,8 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	// One List call builds the report → managers index so each worker's
 	// parent_ids don't cost a query.
 	managersByReport := map[orgchart.WorkerID][]string{}
-	if a.deps.Store.ReportingLines != nil {
-		lines, err := a.deps.Store.ReportingLines.List(ctx, orgID)
+	if a.deps.Queries.ReportingLinesWired() {
+		lines, err := a.deps.Queries.ListReportingLines(ctx, orgID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("list reporting lines: %w", err))
 			return
@@ -526,7 +475,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		tools, ok := roleCache[rid]
 		if !ok {
 			tools = nil
-			if role, err := a.deps.Store.Roles.Get(ctx, orgID, rid); err == nil {
+			if role, err := a.deps.Queries.GetRole(ctx, orgID, rid); err == nil {
 				tools = make([]string, 0, len(role.Tools))
 				for _, t := range role.Tools {
 					tools = append(tools, string(t))
@@ -584,7 +533,7 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner, err := a.deps.Store.Workers.Get(ctx, orgID, orgchart.WorkerID(a.deps.Owner))
+	owner, err := a.deps.Queries.GetWorker(ctx, orgID, orgchart.WorkerID(a.deps.Owner))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("load owner %s: %w", a.deps.Owner, err))
 		return
@@ -685,10 +634,10 @@ func workerDTO(wk orgchart.Worker, tools []string, parentIDs []string) WorkerDTO
 // store error — the reporting graph is best-effort context, never a
 // reason to fail the whole worker read.
 func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.WorkerID) []string {
-	if a.deps.Store.ReportingLines == nil {
+	if !a.deps.Queries.ReportingLinesWired() {
 		return nil
 	}
-	managers, err := a.deps.Store.ReportingLines.ListManagers(ctx, orgID, id)
+	managers, err := a.deps.Queries.ListManagers(ctx, orgID, id)
 	if err != nil || len(managers) == 0 {
 		return nil
 	}
@@ -721,7 +670,7 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	wk, err := a.deps.Store.Workers.Get(ctx, orgID, id)
+	wk, err := a.deps.Queries.GetWorker(ctx, orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
@@ -733,7 +682,7 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		roDTO     *RoleDTO
 	)
 	if rid := wk.RoleID(); rid != "" {
-		ro, err := a.deps.Store.Roles.Get(ctx, orgID, rid)
+		ro, err := a.deps.Queries.GetRole(ctx, orgID, rid)
 		if err == nil {
 			rd := roleDTO(ro)
 			roDTO = &rd
@@ -752,9 +701,11 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 	// per-project Human Desktop session. Missing state = the worker
 	// hasn't activated yet; we leave the fields empty and the UI
 	// shows a disabled button.
-	if state, err := runtimehelix.LoadState(ctx, a.deps.Store, orgID, id); err == nil {
-		detail.AgentAppID = state.AgentAppID
-		detail.ProjectID = state.ProjectID
+	if a.deps.WorkerRuntime != nil {
+		if info, err := a.deps.WorkerRuntime.State(ctx, orgID, id); err == nil {
+			detail.AgentAppID = info.AgentAppID
+			detail.ProjectID = info.ProjectID
+		}
 	}
 	writeJSON(w, http.StatusOK, detail)
 }
@@ -793,7 +744,7 @@ func (a *apiHandler) ensureWorkerChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	if _, err := a.deps.Store.Workers.Get(ctx, orgID, id); err != nil {
+	if _, err := a.deps.Queries.GetWorker(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
@@ -848,7 +799,7 @@ func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	if _, err := a.deps.Store.Workers.Get(ctx, orgID, id); err != nil {
+	if _, err := a.deps.Queries.GetWorker(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
@@ -870,33 +821,26 @@ func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 	// 2. Look up the persisted session id (may be empty if this is
 	// the first activation). The UI uses it to navigate straight to
 	// the desktop viewer; on first activation, it'll wait for the
-	// next state refresh.
+	// next state refresh. Read via the WorkerSessions port so the
+	// handler never touches the store.
 	var sessionID string
-	if state, err := runtimehelix.LoadState(ctx, a.deps.Store, orgID, id); err == nil {
-		sessionID = state.SessionID
+	if a.deps.WorkerRuntime != nil {
+		if info, err := a.deps.WorkerRuntime.State(ctx, orgID, id); err == nil {
+			sessionID = info.SessionID
+		}
 	}
 
 	// 3. Pre-allocate the audit row so the response can carry the
 	// activation_id synchronously. Mirrors hire_worker's pattern —
 	// the Spawner picks the row up (matched by Trigger.ActivationID)
 	// and Completes it when the activation finishes, rather than
-	// minting a sibling.
+	// minting a sibling. Empty id when the activations service is
+	// unwired — the Spawner then mints its own.
 	var activationID activation.ID
-	if a.deps.Store.Activations != nil && a.deps.NewID != nil && a.deps.Now != nil {
-		activationID = activation.ID("a-" + a.deps.NewID())
-		act, err := activation.New(
-			activationID,
-			id,
-			[]activation.Trigger{{Kind: activation.TriggerManual}},
-			a.deps.Now(),
-			orgID,
-		)
+	if a.deps.Activations != nil {
+		activationID, err = a.deps.Activations.PrepareManual(ctx, orgID, id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("build manual activation: %w", err))
-			return
-		}
-		if err := a.deps.Store.Activations.Create(ctx, act); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("persist manual activation: %w", err))
+			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 	}
@@ -948,7 +892,7 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if _, err := a.workersService().UpdateIdentity(ctx, orgID, id, req.Identity); err != nil {
+	if _, err := a.deps.Workers.UpdateIdentity(ctx, orgID, id, req.Identity); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update worker %s: %w", id, err))
 		return
 	}
@@ -1004,7 +948,7 @@ func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 	// The service validates both endpoints, guards the DAG against
 	// cycles, wires the line, and reconciles the activation/team Streams
 	// the new edge implies — one place, shared invariants.
-	switch err := a.workersService().AddParent(ctx, orgID, id, managerID); {
+	switch err := a.deps.Workers.AddParent(ctx, orgID, id, managerID); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, workers.ErrReportingLinesUnavailable):
@@ -1045,7 +989,7 @@ func (a *apiHandler) removeWorkerParent(w http.ResponseWriter, r *http.Request) 
 	// The service drops the line and reconciles the Streams the dropped
 	// edge implies (unsubscribe ex-manager from the report's activation
 	// stream, remove report from the ex-manager's team stream).
-	switch err := a.workersService().RemoveParent(ctx, orgID, id, managerID); {
+	switch err := a.deps.Workers.RemoveParent(ctx, orgID, id, managerID); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, workers.ErrReportingLinesUnavailable):
@@ -1090,7 +1034,7 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if _, err := a.workersService().UpdateRole(ctx, orgID, id, req.Content); err != nil {
+	if _, err := a.deps.Workers.UpdateRole(ctx, orgID, id, req.Content); err != nil {
 		if errors.Is(err, workers.ErrWorkerHasNoRole) {
 			writeError(w, http.StatusConflict, err)
 			return
@@ -1128,7 +1072,7 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 		specs := a.deps.Configs.Specs()
 		resp.Specs = make([]SettingsSpecDTO, 0, len(specs))
 		for _, sp := range specs {
-			resp.Specs = append(resp.Specs, settingsSpecDTO(ctx, orgID, a.deps.Configs, a.deps.Store, sp))
+			resp.Specs = append(resp.Specs, settingsSpecDTO(ctx, orgID, a.deps.Configs, sp))
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -1137,20 +1081,16 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 // settingsSpecDTO resolves the current redacted value + the
 // "configured" bool surfaced on each settings row. Lives outside the
 // handler so a future "GET /settings/{key}" can reuse it.
-func settingsSpecDTO(ctx context.Context, orgID string, reg *configregistry.Registry, st *store.Store, sp configregistry.Spec) SettingsSpecDTO {
+func settingsSpecDTO(ctx context.Context, orgID string, reg *configregistry.Registry, sp configregistry.Spec) SettingsSpecDTO {
 	row := SettingsSpecDTO{
 		Key:         sp.Key,
 		Type:        string(sp.Type),
 		Required:    sp.Required,
 		Description: sp.Description,
 	}
-	// "Configured" means the configs row exists (not "has a value via
-	// default").
-	if st != nil && st.Configs != nil {
-		if _, err := st.Configs.Get(ctx, orgID, sp.Key); err == nil {
-			row.Configured = true
-		}
-	}
+	// "Configured" means an explicit configs row exists (not "has a
+	// value via default").
+	row.Configured = reg.IsConfigured(ctx, orgID, sp.Key)
 	// GetRedacted falls back to the default when no row is set; an
 	// error means "not configured and no default" — render empty.
 	if v, err := reg.GetRedacted(ctx, orgID, sp.Key); err == nil {
@@ -1237,7 +1177,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	streams, err := a.deps.Store.Streams.List(ctx, orgID)
+	streams, err := a.deps.Queries.ListStreams(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list streams: %w", err))
 		return
@@ -1262,7 +1202,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		if cfg, err := transportConfigMap(s.Transport); err == nil {
 			dto.Config = cfg
 		}
-		subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID)
+		subs, err := a.deps.Queries.StreamSubscribers(ctx, orgID, s.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("list subscriptions for %s: %w", s.ID, err))
 			return
@@ -1272,7 +1212,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 			// directly. The Streams page renders them as chips.
 			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
-		events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50)
+		events, err := a.deps.Queries.StreamEvents(ctx, orgID, s.ID, 50)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("list events for %s: %w", s.ID, err))
 			return
@@ -1283,7 +1223,7 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 		resp.Streams = append(resp.Streams, dto)
 	}
 
-	recent, err := a.deps.Store.Events.ListAll(ctx, orgID, 50)
+	recent, err := a.deps.Queries.AllEvents(ctx, orgID, 50)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list all events: %w", err))
 		return
@@ -1324,10 +1264,6 @@ func (a *apiHandler) createStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("name is required"))
 		return
 	}
-	if strings.TrimSpace(req.ID) == "" && a.deps.NewID == nil {
-		writeError(w, http.StatusInternalServerError, errors.New("NewID not wired"))
-		return
-	}
 	tr := transport.Transport{}
 	if req.Transport != nil {
 		tr.Kind = transport.Kind(req.Transport.Kind)
@@ -1340,7 +1276,7 @@ func (a *apiHandler) createStream(w http.ResponseWriter, r *http.Request) {
 			tr.Config = raw
 		}
 	}
-	s, err := a.streamsService().Create(ctx, orgID, streams.CreateParams{
+	s, err := a.deps.Streams.Create(ctx, orgID, streams.CreateParams{
 		ID:          strings.TrimSpace(req.ID),
 		Name:        req.Name,
 		Description: req.Description,
@@ -1384,7 +1320,7 @@ func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	s, err := a.deps.Store.Streams.Get(ctx, orgID, id)
+	s, err := a.deps.Queries.GetStream(ctx, orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", id, err))
 		return
@@ -1405,14 +1341,14 @@ func (a *apiHandler) getStream(w http.ResponseWriter, r *http.Request) {
 	if cfg, err := transportConfigMap(s.Transport); err == nil {
 		dto.Config = cfg
 	}
-	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, s.ID); err == nil {
+	if subs, err := a.deps.Queries.StreamSubscribers(ctx, orgID, s.ID); err == nil {
 		for _, sub := range subs {
 			// Subscriptions are worker-anchored — return worker ids
 			// directly. The Streams page renders them as chips.
 			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
 	}
-	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, s.ID, 50); err == nil {
+	if events, err := a.deps.Queries.StreamEvents(ctx, orgID, s.ID, 50); err == nil {
 		for _, ev := range events {
 			dto.RecentEvents = append(dto.RecentEvents, eventCard(ev))
 		}
@@ -1506,7 +1442,7 @@ func (a *apiHandler) updateStream(w http.ResponseWriter, r *http.Request) {
 			patch.Config = raw
 		}
 	}
-	updated, err := a.streamsService().Update(ctx, orgID, id, streams.UpdateParams{
+	updated, err := a.deps.Streams.Update(ctx, orgID, id, streams.UpdateParams{
 		Name:        req.Name,
 		Description: req.Description,
 		Transport:   patch,
@@ -1534,12 +1470,12 @@ func (a *apiHandler) updateStream(w http.ResponseWriter, r *http.Request) {
 	if cfg, err := transportConfigMap(updated.Transport); err == nil {
 		dto.Config = cfg
 	}
-	if subs, err := a.deps.Store.Subscriptions.ListForStream(ctx, orgID, updated.ID); err == nil {
+	if subs, err := a.deps.Queries.StreamSubscribers(ctx, orgID, updated.ID); err == nil {
 		for _, sub := range subs {
 			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
 		}
 	}
-	if events, err := a.deps.Store.Events.ListForStream(ctx, orgID, updated.ID, 50); err == nil {
+	if events, err := a.deps.Queries.StreamEvents(ctx, orgID, updated.ID, 50); err == nil {
 		for _, ev := range events {
 			dto.RecentEvents = append(dto.RecentEvents, eventCard(ev))
 		}
@@ -1571,7 +1507,7 @@ func (a *apiHandler) deleteStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	if err := a.streamsService().Delete(ctx, orgID, id); err != nil {
+	if err := a.deps.Streams.Delete(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete stream: %w", err))
 		return
 	}
@@ -1644,7 +1580,7 @@ func (a *apiHandler) streamEventsSSE(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	emit := func() error {
-		events, err := a.deps.Store.Events.ListForStream(r.Context(), orgID, streaming.StreamID(streamID), 50)
+		events, err := a.deps.Queries.StreamEvents(r.Context(), orgID, streaming.StreamID(streamID), 50)
 		if err != nil {
 			return err
 		}
@@ -1712,10 +1648,6 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	if a.deps.NewID == nil || a.deps.Now == nil {
-		writeError(w, http.StatusInternalServerError, errors.New("api not configured for publish (missing NewID/Now)"))
-		return
-	}
 	var req PublishRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -1730,7 +1662,7 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		Subject: strings.TrimSpace(req.Subject),
 		Body:    req.Body,
 	}
-	ev, err := a.publishingService().Publish(ctx, orgID, streamID, a.deps.Owner, msg)
+	ev, err := a.deps.Publishing.Publish(ctx, orgID, streamID, a.deps.Owner, msg)
 	if err != nil {
 		if errors.Is(err, publishing.ErrPublishToGitHub) {
 			writeError(w, http.StatusConflict, err)
@@ -1764,11 +1696,11 @@ func (a *apiHandler) listWorkerSubscriptions(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	if _, err := a.deps.Store.Workers.Get(ctx, orgID, wid); err != nil {
+	if _, err := a.deps.Queries.GetWorker(ctx, orgID, wid); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", wid, err))
 		return
 	}
-	subs, err := a.deps.Store.Subscriptions.ListForWorker(ctx, orgID, wid)
+	subs, err := a.deps.Queries.WorkerSubscriptions(ctx, orgID, wid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list subscriptions: %w", err))
 		return
@@ -1818,7 +1750,7 @@ func (a *apiHandler) subscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("stream_id is required"))
 		return
 	}
-	sub, created, err := a.subscriptionsService().Subscribe(ctx, orgID, wid, streamID)
+	sub, created, err := a.deps.Subscriptions.Subscribe(ctx, orgID, wid, streamID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("subscribe worker %s: %w", wid, err))
 		return
@@ -1856,24 +1788,11 @@ func (a *apiHandler) unsubscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id and stream id are required"))
 		return
 	}
-	if err := a.subscriptionsService().Unsubscribe(ctx, orgID, wid, streamID); err != nil {
+	if err := a.deps.Subscriptions.Unsubscribe(ctx, orgID, wid, streamID); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete subscription: %w", err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// githubDispatcher adapts the api.Dispatcher into the
-// github.Dispatcher interface. The two are structurally identical;
-// the adapter exists only so the github package can keep its own
-// Dispatcher type without importing api (would create a cycle).
-type githubDispatcher struct{ inner Dispatcher }
-
-func (d githubDispatcher) Dispatch(ctx context.Context, ev streaming.Event) {
-	if d.inner == nil {
-		return
-	}
-	d.inner.Dispatch(ctx, ev)
 }
 
 // githubWebhook is the per-request dispatcher for POST /github/webhook.
@@ -1896,18 +1815,14 @@ func (a *apiHandler) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	t := githubtransport.New(
-		orgID,
-		a.deps.Configs,
-		a.deps.Store,
-		a.deps.Hub,
-		githubDispatcher{inner: a.deps.Dispatcher},
-		slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})),
-	)
-	if a.deps.GitHubTokenResolver != nil {
-		t = t.WithTokenResolver(githubtransport.TokenResolver(a.deps.GitHubTokenResolver))
+	// The github transport (reads matching streams + appends events) is
+	// built at the composition root with the store; the adapter just
+	// serves the inbound handler so it never holds the store itself.
+	if a.deps.GitHubInbound == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("github transport not configured"))
+		return
 	}
-	t.HandleInbound().ServeHTTP(w, r)
+	a.deps.GitHubInbound(orgID).ServeHTTP(w, r)
 }
 
 // ---- GitHub helper endpoints -------------------------------------------
@@ -2227,7 +2142,7 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	s, err := a.deps.Store.Streams.Get(ctx, orgID, streamID)
+	s, err := a.deps.Queries.GetStream(ctx, orgID, streamID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
 		return
@@ -2293,8 +2208,14 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("re-marshal config: %w", err))
 		return
 	}
-	s.Transport.Config = cfgRaw
-	if err := a.deps.Store.Streams.Update(ctx, s); err != nil {
+	// Persist the webhook id/url back onto the stream's transport config
+	// through the streams service (a transport-config patch that leaves
+	// name/description/kind untouched).
+	if _, err := a.deps.Streams.Update(ctx, orgID, streamID, streams.UpdateParams{
+		Name:        s.Name,
+		Description: s.Description,
+		Transport:   &streams.TransportPatch{Config: cfgRaw},
+	}); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update stream after webhook install: %w", err))
 		return
 	}
@@ -2332,7 +2253,7 @@ func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	s, err := a.deps.Store.Streams.Get(ctx, orgID, streamID)
+	s, err := a.deps.Queries.GetStream(ctx, orgID, streamID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
 		return

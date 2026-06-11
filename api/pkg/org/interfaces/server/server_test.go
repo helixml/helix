@@ -32,7 +32,7 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -85,7 +85,7 @@ func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -234,7 +234,7 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 		t.Fatalf("register new_role: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()

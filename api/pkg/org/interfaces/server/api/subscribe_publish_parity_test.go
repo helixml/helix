@@ -38,9 +38,7 @@ func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 	newID := func() string { return "fixed" }
 	ctx := context.Background()
 
-	restDeps, restStore, _ := newDeps(t)
-	restDeps.Now = clock
-	restDeps.NewID = newID
+	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	seedStreamAndOwner(t, restStore, clock)
 	h := orgapi.Handler(restDeps)
 	rec := do(t, h, "POST", "/workers/w-owner/subscriptions", orgapi.SubscribeWorkerRequest{StreamID: "s-1"})
@@ -80,9 +78,7 @@ func TestPublishParity_RESTvsMCP(t *testing.T) {
 	newID := func() string { return "fixed" }
 	ctx := context.Background()
 
-	restDeps, restStore, _ := newDeps(t)
-	restDeps.Now = clock
-	restDeps.NewID = newID
+	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	seedStreamAndOwner(t, restStore, clock)
 	h := orgapi.Handler(restDeps)
 	rec := do(t, h, "POST", "/streams/s-1/publish", orgapi.PublishRequest{Body: "hello world", Subject: "hi"})

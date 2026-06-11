@@ -46,9 +46,7 @@ func TestCreateRoleParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
 
-	restDeps, restStore, _ := newDeps(t)
-	restDeps.Now = clock
-	restDeps.NewID = newID
+	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	h := orgapi.Handler(restDeps)
 	rec := do(t, h, "POST", "/roles", orgapi.CreateRoleRequest{
 		ID:      "r-qa",
@@ -111,9 +109,7 @@ func TestUpdateIdentityParity_RESTvsMCP(t *testing.T) {
 		}
 	}
 
-	restDeps, restStore, _ := newDeps(t)
-	restDeps.Now = clock
-	restDeps.NewID = newID
+	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	seed(restStore)
 	h := orgapi.Handler(restDeps)
 	rec := do(t, h, "POST", "/workers/w-mark/identity", orgapi.UpdateWorkerIdentityRequest{Identity: "rewritten persona"})

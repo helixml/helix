@@ -56,7 +56,7 @@ func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Ser
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	bc := newStreamhub(t)
-	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), bc, dispatcher, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, tools.NewRegistry(), bc, dispatcher, nil).Handler())
 	t.Cleanup(srv.Close)
 	return srv, s, bc
 }
@@ -261,7 +261,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
 	seedStream(t, s, "s-inbox", transport.KindWebhook)
-	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, tools.NewRegistry(), nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader("x"))
@@ -407,7 +407,7 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 
 	st := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), newStreamhub(t), d, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(st, tools.NewRegistry(), newStreamhub(t), d, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: catcher.URL})

@@ -8,29 +8,50 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
+	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
 // newDeps builds a fresh in-memory store + config registry + hub for
-// one test. The registry has no specs registered — individual tests
-// add the ones they need.
+// one test, with all application services constructed over them (the
+// Phase-D shape: the REST adapter holds services, not the store). The
+// registry has no specs registered — individual tests add the ones they
+// need.
 func newDeps(t *testing.T) (orgapi.Deps, *store.Store, *configregistry.Registry) {
+	return newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { return "test-id" },
+	)
+}
+
+// newDepsClock is newDeps with an explicit clock + id-generator so
+// parity tests can pin deterministic store state across both adapters.
+func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (orgapi.Deps, *store.Store, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
@@ -39,15 +60,21 @@ func newDeps(t *testing.T) (orgapi.Deps, *store.Store, *configregistry.Registry)
 	}
 	hub := streamhub.New(ps)
 	reg := configregistry.New(st.Configs)
+	topo := &topology.Reconciler{Store: st, Now: clock}
+
+	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: clock, NewID: newID, BaseTools: tools.BaseReadTools})
 
 	deps := orgapi.Deps{
-		Store:    st,
-		Configs:  reg,
-		Hub:      hub,
-		Owner:    "w-owner",
-		Topology: &topology.Reconciler{Store: st},
-		NewID:    func() string { return "test-id" },
-		Now:      func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		Streams:       streams.New(streams.Deps{Streams: st.Streams, Now: clock, NewID: newID}),
+		Roles:         rolesSvc,
+		Workers:       workers.New(workers.Deps{Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: topo}),
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),
+		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),
+		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
+		Configs:       reg,
+		Hub:           hub,
+		Owner:         "w-owner",
 	}
 	return deps, st, reg
 }
@@ -405,6 +432,13 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 	}
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("seed stream: %v", err)
+	}
+
+	// Wire the inbound github handler the way the composition root does:
+	// a per-org transport built over the store. (In production this is
+	// constructed in helix_org.go; the api adapter only serves it.)
+	deps.GitHubInbound = func(orgID string) http.Handler {
+		return githubtransport.New(orgID, reg, st, nil, nil, slog.Default()).HandleInbound()
 	}
 
 	h := orgapi.Handler(deps)

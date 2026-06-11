@@ -18,12 +18,19 @@ import (
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	githubclient "github.com/helixml/helix/api/pkg/github"
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -114,6 +121,24 @@ const alphaFeatureHelixOrg = "helix-org"
 // adapter (helix_org_inproc.go) that needs the live *HelixAPIServer.
 // Wirings without an APIServer (e.g. test harnesses) return (nil, nil)
 // — the module simply isn't mounted.
+// orgWorkerRuntime adapts runtimehelix.LoadState into the api package's
+// WorkerRuntime port, so the REST worker-detail / activate handlers read
+// the project / agent-app / session ids without the api adapter touching
+// the store.
+type orgWorkerRuntime struct{ st *helixorgstore.Store }
+
+func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (helixorgapi.WorkerRuntimeInfo, error) {
+	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
+	if err != nil {
+		return helixorgapi.WorkerRuntimeInfo{}, err
+	}
+	return helixorgapi.WorkerRuntimeInfo{
+		ProjectID:  s.ProjectID,
+		AgentAppID: s.AgentAppID,
+		SessionID:  s.SessionID,
+	}, nil
+}
+
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
 	if cfg.APIServer == nil {
 		log.Warn().Msg("helix-org disabled: no HelixAPIServer threaded into helixOrgConfig")
@@ -356,7 +381,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	orgServer := helixorgserver.New(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
+	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
 	// JSON handlers consumed by the React pages at
 	// /orgs/:org_id/helix-org/*. They mount under
@@ -383,8 +408,29 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Mirror:   mirror, // Fire stops the fired worker's subscription
 	}
 
+	// Application services shared by the REST adapter. Built once here
+	// (the composition root) from the store + collaborators; the api
+	// package holds these services, never the store (Phase-D seam).
+	orgRolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: tools.BaseReadTools})
 	apiDeps := helixorgapi.Deps{
-		Store:          st,
+		Streams:       streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
+		Roles:         orgRolesSvc,
+		Workers:       workers.New(workers.Deps{Workers: st.Workers, Roles: orgRolesSvc, Lines: st.ReportingLines, Topology: deps.Topology}),
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
+		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),
+		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: deps.Now, NewID: deps.NewID}),
+		WorkerRuntime: orgWorkerRuntime{st: st},
+		// GitHubInbound builds the inbound github transport per org — it
+		// reads matching streams + appends events, so it holds the store
+		// here in the composition root rather than in the api adapter.
+		GitHubInbound: func(orgID string) http.Handler {
+			t := githubtransport.New(orgID, configReg, st, bc, dispatcher, logger)
+			if gitHubTokenResolver != nil {
+				t = t.WithTokenResolver(githubtransport.TokenResolver(gitHubTokenResolver))
+			}
+			return t.HandleInbound()
+		},
 		Configs:        configReg,
 		Hub:            bc,
 		Dispatcher:     dispatcher,
@@ -393,7 +439,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		EnvsDir:        envsDir,
 		HireWorker:     hireTool,
 		Lifecycle:      lifecycleSvc,
-		Topology:       deps.Topology,
 		Tools:          reg,
 		ProjectEnsurer: projectApplier,
 		// Production: the github stream transport's Token() falls
@@ -559,8 +604,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
 		PublicServerURL: cfg.APIServer.Cfg.WebServer.URL,
-		NewID:           deps.NewID,
-		Now:             deps.Now,
 	}
 	apiRoutes := helixorgapi.Routes(apiDeps)
 	extras := make([]helixorgserver.Route, 0, len(apiRoutes))

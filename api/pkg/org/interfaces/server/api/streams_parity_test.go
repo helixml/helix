@@ -24,9 +24,7 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 	newID := func() string { return "fixed" }
 
 	// --- REST path ---
-	restDeps, restStore, _ := newDeps(t)
-	restDeps.Now = clock
-	restDeps.NewID = newID
+	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	h := orgapi.Handler(restDeps)
 
 	body := orgapi.CreateStreamRequest{

@@ -138,6 +138,20 @@ func (r *Registry) Specs() []Spec {
 	return out
 }
 
+// IsConfigured reports whether an explicit config row exists for
+// (orgID, key) — i.e. the value was set, not merely available via the
+// spec default. Backs the settings page's "Configured" flag. A nil
+// registry or unknown key reports false.
+func (r *Registry) IsConfigured(ctx context.Context, orgID, key string) bool {
+	if r == nil || r.store == nil {
+		return false
+	}
+	if _, err := r.store.Get(ctx, orgID, key); err == nil {
+		return true
+	}
+	return false
+}
+
 // Set validates the value against the registered Spec and upserts the
 // row. Unknown keys (not registered) are rejected — the registry is
 // the source of truth for what's settable.

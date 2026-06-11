@@ -6,18 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
-
-// nowUTC returns the current wall-clock time in UTC. Kept as a package
-// helper so handlers stay short and the time source is easy to audit.
-func nowUTC() time.Time { return time.Now().UTC() }
 
 // maxWebhookBody caps the body size we'll accept on a webhook POST.
 // 1 MiB is comfortable for text payloads and prevents an obvious DoS.
@@ -50,7 +43,7 @@ func (s *Server) webhookHandler() http.Handler {
 			return
 		}
 
-		stream, err := s.store.Streams.Get(r.Context(), orgID, streamID)
+		stream, err := s.queries.GetStream(r.Context(), orgID, streamID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				http.Error(w, fmt.Sprintf("stream %q: not found", streamID), http.StatusNotFound)
@@ -75,33 +68,20 @@ func (s *Server) webhookHandler() http.Handler {
 			return
 		}
 
-		// Wrap the inbound bytes into the canonical Message envelope.
+		if s.publishing == nil {
+			s.logger.Error("webhook: publishing service not wired", "stream", streamID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Append → notify → dispatch through the publishing service.
 		// From is empty — webhook callers are arbitrary external systems
 		// with no helix Worker identity; routing decisions about "who
 		// sent this" belong in the receiving Role's prompt.
-		event, err := streaming.NewMessageEvent(
-			streaming.EventID("e-"+uuid.NewString()),
-			streamID,
-			"", // system-emitted; webhooks have no Worker source
-			streaming.Message{Body: string(body)},
-			nowUTC(),
-			orgID,
-		)
+		event, err := s.publishing.Publish(r.Context(), orgID, streamID, "", streaming.Message{Body: string(body)})
 		if err != nil {
-			http.Error(w, "build event: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := s.store.Events.Append(r.Context(), event); err != nil {
-			s.logger.Error("webhook: append event", "stream", streamID, "err", err)
+			s.logger.Error("webhook: publish event", "stream", streamID, "err", err)
 			http.Error(w, "append event", http.StatusInternalServerError)
 			return
-		}
-
-		if s.broadcaster != nil {
-			s.broadcaster.Notify(orgID, streamID)
-		}
-		if s.dispatcher != nil {
-			s.dispatcher.Dispatch(r.Context(), event)
 		}
 
 		ack, _ := json.Marshal(map[string]string{
