@@ -250,10 +250,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// ensureProject before this argument existed.)
 	// gitHubTokenResolver resolves a current GitHub OAuth access token
 	// for an org by walking the org's members + their oauth_connections
-	// (see helix_org_github.go). Drives BOTH the github stream
-	// transport's outbound `Token()` lookup AND the worker sandbox's
-	// `GH_TOKEN` env injection — one OAuth pipeline, exposed to the
-	// spawner via the transport's SpawnSecretInjector.
+	// (see helix_org_github.go). Drives the github stream transport's
+	// outbound `Token()` lookup; the worker-side mint path now flows
+	// through the mint_credential MCP tool + CredentialProvider, not a
+	// boot-time SecretInjector.
 	oauthResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
 	// identityResolver prefers the installed Helix App bot over a borrowed
 	// member OAuth token: if the org has a github_app ServiceConnection it
@@ -275,10 +275,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		},
 	)
 	// gitHubTokenResolver is the bot-preferring token projection used by
-	// every "act as GitHub" touchpoint (worker GH_TOKEN injection, outbound
-	// transport, webhook install). Returns the App installation token when
-	// one exists, else the legacy member OAuth token — so once an org installs
-	// the Helix App, its agents act as the bot rather than a human.
+	// the outbound github stream transport and the webhook-install code
+	// path. Returns the App installation token when one exists, else the
+	// legacy member OAuth token — so once an org installs the Helix App,
+	// its agents act as the bot rather than a human. (Worker shell-tool
+	// credentials no longer flow through this projection; they go through
+	// the per-org CredentialProvider wired into mint_credential below.)
 	gitHubTokenResolver := func(ctx context.Context, orgID string) (string, error) {
 		id, err := identityResolver(ctx, orgID)
 		if err != nil {
@@ -293,17 +295,18 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// returned secrets as project secrets — helix's existing
 	// container runtime exposes those as env vars on the next
 	// desktop boot. New transports plug in here; the spawner stays
-	// transport-agnostic.
-	secretInjectors := []runtimehelix.SpawnSecretInjector{
-		githubtransport.NewSecretInjector(githubtransport.TokenResolver(gitHubTokenResolver)),
-	}
+	// transport-agnostic. Currently empty: github used to push
+	// `GH_TOKEN` here but every Worker now has `mint_credential` in
+	// its baseline tool set (BaseReadTools) and mints its own token
+	// on first use, which eliminates the boot-time env var's silent-
+	// expiry-mid-session failure mode and removes the need for
+	// duplicate state.
+	secretInjectors := []runtimehelix.SpawnSecretInjector{}
 
-	// credentialProviders backs the mint_credential MCP tool. The
-	// SecretInjector above pushes the same per-org GitHub token into
-	// project env at boot; this map lets a long-running Worker pull
-	// a fresh one on demand mid-session (the boot-time env var has a
-	// fixed ~1h TTL and is immutable for the life of the container).
-	// Adding a new provider (Slack, …) is a new file under
+	// credentialProviders backs the mint_credential MCP tool — the
+	// single surface every Worker uses to obtain an org-scoped
+	// external-provider credential on demand. Adding a new provider
+	// (Slack, …) is a new file under
 	// infrastructure/transports/<name>/credential_provider.go plus
 	// one entry here — no edits to mint_credential.go.
 	deps.CredentialProviders = map[string]credential.Provider{

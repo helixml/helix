@@ -17,10 +17,10 @@ import "github.com/helixml/helix/api/pkg/org/domain/tool"
 // so the reconciled output is deterministic.
 //
 // `mint_credential` is the sole non-read entry. It mints an external-
-// provider credential (it does not mutate the org graph) and the cost of
-// a Worker not having it is high — silent mid-task auth failures on any
-// session that outlives its boot-time GH_TOKEN's ~1h TTL. The same
-// argument applies to every Worker, so it sits in the baseline.
+// provider credential (it does not mutate the org graph), and without
+// it a Worker has nothing to authenticate gh/git/auth-curl with — there
+// is no boot-time env-var fallback. Every Worker needs this, so it sits
+// in the baseline.
 var BaseReadTools = []tool.Name{
 	ManagersName,
 	ReportsName,

@@ -113,9 +113,10 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 }
 
 // MintInstallationToken returns a raw GitHub App installation access token
-// string (valid ~1h) for an installation. It is the token injected as
-// GH_TOKEN and used as the git credential so a Worker's git/gh act as the
-// app bot rather than a human.
+// string (valid ~1h) for an installation. Workers obtain it on demand via
+// the mint_credential MCP tool (which goes through MintInstallationCredential
+// to also surface ExpiresAt); other server-side call sites — repo
+// aggregation, webhook install — use this string-only form directly.
 //
 // appID + installationID identify the installation; privateKey is the
 // PEM-encoded app private key used to sign the short-lived JWT that

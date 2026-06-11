@@ -25,15 +25,17 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// MintCredential is the MCP tool that lets a long-running Worker
-// refresh an expiring external-provider credential mid-session. The
-// canonical recovery loop is:
+// MintCredential is the MCP tool that lets a Worker obtain an
+// org-scoped external-provider credential on demand. It is the single
+// surface for "give the agent a gh/git/curl token": there is no
+// boot-time env-var injection. The canonical flow is:
 //
 //	mint_credential → export TOKEN → run gh/git/curl
 //	on 401/403      → mint_credential → export → retry
 //
-// The Description() body is load-bearing: it is the only signal the
-// agent has that it needs to re-mint after an auth error.
+// The Description() body is load-bearing — it is the only signal the
+// agent has that the token has to be minted-then-exported before its
+// first authenticated command, and re-minted on any auth error.
 //
 // orgID is read from inv.Caller.OrganizationID() only — never from
 // args — so a Worker physically cannot mint another org's credential.
@@ -64,13 +66,14 @@ func (t *MintCredential) Description() string {
 	}
 	return "Mint a short-lived credential (~1 hour) for an external provider " +
 		"scoped to your organization. Supported providers: " + avail + ".\n\n" +
-		"Run mint_credential and **export the returned token into your shell " +
-		"immediately before** any git, gh, or authenticated curl work " +
+		"No provider tokens are in your shell environment by default — you " +
+		"**must** call mint_credential and export the returned token before " +
+		"the first git, gh, or authenticated curl command " +
 		"(e.g. `export GH_TOKEN=$(mint_credential provider=github | jq -r .token)`).\n\n" +
-		"**If a command fails with 401/403 or any authentication error, your " +
-		"token has expired** — call mint_credential again, re-export, and retry. " +
-		"Do not give up on the task; expired tokens are expected for any work " +
-		"that takes more than ~1 hour.\n\n" +
+		"**If a command later fails with 401/403 or any authentication " +
+		"error, your token has expired** — call mint_credential again, " +
+		"re-export, and retry. Do not give up on the task; expired tokens " +
+		"are expected for any work that takes more than ~1 hour.\n\n" +
 		"Args: provider (string, required) — one of: " + avail + ".\n" +
 		"Returns: { token, expires_at (RFC3339), usage }."
 }

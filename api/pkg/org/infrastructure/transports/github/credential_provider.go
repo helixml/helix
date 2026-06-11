@@ -9,20 +9,15 @@ import (
 )
 
 // IdentityResolver is the per-org identity lookup the GitHub
-// credential.Provider depends on. The production wiring satisfies it
-// with the same closure that already drives GH_TOKEN injection at
-// container boot (api/pkg/server/helix_org.go) — one minting path,
-// two surfaces:
-//
-//	SecretInjector (push at boot)  ─┐
-//	                                ├─ same per-provider identity resolver
-//	CredentialProvider (pull live) ─┘
+// credential.Provider depends on. The production wiring
+// (api/pkg/server/helix_org.go) projects the same OrgGitHubIdentity
+// that newOrgGitHubIdentityResolver already returns.
 //
 // The returned Identity carries the bot token and the GitHub-reported
 // expiry (~1h for an installation token); the OAuth fallback leaves
-// ExpiresAt as the zero Time, and the provider rejects that case below
-// so agents get a clear failure rather than a never-expiring borrowed
-// human token through the wrong surface.
+// ExpiresAt as the zero Time, and the provider rejects an empty token
+// case below so agents get a clear failure rather than an opaquely-
+// empty credential.
 type IdentityResolver func(ctx context.Context, orgID string) (Identity, error)
 
 // Identity is the minimal projection of the org's resolved GitHub
