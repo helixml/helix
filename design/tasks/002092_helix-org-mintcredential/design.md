@@ -229,7 +229,7 @@ Adding a new provider (e.g. Slack) is then:
 That satisfies the philosophy guardrail *"new tools must be addable without
 editing the core"* (CLAUDE.md, "helix-org design philosophy").
 
-### 3.6 No more `SecretInjector` for credentials
+### 3.6 No more `SecretInjector` (period)
 
 **Update (after user feedback during implementation):** the GitHub
 `SecretInjector` (which pushed `GH_TOKEN` into the project env at
@@ -241,14 +241,18 @@ fails ~1h in when the env var expires. Removing it forces the agent
 into the mint→export→retry pattern from turn 1, which is the same
 pattern it needs anyway on every subsequent refresh.
 
-The generic `SecretInjector` mechanism (the slice + per-activation
-iteration in the spawner) stays. It is still useful infrastructure
-for any future transport that needs to push a non-credential secret
-into project env (e.g. a webhook signing secret the agent never
-mints on demand). Today the slice is empty.
+After the github registration was removed, the **entire generic
+`SpawnSecretInjector` mechanism had zero callers** — ~250 lines of
+infrastructure (interface, function adapter, `SpawnerConfig` field,
+spawner loop, 3 layers of `helix_org.go` parameter plumbing, 3 test
+files). Per CLAUDE.md (`NO FALLBACKS`, `CLEAN UP DEAD CODE
+immediately`, `don't design for hypothetical future requirements`),
+the whole mechanism is deleted. If a future transport ever needs
+push-at-boot secrets, `ProjectService.PutProjectSecret` is already a
+public method — re-introducing a registry of injectors is one file.
 
 `gitHubTokenResolver` (the bot-preferring string projection of the
-identity resolver) also stays — it still backs the outbound github
+identity resolver) stays — it still backs the outbound github
 stream transport's `Token()` lookup and the webhook-install flow.
 Only the Worker-shell-token surface moves to `mint_credential`.
 

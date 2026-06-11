@@ -70,11 +70,11 @@ If a future transport needs push-at-boot secrets, `PutProjectSecret`
 is already a public method on `ProjectService` — bringing this back
 is one file.
 
-- [~] Delete `api/pkg/org/infrastructure/runtime/helix/spawn_hooks.go` and `spawn_hooks_test.go`.
-- [~] Remove `SecretInjectors []SpawnSecretInjector` field from `SpawnerConfig` in `spawner.go` and the call site that ran them per activation.
-- [~] Remove `TestSpawnerRunsRegisteredSecretInjectors` (and any related test scaffolding) from `spawner_test.go`.
-- [~] Remove the `secretInjectors` parameter from `lazyHelixOrgSpawner` / `buildHelixOrgSpawnerConfig` in `helix_org.go` and drop the empty slice at the call site.
-- [~] Remove `TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors` from `helix_org_spawner_test.go` and update remaining tests' calls to drop the `nil` injectors arg.
+- [x] Delete `api/pkg/org/infrastructure/runtime/helix/spawn_hooks.go` and `spawn_hooks_test.go`.
+- [x] Remove `SecretInjectors []SpawnSecretInjector` field from `SpawnerConfig` in `spawner.go` and the call site that ran them per activation.
+- [x] Remove `TestSpawnerRunsRegisteredSecretInjectors` (and `TestSpawnerSkipsInjectorReturningEmptyMap`) from `spawner_test.go`.
+- [x] Remove the `secretInjectors` parameter from `lazyHelixOrgSpawner` / `buildHelixOrgSpawnerConfig` in `helix_org.go` and drop the empty slice at the call site.
+- [x] Remove `TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors` from `helix_org_spawner_test.go` and update remaining tests' calls to drop the `nil` injectors arg. **Done. Full org + server test suites green. Net diff: −250/+15 lines.**
 
 ## Out-of-scope (do not implement in this task)
 

@@ -45,13 +45,20 @@ The exception is recorded inline in `CLAUDE.md`, in
   thin wrapper for the one caller that only needs the string.
 - **Wiring** in `server/helix_org.go` builds the provider registry
   reusing the same per-org identity resolver that used to feed the
-  GitHub `SecretInjector`. The github `SecretInjector` itself is
-  **removed** (the file is deleted) — with every Worker holding
-  `mint_credential` in its baseline tool set, the boot-time `GH_TOKEN`
-  env var was redundant and only taught the agent to expect a working
-  credential that silently expired mid-session. The generic
-  `secretInjectors` slice + spawner iteration stay (still useful for
-  future non-credential secrets); the slice is empty today.
+  GitHub `SecretInjector`. The github `SecretInjector` is **removed** —
+  with every Worker holding `mint_credential` in its baseline tool set,
+  the boot-time `GH_TOKEN` env var was redundant and only taught the
+  agent to expect a working credential that silently expired
+  mid-session.
+- **Dead-code cleanup of the now-unused generic mechanism:** the entire
+  `SpawnSecretInjector` infrastructure (interface, function adapter,
+  `SpawnerConfig.SecretInjectors` field, spawner loop, 3 layers of
+  `helix_org.go` parameter plumbing, and its 3 test files) had zero
+  callers after the github registration was removed. All deleted. If a
+  future transport ever needs push-at-boot secrets,
+  `ProjectService.PutProjectSecret` is already a public method —
+  re-introducing a registry is one file. Net dead-code removal:
+  **−250 / +15 lines**.
 - **Role / prompt:** `MintCredentialName` added to `BaseReadTools` so
   every Role (owner included, plus every Worker hired now or in the
   future, plus all pre-existing Roles backfilled by `RoleReconciler` at
