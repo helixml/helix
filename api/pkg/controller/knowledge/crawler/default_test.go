@@ -50,37 +50,39 @@ func TestDefault_Crawl(t *testing.T) {
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
 
-	// Use stable structural content (navigation labels for docs sub-sections)
-	// rather than FAQ or body text that frequently changes when docs are
-	// updated. These strings are nav links to top-level docs sections, and
-	// appear on every page in the crawl — so they verify the crawler is
-	// reading rendered HTML, not that any single sub-page exists.
-	const (
-		agentsNavText          = `Agents`           // top-level docs section
-		sovereignServerNavText = `Sovereign Server` // top-level docs section
-	)
+	// What this test actually guards: the crawler renders the docs SPA with a
+	// real browser and captures the *rendered* HTML, rather than the empty
+	// JS-shell that a plain HTTP fetch would return. It must follow links and
+	// produce several pages of substantial text.
+	//
+	// We deliberately do NOT assert on specific nav labels or sub-page titles —
+	// the docs site is restructured frequently (e.g. the "Sovereign Server"
+	// section was removed), and pinning the test to volatile copy turns every
+	// docs edit into a spurious CI failure. We assert on the invariant instead:
+	// the brand token "Helix" is present, the crawl produced multiple pages, and
+	// at least one page has the volume of text that only the rendered DOM yields.
+	require.GreaterOrEqual(t, len(docs), 3, "expected the crawler to follow links and return multiple docs pages")
 
 	var (
-		agentsNavFound          bool
-		sovereignServerNavFound bool
+		brandFound       bool
+		maxContentLength int
 	)
-
 	for _, doc := range docs {
 		// Uncomment to save the chunks to a file for debugging
 		// os.WriteFile(fmt.Sprintf("doc-%s.html", doc.Title), []byte(doc.Content), 0644)
 
-		if strings.Contains(doc.Content, agentsNavText) {
-			agentsNavFound = true
+		if strings.Contains(doc.Content, "Helix") {
+			brandFound = true
 		}
-		if strings.Contains(doc.Content, sovereignServerNavText) {
-			sovereignServerNavFound = true
+		if len(doc.Content) > maxContentLength {
+			maxContentLength = len(doc.Content)
 		}
 	}
 
-	require.True(t, agentsNavFound, "agents nav text not found: expected to find '%s' in crawled docs", agentsNavText)
-	require.True(t, sovereignServerNavFound, "sovereign server nav text not found: expected to find '%s' in crawled docs", sovereignServerNavText)
+	require.True(t, brandFound, "brand token 'Helix' not found in any crawled doc — crawler likely captured the unrendered SPA shell")
+	require.Greater(t, maxContentLength, 1000, "no crawled doc had substantial rendered content (largest was %d bytes) — JS rendering likely failed", maxContentLength)
 
-	t.Logf("docs: %d", len(docs))
+	t.Logf("docs: %d, largest content: %d bytes", len(docs), maxContentLength)
 }
 
 func TestDefault_CrawlSingle(t *testing.T) {
