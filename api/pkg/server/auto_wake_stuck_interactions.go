@@ -190,24 +190,44 @@ const (
 	// defaultAutoWakeStuckThreshold is the minimum age of a
 	// `state=waiting` interaction before we consider it stuck.
 	//
-	// 60 s targets the dominant failure mode: agent emits a few early
+	// 180 s targets the dominant failure mode: agent emits a few early
 	// chunks (tool_call, thinking) then goes silent for minutes while
 	// claude-agent-acp buffers the rest of the turn on its outbound
-	// channel. The streaming-context gate below now requires
-	// `lastPublish` to be older than this same threshold before
-	// considering the session quiescent, so we don't false-positive on
-	// genuinely-still-streaming turns.
+	// channel. The streaming-context gate below requires `lastPublish`
+	// to be older than this same threshold before considering the
+	// session quiescent.
 	//
-	// False-positive cost: if the Anthropic API takes >60 s before the
-	// first chunk on a slow turn, we re-send the user's prompt. For
-	// idempotent prompts that's a cosmetic duplicate. For destructive
-	// ones (`rm`, `git push`) it's a real risk — but the auto-wake
-	// re-sends the *same prompt* the user already authorised, so worst
-	// case the agent runs the destructive op twice on its own work
-	// directory. Bounded by autoWakeMaxRetries.
+	// Why 180 s and not 60 s (the previous default):
+	//
+	// The agent emits ACP `session/update` events around tool calls,
+	// not during them. A single long synchronous tool — `git push`
+	// over a slow network, `npm install`, `gh pr view` on a chatty PR,
+	// `find /` over a large tree — produces zero streamed events for
+	// the entire duration. With a 60 s threshold the gate decayed
+	// past the cutoff during a normal ~90 s tool call, the worker
+	// fired, and the agent's mid-flight turn was interrupted by an
+	// unnecessary re-prompt. 180 s covers the realistic envelope of
+	// common synchronous tools with a 3× safety margin on the
+	// empirically-observed ~61 s gap.
+	//
+	// This is defence in depth. The load-bearing fix is at the org
+	// layer: the activation spawner no longer releases its per-Worker
+	// serialisation lane on a stale 5-min `ActivationTimeout`, so
+	// long-running healthy sessions no longer spawn a "decoy" empty
+	// `state=waiting` interaction on top of themselves. With that fix
+	// in place, the SQL filter has nothing to match on a healthy
+	// session — this threshold only matters for genuinely stuck rows.
+	//
+	// False-positive cost: if the Anthropic API takes >180 s before
+	// the first chunk on a slow turn, we re-send the user's prompt.
+	// For idempotent prompts that's a cosmetic duplicate. For
+	// destructive ones (`rm`, `git push`) it's a real risk — but the
+	// auto-wake re-sends the *same prompt* the user already
+	// authorised, so worst case the agent runs the destructive op
+	// twice on its own work directory. Bounded by autoWakeMaxRetries.
 	//
 	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
-	defaultAutoWakeStuckThreshold = 60 * time.Second
+	defaultAutoWakeStuckThreshold = 180 * time.Second
 
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
@@ -409,10 +429,23 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	// Instead: skip only if the context exists AND its `lastPublish`
 	// (the most recent time we forwarded a chunk to the frontend) is
 	// within `threshold`. After `threshold` of in-context silence we
-	// treat the session as quiescent for wake-up purposes, which is
-	// what we want — tool-call cascades and thinking bursts touch
-	// `lastPublish` on every event, so an actively-streaming session
-	// will reliably stay above the threshold.
+	// treat the session as quiescent for wake-up purposes.
+	//
+	// Caveat — this gate cannot see *inside* a long synchronous tool
+	// call. The agent emits ACP `session/update` events around tool
+	// calls (assistant text → tool_call → tool_result → assistant
+	// text), not during them. A cascade of many short tools touches
+	// `lastPublish` on every event so the gate stays above the
+	// threshold reliably. But a *single* tool that runs for longer
+	// than `threshold` — `git push` over a slow network, `npm install`,
+	// a long `find` — produces no streamed events while it runs, so
+	// `lastPublish` decays past the cutoff and this gate stops
+	// protecting against false-positives. The 180 s default is
+	// calibrated to cover common slow-tool durations. The actual fix
+	// for the underlying problem (a decoy `state=waiting` row spawned
+	// on top of a still-running session when the org-layer activation
+	// timeout fired) lives in the org-layer spawner, not here — see
+	// `api/pkg/org/infrastructure/runtime/helix/spawner.go`.
 	apiServer.streamingContextsMu.RLock()
 	sctx := apiServer.streamingContexts[stuck.SessionID]
 	apiServer.streamingContextsMu.RUnlock()
