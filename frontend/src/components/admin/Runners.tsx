@@ -20,8 +20,6 @@ import {
   InputLabel,
   MenuItem,
   Select,
-  Tab,
-  Tabs,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import CloseIcon from '@mui/icons-material/Close'
@@ -701,47 +699,16 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
   )
 }
 
-// SubTab is one of two lenses on the same underlying dataset:
-//   overview  – stats + GPU panel + runner picker + selected-runner detail
-//               (master-detail; the picker drives an inline live-tail log
-//               + profile card for the chosen runner)
-//   sandboxes – user-facing dev containers (was "Dev Containers")
-//
-// Runner Profiles used to live here as a third sub-tab but it's
-// conceptually a standalone catalog, not a lens on running compute,
-// so it's promoted back to its own admin-sidebar entry.
-type SubTab = 'overview' | 'sandboxes'
-
-const SUBTAB_LS_KEY = 'admin-runners-subtab'
-
-function isSubTab(v: string | null): v is SubTab {
-  return v === 'overview' || v === 'sandboxes'
-}
-
 const Runners: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
-  // Sub-tab state with localStorage persistence. URL-syncing would be nicer
-  // for deep-linking but the admin shell controls the top-level `dialog_tab`
-  // param and doesn't currently expose a nested-param hook; localStorage gets
-  // us 90% of the way (same operator returns to the same lens) without
-  // touching the shell.
-  const [subTab, setSubTab] = useState<SubTab>(() => {
-    if (typeof window === 'undefined') return 'overview'
-    const stored = window.localStorage.getItem(SUBTAB_LS_KEY)
-    return isSubTab(stored) ? stored : 'overview'
-  })
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(SUBTAB_LS_KEY, subTab)
-  }, [subTab])
-
-  // Selected runner for the Overview master-detail view. Auto-selects the
-  // first available runner so a single-runner deployment shows its detail
-  // without a manual pick. Resets if the current selection drops off the
+  // Selected runner for the master-detail view. Auto-selects the first
+  // ONLINE runner so a single-runner deployment shows useful detail
+  // immediately and offline historical rows don't trap the operator on
+  // a broken log stream. Resets if the current selection drops off the
   // list (e.g. runner taken offline by the reaper).
   const [selectedRunnerId, setSelectedRunnerId] = useState<string>('')
 
@@ -833,157 +800,151 @@ const Runners: FC = () => {
         </Alert>
       )}
 
-      <Tabs
-        value={subTab}
-        onChange={(_, v) => setSubTab(v as SubTab)}
-        sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
-      >
-        <Tab value="overview" label="Overview" />
-        <Tab value="sandboxes" label="Sandboxes" />
-      </Tabs>
+      {/* Top: aggregate stats - always global across all runners. */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+            <Typography variant="h4">{runningRunners}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Online Runners
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
+            <Typography variant="h4">{runningContainers}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Active Sandboxes
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
+            <Typography variant="h4">{totalClients}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Connected Users
+            </Typography>
+          </Paper>
+        </Grid>
+      </Grid>
 
-      {subTab === 'overview' && (
-        <Box>
-          {/* Top: aggregate stats. */}
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid item xs={12} sm={4}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <ComputerIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-                <Typography variant="h4">{runningRunners}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Online Runners
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <DesktopWindowsIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
-                <Typography variant="h4">{runningContainers}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Active Sandboxes
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <PersonIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
-                <Typography variant="h4">{totalClients}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Connected Users
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-
-          {/* GPU telemetry strip. */}
-          {gpus.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <GPUStatsCard gpus={gpus} />
-            </Box>
-          )}
-
-          {/* Master-detail: picker on top, selected-runner detail below. */}
-          {sandboxes.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 6 }}>
-              <ComputerIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">
-                No runners registered
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Provision one via YellowDog, or self-register a runner pointing at this control plane.
-              </Typography>
-            </Box>
-          ) : (
-            <Box>
-              {/* Runner picker. Shown even when there's only one runner so
-                  the operator always sees which one they're looking at. */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-                <FormControl size="small" sx={{ minWidth: 360, flexGrow: 1, maxWidth: 600 }}>
-                  <InputLabel id="runner-picker-label" shrink>Runner</InputLabel>
-                  <Select
-                    labelId="runner-picker-label"
-                    value={selectedRunnerId}
-                    label="Runner"
-                    onChange={(e) => setSelectedRunnerId(e.target.value)}
-                    renderValue={(value) => {
-                      const inst = sandboxes.find((s) => s.id === value)
-                      if (!inst) return value
-                      const label = inst.hostname || inst.id
-                      const bits = [inst.status]
-                      if (inst.active_profile_id) bits.push(`profile: ${inst.active_profile_id}`)
-                      return `${label}  (${bits.join(', ')})`
-                    }}
-                  >
-                    {sandboxes.map((sb) => (
-                      <MenuItem key={sb.id} value={sb.id}>
-                        {sb.hostname || sb.id}
-                        {sb.active_profile_id && ` — ${sb.active_profile_id}`}
-                        {' '}({sb.status})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                {selectedRunner && (
-                  <Tooltip title="Open the live-tail log stream in a new tab">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      component="a"
-                      href={`/admin/runner-logs/${encodeURIComponent(selectedRunner.id)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Open logs
-                    </Button>
-                  </Tooltip>
-                )}
-              </Box>
-
-              {/* Selected runner detail: profile assignment + inline logs. */}
-              {selectedRunner && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <SandboxProfileCard sandbox={selectedRunner} />
-                  <Card>
-                    <CardHeader
-                      title="Runner Logs"
-                      subheader="Live tail (control-plane + inner desktop containers, aggregated)"
-                    />
-                    <CardContent>
-                      <RunnerLogs runnerId={selectedRunner.id} compact />
-                    </CardContent>
-                  </Card>
-                </Box>
-              )}
-            </Box>
-          )}
+      {/* GPU telemetry strip - global across all runners. */}
+      {gpus.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <GPUStatsCard gpus={gpus} />
         </Box>
       )}
 
-      {subTab === 'sandboxes' && (
+      {/* Master-detail: picker on top, selected-runner detail below. */}
+      {sandboxes.length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 6 }}>
+          <ComputerIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+          <Typography variant="body1" color="text.secondary">
+            No runners registered
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Provision one via YellowDog, or self-register a runner pointing at this control plane.
+          </Typography>
+        </Box>
+      ) : (
         <Box>
-          {sortedContainers.length > 0 ? (
-            <Grid container spacing={2}>
-              {sortedContainers.map((container) => (
-                <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
-                  <DevContainerCard
-                    container={container}
-                    onStop={handleStopContainer}
-                    isStopping={stoppingIds.has(container.session_id)}
+          {/* Runner picker. Shown even when there's only one runner so
+              the operator always sees which one they're looking at. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+            <FormControl size="small" sx={{ minWidth: 360, flexGrow: 1, maxWidth: 600 }}>
+              <InputLabel id="runner-picker-label" shrink>Runner</InputLabel>
+              <Select
+                labelId="runner-picker-label"
+                value={selectedRunnerId}
+                label="Runner"
+                onChange={(e) => setSelectedRunnerId(e.target.value)}
+                renderValue={(value) => {
+                  const inst = sandboxes.find((s) => s.id === value)
+                  if (!inst) return value
+                  const label = inst.hostname || inst.id
+                  const bits = [inst.status]
+                  if (inst.active_profile_id) bits.push(`profile: ${inst.active_profile_id}`)
+                  return `${label}  (${bits.join(', ')})`
+                }}
+              >
+                {sandboxes.map((sb) => (
+                  <MenuItem key={sb.id} value={sb.id}>
+                    {sb.hostname || sb.id}
+                    {sb.active_profile_id && ` — ${sb.active_profile_id}`}
+                    {' '}({sb.status})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {selectedRunner && (
+              <Tooltip title="Open the live-tail log stream in a new tab">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  component="a"
+                  href={`/admin/runner-logs/${encodeURIComponent(selectedRunner.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open logs
+                </Button>
+              </Tooltip>
+            )}
+          </Box>
+
+          {/* Selected runner detail: profile assignment + inline logs +
+              this runner's sandboxes (filtered from the global container
+              list by sandbox_id). */}
+          {selectedRunner && (() => {
+            const containersForRunner = sortedContainers.filter(
+              (c) => c.sandbox_id === selectedRunner.id,
+            )
+            return (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <SandboxProfileCard sandbox={selectedRunner} />
+                <Card>
+                  <CardHeader
+                    title="Runner Logs"
+                    subheader="Live tail (control-plane + inner desktop containers, aggregated)"
                   />
-                </Grid>
-              ))}
-            </Grid>
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 6 }}>
-              <DesktopWindowsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">
-                No dev containers running
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Start a task to launch a desktop sandbox.
-              </Typography>
-            </Box>
-          )}
+                  <CardContent>
+                    <RunnerLogs runnerId={selectedRunner.id} compact />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader
+                    title="Sandboxes"
+                    subheader={`${containersForRunner.length} active on this runner`}
+                  />
+                  <CardContent>
+                    {containersForRunner.length > 0 ? (
+                      <Grid container spacing={2}>
+                        {containersForRunner.map((container) => (
+                          <Grid item xs={12} md={6} lg={4} key={`${container.sandbox_id}-${container.session_id}`}>
+                            <DevContainerCard
+                              container={container}
+                              onStop={handleStopContainer}
+                              isStopping={stoppingIds.has(container.session_id)}
+                            />
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : (
+                      <Box sx={{ textAlign: 'center', py: 3 }}>
+                        <DesktopWindowsIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
+                        <Typography variant="body2" color="text.secondary">
+                          No active sandboxes on this runner
+                        </Typography>
+                      </Box>
+                    )}
+                  </CardContent>
+                </Card>
+              </Box>
+            )
+          })()}
         </Box>
       )}
     </Box>
