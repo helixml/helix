@@ -27,12 +27,11 @@ activation.
   command (with the `export GH_TOKEN=$(...)` pattern), and that any
   401/403 means re-mint and retry once.
 - `api/pkg/org/application/bootstrap/templates/owner_role.md` —
-  one-paragraph cross-reference at the top of the existing
-  "External-provider credentials: `mint_credential`" section,
-  noting that worker-policy.md carries the baseline rule and that
-  the Role-prompt paragraph below is the workflow specialisation
-  an owner adds for Roles whose Workers actually run authenticated
-  commands. The existing per-Role paragraph stays.
+  the "External-provider credentials: `mint_credential`" section
+  is deleted in full. With worker-policy.md carrying the rule,
+  owners no longer need to write a credential paragraph into Roles
+  they create. One source of truth, no duplication for owners to
+  keep in sync.
 
 ## Verification
 

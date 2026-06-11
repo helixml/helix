@@ -66,14 +66,13 @@ Add a short, prescriptive section to `worker-policy.md` that:
   that doesn't use any external provider be confused or misled by
   this paragraph? Answer must be no — it should read as
   "if-you-use-any-of-these, here's the rule.")
-- **AC5.** A short pointer is added to `owner_role.md`'s existing
-  "External-provider credentials: `mint_credential`" section noting
-  that the *baseline rule* lives in `worker-policy.md` and that the
-  Role text is the *workflow specialisation* on top. (Prevents the
-  two surfaces from drifting.) The existing per-Role paragraph
-  *stays* — it tells the owner *as a hiring manager* what to add to
-  Roles they create. worker-policy.md tells the *hired Workers*
-  what the default behaviour is.
+- **AC5.** (Revised after review feedback.) The existing
+  "External-provider credentials: `mint_credential`" section in
+  `owner_role.md` is **deleted** in this task. With the rule living
+  in `worker-policy.md` (which every Worker reads on every
+  activation), owners no longer need to write a credential paragraph
+  into Roles they create — the policy text already covers it. One
+  source of truth, no duplication for owners to keep in sync.
 - **AC6.** `Policy` is the embedded `worker-policy.md` string
   (`policy.go:14`). The Go build must remain green — no `//go:embed`
   or test breakage. No existing test asserts the literal contents of

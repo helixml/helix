@@ -112,27 +112,39 @@ Design notes on the wording:
   Role text: rule lives here, workflow lives in the Role. Prevents
   the next Role author from re-litigating *whether* to mint.
 
-## 4. owner_role.md cross-reference
+## 4. owner_role.md: delete the section (revised after review)
 
-`owner_role.md`'s existing "External-provider credentials:
-`mint_credential`" section (lines 104–125) describes the same flow
-but is framed for the **owner-as-hiring-manager**: "for any Role
-whose Worker will run `gh`/`git`/authenticated `curl`, include a
-paragraph in the Role prompt telling the Worker to call
-`mint_credential` before its first authenticated command…".
+**Original plan:** keep `owner_role.md`'s existing "External-provider
+credentials: `mint_credential`" section as hiring-manager guidance,
+and prepend a cross-reference paragraph pointing at worker-policy.md.
 
-That framing is still correct — it tells the owner what to put in
-**new Roles' prompts**. Add one sentence at the top of that section:
+**Revised after review feedback:** delete the entire section.
 
-> The baseline rule lives in `worker-policy.md`'s "External-provider
-> credentials" section — every Worker reads it on every activation.
-> The Role-prompt paragraph below is the workflow specialisation an
-> owner adds for Roles whose Workers actually run authenticated
-> commands.
+The reviewer's argument: with the rule in worker-policy.md, the
+hiring-manager guidance is redundant. Owners creating new Roles do
+not need to write a credential paragraph into the Role prompt —
+worker-policy.md already tells every Worker what to do. Keeping the
+hiring-manager paragraph would push owners to duplicate the same
+instruction into every Role that touches `gh`/`git`/auth-`curl`,
+which is the exact pattern the backstop was added to eliminate.
 
-Rationale: stops a future editor from "deduplicating" the two
-sections and accidentally removing the backstop, and makes the
-relationship explicit for any operator reading owner_role.md.
+The two pieces of owner-specific information being removed:
+
+- "`mint_credential` is in the baseline tool set, you do not need to
+  add it to a Role's `tools` list." — discoverable from
+  `BaseReadTools`' doc comment (added in task 002092).
+- "You can call `mint_credential` yourself; it returns
+  `{token, expires_at, usage}`." — discoverable by the owner calling
+  the tool and reading the schema, or by reading
+  `mint_credential`'s tool description.
+
+Both are minor losses and worth taking in exchange for one source of
+truth. If a future operator-facing surface needs to document the
+shape, it can do so without owners-Role-prompt duplication.
+
+The remaining concern (a future editor "deduplicating" by removing
+the backstop instead of the Role-level guidance) is now moot —
+there is no Role-level guidance to deduplicate against.
 
 ## 5. Verification
 

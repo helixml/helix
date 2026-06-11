@@ -6,9 +6,11 @@
       proposed text in design.md §3 verbatim (or trivially edited for
       house style).
 - [x] Open `api/pkg/org/application/bootstrap/templates/owner_role.md`
-      and prepend the cross-reference sentence from design.md §4 to
-      the existing "External-provider credentials: `mint_credential`"
-      section. Do not remove the existing per-Role paragraph.
+      and **delete** the entire "External-provider credentials:
+      `mint_credential`" section. (Revised after review: cross-
+      reference was a half-measure; with the rule in worker-policy.md
+      the whole section is redundant duplication for owners to keep
+      in sync.)
 - [x] Run `cd api && go build ./pkg/org/...` to confirm the
       `//go:embed worker-policy.md` directive still resolves and the
       package compiles.
