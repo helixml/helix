@@ -236,17 +236,15 @@ const ForkAgentControl: FC<ForkAgentControlProps> = ({
               </Box>
             </Box>
           )}
-          {!workspaceFetching && workspaceErrored && (
-            <Alert severity="warning" sx={{ mt: 2 }}>
-              Couldn't check the workspace for uncommitted changes. The
-              fork will still try to commit & push if anything's dirty.
-            </Alert>
-          )}
-          {/* container_reachable=false is a transient race during desktop
-              startup — the polling will correct it. No need to nag the
-              user with an alert that's misleading when fork still
-              succeeds (which it does, because the backend's safety net
-              also handles unreachable containers silently). */}
+          {/* Both transient states — workspaceErrored (HTTP/network
+              hiccup) and container_reachable=false (RevDial race
+              during desktop boot) — are non-actionable from the
+              user's POV. The backend's safety net handles unreachable
+              containers silently; the polling self-corrects errors
+              within a few seconds. Showing any alert here just
+              confuses the user when the fork ends up succeeding,
+              which it almost always does. Modal stays silent on
+              workspace-check failures. */}
           {/* "Cannot save" path: dirty changes exist but the safety
               net has nowhere viable to push them. Surface the reason
               and block the fork — let the user fix git state in the

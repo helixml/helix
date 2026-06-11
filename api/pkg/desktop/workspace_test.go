@@ -183,6 +183,68 @@ func TestHandleWorkspaceCommitAndPush_Clean(t *testing.T) {
 	assert.Equal(t, "clean", resp.Repos[0].Action)
 }
 
+// TestSafeGitArgRE_AtSink pins the sink-side allow-list runGit
+// enforces on every git argument. This is the regex CodeQL's
+// go/command-injection rule reads as a sanitiser — if it ever
+// loosens to admit shell metachars or unflagged leading-dash
+// strings, the alert reappears.
+func TestSafeGitArgRE_AtSink(t *testing.T) {
+	cases := []struct {
+		arg   string
+		wantOK bool
+	}{
+		// Real args runGit's callers pass.
+		{"add", true},
+		{"-A", true},
+		{"checkout", true},
+		{"-b", true},
+		{"-c", true},
+		{"-F", true},
+		{"--porcelain", true},
+		{"commit", true},
+		{"commit.gpgsign=false", true},
+		{"fetch", true},
+		{"origin", true},
+		{"push", true},
+		{"HEAD", true},
+		{"main", true},
+		{"feature/000011-foo", true},
+		{"origin/feature/000011-foo", true},
+		{"refs/heads/main", true},
+		{"refs/remotes/origin/main", true},
+		{"@{u}..HEAD", false}, // contains '@', '{', '}'  — not in safe set; rev-list happens to not run through runGit's safe path but this is intentional doc
+		{"rev-parse", true},
+		{"--abbrev-ref", true},
+		{"--count", true},
+		{"status", true},
+		{"/tmp/helix-commit-msg-12345.txt", true},
+
+		// Arg-smuggling: leading dash that isn't a recognised flag shape.
+		{"-rf", true}, // looks like a short flag — accepted (rejecting would block legit `-A`, `-b`)
+		{"--evil`cmd`", false},
+		{"--$(injection)", false},
+
+		// Shell metachars / control chars — must all be rejected.
+		{"branch with space", false},
+		{"branch;rm -rf /", false},
+		{"branch|other", false},
+		{"branch&other", false},
+		{"$(cmd)", false},
+		{"`cmd`", false},
+		{"branch\ninjected", false},
+		{"branch\twith\ttab", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.arg, func(t *testing.T) {
+			got := safeGitArgRE.MatchString(tc.arg)
+			if got != tc.wantOK {
+				t.Errorf("safeGitArgRE.MatchString(%q) = %v, want %v", tc.arg, got, tc.wantOK)
+			}
+		})
+	}
+}
+
 // TestValidateBranchName_Sanitiser pins the security boundary: the
 // validator must reject anything that could arg-smuggle into git
 // (leading '-' = flag) and accept the names spec-tasks actually
