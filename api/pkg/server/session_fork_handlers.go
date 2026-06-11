@@ -242,8 +242,12 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 		OrganizationID: parent.OrganizationID,
 		ProjectID:      parent.ProjectID,
 		ParentApp:      childAppID,
+		// LoraDir survives — if the parent was running a fine-tuned
+		// model, the child needs the same weights pointer or it'll
+		// silently fall back to the base model.
+		LoraDir: parent.LoraDir,
 		Metadata: types.SessionMetadata{
-			// Copy load-bearing parent metadata.
+			// Conversation + agent setup the user configured on the parent.
 			Stream:              parent.Metadata.Stream,
 			SystemPrompt:        parent.Metadata.SystemPrompt,
 			AssistantID:         parent.Metadata.AssistantID,
@@ -255,6 +259,29 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 			WorkSessionID:       parent.Metadata.WorkSessionID,
 			SessionRole:         parent.Metadata.SessionRole,
 			CallbackURL:         parent.Metadata.CallbackURL,
+
+			// Tooling, RAG, fine-tune knobs the user explicitly turned on.
+			// Without these the child silently loses capabilities the user
+			// had configured (e.g. attached documents, enabled tools).
+			ActiveTools:         append([]string(nil), parent.Metadata.ActiveTools...),
+			RagEnabled:          parent.Metadata.RagEnabled,
+			RagSettings:         parent.Metadata.RagSettings,
+			TextFinetuneEnabled: parent.Metadata.TextFinetuneEnabled,
+			UploadedDataID:      parent.Metadata.UploadedDataID,
+			DocumentIDs:         parent.Metadata.DocumentIDs,
+			SessionRAGResults:   parent.Metadata.SessionRAGResults,
+			DocumentGroupID:     parent.Metadata.DocumentGroupID,
+
+			// App-level customisation + display settings + lifecycle.
+			AppQueryParams:          parent.Metadata.AppQueryParams,
+			Priority:                parent.Metadata.Priority,
+			AgentVideoWidth:         parent.Metadata.AgentVideoWidth,
+			AgentVideoHeight:        parent.Metadata.AgentVideoHeight,
+			AgentVideoRefreshRate:   parent.Metadata.AgentVideoRefreshRate,
+			ImplementationTaskIndex: parent.Metadata.ImplementationTaskIndex,
+			Phase:                   parent.Metadata.Phase,
+			TitleHistory:            parent.Metadata.TitleHistory,
+
 			// Target runtime/agent — overrides parent's.
 			CodeAgentRuntime: targetRuntime,
 			ZedAgentName:     targetRuntime.ZedAgentName(),
@@ -262,6 +289,12 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 			ParentSessionID:       parent.ID,
 			ForkedAt:              now,
 			ForkedAtInteractionID: lastCompletedID,
+
+			// Intentionally NOT copied (child needs fresh state, not parent's):
+			//   ZedThreadID, DevContainerID, ContainerName/ID/IP, SandboxID,
+			//   SwayVersion, GPUVendor, RenderNode, StatusMessage,
+			//   ExternalAgentID, ExternalAgentStatus, PausedScreenshotPath,
+			//   Paused*, Eval*, GenerationID, Trigger.
 		},
 	}
 
@@ -394,6 +427,32 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	// the active child; the parent is still reachable through the
 	// ForkBadge on the child for users who want to inspect history.
 	apiServer.repointSpecTasksToChild(ctx, parent.ID, createdChild)
+
+	// Stop the parent's desktop container BEFORE provisioning the
+	// child's. Two reasons:
+	//   1. max_concurrent_desktops is a real cap (default 2). Without
+	//      freeing the parent's slot, a fork from a user already at the
+	//      limit would queue or fail at the child-provision step.
+	//   2. The parent is now a paused/frozen checkpoint — keeping its
+	//      desktop running burns RAM/CPU/GPU for no reason. If the user
+	//      ever revisits the parent the existing "Start desktop" button
+	//      brings it back; the data is on disk via the just-pushed
+	//      commit, not in-memory in the dead container.
+	// Best-effort: log a warning on failure but proceed with the fork.
+	// A stranded parent desktop is annoying (and the idle reaper will
+	// pick it up eventually) but shouldn't block the user from getting
+	// to their new agent.
+	if apiServer.externalAgentExecutor != nil {
+		if stopErr := apiServer.externalAgentExecutor.StopDesktop(ctx, parent.ID); stopErr != nil {
+			log.Warn().Err(stopErr).
+				Str("parent_session_id", parent.ID).
+				Msg("fork: failed to stop parent desktop; idle reaper will clean up eventually")
+		} else {
+			log.Info().
+				Str("parent_session_id", parent.ID).
+				Msg("fork: stopped parent desktop to free quota for child")
+		}
+	}
 
 	// Provision the desktop for the child. Same path as initial session start.
 	if err := apiServer.provisionForkedSessionDesktop(ctx, user, createdChild); err != nil {
