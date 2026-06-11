@@ -363,7 +363,7 @@ export const blockDesktopReserve: ProfileBlock = {
   id: "desktop-reserve",
   name: "Desktop session headroom",
   category: "budget",
-  description: "Reserves the unclaimed portion of the GPU for Hydra to spawn agent desktop sessions on. No compose service — informational. The math just works: anything the LLM blocks above don't claim is available to Hydra.",
+  description: "Reserves the unclaimed portion of the GPU for agent desktop sessions to spawn on. No compose service — informational. The math just works: anything the LLM blocks above don't claim is available for agent desktops.",
   pros: [
     "Lets one GPU host both inference and 1–2 agent desktop sessions",
     "Useful for dev hosts with one card",
@@ -419,7 +419,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "dev-shared-tiny",
     name: "Dev box: tiny LLM + desktops",
-    description: "Single GPU shared between a tiny chat model and Hydra agent desktops. The LLM claims only 20% of VRAM, leaving the rest for Wolf/sway desktop sessions.",
+    description: "Single GPU shared between a tiny chat model and agent desktops. The LLM claims only 20% of VRAM, leaving the rest for the desktop sessions.",
     pros: [
       "Works on a single 16 GiB consumer card",
       "Both inference and one or two agent desktop sessions can coexist",
@@ -511,7 +511,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "8xrtx6000pro-vllm",
     name: "8×RTX PRO 6000 Blackwell — multi-model stack",
-    description: "Full multi-model stack on 8× RTX PRO 6000 Blackwell (96 GB each). Two embedding models share GPU 0 at 45% util each, qwen3.5-35b on GPU 1, minimax-m2.7 tensor-parallel-4 on GPUs 2-5, gemma-4-26b on GPU 6 — and **GPU 7 left free for Hydra-spawned agent desktops on the same node** (Decision 15: spawn with `gpu_index: 7`). The canonical multi-tenant layout for this hardware.",
+    description: "Full multi-model stack on 8× RTX PRO 6000 Blackwell (96 GB each). Two embedding models share GPU 0 at 45% util each, qwen3.5-35b on GPU 1, minimax-m2.7 tensor-parallel-4 on GPUs 2-5, gemma-4-26b on GPU 6 — and **GPU 7 left free for agent desktops on the same node** (Decision 15: spawn with `gpu_index: 7`). The canonical multi-tenant layout for this hardware.",
     pros: [
       "5 models running concurrently on one node (incl. text + vision embeddings, mid-size chat, large MoE chat, long-context chat)",
       "Desktop sessions on the same physical box as inference (GPU 7 reserved)",
@@ -706,7 +706,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "4xa100-vllm",
     name: "4×A100 80GB — multi-model stack",
-    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops, software-encoded only** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC and no display engine — Mutter renders via the nvidia DRM/KMS path and GStreamer falls back to libx264 (CPU-bound; fine for 1-2 concurrent sessions). For hardware-accelerated desktops on the same hardware tier, prefer L40S.",
+    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for agent desktops, software-encoded only** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC and no display engine — Mutter renders via the nvidia DRM/KMS path and GStreamer falls back to libx264 (CPU-bound; fine for 1-2 concurrent sessions). For hardware-accelerated desktops on the same hardware tier, prefer L40S.",
     pros: [
       "Mid-tier inference + agent desktops on the same node",
       "GLM-4.7-Flash 31B + Qwen3.6-35B-A3B MoE = top-tier reasoning + tool calling",
@@ -764,7 +764,7 @@ services:
   {
     id: "4xl40s-vllm",
     name: "4×L40S 48GB — multi-model (round-robin fleet)",
-    description: "4× L40S 48GB. Designed to be deployed identically on multiple nodes; the inference router round-robins across the sandboxes that serve the same model names. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for Hydra desktops with full NVENC hardware encoding**.",
+    description: "4× L40S 48GB. Designed to be deployed identically on multiple nodes; the inference router round-robins across the sandboxes that serve the same model names. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for agent desktops with full NVENC hardware encoding**.",
     pros: [
       "Fleet-friendly: deploy identically across N nodes; inference router round-robins",
       "Full hardware-accelerated desktop video (NVENC + display engine)",
