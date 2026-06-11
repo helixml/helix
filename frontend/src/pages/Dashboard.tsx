@@ -112,8 +112,6 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
         loadSession();
     }, [account.user, session_id]);
 
-    const isLoadingDashboardData = false; // Sandbox-absorbs-runner: dashboardData removed
-
     const handleFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         setSessionFilter(event.target.value);
     };
@@ -127,7 +125,6 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
     }, [initialSessionFilter]);
 
     if (!account.user) return null;
-    if (isLoadingDashboardData) return null;
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
