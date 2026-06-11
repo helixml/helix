@@ -1,6 +1,6 @@
 # Implementation Tasks: Add Credentials Backstop Paragraph to worker-policy.md
 
-- [ ] Open `api/pkg/org/application/agent/worker-policy.md` and add the
+- [~] Open `api/pkg/org/application/agent/worker-policy.md` and add the
       new "External-provider credentials" section between the
       "Chain of command" and "Errors and exits" sections, using the
       proposed text in design.md §3 verbatim (or trivially edited for
