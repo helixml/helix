@@ -7,9 +7,9 @@
 
 ## Resolver widening (GitHub identity)
 
-- [~] Widen `MintInstallationToken` (`api/pkg/agent/skill/github/client.go:127`) so the github transport can surface `expires_at` from the installation-token response — either return a small struct or expose a sibling function. Keep the existing string-returning function or its callers compiling (no churn outside the github transport).
-- [~] Widen `newOrgGitHubIdentityResolver` (`api/pkg/server/helix_org_github.go`) so its return shape includes `Token` and `ExpiresAt`. Keep the existing `gitHubTokenResolver` projection (returns just the token string) for the `SecretInjector` callers.
-- [~] Update unit tests around the resolver to assert the widened shape (no behaviour change for `Token`; new `ExpiresAt` assertion).
+- [x] Widen `MintInstallationToken` (`api/pkg/agent/skill/github/client.go:127`) so the github transport can surface `expires_at` from the installation-token response — either return a small struct or expose a sibling function. Keep the existing string-returning function or its callers compiling (no churn outside the github transport). **Done as sibling `MintInstallationCredential` returning `InstallationCredential{Token, ExpiresAt}` via `ghinstallation.Transport.Expiry()` — single POST, no extra network cost.**
+- [x] Widen `newOrgGitHubIdentityResolver` (`api/pkg/server/helix_org_github.go`) so its return shape includes `Token` and `ExpiresAt`. Keep the existing `gitHubTokenResolver` projection (returns just the token string) for the `SecretInjector` callers. **`OrgGitHubIdentity` gains `ExpiresAt`. `mintFn` seam now returns `MintedInstallation{Token, ExpiresAt}` so tests don't need to import the github skill. `gitHubTokenResolver` projection unchanged.**
+- [x] Update unit tests around the resolver to assert the widened shape (no behaviour change for `Token`; new `ExpiresAt` assertion). **All 5 tests in `helix_org_github_app_test.go` updated; resolver tests pass (`CGO_ENABLED=1 go test -run TestOrgGitHubIdentityResolver ./api/pkg/server/` → ok).**
 
 ## GitHub `CredentialProvider`
 
