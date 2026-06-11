@@ -31,9 +31,8 @@ import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
 import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
-import DescriptionIcon from '@mui/icons-material/Description'
 
-import RunnerProfilesTable from '../dashboard/RunnerProfilesTable'
+import RunnerLogs from './RunnerLogs'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from '../../contexts/account'
 import useApi from '../../hooks/useApi'
@@ -245,21 +244,6 @@ const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) =
         {!isOnline && (
           <Chip label={sandbox.status} size="small" variant="outlined" color="default" />
         )}
-        <Box sx={{ flexGrow: 1 }} />
-        <Tooltip title="Open live-tail logs in a new tab">
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<DescriptionIcon sx={{ fontSize: 16 }} />}
-            component="a"
-            href={`/admin/runner-logs/${encodeURIComponent(sandbox.id)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            sx={{ minWidth: 'auto', px: 1 }}
-          >
-            Logs
-          </Button>
-        </Tooltip>
       </Box>
       {profileID && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -717,22 +701,21 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
   )
 }
 
-// SubTab is one of three lenses on the same underlying dataset:
-//   overview  – aggregate stats + GPU panel + per-host runner cards
-//               (all of "what runners do I have, how are they doing" in
-//               one place; the host list was briefly a sibling sub-tab
-//               but felt redundant - operators want the totals + the
-//               list on the same view)
+// SubTab is one of two lenses on the same underlying dataset:
+//   overview  – stats + GPU panel + runner picker + selected-runner detail
+//               (master-detail; the picker drives an inline live-tail log
+//               + profile card for the chosen runner)
 //   sandboxes – user-facing dev containers (was "Dev Containers")
-//   profiles  – inference-profile config (was the standalone Runner Profiles
-//               admin tab; absorbed here because Profiles only make sense
-//               in the context of the runners that consume them)
-type SubTab = 'overview' | 'sandboxes' | 'profiles'
+//
+// Runner Profiles used to live here as a third sub-tab but it's
+// conceptually a standalone catalog, not a lens on running compute,
+// so it's promoted back to its own admin-sidebar entry.
+type SubTab = 'overview' | 'sandboxes'
 
 const SUBTAB_LS_KEY = 'admin-runners-subtab'
 
 function isSubTab(v: string | null): v is SubTab {
-  return v === 'overview' || v === 'sandboxes' || v === 'profiles'
+  return v === 'overview' || v === 'sandboxes'
 }
 
 const Runners: FC = () => {
@@ -755,6 +738,12 @@ const Runners: FC = () => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(SUBTAB_LS_KEY, subTab)
   }, [subTab])
+
+  // Selected runner for the Overview master-detail view. Auto-selects the
+  // first available runner so a single-runner deployment shows its detail
+  // without a manual pick. Resets if the current selection drops off the
+  // list (e.g. runner taken offline by the reaper).
+  const [selectedRunnerId, setSelectedRunnerId] = useState<string>('')
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
@@ -796,6 +785,23 @@ const Runners: FC = () => {
     a.session_id.localeCompare(b.session_id)
   )
 
+  // Keep the picker's selection consistent with the live data:
+  //   - Reset to '' if the list goes empty
+  //   - Reset to the first runner if the current selection has dropped off
+  //   - Auto-select the first runner on initial load (single-runner UX)
+  useEffect(() => {
+    if (sandboxes.length === 0) {
+      if (selectedRunnerId !== '') setSelectedRunnerId('')
+      return
+    }
+    const stillExists = sandboxes.some((s) => s.id === selectedRunnerId)
+    if (!stillExists) {
+      setSelectedRunnerId(sandboxes[0].id)
+    }
+  }, [sandboxes, selectedRunnerId])
+
+  const selectedRunner = sandboxes.find((s) => s.id === selectedRunnerId)
+
   // Aggregate stats - "online" not "running" (sandbox status enum).
   const runningRunners = sandboxes.filter((s) => s.status === 'online').length
   const runningContainers = sortedContainers.filter((c) => c.status === 'running').length
@@ -828,7 +834,6 @@ const Runners: FC = () => {
       >
         <Tab value="overview" label="Overview" />
         <Tab value="sandboxes" label="Sandboxes" />
-        <Tab value="profiles" label="Profiles" />
       </Tabs>
 
       {subTab === 'overview' && (
@@ -864,14 +869,14 @@ const Runners: FC = () => {
             </Grid>
           </Grid>
 
-          {/* Middle: GPU telemetry strip. */}
+          {/* GPU telemetry strip. */}
           {gpus.length > 0 && (
             <Box sx={{ mb: 3 }}>
               <GPUStatsCard gpus={gpus} />
             </Box>
           )}
 
-          {/* Bottom: one card per runner host. */}
+          {/* Master-detail: picker on top, selected-runner detail below. */}
           {sandboxes.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <ComputerIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
@@ -883,13 +888,67 @@ const Runners: FC = () => {
               </Typography>
             </Box>
           ) : (
-            <Grid container spacing={2}>
-              {sandboxes.map((sb) => (
-                <Grid item xs={12} md={6} lg={4} key={sb.id}>
-                  <SandboxProfileCard sandbox={sb} />
-                </Grid>
-              ))}
-            </Grid>
+            <Box>
+              {/* Runner picker. Shown even when there's only one runner so
+                  the operator always sees which one they're looking at. */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+                <FormControl size="small" sx={{ minWidth: 360, flexGrow: 1, maxWidth: 600 }}>
+                  <InputLabel id="runner-picker-label" shrink>Runner</InputLabel>
+                  <Select
+                    labelId="runner-picker-label"
+                    value={selectedRunnerId}
+                    label="Runner"
+                    onChange={(e) => setSelectedRunnerId(e.target.value)}
+                    renderValue={(value) => {
+                      const inst = sandboxes.find((s) => s.id === value)
+                      if (!inst) return value
+                      const label = inst.hostname || inst.id
+                      const bits = [inst.status]
+                      if (inst.active_profile_id) bits.push(`profile: ${inst.active_profile_id}`)
+                      return `${label}  (${bits.join(', ')})`
+                    }}
+                  >
+                    {sandboxes.map((sb) => (
+                      <MenuItem key={sb.id} value={sb.id}>
+                        {sb.hostname || sb.id}
+                        {sb.active_profile_id && ` — ${sb.active_profile_id}`}
+                        {' '}({sb.status})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                {selectedRunner && (
+                  <Tooltip title="Open the live-tail log stream in a new tab">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      component="a"
+                      href={`/admin/runner-logs/${encodeURIComponent(selectedRunner.id)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open logs
+                    </Button>
+                  </Tooltip>
+                )}
+              </Box>
+
+              {/* Selected runner detail: profile assignment + inline logs. */}
+              {selectedRunner && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <SandboxProfileCard sandbox={selectedRunner} />
+                  <Card>
+                    <CardHeader
+                      title="Runner Logs"
+                      subheader="Live tail (control-plane + inner desktop containers, aggregated)"
+                    />
+                    <CardContent>
+                      <RunnerLogs runnerId={selectedRunner.id} compact />
+                    </CardContent>
+                  </Card>
+                </Box>
+              )}
+            </Box>
           )}
         </Box>
       )}
@@ -919,12 +978,6 @@ const Runners: FC = () => {
               </Typography>
             </Box>
           )}
-        </Box>
-      )}
-
-      {subTab === 'profiles' && (
-        <Box>
-          <RunnerProfilesTable />
         </Box>
       )}
     </Box>

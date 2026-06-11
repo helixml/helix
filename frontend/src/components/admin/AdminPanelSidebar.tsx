@@ -86,6 +86,13 @@ const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls'
           onClick: () => handleNavigationClick('helix_models')
         },
         {
+          id: 'runner_profiles',
+          label: 'Runner Profiles',
+          icon: <ModelTrainingIcon />,
+          isActive: currentTab === 'runner_profiles',
+          onClick: () => handleNavigationClick('runner_profiles')
+        },
+        {
           id: 'pricing',
           label: 'Pricing',
           icon: <AttachMoneyIcon />,

@@ -37,6 +37,7 @@ import PricingTable from "../components/dashboard/PricingTable";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsTable";
 import Runners from "../components/admin/Runners";
+import RunnerProfilesTable from "../components/dashboard/RunnerProfilesTable";
 import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
 import UserDetailPanel from "../components/dashboard/UserDetailPanel";
@@ -246,6 +247,12 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                         }}
                     >
                         <HelixModelsTable />
+                    </Box>
+                )}
+
+                {tab === "runner_profiles" && account.admin && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <RunnerProfilesTable />
                     </Box>
                 )}
 
