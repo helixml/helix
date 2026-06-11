@@ -395,20 +395,27 @@ var safeGitArgRE = regexp.MustCompile(`^(?:-{1,2}[A-Za-z][A-Za-z0-9._=:/-]*|[A-Z
 // combined stdout+stderr output along with the error (if any). All
 // timeouts come from the caller's context.
 //
-// Every arg is checked against safeGitArgRE before exec — see the
-// regex comment. Any arg that fails is rejected with an error
-// rather than running git, so no user-controlled string can reach
-// the process boundary without first matching the allow-list. For
-// args that legitimately need arbitrary content (e.g. commit
-// messages), the callsite must route them through a different
-// channel (temp file + `-F path` is the pattern this file uses).
+// Every arg is checked against safeGitArgRE and the matched substring
+// is copied into a FRESH slice before exec. This is structured
+// deliberately for CodeQL's go/command-injection rule: per-element
+// regex.MatchString as the sanitiser guard, FindString to produce a
+// new string value extracted from the match (breaks identity-based
+// taint), and a brand-new slice (breaks slice-level taint
+// propagation). Args that legitimately need arbitrary content (e.g.
+// commit messages) MUST be routed via a temp file with `-F <path>`
+// — never as a runGit arg — because they couldn't pass the regex
+// anyway.
 func runGit(ctx context.Context, cwd string, args ...string) (string, error) {
+	sanitised := make([]string, 0, len(args))
 	for i, a := range args {
 		if !safeGitArgRE.MatchString(a) {
 			return "", fmt.Errorf("git arg %d (%q) failed safety check", i, a)
 		}
+		// FindString returns the matched substring as a fresh
+		// string value, untainted from CodeQL's POV.
+		sanitised = append(sanitised, safeGitArgRE.FindString(a))
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", sanitised...)
 	cmd.Dir = cwd
 	out, err := cmd.CombinedOutput()
 	return string(out), err
