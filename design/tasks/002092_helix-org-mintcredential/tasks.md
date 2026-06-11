@@ -13,8 +13,8 @@
 
 ## GitHub `CredentialProvider`
 
-- [ ] Add `api/pkg/org/infrastructure/transports/github/credential_provider.go` implementing `credential.Provider`. Constructor accepts the widened identity resolver. `Mint` returns `{Token, ExpiresAt, Usage: "export GH_TOKEN=<token>"}` and returns a descriptive error when the resolver returns an empty token.
-- [ ] Add `credential_provider_test.go` covering the happy path and the empty-token error path. Use the existing test fixtures in `secret_injector_test.go` as a model.
+- [~] Add `api/pkg/org/infrastructure/transports/github/credential_provider.go` implementing `credential.Provider`. Constructor accepts the widened identity resolver. `Mint` returns `{Token, ExpiresAt, Usage: "export GH_TOKEN=<token>"}` and returns a descriptive error when the resolver returns an empty token.
+- [~] Add `credential_provider_test.go` covering the happy path and the empty-token error path. Use the existing test fixtures in `secret_injector_test.go` as a model.
 
 ## `mint_credential` MCP tool
 
