@@ -163,8 +163,7 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 
 // dispatchSandboxPreview proxies a preview-token request to the
 // underlying session or sandbox container. For sessions, the session's
-// SandboxID is the runner-side device for RevDial and the session ID is
-// the hydra container ID.
+// SandboxID is looked up to find the host device for RevDial.
 func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.Request, route *types.VHostRoute) {
 	targetID := route.TargetID
 	if strings.HasPrefix(targetID, "ses_") {
@@ -177,13 +176,23 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 			http.Error(w, "preview target session has no sandbox", http.StatusServiceUnavailable)
 			return
 		}
-		m.apiServer.proxyToContainer(w, r, sess.SandboxID, targetID, route.Port, r.URL.Path)
+		sb, err := m.apiServer.Store.GetSandbox(r.Context(), sess.SandboxID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("preview target sandbox not found: %s", err), http.StatusNotFound)
+			return
+		}
+		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, targetID, route.Port, r.URL.Path)
 		return
 	}
 	if strings.HasPrefix(targetID, "sbx_") {
-		// Sandbox-API previews are deferred — once a hydra route
-		// addresses sbx_* containers, this branch swaps to that path.
-		http.Error(w, "sandbox preview targets (sbx_*) not yet supported", http.StatusNotImplemented)
+		sb, err := m.apiServer.Store.GetSandbox(r.Context(), targetID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("preview target sandbox not found: %s", err), http.StatusNotFound)
+			return
+		}
+		// Sandbox-API containers are registered in hydra under
+		// req.SessionID = sandbox.ID (see sandbox/controller_provision.go).
+		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path)
 		return
 	}
 	http.Error(w, "unrecognised preview target id format", http.StatusBadRequest)
@@ -210,11 +219,17 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 		http.Error(w, "project web service has no active deployment", http.StatusServiceUnavailable)
 		return
 	}
-	// For project web service sandboxes, the sandbox ID is used both
-	// as the RevDial device key (hydra-<sbx_id>) AND as the hydra
-	// container ID — the workload container is registered with hydra
-	// under the sandbox ID itself, not via a session.
-	m.apiServer.proxyToContainer(w, r, state.ActiveSandboxID, state.ActiveSandboxID, route.Port, r.URL.Path)
+	// Web service sandboxes are registered with hydra under their
+	// sandbox ID (sandbox/controller_provision.go SessionID=sandbox.ID).
+	// The RevDial device key, however, is hydra-<HostDeviceID> — that's
+	// the runner-host pool sandboxes get assigned to, not the sandbox
+	// itself.
+	sb, err := m.apiServer.Store.GetSandbox(r.Context(), state.ActiveSandboxID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("active sandbox not found: %s", err), http.StatusBadGateway)
+		return
+	}
+	m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path)
 }
 
 // stripPort removes a trailing :port from a Host header value, taking

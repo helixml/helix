@@ -45,6 +45,10 @@ type VHostRoute struct {
 	RotatedAt *time.Time `json:"rotated_at,omitempty"`
 }
 
+// TableName pins the GORM table to "vhost_routes" — without this, GORM
+// would derive "v_host_routes" from the camel-cased struct name.
+func (VHostRoute) TableName() string { return "vhost_routes" }
+
 // ProjectWebServiceState is the per-project enablement and runtime state for
 // the web-service hosting feature.
 type ProjectWebServiceState struct {
