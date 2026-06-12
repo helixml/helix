@@ -1086,7 +1086,12 @@ export class WebSocketStream {
     if (s.length < 30) return 0
     const sorted = [...s].sort((a, b) => a - b)
     const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]
-    const jitter = at(0.97) - at(0.5) // how far the worst gaps sit above the median frame interval
+    // Size the buffer to absorb the late-arriving frames, not just typical jitter.
+    // p97-p50 came out at ~2ms on a connection whose real stalls were 40-160ms
+    // (those are <3% of frames, so p97 ignored them). p99-p50 covers the frequent
+    // ~40ms stalls (~23ms here) while the cap keeps latency bounded; rare huge
+    // stalls (160ms) are left to glitch rather than pay 150ms of standing latency.
+    const jitter = at(0.99) - at(0.5)
     return Math.max(0, Math.min(this.PLAYOUT_MAX_DELAY_MS, jitter))
   }
 
@@ -1131,14 +1136,29 @@ export class WebSocketStream {
       this.playoutEpochLocalMs = now + this.playoutDelayMs
     }
 
-    // Present due frames; if several are due, present only the latest (catch-up).
-    let toPresent: VideoFrame | null = null
-    while (this.playoutQueue.length > 0 && this.playoutPresentTimeMs(this.playoutQueue[0].ptsUs) <= now) {
+    // Present at most ONE frame per tick — the oldest that is due — then bound
+    // latency by dropping frames that have fallen too far behind.
+    //
+    // The previous logic presented the *latest* due frame and dropped the rest.
+    // That decimated the stream to 30fps whenever the buffer was non-zero:
+    // decoded frames arrive in small bursts, so with a held buffer two would be
+    // due in one rAF tick — one got dropped while the next tick had nothing due.
+    // Presenting the oldest-due frame one-per-tick keeps us locked to the display
+    // refresh rate (60fps); the queue depth itself is the jitter buffer.
+    if (this.playoutQueue.length > 0 && this.playoutPresentTimeMs(this.playoutQueue[0].ptsUs) <= now) {
       const item = this.playoutQueue.shift() as { frame: VideoFrame; ptsUs: number; arrivalMs: number }
-      if (toPresent) { try { toPresent.close() } catch { /* noop */ }; this.framesDropped++ }
-      toPresent = item.frame
+      this.renderVideoFrame(item.frame)
     }
-    if (toPresent) this.renderVideoFrame(toPresent)
+
+    // Latency cap: if frames pile up overdue (clock drift, or a burst after an
+    // underflow) drop the oldest to catch up. Bounded and rare — never a steady
+    // decimation like the old catch-up.
+    const maxLagMs = this.playoutDelayMs + 50
+    while (this.playoutQueue.length > 0 && now - this.playoutPresentTimeMs(this.playoutQueue[0].ptsUs) > maxLagMs) {
+      const old = this.playoutQueue.shift() as { frame: VideoFrame; ptsUs: number; arrivalMs: number }
+      try { old.frame.close() } catch { /* noop */ }
+      this.framesDropped++
+    }
 
     if (this.playoutQueue.length > 0) {
       this.playoutRaf = requestAnimationFrame(() => this.playoutTick())
