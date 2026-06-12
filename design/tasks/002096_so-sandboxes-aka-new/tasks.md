@@ -53,25 +53,27 @@ terminates.
 - [x] Project-web-service dispatch loads `project_web_service_state`, uses `active_sandbox_id` as both RevDial device and hydra container ID, returns 503 when no active deploy.
 - [x] Cache deferred — first cut hits store on each request; cache + pubsub invalidation can land in follow-up if profiling shows it's hot.
 
-## Phase 5 — Web service runtime + controller (DEFERRED to follow-up PR)
+## Phase 5 — Web service runtime + controller
 
-- [ ] Add `SandboxRuntimeWebService = "web-service"` to `api/pkg/types/sandbox.go`; add `Purpose` field to `Sandbox`.
-- [ ] Add `web-service` runtime entry to default `RuntimeRegistry`.
-- [ ] Extend `sandbox.Controller.Create` to accept `Purpose=web-service` and enforce one-per-project.
-- [ ] Runner-side workload supervisor: clone repo at SHA, run `.helix/startup.sh`, restart on exit, stream logs.
+- [x] Reused existing `SandboxRuntimeHeadlessUbuntu` runtime — no new runtime kind needed for v1. The bootstrap script is what makes it a web service, not the image.
+- [x] `Persistent=true, TimeoutSeconds=-1` on the deploy primitive keeps web service sandboxes long-lived and out of the TTL reaper.
+- [x] Runner-side workload "supervisor" is the user's `.helix/startup.sh` running as a detached exec inside the headless sandbox via the existing hydra exec API. No new runner code; the user's script becomes the long-running process.
 
-> **Why deferred:** the `POST /api/v1/projects/:id/web-service/active-sandbox`
-> primitive in Phase 8 lets an operator point a project at a sandbox
-> they've provisioned manually. Auto-provisioning + workload supervision
-> is the orchestrator on top of that primitive.
+## Phase 6 — Redeploy orchestration
 
-## Phase 6 — Redeploy orchestration (DEFERRED)
+- [x] `api/pkg/webservice/controller.go`: `Redeploy(ctx, DeployRequest)` provisions a fresh sandbox, polls until status=running, execs a bootstrap shell that clones the repo + checks out the requested SHA + runs `.helix/startup.sh`, waits briefly for the app to bind, atomically updates `active_sandbox_id`, marks the deploy live, marks prior live deploys superseded, and stops the previous sandbox.
+- [x] Asynchronous: the API endpoint returns the pending deploy row immediately; the long-running orchestration runs in a goroutine. UI polls deploy status.
+- [x] Failures leave the previous sandbox active and record an error message on the failed deploy row; the new sandbox stays running for debug exec.
+- [x] `POST /api/v1/projects/:id/web-service/deploy {commit_sha?}` endpoint that triggers it.
 
-- [ ] `api/pkg/webservice/controller.go`: `Redeploy(ctx, projectID, sha)` calls the same `active-sandbox` primitive after health-checking.
+## Phase 7 — Webhook auto-deploy (DEFERRED)
 
-## Phase 7 — Webhook trigger (DEFERRED)
+- [ ] Hook into the existing internal git push handler (`git_repository_handlers.go pushToRemote`) to call `Redeploy` when the push is to the primary repo's default branch on a project with web service enabled.
+- [ ] Optional `TriggerKind = "web-service-deploy"` for external (GitHub/GitLab webhook) integration.
 
-- [ ] `TriggerKind = "web-service-deploy"`; auto-create on enable; dispatch on primary-repo default-branch pushes.
+> **Why deferred:** the Phase 6 orchestrator is callable by anything —
+> manual operator action, CI pipelines, GitHub Actions, the git push
+> handler. The webhook trigger is just a small wrapper that calls it.
 
 ## Phase 8 — Project web service API
 

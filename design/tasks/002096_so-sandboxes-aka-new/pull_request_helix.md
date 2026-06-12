@@ -12,21 +12,34 @@ HTTP API, register custom domains, and route HTTPS traffic through Caddy
 
 ## What works end-to-end after this PR
 
-Operator-driven path for hosting a real website on a sandbox:
+A project owner / CI pipeline / operator can host a real customer
+website with a single API call once setup is done:
 
-1. Operator runs Caddy in front of Helix with a wildcard DNS-01 cert
-   covering `*.<DEV_SUBDOMAIN base>` (e.g. `*.dev.helix.example.com`).
-2. Project owner: `PUT /api/v1/projects/:id/web-service {enabled: true}`
-   → default subdomain `<slug>.<base>` is allocated automatically with
-   collision suffixing.
-3. Project owner (optional): `POST .../web-service/domains
-   {hostname: "app.customer.com"}` → row inserted unverified; once the
-   operator's DNS points at us and the `/.well-known/helix-domain-verify/:token`
-   endpoint round-trips, the row is verified and usable.
-4. Operator provisions a sandbox container holding the web app.
-5. `POST .../web-service/active-sandbox {sandbox_id: "sbx_..."}` →
-   vhost router cuts over; live HTTPS traffic on the configured
-   domains is proxied via RevDial through hydra into the container.
+1. **Operator setup (one time):** Caddy in front of Helix with a wildcard
+   DNS-01 cert covering `*.<DEV_SUBDOMAIN base>`. Set `DEV_SUBDOMAIN`
+   env var on the API.
+2. **Project owner enables:** `PUT /api/v1/projects/:id/web-service
+   {enabled: true, container_port: 8080}` → default subdomain
+   `<slug>.<base>` allocated.
+3. **Optional custom domain:** `POST .../web-service/domains
+   {hostname: "app.customer.com"}`, point CNAME at the Caddy front,
+   `/.well-known/helix-domain-verify/:token` round-trip flips
+   `verified_at` and the row goes live.
+4. **Deploy:** `POST /api/v1/projects/:id/web-service/deploy
+   {commit_sha: "abc123"}` (sha optional). Helix:
+   - Provisions a fresh headless sandbox in the project's org.
+   - Polls until the sandbox is running.
+   - Execs a bootstrap inside it: `git clone <primary repo>`, checkout
+     the requested SHA, `bash .helix/startup.sh` (which becomes the
+     long-running web server process).
+   - Atomically points routing at the new sandbox.
+   - Stops the previous sandbox.
+   Returns the in-flight deploy row immediately (status=pending /
+   building); the whole flow runs asynchronously and the row's
+   `status` advances to `live` or `failed` so the UI can poll.
+5. **Live traffic:** any HTTPS request to a verified domain proxies
+   through Caddy → vhost middleware → RevDial → hydra → container
+   port `container_port`.
 
 Sessions also get a "Share preview" path: mint a random
 `share-<adj>-<noun>-<8hex>.<base>` token bound to a session + port; the
@@ -49,6 +62,11 @@ URL works until the token is revoked or the session is deleted.
 - **Reuse** existing env vars only (`SERVER_URL`, `DEV_SUBDOMAIN`).
   No new env vars introduced for hostname/base; reserved-hostname
   policy uses what's already there.
+- **Add** `api/pkg/webservice/Controller`. Composes existing
+  `sandbox.Controller.Create` + `hydra.RevDialClient.RunSandboxCommand`
+  + the new store primitives. No new sandbox runtime, no new
+  runner-side code — the user's `.helix/startup.sh` becomes the
+  long-running web server process.
 
 ## Files
 
@@ -62,8 +80,10 @@ NEW api/pkg/vhost/vhost_test.go                         - unit tests
 NEW api/pkg/server/vhost_middleware.go                  - new dispatch middleware
 NEW api/pkg/server/vhost_middleware_test.go             - parser/strip tests
 NEW api/pkg/server/vhost_proxy.go                       - shared revdial proxy fn
-NEW api/pkg/server/project_web_service_handlers.go      - PUT/GET/active-sandbox/domains
+NEW api/pkg/server/project_web_service_handlers.go      - PUT/GET/deploy/active-sandbox/domains
 NEW api/pkg/server/session_preview_handlers.go          - preview-tokens CRUD
+NEW api/pkg/webservice/controller.go                    - provision → bootstrap → cutover
+NEW api/pkg/webservice/controller_test.go               - shellEscape safety
 MOD api/pkg/store/postgres.go                           - AutoMigrate registrations
 MOD api/pkg/store/store.go                              - Store interface methods
 MOD api/pkg/store/store_mocks.go                        - regenerated
@@ -91,15 +111,19 @@ DEL api/pkg/server/subdomain_proxy_test.go              - 247 lines removed
 - **Frontend `WebServiceTab` + `<SharePreviewSection>`.** Endpoints are
   callable via curl today; swagger annotations are in place so
   `./stack update_openapi` regenerates the typed client cleanly.
-- **Auto-deploy on push.** The webhook trigger, the `web-service`
-  sandbox runtime, the runner-side workload supervisor (clone +
-  `.helix/startup.sh` + restart), and the redeploy state machine.
-  All call the same `POST .../active-sandbox` primitive shipping here.
+- **Auto-deploy on push.** Hook into the existing internal git push
+  handler to call `webservice.Controller.Redeploy` when the push lands
+  on a project's primary repo default branch. The orchestrator
+  itself ships here, so this follow-up is a small wrapper.
 - **certmagic `auto` TLS mode** (passthrough ships now).
 - **Sandbox `sbx_*` preview tokens** (sessions cover spec tasks,
   agents, desktops — the high-value cases).
 - **DNS verifier cron** (verifier endpoint ships now; automated
   poller is the cleanup).
+- **Health-check gate before cutover.** Current v1 sleeps
+  `bootstrapSleep` (10s) before flipping routing. A real readiness
+  check (poll `http://container:port/` until 2xx/3xx) is a clean
+  upgrade.
 
 ## Operator setup
 
