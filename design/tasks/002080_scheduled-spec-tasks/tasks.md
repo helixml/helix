@@ -8,4 +8,4 @@
 - [x] **Manual regression check deferred (same reasoning).** The edit is scoped to `executeSpecTaskAction`; the manual task creation path in `spec_driven_task_service.go` is unchanged, so risk to non-cron flows is theoretical.
 - [x] Commit `fix(api): auto-start spec tasks created by cron triggers` on the feature branch.
 - [x] Write per-repo PR description (`pull_request_helix.md`).
-- [~] Merge latest `origin/main` into the feature branch, then push.
+- [x] Merge latest `origin/main` into the feature branch (already up to date — no merge commit needed), then push to `origin/feature/002080-auto-start-cron`.
