@@ -131,20 +131,33 @@ So that no project can serve its own content from the control-plane URL.
 So that I can show a teammate the current state of an agent's work or my desktop.
 
 **Acceptance:**
-- Every sandbox detail panel (agent, spec task, human org desktop) has a
-  "Share preview" toggle. When the operator has not configured a vhost base
-  domain, the toggle is disabled with a tooltip explaining why.
-- Toggling on mints a random subdomain (e.g. `purple-otter-3f8a.<base-domain>`)
-  and immediately serves the sandbox at `https://<subdomain>/` via the same
-  vhost router that serves project web services.
-- For desktop sandboxes the URL serves the existing noVNC/web stream port;
-  for headless agent sandboxes the URL serves a configurable port (defaults
-  to the first port the runtime exposes, configurable per sandbox).
-- Toggling off, or stopping the sandbox, immediately revokes the subdomain
-  (returns 404 and removes the route).
-- Subdomains are sufficiently unguessable (≥64 bits of entropy in the random
-  segment) so the URL itself is the access control. Auth in front of dev
-  previews is out of scope for this task.
+- Every sandbox detail panel (agent workspace, spec-task session, human org
+  desktop, user-facing API sandbox) has a "Share preview" section. When the
+  operator has not configured `DEV_SUBDOMAIN`, the section is disabled with
+  a tooltip explaining why.
+- Toggling "Share preview" on mints a **purpose-built random preview token**
+  and exposes the chosen port at
+  `https://share-<adj>-<noun>-<4hex>.<DEV_SUBDOMAIN>/` (e.g.
+  `share-purple-otter-3f8a.dev.helix.example.com`). The token is unrelated
+  to the sandbox/session ID so leaking the ID through screenshots, logs,
+  the UI, or other channels does **not** leak the preview URL.
+- For desktop sandboxes the default exposed port is the existing noVNC/web
+  stream port; for headless sandboxes the user picks the port.
+- The user can rotate the token (one click → old URL stops working, new URL
+  takes effect) and can disable sharing entirely. Stopping the sandbox
+  also revokes the token. After revocation the URL returns 404.
+- A sandbox can have multiple active preview tokens (e.g. one per port);
+  each is shown in the panel with copy/rotate/revoke controls.
+- Token entropy ≥ 70 bits (the `share-<adj>-<noun>-<4hex>` format pulls
+  from ~150-word adjective and noun lists plus 16 random hex bits, giving
+  ~31 bits friendly + 16 bits hex = 47 bits — **bump the hex segment to 8
+  hex chars** for ≥ 63 bits total, still readable).
+- This is **distinct from**, not a replacement for, the existing
+  `p{port}-{session_id}` / `{name}-{session_id}` schemes
+  (`subdomain_proxy.go`), which remain for the dev-container debug workflow
+  that already ships. The new feature is the *opt-in shareable* path; the
+  existing one is the *if-you-know-the-session-ID-you're-already-trusted*
+  path. Both go through the same middleware and the same TLS layer.
 
 ### As an agent, I want to deploy a project I'm working on
 So that I can hand a live URL back to the user.
