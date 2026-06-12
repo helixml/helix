@@ -308,19 +308,6 @@ function build-runner-image() {
     .
 }
 
-# Background helper used by build-zed (and other long Rust builds) to keep
-# the helix-api container and sandbox-nvidia streaming pipeline responsive
-# when the host is under CPU contention. Watches for compiler/linker
-# processes spawned inside BuildKit's runc containers and renices them down.
-# Renice is idempotent, so re-running on already-niced PIDs is harmless.
-_nice_rust_workers() {
-  while true; do
-    sudo pgrep -f 'rustc|cc1plus|cc1|lld|mold' 2>/dev/null \
-      | xargs -r sudo renice -n 19 -p >/dev/null 2>&1
-    sleep 2
-  done
-}
-
 function build-zed() {
   # ====================================================================
   # Build Zed inside Docker with BuildKit cache mounts
@@ -393,10 +380,11 @@ EIGNORE
 
   echo "🚀 Starting Docker build (cached after first run)..."
 
-  # Background-nice rustc/cc1/lld so helix-api and sandbox-nvidia stay
-  # responsive while this build saturates the host. See _nice_rust_workers.
-  _nice_rust_workers &
-  local _NICE_PID=$!
+  # rustc/cc1/lld run at nice 19 — set via `nice -n 19 cargo build` in
+  # Dockerfile.zed-build so the build stays low-priority no matter how it's
+  # launched (./stack, startup.sh, CI, manual). This survives the foreground
+  # process disconnecting, unlike a host-side renice watcher, because BuildKit
+  # keeps compiling inside buildkitd after `docker buildx build` returns.
 
   # Build using Dockerfile.zed-build with the Zed source as context
   # --output extracts just the binary from the scratch final stage
@@ -410,9 +398,6 @@ EIGNORE
     "$ZED_SOURCE_DIR"
 
   local BUILD_EXIT=$?
-
-  kill $_NICE_PID 2>/dev/null || true
-  wait $_NICE_PID 2>/dev/null || true
 
   # Clean up temporary .dockerignore (unless it existed before)
   if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
