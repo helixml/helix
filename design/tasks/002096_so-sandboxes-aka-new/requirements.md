@@ -10,6 +10,11 @@ reaches it via name-based virtual hosting through the Helix API server, which
 also handles TLS. Deploys are triggered automatically by pushes to the primary
 repo's default branch — a minimal continuous-delivery loop with no CI gates.
 
+The same vhost+TLS plumbing is also reused for a second feature: **dev
+previews**. Any running sandbox — an agent workspace, a spec-task container,
+or a human org desktop — can be exposed under a randomly-generated subdomain
+so its in-progress UI is shareable without setting up tunnels.
+
 ## User Stories
 
 ### As a project owner, I want to expose my project as a web service
@@ -54,12 +59,37 @@ So that I can use it like any other website.
 So that existing deployments don't break.
 
 **Acceptance:**
-- A single env var (`HELIX_WEB_SERVICE_TLS_MODE = auto | passthrough | off`)
+- A single env var (`HELIX_VHOST_TLS_MODE = auto | passthrough | off`)
   selects: terminate TLS in Helix (Let's Encrypt), trust an upstream reverse
-  proxy (Caddy, Cloudflare, etc.), or disable web-service hosting entirely.
+  proxy (Caddy, Cloudflare, etc.), or disable vhost-based hosting entirely.
 - In `passthrough` mode Helix listens HTTP only on its existing port and
   trusts `X-Forwarded-Proto` / `X-Forwarded-Host`.
 - In `auto` mode Helix listens on `:443` and `:80` for ACME challenges.
+- **Constraint:** if dynamic vhosting is enabled (random per-sandbox
+  subdomains under `HELIX_VHOST_BASE_DOMAIN`), the only supported mode is
+  `auto`. Helix refuses to start in `passthrough` mode with dynamic vhosting
+  on, because an external terminator cannot dynamically issue certs for
+  hostnames that are minted at runtime. The startup error must explain this
+  and link to docs.
+
+### As an agent or human user, I want to share a live URL for my running sandbox
+So that I can show a teammate the current state of an agent's work or my desktop.
+
+**Acceptance:**
+- Every sandbox detail panel (agent, spec task, human org desktop) has a
+  "Share preview" toggle. When the operator has not configured a vhost base
+  domain, the toggle is disabled with a tooltip explaining why.
+- Toggling on mints a random subdomain (e.g. `purple-otter-3f8a.<base-domain>`)
+  and immediately serves the sandbox at `https://<subdomain>/` via the same
+  vhost router that serves project web services.
+- For desktop sandboxes the URL serves the existing noVNC/web stream port;
+  for headless agent sandboxes the URL serves a configurable port (defaults
+  to the first port the runtime exposes, configurable per sandbox).
+- Toggling off, or stopping the sandbox, immediately revokes the subdomain
+  (returns 404 and removes the route).
+- Subdomains are sufficiently unguessable (≥64 bits of entropy in the random
+  segment) so the URL itself is the access control. Auth in front of dev
+  previews is out of scope for this task.
 
 ### As an agent, I want to deploy a project I'm working on
 So that I can hand a live URL back to the user.
@@ -76,5 +106,6 @@ So that I can hand a live URL back to the user.
 - Per-branch preview environments — only the primary repo's default branch.
 - DNS provisioning — the operator sets up the wildcard `A`/`CNAME` for the
   base domain manually; we only document what's required.
-- Authentication in front of web services — services are public; private
-  previews are a future task.
+- Authentication in front of web services and dev previews — both rely on
+  domain knowledge / unguessable subdomains; private previews behind SSO are
+  a future task.
