@@ -761,6 +761,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	}
 	handler = NewVHostMiddleware(vhostCfg, apiServer, apiServer.router)
 
+	// Optional certmagic-based HTTPS on :443 + :80, alongside the plain
+	// HTTP listener below. No-op when HELIX_VHOST_TLS_MODE=off (default).
+	if err := apiServer.startCertMagicListener(ctx, vhostCfg, handler); err != nil {
+		log.Error().Err(err).Msg("vhost TLS auto mode failed to start; continuing without it")
+	}
+
 	srv := &http.Server{
 		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		// WriteTimeout and ReadTimeout set to 0 (no timeout) to support:
