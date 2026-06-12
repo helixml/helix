@@ -19,49 +19,41 @@
 
 ## Merge Execution
 
-- [ ] `git merge upstream/main`
-- [ ] Triage conflicts; for each, append to `portingguide.md` §"Merge 002077" with `(upstream change / resolution / why / risk)` BEFORE moving to the next one
-- [ ] `Cargo.lock` (if conflicting): `git checkout --theirs Cargo.lock`
-- [ ] Any `.github/workflows/` conflicts: accept upstream
-- [ ] Resolve `crates/acp_thread/src/acp_thread.rs` conflicts — Critical Fixes #6/#8/#9 (cancel/Stopped invariants) preserved; PR #55 streaming-reveal `EntryUpdated` emit re-anchored against `d7ac5e6cf4`'s tool-call-status rewrite; `5c90b0664f`'s compaction-cancel race fix integrated without re-introducing double-`Stopped` emits
-- [ ] Resolve `crates/agent/src/agent.rs` conflicts — Critical Fix #1 (entity-lifetime clone in `load_session`) preserved; `wait_for_tools_ready` uses `cx.background_executor().timer()` (not `smol::Timer`); `supports_delete(&self, &App)` impl preserved; compaction cluster integration reviewed; `620ceaaaca` flush-on-quit reviewed (gate behind `not(feature = "external_websocket_sync")` if it races the WS-authoritative store, otherwise leave and document)
-- [ ] Resolve `crates/agent_ui/src/agent_panel.rs` conflicts — Critical Fix #11 entity-identity guard (now `thread_id`-based) must survive verbatim; **Fix 1b draft suppression `#[cfg(feature = "external_websocket_sync")] { return; }` MUST be the FIRST statement of the `BaseView::Uninitialized` branch**, even if `116e4bc184` or other commits restructure the surrounding code; thread display callback, UI state query, `acp_history_store()`, onboarding bypass, ACP auto-approve preserved
-- [ ] Resolve `crates/agent_ui/src/conversation_view.rs` conflicts — `from_existing_thread()` likely needs a fourth round of signature-drift repair (mirror upstream's `ConversationView::new()` field-by-field including any compaction-related fields); `THREAD_REGISTRY` registration, `is_resume`, history refresh, unregister-on-reset preserved
-- [ ] Resolve `crates/workspace/src/workspace.rs` conflicts — `215ca2fb0b` typed-errors + `83aa943705` overflow fix + `a32999e00b` window-title-tracking all touch this file; `CollaboratorId::Agent` follow-focus guard must survive
-- [ ] Resolve `crates/agent_servers/src/acp.rs` conflicts (only 3 upstream commits, +5/-92 — should be cleanup) — PR #50 `session_creation_chain` + `_settings_subscription` (002029-round-2) coexist
-- [ ] Resolve `crates/zed/src/main.rs` conflicts — `--allow-multiple-instances`, `--headless`, `initialize_headless()`, `build_application(headless: bool)` (002029-round-2) preserved
-- [ ] Resolve `crates/agent_settings/src/agent_settings.rs` + `crates/settings_content/src/agent.rs` — `89cac4944d` extends `sandbox_permissions`; `9baefe701e` adds `auto_compact`; "both sides added a field" three-way coexistence with Helix's `show_onboarding` / `auto_open_panel`
-- [ ] Resolve `crates/title_bar/` conflicts — `external_websocket_sync = { workspace = true, optional = true }` dep + cfg-gated `render_restricted_mode` early return preserved
-- [ ] Resolve `crates/extensions_ui/src/extensions_ui.rs` if touched — `// HELIX: External agent ...` bypass markers retained at lines ~221, ~243, ~1513
-- [ ] Resolve `crates/Cargo.toml` workspace deps if conflicting — `rust-embed` `debug-embed` feature preserved
-- [ ] Compile-driven `Workspace::show_error` migration: walk every Helix call site surfaced by `./stack build-zed dev` and migrate to the new `<E: WorkspaceError>` signature (implement `WorkspaceError` for a Helix error type, ad-hoc wrap per site, or use upstream convenience constructor — document chosen approach in porting guide)
-- [ ] **Verify PR #60 retry loop intact**: `grep -n "ede_diagnostic\|handle_follow_up_message" crates/external_websocket_sync/src/thread_service.rs` — must show the 4×750ms backoff retry block
-- [ ] No conflict markers remain: `grep -rn "<<<<<<<\|>>>>>>>" .` (excluding test-string markers in `git_store.rs`)
-- [ ] Commit merge: `git commit` (let git auto-generate the merge commit; do not amend)
+- [x] `git merge upstream/main` — 6 manual conflicts surfaced
+- [x] `.github/workflows/run_cron_unit_evals.yml`, `run_unit_evals.yml`: `git rm` (upstream deletion); `slack_notify_first_responders.yml`: `--theirs`
+- [x] `crates/language_model/src/model/mod.rs` (rename/delete): accept upstream deletion — entire `model/` directory removed; `cloud_model` code now lives in `crates/language_models/src/provider/cloud.rs` / `crates/language_model_core/`. Helix had no special content here
+- [x] `crates/recent_projects/src/dev_container_suggest.rs`: both `use settings::Settings;` (Helix) and `use std::path::Path;` (upstream) needed — kept both
+- [x] `crates/title_bar/src/title_bar.rs`: import block conflict — kept `cloud_api_types::Plan`, `external_websocket_sync::{...}` (Helix) AND added `command_palette_hooks::CommandPaletteFilter` (upstream new use)
+- [x] **Auto-merge inspection**: Critical Fixes #1 (`load_session` via `pending_sessions` shared-task pattern), #3 (`content_only`), #6/#9 (`stopped_emitted_for_task`), #8 (`drop(turn.send_task)`), #11 (Fix #11 entity-identity guard via `ThreadMetadataStore`-session_id lookup) all survived auto-merge cleanly
+- [x] **Fix 1b position verified** — `#[cfg(feature = "external_websocket_sync")] { return; }` is the FIRST statement inside `BaseView::Uninitialized` branch of `ensure_thread_initialized` (line 5420 in `agent_panel.rs`), before `pending_terminal_spawn` / `should_create_terminal_for_new_entry` / `activate_draft`
+- [x] **PR #50** `session_creation_chain` + `_settings_subscription` intact in `agent_servers/src/acp.rs`
+- [x] **PR #60** `ede_diagnostic` retry block intact in `external_websocket_sync/src/thread_service.rs::handle_follow_up_message` (no upstream churn in this file)
+- [x] **PR #55** streaming-reveal `EntryUpdated` emit intact at line 2147 of `acp_thread.rs`
+- [x] **PR #56 Fix 1a** deferred `UserCreatedThread` plumbing intact in `external_websocket_sync/src/thread_service.rs`
+- [x] No conflict markers remain
+- [x] Commit merge: `b2993c0b01`
 
-## Sweep for Silent Drift (auto-merged files)
+## Sweep for Silent Drift (auto-merged files) — ALL CLEAN
 
-- [ ] `grep -rn "ActiveView" crates/agent_ui/src/` — only `AgentPanelEvent::ActiveView*` valid
-- [ ] `grep -rn "set_active_view" crates/agent_ui/src/` — clean
-- [ ] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — clean
-- [ ] `grep -rn "selected_agent_type" crates/agent_ui/src/` — clean
-- [ ] `grep -nE "AcpThreadEvent::Stopped\b([^(]|$)" crates/acp_thread/src/` — clean (only doc comments)
-- [ ] `grep -n "wait_for_tools_ready\|smol::Timer" crates/agent/src/agent.rs` — `wait_for_tools_ready` present, no `smol::Timer`
-- [ ] `grep -n "allow_multiple_instances\|headless\|build_application" crates/zed/src/main.rs` — all present, `build_application(headless: bool)` pattern intact
-- [ ] `grep -n "debug-embed" Cargo.toml` — present
-- [ ] `grep -n "external_websocket_sync::get_thread" crates/agent_ui/src/agent_panel.rs` — Critical Fix #11 entity guard present
-- [ ] `grep -n "ensure_thread_initialized\|activate_draft" crates/agent_ui/src/agent_panel.rs` — Fix 1b early-return present; **read the full function body** and confirm the cfg-gated `return;` is the FIRST statement of the `BaseView::Uninitialized` branch, before any source-agent-inheritance / terminal-spawn / ACP-restoration / title-display branches
-- [ ] `grep -n "session_creation_chain\|_settings_subscription" crates/agent_servers/src/acp.rs` — both present (PR #50 + 002029-round-2 coexistence)
-- [ ] `grep -n "helix-org" crates/external_websocket_sync/e2e-test/Dockerfile.ci` — fork's `fd26c1a113` Dockerfile.ci fix present
-- [ ] `grep -n "ede_diagnostic" crates/external_websocket_sync/src/thread_service.rs` — PR #60 retry loop intact
-- [ ] `grep -n "HELIX: External agent" crates/extensions_ui/src/extensions_ui.rs` — bypass markers retained at lines ~221, ~243, ~1513
-- [ ] `grep -n "AcpBetaFeatureFlag\|enabled_for_all" crates/feature_flags/src/flags.rs` — Helix's `enabled_for_all() -> true` override present
-- [ ] `grep -n "render_restricted_mode" crates/title_bar/src/title_bar.rs` — cfg-gated early return present
-- [ ] `grep -rn "Workspace::show_error\|workspace.show_error\|\.show_error(" crates/external_websocket_sync/ crates/agent_ui/src/` — every site uses the new `WorkspaceError` generic signature
-- [ ] `grep -rn "cumulative_token_usage\|TokenUsage\|compact\|Compact\|compaction" crates/external_websocket_sync/` — if any hit, confirm WS payload schema unchanged or document the bump
-- [ ] Confirm `ConversationView` field set matches what `from_existing_thread()` constructs (diff field-by-field against upstream `ConversationView::new()`)
-- [ ] Confirm `BaseView` enum: if upstream added new variants past `AgentThread`, `Uninitialized`, `Terminal`, add arms to the Helix UI state query loop in `agent_panel.rs::new()` AND the headless responder in `zed/src/main.rs`
-- [ ] Confirm `ContextServerStatus` enum: if upstream added new variants past the 002029 set (which added `ClientSecretRequired`), add arms in both UI-state-query loops
+- [x] `ActiveView` — only `AgentPanelEvent::ActiveView*` matches
+- [x] `set_active_view` / `draft_threads` / `background_threads` / `selected_agent_type` — all 0 hits
+- [x] `AcpThreadEvent::Stopped` without paren — only a doc comment match
+- [x] `smol::Timer` — 0 hits in `agent.rs`
+- [x] `allow_multiple_instances` / `headless` / `build_application` in `main.rs` — all intact
+- [x] `debug-embed` feature on `rust-embed` workspace dep — intact
+- [x] `external_websocket_sync::get_thread` Critical Fix #11 — intact in `agent_panel.rs`
+- [x] `ensure_thread_initialized` — Fix 1b is FIRST statement of `BaseView::Uninitialized` body
+- [x] `session_creation_chain` + `_settings_subscription` — both intact in `agent_servers/src/acp.rs`
+- [x] `helix-org` Dockerfile.ci — intact
+- [x] `ede_diagnostic` PR #60 retry — intact in `external_websocket_sync/src/thread_service.rs`
+- [x] `HELIX: External agent` bypass markers — intact at lines 226, 248, 1518 of `extensions_ui.rs`
+- [x] `AcpBetaFeatureFlag::enabled_for_all` — intact in `feature_flags/src/flags.rs`
+- [x] `render_restricted_mode` cfg-gated early return — intact in `title_bar.rs`
+- [x] `CollaboratorId::Agent` follow-focus guard — intact in `workspace.rs:6047` (`!matches!(leader_id, CollaboratorId::Agent)` guard before `window.focus(...)`)
+- [x] `Workspace::show_error` migration — **no call sites in Helix surface** (confirmed via grep against `external_websocket_sync/` and `agent_ui/src/`); typed-error migration not needed this round
+- [x] `cumulative_token_usage` / `compact` / `Compact` / `compaction` in `external_websocket_sync/` — 0 hits; WS payload schema unaffected
+- [x] `ConversationView` field set matches `from_existing_thread()` — 15 fields field-by-field
+- [x] `BaseView` / `ContextServerStatus` exhaustive matches — build succeeded, no new variant arms required
 
 ## Verify Critical Fixes (the 10 active fixes — #10 stays retired)
 
@@ -108,8 +100,8 @@
 
 ## Build & Test (hard gate)
 
-- [ ] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors
-- [ ] If any new `BaseView` / `ContextServerStatus` variant or trait-signature change surfaces a build failure, fix it and append a "Pre-existing Breakage Repaired" subsection to `portingguide.md` §"Merge 002077"
+- [x] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors (3 unused-import warnings, all upstream code; no Helix repairs needed). Build time: 8m 14s
+- [x] No new `BaseView` / `ContextServerStatus` variant or trait-signature changes surfaced — Helix surface compatible with upstream as-is
 - [ ] Pre-flight: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server && go mod tidy`
 - [ ] Copy fresh binary into `e2e-test/zed-binary`: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
 - [ ] Run E2E `zed-agent`: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
