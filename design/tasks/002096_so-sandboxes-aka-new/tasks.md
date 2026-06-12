@@ -94,9 +94,9 @@ terminates.
 ## Phase 10 — Frontend
 
 - [x] Add `web-service` to `ProjectSettingsSidebar` (globe icon).
-- [x] `<WebServiceTab>` component: enable toggle, container port + Save, domains list with Open/Copy/Delete per row + Verified/Pending status chips, Add domain form with DNS verification hint, Deploy now button, active sandbox display, recent deploys table.
+- [x] `<WebServiceTab>` component: enable toggle, container port + Save, domains list with Open/Copy/Delete per row + Live/Waiting status chips, Add domain form with per-pending-row inline CNAME callout (Name / Type / Value + copy), Deploy now button, active sandbox display, recent deploys table.
+- [x] `<SharePreviewSection>` on spec task detail page: mint share-token, open in new tab, copy URL, embed-as-iframe dialog with live preview, rotate, revoke.
 - [x] Uses the regenerated typed API client (no raw fetch). React Query manages cache + invalidation.
-- [ ] `<SharePreviewSection>` in session detail page — deferred. Session preview endpoints are callable via API today.
 
 ## Phase 11 — Tests + docs
 
@@ -110,7 +110,7 @@ terminates.
 
 ## Explicitly deferred (real follow-up PRs)
 
-- certmagic embedded `auto` TLS mode (passthrough ships this PR).
+- ~~certmagic embedded `auto` TLS mode (passthrough ships this PR).~~ — **shipped.** `HELIX_VHOST_TLS_MODE=auto` binds :443 + :80, terminates TLS via certmagic + Let's Encrypt. On-demand decision func whitelists exactly canonical hostnames + verified `vhost_routes` entries (closes ACME DOS surface).
 - RevDial `TARGET <port>\n` handshake + runner host-allowlist + connection pooling + configurable proxy buffer — current revdial already supports per-device tunnels; arbitrary-port targeting can ship through the existing hydra HTTP proxy path for v1.
 - Agent `deploy_web_service` MCP tool — manual deploy via API endpoint covers the use case for v1.
 - Integration tests requiring real sandbox boot loops in CI.
