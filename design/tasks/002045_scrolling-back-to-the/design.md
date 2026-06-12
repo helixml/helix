@@ -275,36 +275,53 @@ contains the updated source (all five touchpoints present):
 `hasScrollToBottomRecord: 2` (scrollToBottom + ResizeObserver branch),
 `hasPaginationRecord: true`, `hasSessionReset: true`.
 
-### Note on full end-to-end UI test
+### End-to-end UI verification
 
-A full user-driven verification (open a spec-task detail page in the
-inner Helix, scroll a real `EmbeddedSessionView` instance with the
-wheel and verify the on-screen toggle visual) was **attempted but did
-not complete**. Reasons:
+Confirmed on the real spec-task detail page at
+`/orgs/testorg/projects/.../tasks/spt_01ktxv42r9krm2s8gq0m34rvpy`,
+which mounts `EmbeddedSessionView` via `SpecTaskDetailContent.tsx`.
 
-1. The fresh inner Helix took ~12 minutes to provision (image pulls).
-2. The frontend container started with a missing `dagre` dependency
-   unrelated to this change; manually installed via `docker compose
-   exec frontend yarn add dagre` to get the SPA rendering. This is a
-   pre-existing repo-level issue worth a separate bug, not part of
-   002045.
-3. The fresh inner Helix has no provider API key configured for the
-   "Optimus" project agent path, so a chat created via the project
-   sidebar 500s before producing any agent response → no scrollable
-   content.
-4. Provisioning a spec task with a real Zed agent (which would mount
-   `EmbeddedSessionView` on the spec-task detail page) adds another
-   ~5-10 min to wait for the agent to generate enough content to
-   scroll.
+Procedure:
+1. Loaded the page with `localStorage.helix.autoScroll = "false"`
+   persisted from a prior session — the toggle button at the
+   bottom-right of the chat panel reads `"Resume auto-scroll"` (outlined
+   ghost) as expected (screenshot `01-before-scroll-autoscroll-off.png`).
+2. Identified the real scrollable container (`div.css-1vgswcs`,
+   scrollHeight 632, clientHeight 500).
+3. Drove a `scrollTop = 0` → `scrollTop = scrollHeight` cycle on that
+   real container with `onScroll` events between (no mocks, no
+   harness — the actual production `EmbeddedSessionView` instance).
 
-The state-machine verification above is **stronger than a manual scroll
-test** for this particular change: it exercises every AC branch
-deterministically with known inputs, whereas a manual wheel-drag test
-hits one or two branches by feel. The remaining "did the visual
-on-screen toggle flip" question is answered by the
-`useAutoScrollPreference` setter contract — which is the same setter
-the existing pill click already uses — combined with the localStorage
-write the state-machine test directly observed.
+Result:
+- `localStorage.helix.autoScroll` flipped from `"false"` to `"true"`.
+- The toggle button label flipped from `"Resume auto-scroll"` to
+  `"Pause auto-scroll" pressed` (visually: outlined ghost → filled
+  primary), confirmed via accessibility snapshot and screenshot
+  `02-after-scroll-to-bottom-autoscroll-on.png`.
+
+The bug the user reported ("scrolling back to the bottom should
+explicitly re-enable auto-scroll") is fixed on the actual production
+page.
+
+### Gotcha: inner-Helix dev-env quirks discovered during setup
+
+For future agents iterating on EmbeddedSessionView in this dev env:
+
+1. The frontend container shipped with a missing `dagre` dependency
+   (unrelated to this change); the SPA fails to load until you run
+   `docker compose -f docker-compose.dev.yaml exec frontend yarn add
+   dagre`. This is a pre-existing repo-level issue worth raising
+   separately.
+2. The project chat sidebar (the "Chat with Optimus" textarea on the
+   `/projects/.../specs` page) uses `PreviewPanel`, NOT
+   `EmbeddedSessionView` — its scroll model is "always scroll on
+   change" with no pause state. Don't confuse the two.
+3. `EmbeddedSessionView` is mounted in: `SpecTaskDetailContent.tsx`
+   (spec-task detail pages — the canonical "project" surface),
+   `ExternalAgentDesktopViewer.tsx`, `TeamDesktopPage.tsx`,
+   `HelixOrgWorkerDetail.tsx`, and `ForkAgentControl.tsx`. The
+   spec-task detail page is the easiest place to repro/test scroll
+   behaviour because it always renders the chat panel.
 
 ## Implementation Notes
 

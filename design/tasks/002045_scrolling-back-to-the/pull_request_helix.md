@@ -53,16 +53,28 @@ Net: ~30 lines added, one file, no new dependencies.
 
 ## Verification
 
-State-machine reproduction of the updated callbacks, run in the live
-browser via `evaluate_script`, drives every AC scenario deterministically
-— all pass. Details and matrix in
-`design/tasks/002045_scrolling-back-to-the/design.md` under
-"Verification (state-machine, live browser)".
+Confirmed end-to-end on the real spec-task detail page
+(`/orgs/.../projects/.../tasks/spt_…`), which mounts the actual
+`EmbeddedSessionView` via `SpecTaskDetailContent.tsx`. Drove a
+scrollTop=0 → scrollTop=scrollHeight cycle on the live `.css-1vgswcs`
+container — `localStorage.helix.autoScroll` flipped from `"false"` to
+`"true"` and the toggle button changed from `"Resume auto-scroll"`
+(outlined ghost) to `"Pause auto-scroll" pressed` (filled primary).
 
-Full UI scroll test on a real spec-task detail page was attempted but
-the fresh inner Helix instance had no provider key wired and would have
-needed ~10 more min to provision an agent that produced scrollable
-content. Notes captured in the design doc.
+Also: state-machine reproduction of the updated callbacks (run in the
+live browser via `evaluate_script`) covers all five critical ACs
+deterministically — AC-1 re-enable, AC-2 localStorage, AC-3 content
+shrink stays-off, AC-4 initial-mount stays-off, AC-5 pagination
+stays-off. Details in
+`design/tasks/002045_scrolling-back-to-the/design.md`.
+
+## Screenshots
+
+Before (auto-scroll OFF, button reads "Resume auto-scroll"):
+![Before](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002045_scrolling-back-to-the/screenshots/01-before-scroll-autoscroll-off.png)
+
+After scrolling back to bottom (auto-scroll ON, button reads "Pause auto-scroll"):
+![After](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002045_scrolling-back-to-the/screenshots/02-after-scroll-to-bottom-autoscroll-on.png)
 
 ## Spec task
 

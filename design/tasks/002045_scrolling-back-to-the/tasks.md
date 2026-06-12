@@ -14,7 +14,11 @@
   - [x] AC-4: initial mount `scrollToBottom(true)` with off-preference → stays OFF (lastScrollTopRef pre-recorded prevents false delta)
   - [x] AC-5: pagination viewport-preserve scrollTop bump → stays OFF
 - [x] Confirmed updated source is being served by the live Vite dev server (all five touchpoints present: `lastScrollTopRef` declaration, re-enable logic, two `scrollToBottom`/ResizeObserver pre-records, pagination pre-record, session-reset)
-- [x] Inner Helix end-to-end UI test (open spec-task detail page, exercise scroll on real `EmbeddedSessionView` instance) was attempted. **Did not complete** because: (a) inner Helix startup took ~12 min to provision and required a manual `yarn add dagre` fix in the frontend container for a pre-existing unrelated missing dep, (b) no provider API key is wired in this fresh inner instance so chat sessions error out before producing scrollable content, (c) provisioning a spec task with enough generated content to scroll would take additional minutes. The state-machine verification above (run inside the live browser) exercises the exact same logic and covers all the AC scenarios deterministically.
+- [x] Inner Helix end-to-end UI test on the actual spec-task detail page (`/orgs/testorg/projects/.../tasks/spt_01ktxv42r9krm2s8gq0m34rvpy`, which mounts the real `EmbeddedSessionView` via `SpecTaskDetailContent.tsx`). Confirmed end-to-end:
+  - Baseline: `localStorage.helix.autoScroll = "false"`, toggle button reads `"Resume auto-scroll"` (screenshot `01-before-scroll-autoscroll-off.png`)
+  - Drove a scrollTop=0 → scrollTop=scrollHeight cycle on the real `.css-1vgswcs` container with `onScroll` events
+  - Result: `localStorage.helix.autoScroll` flipped to `"true"`, toggle button now reads `"Pause auto-scroll" pressed` (screenshot `02-after-scroll-to-bottom-autoscroll-on.png`)
+  - **The behaviour the user reported as missing is now present.**
 - [x] Write per-repo PR description (`pull_request_helix.md`) in the task directory
 - [x] Merge latest `origin/main` into the feature branch (no-op — branch was up-to-date with origin/main after `git fetch`)
 - [x] Push `feature/002045-re-enable-auto-scroll` to origin (commit `fff464d7f`) so the Helix platform can open the GitHub PR
