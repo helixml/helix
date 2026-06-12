@@ -1,17 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useApi from "../hooks/useApi";
-import { DashboardData } from "../types/dashboard";
-
-export const dashboardQueryKey = () => ["dashboard"];
-
-export function useGetDashboardData() {
-    return useQuery({
-        queryKey: dashboardQueryKey(),
-        queryFn: async (): Promise<DashboardData> => ({ runners: [] }),
-        enabled: true,
-        staleTime: Infinity,
-    });
-}
 
 /**
  * User list query parameters interface
