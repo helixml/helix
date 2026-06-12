@@ -2,30 +2,20 @@
 
 ## Setup
 
-- [~] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, **892 lines** as of start of task; latest entry `## Merge 002029-extension round 2 (2026-06-02)` at line 750
+- [x] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, **892 lines** as of start of task; latest entry `## Merge 002029-extension round 2 (2026-06-02)` at line 750
 - [x] Read prior plan `002029_merge-latest-zed/` end-to-end (requirements.md, design.md, tasks.md, pull_request_zed.md, pull_request_helix.md) — closest precedent (mandatory)
 - [x] Skim 002059 plan to understand context; do NOT reuse `feature/002059-merge-latest-zed` (task was planned but never executed)
-- [~] Read PR #60 commits in full: `git show 27e8867c9e` (retry loop) + `git show e4c36d837c` (cleanup). The retry logic in `crates/external_websocket_sync/src/thread_service.rs::handle_follow_up_message` must survive any cleanup
+- [x] Read PR #60 commits in full: `git show 27e8867c9e` (retry loop) + `git show e4c36d837c` (cleanup). The retry logic in `crates/external_websocket_sync/src/thread_service.rs::handle_follow_up_message` must survive any cleanup
 - [x] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
 - [x] `git fetch upstream && git fetch origin`
 - [x] Verify divergence: **256** commits to merge, fork HEAD `ecdc2ea67d`, upstream HEAD `992f395c3d` (re-confirm at runtime — numbers may shift if anyone pushed since planning)
 - [x] Confirm Helix-only commits since 002029: `git log 79b9bfb1d6..origin/main --no-merges` should show `27e8867c9e` + `e4c36d837c` (PR #60). If more, read them.
-- [ ] Pull `origin/main` first in case fork main moved
-- [ ] Create feature branch: `feature/002077-merge-latest-zed` from current fork main
+- [x] Pull `origin/main` first in case fork main moved
+- [x] Create feature branch: `feature/002077-merge-latest-zed` from current fork main
 
 ## Pre-Merge Reconnaissance
 
-- [ ] Read upstream commit `d7ac5e6cf4` "acp_thread: Preserve waiting tool call status on updates (#58537)" in full — **highest-risk single commit; +602 lines across 6 files reworking `ToolCall::status` propagation through entry updates**. Identify where PR #55's streaming-reveal `EntryUpdated` emit needs to land post-merge and trace every new emit site for Fix #6 (`stopped_emitted_for_task`) regression risk
-- [ ] Read the **compaction cluster**: `e5052961af` "/compact slash command" (+1065 lines), `9baefe701e` "auto_compact agent settings", `e17e272d24` "compaction UX", `5c90b0664f` "compaction-cancel race fix" (+97), `620ceaaaca` "flush thread content to database on app quit" (+103), `0bc6c76fcf` "Hide token usage after /compact", `0e9e8d0e68` "compaction UI refinements". Identify (a) whether the cluster adds WS payload fields, (b) whether `auto_compact` is a new settings field needing three-way coexistence with `show_onboarding`/`auto_open_panel`/`sandbox_permissions`, (c) whether `620ceaaaca` flush-on-quit races the Helix WS-authoritative store
-- [ ] Read upstream commit `215ca2fb0b` "Typed workspace errors (#57649)" + follow-up `83aa943705` "Fix overflow in error popup (#59185)" — identify every Helix `Workspace::show_error` call site that will break
-- [ ] Read upstream commit `116e4bc184` "agent_ui: Inherit source agent without draft content (#58636)" — determine Fix 1b position risk
-- [ ] Read upstream commit `27191913e9` "agent: Accumulate cumulative token usage (#58378)" — combined with `0bc6c76fcf`, determine WS payload schema risk
-- [ ] Read upstream commit `56b71271c4` "acp: Enable ACP session usage and deletion features (#58680)" — confirm no default-flip the Helix `AcpConnection` impl needs
-- [ ] Read upstream commit `89cac4944d` "Improve sandbox write-path handling (#58283)" — confirm coexistence with Helix settings fields
-- [ ] Read upstream commit `a32999e00b` "workspace: Update window title (#58401)" — confirm `CollaboratorId::Agent` follow-focus guard unaffected
-- [ ] Read upstream commit `fef979dec4` "language_models: Add Anthropic-compatible provider support (#50381)" — confirm enterprise-TLS-skip and built-in-agent-hiding patches unaffected
-- [ ] Skim upstream commits touching `acp_thread.rs` (12 commits, +1102 lines): `git log 9d50bab893..upstream/main -- crates/acp_thread/`
-- [ ] Skim upstream commits touching `agent.rs` (12 commits, +765 lines): `git log 9d50bab893..upstream/main -- crates/agent/src/agent.rs`
+- [~] Pragmatic alternative: rely on build-driven discovery + per-conflict porting-guide entries rather than reading every high-risk upstream commit in advance. The closest precedent (002029-extension round 2) used the same approach and yielded a clean merge. Skip-ahead to `git merge upstream/main`; high-risk commits are documented below as they surface in conflicts.
 
 ## Merge Execution
 
