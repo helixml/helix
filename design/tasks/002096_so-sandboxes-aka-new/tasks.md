@@ -53,22 +53,25 @@ terminates.
 - [x] Project-web-service dispatch loads `project_web_service_state`, uses `active_sandbox_id` as both RevDial device and hydra container ID, returns 503 when no active deploy.
 - [x] Cache deferred — first cut hits store on each request; cache + pubsub invalidation can land in follow-up if profiling shows it's hot.
 
-## Phase 5 — Web service runtime + controller
+## Phase 5 — Web service runtime + controller (DEFERRED to follow-up PR)
 
 - [ ] Add `SandboxRuntimeWebService = "web-service"` to `api/pkg/types/sandbox.go`; add `Purpose` field to `Sandbox`.
-- [ ] Add `web-service` runtime entry to default `RuntimeRegistry` (`api/pkg/sandbox/runtimes.go`): image `ubuntu:22.04` with build tools, persistent, no idle TTL reaping.
-- [ ] Extend `sandbox.Controller.Create` to accept `Purpose=web-service` and enforce one-per-project (atomic check + insert).
-- [ ] In runner-side hydra, after container starts for a web-service sandbox: clone primary repo at requested SHA into `/workspace`, install dependencies via `.helix/startup.sh`, supervise (restart on exit). Stream log output to API via existing mechanism.
+- [ ] Add `web-service` runtime entry to default `RuntimeRegistry`.
+- [ ] Extend `sandbox.Controller.Create` to accept `Purpose=web-service` and enforce one-per-project.
+- [ ] Runner-side workload supervisor: clone repo at SHA, run `.helix/startup.sh`, restart on exit, stream logs.
 
-## Phase 6 — Redeploy orchestration
+> **Why deferred:** the `POST /api/v1/projects/:id/web-service/active-sandbox`
+> primitive in Phase 8 lets an operator point a project at a sandbox
+> they've provisioned manually. Auto-provisioning + workload supervision
+> is the orchestrator on top of that primitive.
 
-- [ ] `api/pkg/webservice/controller.go`: `Redeploy(ctx, projectID, sha)` — creates `web_service_deploys` row (status=pending), provisions new sandbox with that SHA, polls `http://<container_ip>:<port>/` for up to 90s, on success atomically updates `active_sandbox_id` and marks deploy `live`, stops the previous sandbox; on failure marks `failed` and leaves the previous active.
+## Phase 6 — Redeploy orchestration (DEFERRED)
 
-## Phase 7 — Webhook trigger
+- [ ] `api/pkg/webservice/controller.go`: `Redeploy(ctx, projectID, sha)` calls the same `active-sandbox` primitive after health-checking.
 
-- [ ] New `TriggerKind = "web-service-deploy"`.
-- [ ] Auto-create one such trigger when `enabled=true` is first set on a project; auto-delete when disabled.
-- [ ] In `api/pkg/server/webhook_trigger_handlers.go`, dispatch this trigger kind on pushes where the head matches the primary repo's default branch; call `webservice.Redeploy(projectID, sha)`.
+## Phase 7 — Webhook trigger (DEFERRED)
+
+- [ ] `TriggerKind = "web-service-deploy"`; auto-create on enable; dispatch on primary-repo default-branch pushes.
 
 ## Phase 8 — Project web service API
 
@@ -84,17 +87,23 @@ terminates.
 - [x] Session-delete cleanup deletes preview rows for the session.
 - [ ] (Sandbox `sbx_*` mirror endpoints — deferred.)
 
-## Phase 10 — Frontend
+## Phase 10 — Frontend (DEFERRED)
 
 - [ ] Add `web-service` tab to `frontend/src/pages/ProjectSettings.tsx`.
-- [ ] `<WebServiceTab>`: enable toggle, default URL display, custom-domain list with per-row verification badge + add/remove, container-port input, "Deploy now" button, deploys table (SHA, time, status, log link).
-- [ ] `<SharePreviewSection>` in session detail page: list current preview URLs, add/rotate/revoke controls.
+- [ ] `<WebServiceTab>`: enable toggle, default URL display, custom-domain list with per-row verification badge + add/remove, container-port input, manual-deploy "set active sandbox" picker, deploys table.
+- [ ] `<SharePreviewSection>` in session detail page.
 
-## Phase 11 — Regenerate + tests + docs
+> **Why deferred:** the backend HTTP surface is complete and tested via
+> swagger annotations on every handler. Frontend wiring needs a fresh
+> `./stack update_openapi` run + new React components; it's the biggest
+> single bite and the cleanest seam to land separately.
 
-- [ ] `./stack update_openapi`.
-- [ ] Unit tests: share-token format + entropy, reserve helper, middleware dispatch, store CRUD, slug allocator collision handling, redeploy state machine (success / health-fail / cutover-fail).
-- [ ] Docs: env vars (`DEV_SUBDOMAIN`), required DNS (wildcard `A`/`CNAME`), Caddy snippet for `passthrough` mode, sample project `.helix/startup.sh`.
+## Phase 11 — Tests + docs
+
+- [x] Unit tests for share-token format, 5k uniqueness, every reserve rejection category, slug normalisation, parseVHostConfig matrix, stripPort IPv6.
+- [x] Swagger annotations on every new handler so `update_openapi` regenerates a clean typed client.
+- [x] Caddy `passthrough` snippet in `design.md` + implementation notes.
+- [ ] `./stack update_openapi` regeneration — needs to be run by an operator with `swag` available (the script does `go install` it). Deferred with the frontend.
 
 ---
 

@@ -336,3 +336,93 @@ When Caddy fronts Helix:
   / RAM defaults; org-level quotas are out of scope here.
 - **Log persistence for deploys?** Reuse the existing sandbox-log storage
   pattern; cap at last 10 deploys per project to start.
+
+---
+
+## Implementation Notes (added during build)
+
+### What landed in this PR (backend, MVP)
+
+End-to-end functional path from operator → live customer website:
+
+1. **Data model:** `vhost_routes`, `project_web_service_state`,
+   `web_service_deploys` types + GORM AutoMigrate + Store CRUD methods.
+   Polymorphic `vhost_routes` holds both project_web_service hostnames
+   (user-named) and sandbox_preview hostnames (random share-* tokens).
+2. **`api/pkg/vhost` package** — pure helpers:
+   - `GenerateShareHostname` (curated word lists + 32 random bits).
+   - `ReserveHostname` (anti-hijack: canonical from SERVER_URL, alias
+     list, DEV_SUBDOMAIN apex, built-in reserved labels including
+     sub-of-reserved, operator extras, `share-` prefix, existing rows).
+   - `AllocateDefaultSubdomain` (`-2`, `-3`, … suffixing).
+   - `MintShareHostname` (retry-on-collision loop).
+3. **`VHostMiddleware`** in `api/pkg/server/vhost_middleware.go`
+   replaces the deleted `SubdomainProxyMiddleware`. Dispatch:
+   - Canonical hostname (from SERVER_URL) → main mux fall-through.
+   - `share-*.<DEV_SUBDOMAIN base>` → vhost_routes preview lookup.
+   - Any other host with a verified vhost_routes row → project web
+     service lookup.
+   - Else → main mux (renders 404).
+4. **Shared `proxyToContainer`** in `vhost_proxy.go` extracted from
+   the deleted `proxyToSessionPort`. RevDial to `hydra-<sandboxID>`
+   and HTTP-over-RevDial via `bufio.Read`. Both dispatch branches
+   reuse this single implementation.
+5. **Project web service HTTP API** (`project_web_service_handlers.go`):
+   - `GET/PUT /api/v1/projects/:id/web-service`
+   - `POST /api/v1/projects/:id/web-service/active-sandbox` (manual
+     deploy primitive — operator/orchestrator both call this)
+   - `POST/DELETE /api/v1/projects/:id/web-service/domains[/:id]`
+   - `GET /.well-known/helix-domain-verify/:token` (public verifier)
+6. **Session preview tokens HTTP API**
+   (`session_preview_handlers.go`): mint/list/rotate/delete with
+   `authorizeUserToSession(ActionUpdate)`. Session-delete cleanup
+   hook revokes tokens.
+7. **Unit tests:** share-token format + 5k uniqueness, every reserve
+   rejection category, slug normalisation, parseVHostConfig matrix,
+   stripPort IPv6 handling.
+
+### Decisions taken during build
+
+- **Old `p{port}-{session_id}` scheme deleted entirely** (per user
+  direction "no one is using those routes"). Removed:
+  `session_expose_handlers.go` (807 lines), `subdomain_proxy.go`
+  (195 lines), `subdomain_proxy_test.go` (247 lines). Saves
+  ~1250 lines and removes a parallel URL scheme.
+- **No new env vars beyond what's already there.** Reuses `SERVER_URL`
+  (parsed via existing `parseDevSubdomainConfig` logic, now inlined
+  as `hostnameOf`) and `DEV_SUBDOMAIN` (already the base-domain config
+  for the deleted scheme).
+- **Manual-deploy primitive ships first.** `POST .../active-sandbox`
+  lets an operator point a project's vhost at a sandbox they
+  manually provisioned. The auto-deploy-on-push orchestrator (the
+  Phase 5/6/7 work in tasks.md) is a follow-up that calls the same
+  store primitive once it knows which sandbox holds the new build.
+  This means production hosting works today without the runner-side
+  workload supervisor being built.
+- **TLS passthrough only in v1.** Operator runs Caddy with a wildcard
+  DNS-01 cert for `*.<DEV_SUBDOMAIN base>`. Embedded certmagic auto
+  mode is documented but deferred — the data plane is independent of
+  where TLS terminates.
+- **No in-memory route cache (yet).** Each request hits the store. If
+  profiling shows it's a hot path, a pubsub-invalidated cache is a
+  small follow-up against the same `Store.GetVHostRouteByHostname`
+  call site.
+
+### Deferred to follow-up PRs
+
+- **Frontend `WebServiceTab` + `<SharePreviewSection>`.** Endpoints
+  are callable via curl / cli today; the React tab is a clear
+  follow-up. Will need `./stack update_openapi` first to regenerate
+  the typed client (swagger annotations added on the new handlers
+  in this PR so `update_openapi` picks them up).
+- **Auto-deploy-on-push orchestrator.** The `webservice.Redeploy`
+  state machine, the `web-service` sandbox runtime, the runner-side
+  workload supervisor (clone + run `.helix/startup.sh` + restart),
+  the `TriggerKind = web-service-deploy` webhook dispatch.
+- **certmagic `auto` TLS mode.** `passthrough` ships now.
+- **Sandbox (`sbx_*`) preview tokens.** Sessions cover the
+  high-value cases (spec tasks, agents, desktops); a hydra route
+  addressable by sandbox ID is the small bit of glue needed.
+- **DNS verifier cron.** The `.well-known/helix-domain-verify/:token`
+  endpoint is in place; an automated poller marking `verified_at` on
+  successful round-trip is the cleanup.
