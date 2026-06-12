@@ -5,9 +5,9 @@
 - [x] Extract a `PRMenuItem` subcomponent inside the file that renders a single `<MenuItem>` containing repo name, `#PR-number`, `<PRStateBadge>`, and `<CIStatusIcon>`, with `opacity: 0.7` when `pr.pr_state === 'closed'`. Open the `pr.pr_url` on click in a new tab (mirror existing behaviour).
 - [x] Replace the inlined `<MenuItem>` JSX in both the `isInline` and full-width branches of the multi-PR dropdown (≈lines 825-838 and 872-886) with `<PRMenuItem pr={pr} idx={idx} onSelect={() => setPrMenuAnchor(null)} />`.
 - [x] Update the single-PR button (≈lines 753-799) to render a `<PRStateBadge>` and `<CIStatusIcon prs={[pr]} />` adjacent to the existing label, and switch button `color` from `"secondary"` to `"success"` when `pr.pr_state === 'merged'`. Keep the existing href / target / rel behaviour untouched. (Also map `closed` → `"inherit"` so a closed PR doesn't read as the same colour as an active one.)
-- [ ] Verify the filter on line ≈737 (`task.repo_pull_requests?.filter(pr => pr.pr_url)`) is preserved — do NOT add a state-based filter. Closed PRs must remain in the list.
-- [ ] Verify no other component drops closed PRs: grep for `repo_pull_requests` in `frontend/src/` and confirm no `.filter(pr => pr.pr_state !== 'closed')` (or similar) was added since this spec was written.
-- [ ] Run `cd frontend && yarn build` to confirm types and bundling pass.
+- [x] Verify the filter on line ≈737 (`task.repo_pull_requests?.filter(pr => pr.pr_url)`) is preserved — do NOT add a state-based filter. Closed PRs must remain in the list.
+- [x] Verify no other component drops closed PRs: grep for `repo_pull_requests` in `frontend/src/` and confirm no `.filter(pr => pr.pr_state !== 'closed')` (or similar) was added since this spec was written.
+- [x] Run `cd frontend && yarn build` to confirm types and bundling pass.
 - [ ] Manual test in the inner Helix at `http://localhost:8080`: register / log in, find or create a spec task with at least one merged PR and one closed PR. Confirm the dropdown shows correct chips and CI icons, and that the closed PR row is muted but clickable.
 - [ ] Manual test the single-PR variant: pick a task with exactly one PR (open, then merged) and confirm the button reflects state and CI icon correctly.
 - [ ] Confirm tasks in `backlog` / `in_progress` / earlier statuses render unchanged (no regression in action button area).
