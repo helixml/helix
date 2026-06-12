@@ -68,12 +68,19 @@ So that existing deployments don't break.
   terminates TLS for **all** hostnames it serves — including the main Helix
   control-plane domain itself. No separate listener / cert manager for the
   main app vs hosted web services.
-- **Constraint:** if dynamic vhosting is enabled (random per-sandbox
-  subdomains under `HELIX_VHOST_BASE_DOMAIN`), the only supported mode is
-  `auto`. Helix refuses to start in `passthrough` mode with dynamic vhosting
-  on, because an external terminator cannot dynamically issue certs for
-  hostnames that are minted at runtime. The startup error must explain this
-  and link to docs.
+- **`passthrough` + dynamic vhosting is supported** when the upstream
+  reverse proxy holds a wildcard certificate covering
+  `*.<HELIX_VHOST_BASE_DOMAIN>` (typically obtained via ACME DNS-01). In
+  that case Helix only ever speaks HTTP and the wildcard cert covers every
+  dynamically-minted subdomain. At startup Helix logs a single clear warning
+  describing the operator's responsibility ("ensure upstream serves a
+  wildcard cert for `*.<base>`, otherwise dynamic previews will fail TLS");
+  it does not refuse to start.
+- For **custom domains** (not subdomains of the base) in `passthrough` mode,
+  the operator must add each one to the upstream proxy configuration just
+  like any other reverse-proxied site. Helix surfaces a per-domain hint in
+  the UI ("In passthrough mode, add this hostname to your reverse proxy
+  configuration") once verified.
 
 ### As an operator, I want the main Helix app to be served through the same vhost layer
 So that there is one consistent routing/TLS path and no parallel listener to maintain.

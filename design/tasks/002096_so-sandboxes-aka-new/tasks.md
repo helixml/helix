@@ -13,7 +13,7 @@
 - [ ] New package `api/pkg/vhost/` with a `Router` that resolves `Host` → `(target_kind, target_id, port)` via `vhost_routes` (in-memory cache, pubsub invalidation on writes), then dereferences to a sandbox + port (project web service: look up active sandbox; sandbox preview: direct).
 - [ ] HTTP middleware in the API server that, when `Host` matches a known vhost route, proxies through `connman.Dial(deviceID)` + `ResilientProxy` to the resolved container port. All other hostnames fall through to the existing API/UI handlers.
 - [ ] Add `HELIX_VHOST_TLS_MODE`, `HELIX_VHOST_BASE_DOMAIN`, `HELIX_VHOST_LETSENCRYPT_EMAIL`, `HELIX_VHOST_DYNAMIC_PREVIEWS_ENABLED`, `HELIX_CANONICAL_DOMAIN`, `HELIX_VHOST_RESERVED_SUBDOMAINS` to `api/pkg/config/`.
-- [ ] Startup validation: refuse to boot if `dynamic_previews_enabled=true` and `tls_mode != auto`; print a clear error pointing at docs. Also refuse to boot if `HELIX_CANONICAL_DOMAIN` overlaps with `HELIX_VHOST_BASE_DOMAIN` in an ambiguous way.
+- [ ] Startup validation: refuse to boot if `HELIX_CANONICAL_DOMAIN` overlaps with `HELIX_VHOST_BASE_DOMAIN` in an ambiguous way. If `dynamic_previews_enabled=true` and `tls_mode=passthrough`, log a single clear warning explaining the wildcard-cert requirement on the upstream proxy; do not refuse.
 - [ ] Vhost middleware dispatches on `Host`: canonical → fall through to existing main API/UI mux; `vhost_routes` hit → proxy to sandbox; else → 404 unknown-host page.
 - [ ] `vhost.ReserveHostname()` helper centralising the reserved-hostname rules (canonical, base apex, built-in + operator-configured reserved labels, existing rows). Used by custom-domain POST, default-subdomain allocation, random-preview minting, and the certmagic `OnDemand.DecisionFunc`.
 - [ ] Default-subdomain allocation appends `-2`, `-3`, … on slug collision with reserved labels or existing rows. Random preview minting loops on collision.
@@ -64,8 +64,8 @@
 
 ## Tests
 
-- [ ] Unit: runtime registry, vhost router (cache + invalidation, all three dispatch outcomes: canonical / route hit / unknown), `ReserveHostname` (canonical, apex, reserved labels, operator-added labels, existing-row collision), subdomain generator uniqueness, slug-collision suffixing, webhook ref filter, redeploy state machine (success / health-fail / cutover-fail), startup validation rejecting passthrough+dynamic, certmagic decision func refuses reserved hostnames.
+- [ ] Unit: runtime registry, vhost router (cache + invalidation, all three dispatch outcomes: canonical / route hit / unknown), `ReserveHostname` (canonical, apex, reserved labels, operator-added labels, existing-row collision), subdomain generator uniqueness, slug-collision suffixing, webhook ref filter, redeploy state machine (success / health-fail / cutover-fail), startup warning emitted on passthrough+dynamic combo (and Helix still boots), certmagic decision func refuses reserved hostnames.
 - [ ] Integration: enable web-service feature → push to primary repo → assert sandbox provisioned, domain resolves, `/` returns 200 via the API proxy.
 - [ ] Integration: enable preview on a running headless sandbox → assert random URL returns 200, then stop the sandbox → assert URL returns 404 and `vhost_routes` row is gone.
-- [ ] Integration: `passthrough` mode behind a stub upstream proxy passes `X-Forwarded-*` correctly (static custom domains only); canonical domain still reaches the main API mux.
+- [ ] Integration: `passthrough` mode behind a stub upstream proxy passes `X-Forwarded-*` correctly for canonical domain, project default subdomains, dynamic preview subdomains, and static custom domains; canonical domain still reaches the main API mux.
 - [ ] Security: project owner attempts to register the canonical Helix domain as a custom domain → request rejected, no row written; same for `api.<base>`, the bare base domain, and an operator-configured reserved label.

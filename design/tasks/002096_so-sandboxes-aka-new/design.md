@@ -46,21 +46,21 @@ sandbox previews too):
   on-demand. ACME challenges served from the same listener.
 - **`HELIX_VHOST_TLS_MODE=passthrough`**: Helix binds HTTP only on its
   existing API port, trusts `X-Forwarded-Proto` / `X-Forwarded-Host` / `Host`.
-  Operator runs Caddy or similar in front. Only legal when dynamic vhosting
-  is **off** — i.e. the only hostnames in use are static custom domains the
-  operator has pre-listed in their reverse proxy. Startup validation:
-  `tls_mode=passthrough` + `enable_dynamic_vhosts=true` → fatal error
-  pointing at docs.
+  Operator runs Caddy or similar in front. **Compatible with dynamic
+  previews** provided the upstream holds a wildcard cert for
+  `*.<HELIX_VHOST_BASE_DOMAIN>` (e.g. Caddy with a DNS-01 plugin), which
+  covers every minted subdomain automatically. If dynamic previews are
+  enabled in this mode, Helix emits a single startup warning describing the
+  wildcard-cert requirement — it does not refuse to boot. Custom domains
+  outside the base must be added to the upstream proxy by the operator.
 - **`HELIX_VHOST_TLS_MODE=off`** (default when no base domain set):
   Feature disabled, panels hidden in UI.
 
 Why not stick with the cloud-managed cert pattern already used in GKE Helm?
 Cloud-managed certs require a fixed list of SANs; per-project domains added at
 runtime can't be issued without operator intervention. certmagic issues on
-first request. Same reason rules out Caddy `passthrough` for the dynamic
-case: even with on-demand TLS in Caddy, the operator would still have to
-authorize each random subdomain via an ask-endpoint round-trip, which is
-strictly more moving parts than just terminating in Helix.
+first request, and the `passthrough` + wildcard-cert pattern achieves the
+same result when the operator already runs a capable reverse proxy.
 
 ### 2. Vhost routing: hostname → target → revdial → container
 
@@ -214,11 +214,21 @@ canonical source so the cleanup hook can find it without joining).
 
 ## Caddy Compatibility Notes
 
-When Caddy fronts Helix (only legal with dynamic previews **off**):
+When Caddy fronts Helix:
 - Set `HELIX_VHOST_TLS_MODE=passthrough`.
-- Caddy config: `helix.example.com, *.apps.example.com, my-custom.example.com { reverse_proxy helix-api:80 }` —
-  include the canonical Helix domain in the same block so the main app and
-  hosted services both reach the same upstream.
+- For dynamic previews + project default subdomains to work, give Caddy a
+  wildcard cert for `*.<base>` via a DNS-01 provider plugin, e.g.:
+  ```
+  *.apps.example.com, apps.example.com {
+      tls { dns cloudflare {env.CF_API_TOKEN} }
+      reverse_proxy helix-api:80
+  }
+  helix.example.com, my-custom.example.com {
+      reverse_proxy helix-api:80
+  }
+  ```
+  Include the canonical Helix domain in the same upstream so the main app
+  and hosted services both reach Helix.
 - Helix still owns vhost → sandbox routing and the canonical-domain dispatch
   because Caddy doesn't know about per-project sandboxes; it just hands every
   matching hostname to Helix on HTTP.
