@@ -1,6 +1,6 @@
 # Implementation Tasks: Re-enable Auto-Scroll When User Scrolls Back to Bottom
 
-- [ ] In `frontend/src/components/session/EmbeddedSessionView.tsx`, add a new `lastScrollTopRef = useRef(0)` alongside the other scroll-tracking refs (`upwardAccumRef`, `lastWheelTsRef`, `touchStartYRef`, `lastTouchYRef`) around line 117-123
+- [~] In `frontend/src/components/session/EmbeddedSessionView.tsx`, add a new `lastScrollTopRef = useRef(0)` alongside the other scroll-tracking refs (`upwardAccumRef`, `lastWheelTsRef`, `touchStartYRef`, `lastTouchYRef`) around line 117-123
 - [ ] Extend the session-change reset effect (lines ~248-273) to also reset `lastScrollTopRef.current = 0` alongside the other ref resets
 - [ ] Extend `handleScroll` (~line 144): read `prevScrollTop` from `lastScrollTopRef`, update the ref to current `scrollTop`, then — only when `autoScrollRef.current` is false AND `isNearBottom()` is true AND `currScrollTop > prevScrollTop` — call `setAutoScroll(true)`, set `autoScrollRef.current = true`, and reset `upwardAccumRef.current = 0`. Continue to call `setHasNewBelow(false)` whenever we're near the bottom (existing behaviour preserved)
 - [ ] In `scrollToBottom` (~line 153), after the existing `container.scrollTop = container.scrollHeight` write, add `lastScrollTopRef.current = container.scrollHeight` so the subsequent `onScroll` event sees no delta (prevents AC-4 spurious re-enable on initial mount with off-preference)
