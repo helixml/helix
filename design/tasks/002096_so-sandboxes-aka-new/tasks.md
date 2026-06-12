@@ -33,15 +33,15 @@ terminates.
 
 ## Phase 2 — Data model
 
-- [ ] `vhost_routes` migration: id, hostname (unique, lowercased), target_kind, target_id, port, is_default, verified_at, verification_token, created_at, rotated_at.
-- [ ] `project_web_service_state` migration: project_id (PK), enabled, container_port (default 8080), active_sandbox_id (nullable), updated_at.
-- [ ] `web_service_deploys` migration: id, project_id, sandbox_id, commit_sha, status, started_at, finished_at, log_path.
-- [ ] `types.VHostRoute`, `types.VHostTargetKind`, `types.ProjectWebServiceState`, `types.WebServiceDeploy`.
-- [ ] Store CRUD: `CreateVHostRoute`, `GetVHostRouteByHostname`, `ListVHostRoutesByTarget`, `DeleteVHostRoute`, `DeleteVHostRoutesByTarget`, `RotateVHostRouteHostname`, `UpsertProjectWebServiceState`, `GetProjectWebServiceState`, `SetActiveWebServiceSandbox`, `CreateWebServiceDeploy`, `UpdateWebServiceDeploy`, `ListWebServiceDeploys`.
+- [x] `vhost_routes` migration: id, hostname (unique, lowercased), target_kind, target_id, port, is_default, verified_at, verification_token, created_at, rotated_at.
+- [x] `project_web_service_state` migration: project_id (PK), enabled, container_port (default 8080), active_sandbox_id (nullable), updated_at.
+- [x] `web_service_deploys` migration: id, project_id, sandbox_id, commit_sha, status, started_at, finished_at, log_path.
+- [x] `types.VHostRoute`, `types.VHostTargetKind`, `types.ProjectWebServiceState`, `types.WebServiceDeploy`.
+- [x] Store CRUD: `CreateVHostRoute`, `GetVHostRouteByHostname`, `ListVHostRoutesByTarget`, `DeleteVHostRoute`, `DeleteVHostRoutesByTarget`, `RotateVHostRouteHostname`, `UpsertProjectWebServiceState`, `GetProjectWebServiceState`, `SetActiveWebServiceSandbox`, `CreateWebServiceDeploy`, `UpdateWebServiceDeploy`, `ListWebServiceDeploys`.
 
 ## Phase 3 — vhost helpers (new `api/pkg/vhost/` package)
 
-- [ ] `sharetoken.go`: ~150 adjectives × ~150 nouns + 8-hex `crypto/rand` → `share-<adj>-<noun>-<8hex>`.
+- [~] `sharetoken.go`: ~150 adjectives × ~150 nouns + 8-hex `crypto/rand` → `share-<adj>-<noun>-<8hex>`.
 - [ ] `reserve.go`: `ReserveHostname(ctx, hostname, opts)` — rejects canonical hostname (parsed from `SERVER_URL`), `DEV_SUBDOMAIN` apex, built-in reserved labels under base, `share-` prefix unless caller is the minter, and existing `vhost_routes` rows.
 - [ ] `slug.go`: `AllocateDefaultSubdomain(projectSlug, base, store)` — appends `-2`, `-3`, … on collision until unique.
 
