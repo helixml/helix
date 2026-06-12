@@ -412,6 +412,7 @@ func NewServer(
 		"/data/workspaces/sandboxes",
 	)
 	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
+	go webservice.NewDomainVerifier(store).Start(context.Background())
 
 	// Bootstrap the compute subsystem (cloud-side host provisioning).
 	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving

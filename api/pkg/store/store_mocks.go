@@ -4584,6 +4584,21 @@ func (mr *MockStoreMockRecorder) ListOrganizations(ctx, query any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockStore)(nil).ListOrganizations), ctx, query)
 }
 
+// ListPendingVHostRoutes mocks base method.
+func (m *MockStore) ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPendingVHostRoutes", ctx, limit)
+	ret0, _ := ret[0].([]*types.VHostRoute)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPendingVHostRoutes indicates an expected call of ListPendingVHostRoutes.
+func (mr *MockStoreMockRecorder) ListPendingVHostRoutes(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPendingVHostRoutes", reflect.TypeOf((*MockStore)(nil).ListPendingVHostRoutes), ctx, limit)
+}
+
 // ListPinnedPrompts mocks base method.
 func (m *MockStore) ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error) {
 	m.ctrl.T.Helper()

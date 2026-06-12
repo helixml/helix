@@ -206,6 +206,25 @@ func (s *PostgresStore) UpdateWebServiceDeploy(ctx context.Context, id string, u
 		Updates(updates).Error
 }
 
+// ListPendingVHostRoutes returns vhost routes that are waiting for DNS
+// ownership verification (verified_at IS NULL AND verification_token != '').
+// Caps at limit to avoid runaway sweeps.
+func (s *PostgresStore) ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var rows []*types.VHostRoute
+	err := s.gdb.WithContext(ctx).
+		Where("verified_at IS NULL AND verification_token <> ''").
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // ListEnabledWebServiceProjectsByRepo returns every project that has
 // the given repo as its primary repository AND has web service enabled.
 // Used by the auto-deploy hook to find candidates for redeploy after a
