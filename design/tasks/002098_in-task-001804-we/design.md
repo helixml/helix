@@ -132,6 +132,32 @@ Independent of the permission fix. Two sub-tasks:
    ordering rule (see `helix/CLAUDE.md` "Bumping sandbox-versions.txt
    after Zed or Qwen changes").
 
+## Phase 1 Audit Results (2026-06-12)
+
+Run after `git fetch --all` in both repos:
+
+- **qwen-code `main` tip**: still `14ebe78ca feat: extend ACP schema to support HTTP/SSE MCP servers per ACP spec` — unchanged since planning.
+- **qwen-code feature branch**: `origin/feature/001804-we-havent-updated-qwen` has exactly 3 commits ahead of `main` (above the upstream commits it pulled in):
+  - `ca5f3a28c Disable all external telemetry and phone-home in Helix fork`
+  - `f01cdc413 Complete implementation`
+  - `420b2013a Merge upstream QwenLM/qwen-code v0.14.4 into fork`
+- **Helix PR #2238**: merged as `a532195d1`. Diff is `api/pkg/openai/openai_client.go (+123)` and `api/pkg/openai/reasoning_field_mapper_test.go (+365)` — **completely unrelated** to a qwen-code commit bump. The branch name was reused for an OpenAI reasoning-field mapper PR.
+- **`sandbox-versions.txt`**: still `QWEN_COMMIT=14ebe78ca83328323bbaa8cc714d8f3b4a6fce46` (pre-merge tip).
+- **Net effect**: CI is still building the pre-v0.14.4 qwen-code. The upstream merge work is sitting on the feature branch, abandoned.
+- **PR state check on internal git server**: I do not have a working endpoint to query PR state on the internal git server from this shell. Will need to confirm with the user, or check via the Helix UI. The branch existing on `origin` is evidence the PR was at least pushed.
+
+### GLM-5.1 availability via outer LLM proxy
+
+`/v1/models?provider=<name>` works against the outer Helix API at `outer-api:8080` (from this planning environment) using the `.env` `OPENAI_API_KEY` as Bearer:
+
+- **nebius** (34 models): includes `zai-org/GLM-5` and `zai-org/GLM-5.1`.
+- **togetherai** (265 models): includes `zai-org/GLM-5.1`, `zai-org/GLM-5`, `zai-org/GLM-5-FP4`, `zai-org/GLM-4.7`, `zai-org/GLM-4.7-FP8`, `zai-org/GLM-4.7-fp4`, `zai-org/GLM-4.6`, `zai-org/GLM-4.5-Air-FP8`, `zai-org/GLM-4.5V`, `zai-org/GLM-OCR`.
+- **openai** (84 models): no GLM.
+
+**Decision: use `nebius / zai-org/GLM-5.1`** for the reproduction test. Nebius has a smaller list (less ambiguity) and the model is current.
+
+The aggregated `/v1/models` (no `?provider=`) returns empty for this token because the aggregation iterates *cached* model lists keyed by `(provider, owner)` (`openai_model_handlers.go:52`) — the per-provider call is the reliable path. The inner Helix's `.env` (`OPENAI_BASE_URL=http://host.docker.internal:8081/v1`) points at the same outer Helix, so the inner Helix sees the same provider catalog.
+
 ## Notes for future agents
 
 - The inner Helix is the testbed: `http://localhost:8080`. Do not

@@ -2,13 +2,13 @@
 
 ## Phase 1 — Audit
 
-- [ ] `git fetch --all` in `/home/retro/work/qwen-code` and confirm `main` tip is still `14ebe78ca`
-- [ ] List commits on `origin/feature/001804-we-havent-updated-qwen` not on `main` (expect 3: upstream merge, completion, telemetry-off)
-- [ ] Check whether a qwen-code PR exists for that branch in the internal git server; record its state (open / closed / never opened)
-- [ ] Confirm helix PR #2238 (`a532195d1`) ships only the OpenAI reasoning-field mapper, not a `QWEN_COMMIT` bump
-- [ ] Confirm `sandbox-versions.txt` still pins `QWEN_COMMIT=14ebe78ca…`
-- [ ] Query the outer LLM proxy from inside the inner Helix sandbox to list available models and check for `glm-5.1`
-- [ ] If GLM-5.1 absent, ask user to wire it up OR pick the largest available GLM/Qwen-coder model as a fallback
+- [x] `git fetch --all` in `/home/retro/work/qwen-code` and confirm `main` tip is still `14ebe78ca`
+- [x] List commits on `origin/feature/001804-we-havent-updated-qwen` not on `main` (confirmed: 3 commits — upstream merge, completion, telemetry-off)
+- [~] Check whether a qwen-code PR exists for that branch in the internal git server; record its state (open / closed / never opened) — no working API endpoint found; need user input or UI check
+- [x] Confirm helix PR #2238 (`a532195d1`) ships only the OpenAI reasoning-field mapper, not a `QWEN_COMMIT` bump
+- [x] Confirm `sandbox-versions.txt` still pins `QWEN_COMMIT=14ebe78ca…`
+- [x] Query the outer LLM proxy from inside the inner Helix sandbox to list available models and check for `glm-5.1` (found via nebius and togetherai)
+- [x] If GLM-5.1 absent, ask user to wire it up OR pick the largest available GLM/Qwen-coder model as a fallback (chosen: `nebius / zai-org/GLM-5.1`)
 
 ## Phase 2 — Reproduce permission-prompt bug
 
