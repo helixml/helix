@@ -26,22 +26,24 @@ import (
 
 // Controller orchestrates project web service deploys.
 type Controller struct {
-	store          store.Store
-	sandboxes      *sandbox.Controller
-	provisionWait  time.Duration // upper bound for waiting for sandbox status=running
-	provisionPoll  time.Duration // poll interval while waiting
-	bootstrapSleep time.Duration // wait after exec before cutover (gives the app a chance to bind)
+	store         store.Store
+	sandboxes     *sandbox.Controller
+	provisionWait time.Duration // upper bound for waiting for sandbox status=running
+	provisionPoll time.Duration // poll interval while waiting
+	readinessWait time.Duration // upper bound for waiting for the app to bind to its port
+	readinessPoll time.Duration // poll interval while waiting
 }
 
 // New constructs a Controller. The defaults are sized for typical
-// headless containers (~30s cold-start, +10s for the app to bind).
+// headless containers (~30s cold-start, up to 90s for the app to bind).
 func New(s store.Store, sc *sandbox.Controller) *Controller {
 	return &Controller{
-		store:          s,
-		sandboxes:      sc,
-		provisionWait:  3 * time.Minute,
-		provisionPoll:  2 * time.Second,
-		bootstrapSleep: 10 * time.Second,
+		store:         s,
+		sandboxes:     sc,
+		provisionWait: 3 * time.Minute,
+		provisionPoll: 2 * time.Second,
+		readinessWait: 90 * time.Second,
+		readinessPoll: 2 * time.Second,
 	}
 }
 
@@ -133,10 +135,14 @@ func (c *Controller) runDeploy(
 		return
 	}
 
-	// Wait a moment for the app to bind before cutting traffic over.
-	// Cleaner than a hard health check (which would require knowing the
-	// app's readiness contract); good enough for v1.
-	time.Sleep(c.bootstrapSleep)
+	// Poll the container port until the app responds. We treat any HTTP
+	// response (even 4xx/5xx) as "the app is bound" — what matters here
+	// is that the listener exists, not that the app likes the request.
+	if err := c.waitForReady(ctx, sb.ID, state.ContainerPort); err != nil {
+		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
+		// Sandbox stays up; operator can inspect logs / exec.
+		return
+	}
 
 	// Cut over routing.
 	previousSandboxID := state.ActiveSandboxID
@@ -236,6 +242,50 @@ func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *
 		Detached:  true,
 	})
 	return execErr
+}
+
+// waitForReady polls the container's configured port via the existing
+// hydra proxy path until any HTTP response comes back, or until the
+// deadline. "Listener present" is the readiness contract — we don't
+// care whether the app returns 200 or 503, only that something is
+// bound to the port and able to answer.
+func (c *Controller) waitForReady(ctx context.Context, sandboxID string, port int) error {
+	sb, err := c.sandboxes.Get(ctx, sandboxID)
+	if err != nil {
+		return fmt.Errorf("get sandbox: %w", err)
+	}
+	hydraClient, err := c.sandboxes.HydraClient(sb)
+	if err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(c.readinessWait)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := hydraClient.ProbeDevContainerPort(probeCtx, sandboxID, port)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(c.readinessPoll):
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("app did not bind to port %d within %s: %w", port, c.readinessWait, lastErr)
+	}
+	return fmt.Errorf("app did not bind to port %d within %s", port, c.readinessWait)
 }
 
 // resolvePrimaryRepo finds the project's primary git repository.
