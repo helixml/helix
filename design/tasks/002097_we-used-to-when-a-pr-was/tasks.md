@@ -1,6 +1,6 @@
 # Implementation Tasks: Show PR State and CI Status in Spec Task PR Dropdown
 
-- [ ] In `frontend/src/components/tasks/SpecTaskActionButtons.tsx`, add a small `PRStateBadge` helper that maps `pr_state` (`open` / `merged` / `closed`) to an MUI `<Chip>` (info / success / default, outlined, size="small"). Treat empty `pr_state` as `open`.
+- [~] In `frontend/src/components/tasks/SpecTaskActionButtons.tsx`, add a small `PRStateBadge` helper that maps `pr_state` (`open` / `merged` / `closed`) to an MUI `<Chip>` (info / success / default, outlined, size="small"). Treat empty `pr_state` as `open`. Also extend the local `RepoPR` interface with `ci_status?: string` and `ci_url?: string` so `CIStatusIcon` can consume the entries.
 - [ ] Import `CIStatusIcon` from `./CIStatusIcon` in the same file so each PR row can render its own CI verdict via `<CIStatusIcon prs={[pr]} />`.
 - [ ] Extract a `PRMenuItem` subcomponent inside the file that renders a single `<MenuItem>` containing repo name, `#PR-number`, `<PRStateBadge>`, and `<CIStatusIcon>`, with `opacity: 0.7` when `pr.pr_state === 'closed'`. Open the `pr.pr_url` on click in a new tab (mirror existing behaviour).
 - [ ] Replace the inlined `<MenuItem>` JSX in both the `isInline` and full-width branches of the multi-PR dropdown (≈lines 825-838 and 872-886) with `<PRMenuItem pr={pr} idx={idx} onSelect={() => setPrMenuAnchor(null)} />`.
