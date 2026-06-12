@@ -1,122 +1,105 @@
 # Implementation Tasks: Project Web Service Hosting on Sandboxes
 
-## Scope decision (MVP for this PR)
+## Scope decision (in this PR)
 
-User confirmed the existing `p{port}-{session_id}` / `{name}-{session_id}`
-URL scheme has no consumers and can be deleted entirely. That removes the
-backwards-compat burden — this PR ships a single share-token URL scheme and
-nothing else user-facing.
+User wants to host **actual customer websites and web applications** on
+this — so project web service hosting must be production-ready in this PR,
+not a follow-up. The existing `p{port}-{session_id}` scheme has no
+consumers and is deleted entirely.
 
-**In this PR (MVP — dev preview tokens for sessions):**
-- Delete `session_expose_handlers.go`, `subdomain_proxy.go`,
-  `subdomain_proxy_test.go`, related wiring in `server.go`, related routes.
-  (Hydra-side data plane stays.)
-- `vhost_routes` migration + types + store
-- `vhost` package: share-token generator, `ReserveHostname` helper
-- New `VHostMiddleware` (canonical hostname fall-through → `share-*` lookup
-  → 404). Replaces `SubdomainProxyMiddleware`.
-- New `proxyToTarget` handler — sessions (`ses_*`) only in MVP, calls
-  existing hydra `/dev-containers/{id}/proxy/{port}` path.
-- Preview-token API endpoints under `/api/v1/sessions/:id/preview-tokens`
-  (mint / list / rotate / delete). Authorization via existing
-  `authorizeUserToSession`.
-- Session cleanup hook drops tokens on stop.
-- Regenerate OpenAPI client (`./stack update_openapi`).
-- Unit tests: share-token generator, reserve helper, middleware dispatch,
-  store round-trip.
+**Production-priority order:**
+1. Data model + vhost router (TLS via passthrough; `auto`/certmagic in
+   follow-up if not done here)
+2. Web service controller — sandbox provisioning, redeploy orchestration
+3. Webhook trigger on primary-repo default-branch push
+4. Custom domain CRUD + verification
+5. Frontend `WebServiceTab`
+6. Dev preview tokens (smaller add-on once vhost + reserve helpers exist)
+7. Tests + docs
 
-**Deferred to follow-up PRs:**
-- Sandbox (`sbx_*`) preview support — one more dispatch + hydra route.
-- Project web services (full subsystem: toggle, runtime, redeploy state
-  machine, web-service-deploy triggers, custom-domain CRUD + verification,
-  middleware project-web-service branch).
-- certmagic `auto` TLS termination (MVP works in `passthrough` mode behind
-  a Caddy/upstream with wildcard cert).
-- Frontend `WebServiceTab` and `<SharePreviewSection>`.
-- Agent `deploy_web_service` tool.
-- Docs (env vars, DNS setup, Caddy snippet).
-
-The deferred subsystems can pick up from this same design doc; the
-`vhost_routes` table, `VHostMiddleware`, and `ReserveHostname` helper are
-designed to slot the project-web-service rows in without rework.
+**TLS posture for v1:** `passthrough` only. Operator runs Caddy (or similar)
+in front with a wildcard DNS-01 cert for `*.<DEV_SUBDOMAIN base>`. The
+`auto` (embedded certmagic) mode is documented but shipping it is a
+follow-up — the data plane and routing work independently of where TLS
+terminates.
 
 ---
 
-## MVP tasks
+## Phase 1 — Cleanup of obsolete scheme
 
-### Cleanup of obsolete scheme
 - [ ] Delete `api/pkg/server/session_expose_handlers.go`.
-- [ ] Delete `api/pkg/server/subdomain_proxy.go` and `_test.go`.
-- [ ] Remove `exposedPortManager` field, `initExposedPortManager()` call, `NewSubdomainProxyMiddleware` wiring, session-expose routes, and `proxyToSessionPort` route from `api/pkg/server/server.go`.
-- [ ] Remove `DevSubdomain` env var documentation references that mention the `p{port}-` format (the env var itself stays — it's the base domain for the new scheme).
+- [ ] Delete `api/pkg/server/subdomain_proxy.go` and `subdomain_proxy_test.go`.
+- [ ] Remove `exposedPortManager` field, `initExposedPortManager()` call, `NewSubdomainProxyMiddleware` wiring, and the `/sessions/{id}/proxy/{port}` + `/sessions/{id}/expose` routes from `api/pkg/server/server.go`.
 
-### Data model
+## Phase 2 — Data model
+
 - [ ] `vhost_routes` migration: id, hostname (unique, lowercased), target_kind, target_id, port, is_default, verified_at, verification_token, created_at, rotated_at.
-- [ ] `types.VHostRoute` struct + `VHostTargetKind` enum.
-- [ ] Store CRUD methods: `CreateVHostRoute`, `GetVHostRouteByHostname`, `ListVHostRoutesByTarget`, `DeleteVHostRoute`, `DeleteVHostRoutesByTarget`, `RotateVHostRouteHostname`.
+- [ ] `project_web_service_state` migration: project_id (PK), enabled, container_port (default 8080), active_sandbox_id (nullable), updated_at.
+- [ ] `web_service_deploys` migration: id, project_id, sandbox_id, commit_sha, status, started_at, finished_at, log_path.
+- [ ] `types.VHostRoute`, `types.VHostTargetKind`, `types.ProjectWebServiceState`, `types.WebServiceDeploy`.
+- [ ] Store CRUD: `CreateVHostRoute`, `GetVHostRouteByHostname`, `ListVHostRoutesByTarget`, `DeleteVHostRoute`, `DeleteVHostRoutesByTarget`, `RotateVHostRouteHostname`, `UpsertProjectWebServiceState`, `GetProjectWebServiceState`, `SetActiveWebServiceSandbox`, `CreateWebServiceDeploy`, `UpdateWebServiceDeploy`, `ListWebServiceDeploys`.
 
-### vhost helpers (new `api/pkg/vhost/` package)
-- [ ] `sharetoken.go`: ~150 adjectives × ~150 nouns + 8-hex `crypto/rand` suffix → `share-<adj>-<noun>-<8hex>`.
-- [ ] `reserve.go`: `ReserveHostname(ctx, hostname, opts) error` — rejects canonical hostname (parsed from `SERVER_URL`), `DEV_SUBDOMAIN` apex, built-in reserved labels, `share-` prefix (unless caller is the minter), and existing `vhost_routes` rows.
-- [ ] `mint.go`: loops share-token generation + uniqueness check up to 8 attempts.
+## Phase 3 — vhost helpers (new `api/pkg/vhost/` package)
 
-### Middleware + proxy handler
-- [ ] `api/pkg/server/vhost_middleware.go`: new minimal middleware. Dispatch: canonical hostname (`SERVER_URL` + optional `SERVER_URL_ALIASES`) → fall through; `share-*` prefix under `<DEV_SUBDOMAIN base>` → store lookup → `proxyToTarget`; else 404 unknown-host page.
-- [ ] `api/pkg/server/vhost_proxy.go`: `proxyToTarget(w, r, kind, id, port)` — for sessions, calls hydra `/dev-containers/{id}/proxy/{port}` (extracted from the deleted `proxyToSessionPort`). For `sandbox_preview` of an `sbx_*` ID, returns 503 (deferred).
+- [ ] `sharetoken.go`: ~150 adjectives × ~150 nouns + 8-hex `crypto/rand` → `share-<adj>-<noun>-<8hex>`.
+- [ ] `reserve.go`: `ReserveHostname(ctx, hostname, opts)` — rejects canonical hostname (parsed from `SERVER_URL`), `DEV_SUBDOMAIN` apex, built-in reserved labels under base, `share-` prefix unless caller is the minter, and existing `vhost_routes` rows.
+- [ ] `slug.go`: `AllocateDefaultSubdomain(projectSlug, base, store)` — appends `-2`, `-3`, … on collision until unique.
 
-### API endpoints
-- [ ] `api/pkg/server/session_preview_handlers.go`: `POST /api/v1/sessions/:id/preview-tokens {port}` mints, `GET` lists, `POST .../:token_id/rotate` rotates, `DELETE .../:token_id` removes. Auth via `authorizeUserToSession(ActionUpdate)`.
-- [ ] Cleanup: session-stop path deletes `vhost_routes` rows where `target_kind=sandbox_preview` and `target_id=<session_id>`.
+## Phase 4 — Middleware + proxy handler
 
-### Wiring & generation
-- [ ] Wire `VHostMiddleware` into `server.go` ahead of the main router (replaces old `SubdomainProxyMiddleware` slot).
-- [ ] `./stack update_openapi` to regenerate the OpenAPI client.
+- [ ] `api/pkg/server/vhost_middleware.go`: new minimal middleware. Dispatch: canonical hostname (`SERVER_URL` + optional `SERVER_URL_ALIASES`) → fall through; `share-*` prefix under `<DEV_SUBDOMAIN base>` → `vhost_routes` lookup → proxy to session container; verified `vhost_routes` row (any other host) → project web service proxy; else 404.
+- [ ] `api/pkg/server/vhost_proxy.go`: `proxyToSessionContainer(w, r, sessionID, port)` — calls hydra `/dev-containers/{id}/proxy/{port}` (extracted from the deleted `proxyToSessionPort`).
+- [ ] `proxyToProjectWebService(w, r, projectID, port)` — loads project state, finds active sandbox, calls hydra path with sandbox container ID.
+- [ ] In-memory hostname → route cache with pubsub invalidation on writes (use existing pubsub).
 
-### Tests
-- [ ] Unit: share-token generator format, ≥79-bit entropy claim, no collisions across 10k generations.
-- [ ] Unit: `ReserveHostname` rejects each forbidden category.
-- [ ] Unit: middleware dispatch — canonical / `share-*` hit / `share-*` miss → 404 / unknown host → 404.
-- [ ] Unit: store CRUD round-trip for `vhost_routes`.
+## Phase 5 — Web service runtime + controller
+
+- [ ] Add `SandboxRuntimeWebService = "web-service"` to `api/pkg/types/sandbox.go`; add `Purpose` field to `Sandbox`.
+- [ ] Add `web-service` runtime entry to default `RuntimeRegistry` (`api/pkg/sandbox/runtimes.go`): image `ubuntu:22.04` with build tools, persistent, no idle TTL reaping.
+- [ ] Extend `sandbox.Controller.Create` to accept `Purpose=web-service` and enforce one-per-project (atomic check + insert).
+- [ ] In runner-side hydra, after container starts for a web-service sandbox: clone primary repo at requested SHA into `/workspace`, install dependencies via `.helix/startup.sh`, supervise (restart on exit). Stream log output to API via existing mechanism.
+
+## Phase 6 — Redeploy orchestration
+
+- [ ] `api/pkg/webservice/controller.go`: `Redeploy(ctx, projectID, sha)` — creates `web_service_deploys` row (status=pending), provisions new sandbox with that SHA, polls `http://<container_ip>:<port>/` for up to 90s, on success atomically updates `active_sandbox_id` and marks deploy `live`, stops the previous sandbox; on failure marks `failed` and leaves the previous active.
+
+## Phase 7 — Webhook trigger
+
+- [ ] New `TriggerKind = "web-service-deploy"`.
+- [ ] Auto-create one such trigger when `enabled=true` is first set on a project; auto-delete when disabled.
+- [ ] In `api/pkg/server/webhook_trigger_handlers.go`, dispatch this trigger kind on pushes where the head matches the primary repo's default branch; call `webservice.Redeploy(projectID, sha)`.
+
+## Phase 8 — Project web service API
+
+- [ ] `PUT /api/v1/projects/:id/web-service` — sets `enabled` + `container_port`. Toggling on pre-seeds the default subdomain via `AllocateDefaultSubdomain`. Toggling off stops the sandbox + removes all `vhost_routes` rows for the project.
+- [ ] `GET /api/v1/projects/:id/web-service` — returns state, active sandbox, domain list, recent deploys.
+- [ ] `POST /api/v1/projects/:id/web-service/deploy` — triggers `Redeploy` at current HEAD of primary repo.
+- [ ] `POST /api/v1/projects/:id/web-service/domains {hostname}` — insert custom domain row (verified_at=null). `DELETE .../domains/:id`.
+- [ ] `/.well-known/helix-domain-verify/:token` endpoint returning the token in plain text; verifier cron polls pending domains and marks `verified_at` when DNS resolves to us and the token check passes.
+
+## Phase 9 — Dev preview tokens (add-on)
+
+- [ ] `POST /api/v1/sessions/:id/preview-tokens {port}` — mints `share-...` token row. `GET` lists, `POST .../:token_id/rotate` rotates, `DELETE .../:token_id` removes.
+- [ ] Session-stop cleanup deletes preview rows for the session.
+- [ ] (Sandbox `sbx_*` mirror endpoints — deferred unless time permits.)
+
+## Phase 10 — Frontend
+
+- [ ] Add `web-service` tab to `frontend/src/pages/ProjectSettings.tsx`.
+- [ ] `<WebServiceTab>`: enable toggle, default URL display, custom-domain list with per-row verification badge + add/remove, container-port input, "Deploy now" button, deploys table (SHA, time, status, log link).
+- [ ] `<SharePreviewSection>` in session detail page: list current preview URLs, add/rotate/revoke controls.
+
+## Phase 11 — Regenerate + tests + docs
+
+- [ ] `./stack update_openapi`.
+- [ ] Unit tests: share-token format + entropy, reserve helper, middleware dispatch, store CRUD, slug allocator collision handling, redeploy state machine (success / health-fail / cutover-fail).
+- [ ] Docs: env vars (`DEV_SUBDOMAIN`), required DNS (wildcard `A`/`CNAME`), Caddy snippet for `passthrough` mode, sample project `.helix/startup.sh`.
 
 ---
 
-## Deferred (next PRs) — kept for traceability
+## Explicitly deferred (real follow-up PRs)
 
-### Sandbox (`sbx_*`) preview support
-- [ ] `proxyToTarget` handles `sbx_*` IDs by calling the appropriate hydra sandbox route (may need a new hydra route mirroring `/dev-containers/{id}/proxy/{port}`).
-- [ ] Mirror preview-tokens endpoints under `/api/v1/sandboxes/:id/preview-tokens`.
-- [ ] Sandbox cleanup hook deletes preview rows on reap.
-
-### Project web service backend
-- [ ] `project_web_service_state`, `web_service_deploys` migrations + store.
-- [ ] `SandboxRuntimeWebService` + `Purpose` field; `web-service` runtime entry.
-- [ ] `Controller.Create` enforces one-per-project for `Purpose=web-service`, no idle TTL.
-- [ ] Runner web-service workload handler.
-- [ ] `webservice.Redeploy(projectID, sha)` orchestration.
-- [ ] `TriggerKind = web-service-deploy`; webhook dispatch on default-branch push.
-- [ ] `POST /api/v1/projects/:id/web-service/deploy` + agent tool.
-- [ ] Custom-domain CRUD + verification flow.
-- [ ] Middleware project-web-service branch — replace any stub with real lookup → revdial proxy through `connman.Dial(deviceID, port)`.
-
-### RevDial + proxy plumbing
-- [ ] `TARGET 127.0.0.1:<port>\n` handshake; runner host-allowlist.
-- [ ] `connman` wrapped in `net/http.Transport` for keepalive pooling.
-- [ ] Configurable `ResilientProxy` buffer per route kind.
-
-### TLS auto mode
-- [ ] `HELIX_VHOST_TLS_MODE`, `HELIX_VHOST_LETSENCRYPT_EMAIL`, `HELIX_VHOST_RESERVED_SUBDOMAINS`, `SERVER_URL_ALIASES` env vars.
-- [ ] Startup validation.
-- [ ] `certmagic` on-demand TLS with `ReserveHostname`-aware decision func.
-
-### Frontend
-- [ ] `<WebServiceTab>` in `ProjectSettings.tsx`.
-- [ ] `<SharePreviewSection>` in session detail pages.
-
-### Docs & ops
-- [ ] Env vars, DNS setup, Caddy snippet for `passthrough` mode.
-- [ ] Sample project with `.helix/startup.sh`.
-
-### Integration tests
-- [ ] Mint preview token for a running session → URL returns 200; rotate → old 404, new 200; stop session → all 404.
-- [ ] `passthrough` mode behind stub upstream.
-- [ ] Security: reserved-hostname registration rejected.
+- certmagic embedded `auto` TLS mode (passthrough ships this PR).
+- RevDial `TARGET <port>\n` handshake + runner host-allowlist + connection pooling + configurable proxy buffer — current revdial already supports per-device tunnels; arbitrary-port targeting can ship through the existing hydra HTTP proxy path for v1.
+- Agent `deploy_web_service` MCP tool — manual deploy via API endpoint covers the use case for v1.
+- Integration tests requiring real sandbox boot loops in CI.
