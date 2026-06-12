@@ -56,6 +56,7 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
   const state = data?.state
   const domains = data?.domains ?? []
   const deploys = data?.deploys ?? []
+  const cnameTarget = data?.cname_target ?? ''
 
   const [containerPortDraft, setContainerPortDraft] = useState<string>('')
   const [newDomain, setNewDomain] = useState('')
@@ -119,10 +120,11 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
           Web service hosting
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Expose this project as a public web app. On enable, a default
-          subdomain is allocated automatically. Pushes to the primary repo's
-          default branch auto-deploy by running <code>.helix/startup.sh</code>
-          inside a fresh sandbox container.
+          Host this project as a live website. Turn it on and you'll get
+          a default URL straight away. You can also point your own domain
+          at it. Every push to your default branch deploys automatically —
+          Helix runs the <code>.helix/startup.sh</code> script in your repo
+          to start your app.
         </Typography>
       </Box>
 
@@ -194,19 +196,24 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
 
             <DomainList
               domains={domains}
+              cnameTarget={cnameTarget}
               onDelete={(id) => deleteDomainMutation.mutate(id)}
+              onCopy={(text, label) => {
+                navigator.clipboard.writeText(text)
+                snackbar.success(`${label} copied`)
+              }}
             />
 
             <Stack direction="row" spacing={1} mt={2}>
               <TextField
                 size="small"
-                placeholder="app.example.com"
+                placeholder="app.yourcompany.com"
                 value={newDomain}
                 onChange={(e) => setNewDomain(e.target.value)}
                 sx={{ flex: 1 }}
               />
               <Button
-                variant="outlined"
+                variant="contained"
                 size="small"
                 disabled={!newDomain || addDomainMutation.isPending}
                 onClick={() => addDomainMutation.mutate(newDomain.trim())}
@@ -214,12 +221,60 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                 Add domain
               </Button>
             </Stack>
-            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-              After adding, point your DNS at this Helix instance.
-              Verification happens automatically once the
-              <code>/.well-known/helix-domain-verify/…</code> endpoint round-trips
-              (within ~60 seconds).
-            </Typography>
+            {cnameTarget && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
+                  How to add a custom domain
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  1. Type your domain above (for example,{' '}
+                  <code>app.yourcompany.com</code>) and click <strong>Add
+                  domain</strong>.
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  2. In your DNS provider (e.g. Cloudflare, Route 53,
+                  Namecheap), add a <strong>CNAME</strong> record:
+                </Typography>
+                <Box
+                  sx={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                    p: 1.5,
+                    my: 1,
+                    borderRadius: 1,
+                    backgroundColor: 'rgba(0,0,0,0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span>
+                    <strong>Name:</strong> app (or whatever you chose)
+                  </span>
+                  <span>
+                    <strong>Type:</strong> CNAME
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <strong>Value:</strong> {cnameTarget}
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        navigator.clipboard.writeText(cnameTarget)
+                        snackbar.success('CNAME target copied')
+                      }}
+                    >
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Box>
+                <Typography variant="body2">
+                  3. That's it. Helix checks every minute and your domain
+                  will go live automatically — usually within a couple
+                  of minutes once DNS has propagated.
+                </Typography>
+              </Alert>
+            )}
           </Box>
 
           <Divider />
@@ -237,7 +292,7 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
             <Typography variant="subtitle1" gutterBottom>
               Recent deploys
             </Typography>
-            <DeploysTable deploys={deploys} />
+            <DeploysTable deploys={deploys} hasActiveSandbox={!!state?.active_sandbox_id} />
           </Box>
         </>
       )}
@@ -245,87 +300,136 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
   )
 }
 
-const DomainList: FC<{ domains: TypesVHostRoute[]; onDelete: (id: string) => void }> = ({
-  domains,
-  onDelete,
-}) => {
+const DomainList: FC<{
+  domains: TypesVHostRoute[]
+  cnameTarget: string
+  onDelete: (id: string) => void
+  onCopy: (text: string, label: string) => void
+}> = ({ domains, cnameTarget, onDelete, onCopy }) => {
   if (domains.length === 0) {
     return <Typography variant="body2" color="text.secondary">No domains yet.</Typography>
   }
   return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          <TableCell>Hostname</TableCell>
-          <TableCell>Type</TableCell>
-          <TableCell>Status</TableCell>
-          <TableCell align="right">Actions</TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {domains.map((d) => (
-          <TableRow key={d.id}>
-            <TableCell>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                {d.hostname}
-              </Typography>
-            </TableCell>
-            <TableCell>
-              {d.is_default ? (
-                <Chip size="small" label="Default" />
-              ) : (
-                <Chip size="small" label="Custom" variant="outlined" />
-              )}
-            </TableCell>
-            <TableCell>
-              {d.verified_at ? (
-                <Chip size="small" color="success" label="Verified" />
-              ) : (
-                <Tooltip title={`Verification token: ${d.verification_token}`}>
-                  <Chip size="small" color="warning" label="Pending DNS" />
-                </Tooltip>
-              )}
-            </TableCell>
-            <TableCell align="right">
-              <Tooltip title="Open">
-                <IconButton
-                  size="small"
-                  href={`https://${d.hostname}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <LaunchIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Copy URL">
-                <IconButton
-                  size="small"
-                  onClick={() => navigator.clipboard.writeText(`https://${d.hostname}/`)}
-                >
-                  <ContentCopyIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              {!d.is_default && (
-                <Tooltip title="Remove">
-                  <IconButton size="small" onClick={() => onDelete(d.id!)}>
-                    <DeleteIcon fontSize="small" />
+    <Stack spacing={1}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Hostname</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {domains.map((d) => (
+            <TableRow key={d.id}>
+              <TableCell>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                  {d.hostname}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                {d.is_default ? (
+                  <Chip size="small" label="Default" />
+                ) : (
+                  <Chip size="small" label="Custom" variant="outlined" />
+                )}
+              </TableCell>
+              <TableCell>
+                {d.verified_at ? (
+                  <Chip size="small" color="success" label="Live" />
+                ) : (
+                  <Chip size="small" color="warning" label="Waiting for DNS" />
+                )}
+              </TableCell>
+              <TableCell align="right">
+                {d.verified_at && (
+                  <Tooltip title="Open">
+                    <IconButton
+                      size="small"
+                      href={`https://${d.hostname}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <LaunchIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Tooltip title="Copy URL">
+                  <IconButton
+                    size="small"
+                    onClick={() => onCopy(`https://${d.hostname}/`, 'URL')}
+                  >
+                    <ContentCopyIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-              )}
-            </TableCell>
-          </TableRow>
+                {!d.is_default && (
+                  <Tooltip title="Remove">
+                    <IconButton size="small" onClick={() => onDelete(d.id!)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      {/* Inline "what to do next" prompt for any pending custom domain */}
+      {domains
+        .filter((d) => !d.verified_at && !d.is_default)
+        .map((d) => (
+          <Alert key={`pending-${d.id}`} severity="warning" icon={false}>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>{d.hostname}</strong> is waiting for DNS. Add this
+              CNAME record at your DNS provider, then we'll take it from
+              there:
+            </Typography>
+            <Box
+              sx={{
+                fontFamily: 'monospace',
+                fontSize: '0.85rem',
+                p: 1.5,
+                borderRadius: 1,
+                backgroundColor: 'rgba(0,0,0,0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span><strong>Name:</strong> {leftmostLabel(d.hostname)}</span>
+              <span><strong>Type:</strong> CNAME</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <strong>Value:</strong> {cnameTarget || '(operator has not configured a canonical hostname)'}
+                {cnameTarget && (
+                  <IconButton size="small" onClick={() => onCopy(cnameTarget, 'CNAME target')}>
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </span>
+            </Box>
+          </Alert>
         ))}
-      </TableBody>
-    </Table>
+    </Stack>
   )
+}
+
+// leftmostLabel returns just the first DNS label of a hostname — that's
+// what the user types as the "Name" field in their DNS provider's UI
+// (most providers auto-append the zone).
+const leftmostLabel = (hostname: string): string => {
+  const parts = hostname.split('.')
+  return parts[0] || hostname
 }
 
 const ActiveSandboxSummary: FC<{ state?: TypesProjectWebServiceState }> = ({ state }) => {
   if (!state?.active_sandbox_id) {
     return (
       <Typography variant="body2" color="text.secondary">
-        No deploy yet. Push to the primary repo's default branch (or click
-        "Deploy now") to spin up a sandbox.
+        Nothing's been deployed yet. Push to your default branch (or click
+        Deploy now) to launch your app.
       </Typography>
     )
   }
@@ -336,9 +440,26 @@ const ActiveSandboxSummary: FC<{ state?: TypesProjectWebServiceState }> = ({ sta
   )
 }
 
-const DeploysTable: FC<{ deploys: TypesWebServiceDeploy[] }> = ({ deploys }) => {
+const DeploysTable: FC<{
+  deploys: TypesWebServiceDeploy[]
+  hasActiveSandbox: boolean
+}> = ({ deploys, hasActiveSandbox }) => {
   if (deploys.length === 0) {
-    return <Typography variant="body2" color="text.secondary">No deploys yet.</Typography>
+    if (hasActiveSandbox) {
+      // Active sandbox without a deploy row — pre-existing state, e.g.
+      // an operator wired things up by hand. Don't make the UI look broken.
+      return (
+        <Typography variant="body2" color="text.secondary">
+          No deploy history. The active sandbox above was set up directly
+          (no deploy was recorded). Future deploys will appear here.
+        </Typography>
+      )
+    }
+    return (
+      <Typography variant="body2" color="text.secondary">
+        No deploys yet. Your first push (or Deploy now) will appear here.
+      </Typography>
+    )
   }
   return (
     <Table size="small">

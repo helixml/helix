@@ -28113,6 +28113,10 @@
             "server.ProjectWebServiceResponse": {
                 "type": "object",
                 "properties": {
+                    "cname_target": {
+                        "description": "CNAMETarget is the hostname customers should add as the value of\ntheir CNAME record when registering a custom domain — i.e. the\ncanonical Helix hostname parsed from SERVER_URL. Empty when the\nvhost feature is not configured on this instance.",
+                        "type": "string"
+                    },
                     "deploys": {
                         "type": "array",
                         "items": {

@@ -1438,6 +1438,13 @@ export interface ServerProjectGooseRecipe {
 }
 
 export interface ServerProjectWebServiceResponse {
+  /**
+   * CNAMETarget is the hostname customers should add as the value of
+   * their CNAME record when registering a custom domain — i.e. the
+   * canonical Helix hostname parsed from SERVER_URL. Empty when the
+   * vhost feature is not configured on this instance.
+   */
+  cname_target?: string;
   deploys?: TypesWebServiceDeploy[];
   domains?: TypesVHostRoute[];
   state?: TypesProjectWebServiceState;

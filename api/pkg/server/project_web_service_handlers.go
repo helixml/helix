@@ -30,6 +30,12 @@ type ProjectWebServiceResponse struct {
 	State   *types.ProjectWebServiceState `json:"state"`
 	Domains []*types.VHostRoute           `json:"domains"`
 	Deploys []*types.WebServiceDeploy     `json:"deploys"`
+
+	// CNAMETarget is the hostname customers should add as the value of
+	// their CNAME record when registering a custom domain — i.e. the
+	// canonical Helix hostname parsed from SERVER_URL. Empty when the
+	// vhost feature is not configured on this instance.
+	CNAMETarget string `json:"cname_target,omitempty"`
 }
 
 // PutProjectWebServiceRequest is the body for PUT
@@ -90,9 +96,10 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 	}
 
 	return &ProjectWebServiceResponse{
-		State:   state,
-		Domains: domains,
-		Deploys: deploys,
+		State:       state,
+		Domains:     domains,
+		Deploys:     deploys,
+		CNAMETarget: hostnameOf(s.Cfg.WebServer.URL),
 	}, nil
 }
 
