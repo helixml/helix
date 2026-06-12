@@ -4297,6 +4297,21 @@ func (mr *MockStoreMockRecorder) ListDynamicModelInfos(ctx, q any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDynamicModelInfos", reflect.TypeOf((*MockStore)(nil).ListDynamicModelInfos), ctx, q)
 }
 
+// ListEnabledWebServiceProjectsByRepo mocks base method.
+func (m *MockStore) ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEnabledWebServiceProjectsByRepo", ctx, repoID)
+	ret0, _ := ret[0].([]*types.Project)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEnabledWebServiceProjectsByRepo indicates an expected call of ListEnabledWebServiceProjectsByRepo.
+func (mr *MockStoreMockRecorder) ListEnabledWebServiceProjectsByRepo(ctx, repoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnabledWebServiceProjectsByRepo", reflect.TypeOf((*MockStore)(nil).ListEnabledWebServiceProjectsByRepo), ctx, repoID)
+}
+
 // ListEvaluationRuns mocks base method.
 func (m *MockStore) ListEvaluationRuns(ctx context.Context, req *types.ListEvaluationRunsRequest) ([]*types.EvaluationRun, error) {
 	m.ctrl.T.Helper()

@@ -206,6 +206,26 @@ func (s *PostgresStore) UpdateWebServiceDeploy(ctx context.Context, id string, u
 		Updates(updates).Error
 }
 
+// ListEnabledWebServiceProjectsByRepo returns every project that has
+// the given repo as its primary repository AND has web service enabled.
+// Used by the auto-deploy hook to find candidates for redeploy after a
+// push to the repo's default branch.
+func (s *PostgresStore) ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error) {
+	if repoID == "" {
+		return nil, fmt.Errorf("repo_id is required")
+	}
+	var rows []*types.Project
+	err := s.gdb.WithContext(ctx).
+		Raw(`SELECT p.* FROM projects p
+		     INNER JOIN project_web_service_states s ON s.project_id = p.id
+		     WHERE p.default_repo_id = ? AND s.enabled = true`, repoID).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // ListWebServiceDeploys returns the most recent N deploys for a project,
 // newest first.
 func (s *PostgresStore) ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error) {

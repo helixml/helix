@@ -539,6 +539,11 @@ func NewServer(
 	)
 	log.Info().Msg("Initialized Git HTTP server (native git via gitcmd)")
 
+	// Wire project-web-service auto-deploy: a successful push to a repo's
+	// default branch triggers webservice.Controller.Redeploy on every
+	// project that uses this repo as primary AND has web service enabled.
+	apiServer.gitHTTPServer.SetOnDefaultBranchPush(apiServer.onDefaultBranchPushForWebService)
+
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
 	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -431,4 +432,39 @@ func (s *HelixAPIServer) vhostReserveOpts() vhost.Options {
 // domain ownership verification.
 func generateVerificationToken() (string, error) {
 	return system.GenerateID(), nil
+}
+
+// onDefaultBranchPushForWebService is the auto-deploy hook installed on
+// the git HTTP server. After a successful push to a repo's default
+// branch, it kicks off webservice.Controller.Redeploy on every project
+// whose primary repository is that repo AND that has web service
+// enabled. Runs in a goroutine so a slow deploy never blocks the git
+// client. Failures are logged, not surfaced — the deploy row carries
+// the error for the UI.
+func (s *HelixAPIServer) onDefaultBranchPushForWebService(ctx context.Context, repoID, branch, userID string) {
+	if s.webServiceController == nil {
+		return
+	}
+	projects, err := s.Store.ListEnabledWebServiceProjectsByRepo(ctx, repoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("auto-deploy: failed to list projects for primary repo")
+		return
+	}
+	for _, project := range projects {
+		owner := userID
+		if owner == "" {
+			owner = project.UserID
+		}
+		log.Info().
+			Str("project_id", project.ID).
+			Str("repo_id", repoID).
+			Str("branch", branch).
+			Msg("auto-deploy: default-branch push triggers Redeploy")
+		if _, err := s.webServiceController.Redeploy(ctx, webservice.DeployRequest{
+			ProjectID: project.ID,
+			Owner:     owner,
+		}); err != nil {
+			log.Warn().Err(err).Str("project_id", project.ID).Msg("auto-deploy: Redeploy failed to start")
+		}
+	}
 }
