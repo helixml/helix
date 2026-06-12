@@ -70,7 +70,7 @@ So that existing deployments don't break.
   main app vs hosted web services.
 - **`passthrough` + dynamic vhosting is supported** when the upstream
   reverse proxy holds a wildcard certificate covering
-  `*.<HELIX_VHOST_BASE_DOMAIN>` (typically obtained via ACME DNS-01). In
+  `*.<DEV_SUBDOMAIN's base domain>` (typically obtained via ACME DNS-01). In
   that case Helix only ever speaks HTTP and the wildcard cert covers every
   dynamically-minted subdomain. At startup Helix logs a single clear warning
   describing the operator's responsibility ("ensure upstream serves a
@@ -86,11 +86,15 @@ So that existing deployments don't break.
 So that there is one consistent routing/TLS path and no parallel listener to maintain.
 
 **Acceptance:**
-- The canonical Helix hostname(s) — declared via `HELIX_CANONICAL_DOMAIN`
-  (comma-separated list allowed) — are served by the same listener and the
-  same cert manager as project web services and sandbox previews.
-- A request whose `Host` matches a canonical Helix hostname is dispatched to
-  the existing main API / UI mux; a request whose `Host` matches a
+- The canonical Helix hostname — derived from the existing `SERVER_URL` env
+  var (parsed via the same logic `parseDevSubdomainConfig` uses today) —
+  is served by the same listener and the same cert manager as project web
+  services and sandbox previews. No new env var is introduced for this; if
+  the operator needs to declare additional canonical hostnames (e.g. an
+  internal-only alias), a new optional `SERVER_URL_ALIASES` (comma-separated)
+  is the only addition.
+- A request whose `Host` matches the canonical Helix hostname is dispatched
+  to the existing main API / UI mux; a request whose `Host` matches a
   `vhost_routes` row is proxied to the appropriate sandbox; an unknown host
   returns a Helix-branded 404.
 - This holds in both `auto` and `passthrough` modes. In `passthrough` mode
@@ -103,10 +107,10 @@ So that no project can serve its own content from the control-plane URL.
 **Acceptance:**
 - A reserved-hostname list blocks any user from registering, verifying, or
   having a default subdomain allocated for:
-  - any hostname listed in `HELIX_CANONICAL_DOMAIN`;
-  - any hostname listed in `HELIX_VHOST_BASE_DOMAIN` (the bare apex of the
-    preview/project base);
-  - a built-in set of reserved labels under the base domain
+  - the canonical Helix hostname derived from `SERVER_URL` (plus any
+    `SERVER_URL_ALIASES`);
+  - the bare apex of `DEV_SUBDOMAIN`'s base domain;
+  - a built-in set of reserved labels under that base domain
     (`api`, `app`, `www`, `auth`, `admin`, `helix`, `console`, `dashboard`,
     `helix-admin`, `mail`, `ns`) plus any extras the operator adds via
     `HELIX_VHOST_RESERVED_SUBDOMAINS`;

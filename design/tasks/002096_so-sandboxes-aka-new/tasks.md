@@ -10,15 +10,19 @@
 
 ## Backend — vhost router & TLS
 
-- [ ] New package `api/pkg/vhost/` with a `Router` that resolves `Host` → `(target_kind, target_id, port)` via `vhost_routes` (in-memory cache, pubsub invalidation on writes), then dereferences to a sandbox + port (project web service: look up active sandbox; sandbox preview: direct).
-- [ ] HTTP middleware in the API server that, when `Host` matches a known vhost route, proxies through `connman.Dial(deviceID)` + `ResilientProxy` to the resolved container port. All other hostnames fall through to the existing API/UI handlers.
-- [ ] Add `HELIX_VHOST_TLS_MODE`, `HELIX_VHOST_BASE_DOMAIN`, `HELIX_VHOST_LETSENCRYPT_EMAIL`, `HELIX_VHOST_DYNAMIC_PREVIEWS_ENABLED`, `HELIX_CANONICAL_DOMAIN`, `HELIX_VHOST_RESERVED_SUBDOMAINS` to `api/pkg/config/`.
-- [ ] Startup validation: refuse to boot if `HELIX_CANONICAL_DOMAIN` overlaps with `HELIX_VHOST_BASE_DOMAIN` in an ambiguous way. If `dynamic_previews_enabled=true` and `tls_mode=passthrough`, log a single clear warning explaining the wildcard-cert requirement on the upstream proxy; do not refuse.
-- [ ] Vhost middleware dispatches on `Host`: canonical → fall through to existing main API/UI mux; `vhost_routes` hit → proxy to sandbox; else → 404 unknown-host page.
-- [ ] `vhost.ReserveHostname()` helper centralising the reserved-hostname rules (canonical, base apex, built-in + operator-configured reserved labels, existing rows). Used by custom-domain POST, default-subdomain allocation, random-preview minting, and the certmagic `OnDemand.DecisionFunc`.
+- [ ] **Extend the existing `SubdomainProxyMiddleware`** (`api/pkg/server/subdomain_proxy.go`) with two new dispatch branches: (a) canonical hostname → fall through; (b) `vhost_routes` hit → proxy to sandbox. Do NOT create a parallel router. Existing `p{port}-{session_id}` and `{name}-{session_id}` schemes stay unchanged.
+- [ ] `vhost_routes` resolver: in-memory cache keyed by hostname, pubsub invalidation on writes, dereferences `(target_kind, target_id, port)` to `(deviceID, port)`.
+- [ ] Proxy through `connman.Dial(deviceID, port)` + `ResilientProxy` to the resolved container port.
+- [ ] Extend the RevDial protocol with a `TARGET 127.0.0.1:<port>\n` handshake on each new stream; runner-side agent reads it, opens the local TCP connection, splice-copies both directions.
+- [ ] Runner-side helper restricts target hosts to `127.0.0.1` / `::1` (plus the project's `docker compose` link-local service names when relevant); reject everything else with an audit log line.
+- [ ] Wrap `connman` in a `net/http.Transport` whose `DialContext` calls `connman.Dial(device, port)` and let `Transport` pool idle connections per `(device, port)` key for HTTP-keepalive reuse.
+- [ ] Make `ResilientProxy` per-direction buffer size configurable; default 4 MB for `project_web_service` routes, 512 KB for `sandbox_preview` (matches today's value).
+- [ ] Add **only the genuinely new** env vars: `HELIX_VHOST_TLS_MODE`, `HELIX_VHOST_LETSENCRYPT_EMAIL`, `HELIX_VHOST_RESERVED_SUBDOMAINS`, optional `SERVER_URL_ALIASES`. Reuse existing `SERVER_URL` (canonical hostname) and `DEV_SUBDOMAIN` (base domain) via the existing `parseDevSubdomainConfig`.
+- [ ] Startup validation: if `DEV_SUBDOMAIN` set and `tls_mode=passthrough`, log a single clear warning describing the wildcard-cert requirement on the upstream proxy; do not refuse. If `tls_mode=auto` and `LETSENCRYPT_EMAIL` unset, refuse to boot with a clear error.
+- [ ] `vhost.ReserveHostname()` helper centralising the reserved-hostname rules (canonical hostname from `SERVER_URL`, aliases, `DEV_SUBDOMAIN` base apex, built-in + operator-configured reserved labels, existing rows). Used by custom-domain POST, default-subdomain allocation, random-preview minting, and the certmagic `OnDemand.DecisionFunc`.
 - [ ] Default-subdomain allocation appends `-2`, `-3`, … on slug collision with reserved labels or existing rows. Random preview minting loops on collision.
-- [ ] In `auto` mode wire `github.com/caddyserver/certmagic` with on-demand TLS gated on `vhost_routes` *and* canonical domain(s); decision func rejects anything `ReserveHostname()` would reject. Bind `:443` and `:80`.
-- [ ] In `passthrough` mode trust `X-Forwarded-Proto` / `X-Forwarded-Host`; skip cert mgr; keep existing listener; canonical-domain dispatch still runs in the middleware.
+- [ ] In `auto` mode wire `github.com/caddyserver/certmagic` with on-demand TLS gated on `vhost_routes` *and* canonical hostname(s); decision func rejects anything `ReserveHostname()` would reject. Bind `:443` and `:80`.
+- [ ] In `passthrough` mode trust `X-Forwarded-Proto` / `X-Forwarded-Host`; skip cert mgr; keep existing listener; canonical-hostname dispatch still runs in the middleware.
 
 ## Backend — sandbox provisioning & supervision
 
@@ -53,7 +57,7 @@
 
 ## Frontend — Sandbox dev preview
 
-- [ ] In each sandbox detail UI (agent workspace, spec-task, human org desktop) add a "Share preview" toggle row showing the current URL with a copy button when on, and a tooltip explaining DNS prerequisites when the operator has not configured `HELIX_VHOST_BASE_DOMAIN`.
+- [ ] In each sandbox detail UI (agent workspace, spec-task, human org desktop) add a "Share preview" toggle row showing the current URL with a copy button when on, and a tooltip explaining DNS prerequisites when the operator has not configured `DEV_SUBDOMAIN`.
 - [ ] Optional port override input (advanced/disclosure), pre-filled with the runtime's `DefaultPreviewPort`.
 - [ ] Reflect lifecycle: toggle auto-disables and URL disappears when the sandbox is stopped.
 

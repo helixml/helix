@@ -18,13 +18,53 @@ visitor ──HTTPS──► Helix API (:443)
                             primary repo webhook ──► CD trigger ──► sandbox controller
 ```
 
+## Prior Art (reuse, don't reinvent)
+
+Helix already ships a subdomain-routing middleware that this design extends
+rather than parallels:
+
+- **`SERVER_URL`** (`config.go:635`) — the existing canonical Helix URL.
+  Hostname is extracted via the same parsing already in
+  `parseDevSubdomainConfig` (`subdomain_proxy.go:152`). **No
+  `HELIX_CANONICAL_DOMAIN` env var is introduced.** If the operator needs to
+  declare additional canonical hostnames, add an optional comma-separated
+  `SERVER_URL_ALIASES`.
+- **`DEV_SUBDOMAIN`** (`config.go:669`) — already enables wildcard-subdomain
+  vhost routing for dev container ports (`p{port}-{session_id}.dev.<base>`).
+  The existing `SubdomainProxyMiddleware` (`subdomain_proxy.go:48`) is the
+  starting point; this design **adds new dispatch rules to that same
+  middleware** rather than introducing a parallel router. **No
+  `HELIX_VHOST_BASE_DOMAIN` env var is introduced** — the base is whatever
+  `DEV_SUBDOMAIN` already resolves to.
+- **Existing `p{port}-{session_id}` and `{name}-{session_id}` schemes**
+  remain unchanged (backwards-compatible). The new schemes layered on top:
+  - `<random-alias>.<dev_subdomain>.<base>` — looked up in `vhost_routes`,
+    proxies to a specific sandbox + port (used by the "Share preview"
+    toggle for any sandbox, including agent workspaces, spec tasks, and
+    human org desktops; not session-port-specific).
+  - `<project-slug>.<dev_subdomain>.<base>` — project default subdomain for
+    web services.
+  - Any custom hostname registered against a project.
+- **No new env var** for "dynamic previews enabled" — if `DEV_SUBDOMAIN` is
+  set the feature is available, same gate the existing scheme uses.
+
+New env vars are limited to TLS termination and the reserved-hostname
+allowlist (both genuinely new capabilities):
+
+| Env var | Purpose |
+|---|---|
+| `HELIX_VHOST_TLS_MODE` | `auto` \| `passthrough` \| `off` |
+| `HELIX_VHOST_LETSENCRYPT_EMAIL` | ACME registration contact (auto mode) |
+| `HELIX_VHOST_RESERVED_SUBDOMAINS` | Extra reserved labels, comma-separated |
+| `SERVER_URL_ALIASES` | Optional extra canonical hostnames |
+
 Three new subsystems are added; everything else extends existing code paths.
 The same vhost+TLS plumbing serves **three consumers**:
 
-1. **The main Helix control-plane app itself** — the canonical hostname(s)
-   declared via `HELIX_CANONICAL_DOMAIN` are dispatched to the existing API
-   and UI mux. There is no separate listener for the main app vs hosted
-   services; one listener, one cert manager.
+1. **The main Helix control-plane app itself** — the canonical hostname
+   parsed from `SERVER_URL` (plus any `SERVER_URL_ALIASES`) is dispatched
+   to the existing API and UI mux. There is no separate listener for the
+   main app vs hosted services; one listener, one cert manager.
 2. **Project web services** — durable, per-project, user-named domains.
 3. **Sandbox dev previews** — ephemeral, per-sandbox, random subdomains, lifecycle
    bound to the sandbox.
@@ -38,23 +78,24 @@ Let's Encrypt termination lives in the Helix API server using
 file-backed cert storage we already have on disk, supports HTTP-01 and
 TLS-ALPN-01 — no DNS plugin required for non-wildcard certs).
 
-Env vars (renamed from `HELIX_WEB_SERVICE_*` because the same plumbing serves
-sandbox previews too):
+Env vars:
 
-- **`HELIX_VHOST_TLS_MODE=auto`** (default when `HELIX_VHOST_BASE_DOMAIN` set):
+- **`HELIX_VHOST_TLS_MODE=auto`** (default when `DEV_SUBDOMAIN` set and
+  `LETSENCRYPT_EMAIL` provided):
   Helix binds `:443` + `:80`, terminates TLS, issues per-hostname certs
   on-demand. ACME challenges served from the same listener.
 - **`HELIX_VHOST_TLS_MODE=passthrough`**: Helix binds HTTP only on its
   existing API port, trusts `X-Forwarded-Proto` / `X-Forwarded-Host` / `Host`.
   Operator runs Caddy or similar in front. **Compatible with dynamic
   previews** provided the upstream holds a wildcard cert for
-  `*.<HELIX_VHOST_BASE_DOMAIN>` (e.g. Caddy with a DNS-01 plugin), which
-  covers every minted subdomain automatically. If dynamic previews are
-  enabled in this mode, Helix emits a single startup warning describing the
-  wildcard-cert requirement — it does not refuse to boot. Custom domains
-  outside the base must be added to the upstream proxy by the operator.
-- **`HELIX_VHOST_TLS_MODE=off`** (default when no base domain set):
-  Feature disabled, panels hidden in UI.
+  `*.<DEV_SUBDOMAIN base>` (e.g. Caddy with a DNS-01 plugin), which covers
+  every minted subdomain automatically. If `DEV_SUBDOMAIN` is set in this
+  mode, Helix emits a single startup warning describing the wildcard-cert
+  requirement — it does not refuse to boot. Custom domains outside the base
+  must be added to the upstream proxy by the operator.
+- **`HELIX_VHOST_TLS_MODE=off`** (default when `DEV_SUBDOMAIN` unset):
+  Hosted-web-service panels hidden in UI; the existing dev-port subdomain
+  scheme still works if the operator has set `DEV_SUBDOMAIN`.
 
 Why not stick with the cloud-managed cert pattern already used in GKE Helm?
 Cloud-managed certs require a fixed list of SANs; per-project domains added at
@@ -79,30 +120,67 @@ Other columns: `is_default` (default subdomain for a project), `is_dynamic`
 `verified_at` / `verification_token` (only meaningful for user-supplied custom
 domains; default and dynamic rows are auto-verified).
 
-The middleware runs **before** the existing API/UI mux and decides on `Host`:
+The dispatch lives inside the existing `SubdomainProxyMiddleware`
+(`api/pkg/server/subdomain_proxy.go`), extended with two more rule
+branches **before** falling through to the next handler:
 
-1. If `Host ∈ HELIX_CANONICAL_DOMAIN` → fall through to the existing API/UI
-   mux. The control-plane app is just another consumer of the same listener;
-   there is no second listener.
-2. Else if `Host` matches a verified `vhost_routes` row (in-memory cache,
+1. If `Host` matches the canonical hostname parsed from `SERVER_URL` (or
+   any `SERVER_URL_ALIASES` entry) → fall through to the existing API/UI
+   mux. The control-plane app is just another consumer of the same listener.
+2. Else if `Host` matches the existing `p{port}-{session_id}` or
+   `{name}-{session_id}` schemes → existing dispatch (unchanged).
+3. Else if `Host` matches a verified `vhost_routes` row (in-memory cache,
    change-notified via existing pubsub) → resolve the target sandbox (project
    → active sandbox, or direct lookup for previews); get its `HostDeviceID`
-   and configured port; proxy via `connman.Dial(deviceID)` + `ResilientProxy`
-   to the runner, which forwards locally to `127.0.0.1:port` inside the
-   container. No new transport; same revdial used for desktop bridges today
-   (api/pkg/sandbox/controller.go:260).
-3. Else → 404 unknown-host page (Helix-branded; clearly identifies the
+   and configured port; proxy via `connman.Dial(deviceID, port)` +
+   `ResilientProxy` to the runner. No new transport; same revdial used for
+   desktop bridges today (api/pkg/sandbox/controller.go:260).
+4. Else → 404 unknown-host page (Helix-branded; clearly identifies the
    responding server).
 
 WebSocket and HTTP/2 just work because `ResilientProxy` already handles
 upgrades.
 
+**Per-port targeting over RevDial.** The existing RevDial bridge dials a
+device — not a `(device, port)` pair — because the current desktop bridge
+always lands on one well-known port. Web services and previews need an
+arbitrary internal port (8080, 3000, 5800, etc.), so the protocol gains a
+small handshake: when the API dials, it sends a one-line target header
+(`TARGET 127.0.0.1:<port>\n`) on the freshly-opened stream; the runner-side
+agent reads the header, opens a local TCP connection to that address inside
+the sandbox's network namespace, and splice-copies both directions. No port
+is opened on the runner host or container's external interface — all
+traffic enters via the existing outbound tunnel the runner already maintains
+to the API. This is a security win: runners can sit behind NAT or strict
+egress-only firewalls and still serve public web traffic.
+
+The runner-side helper restricts target hosts to `127.0.0.1` / `::1` (and
+optionally `helix-services` link-local names inside a `docker compose` stack
+the project is running) so a compromised API row can't be used to scan the
+runner host's internal network.
+
+**Connection reuse.** `connman.Dial` is currently called per request for
+short-lived RPCs. Web services see real HTTP-keepalive load, so the proxy
+wraps `connman` in a `net/http.Transport` whose `DialContext` calls
+`connman.Dial` and lets `Transport` pool idle connections per `(device,
+port)` key. Pool sizing follows Go defaults; tune later if profiling shows
+contention. WebSocket / HTTP/2 connections bypass the pool (one stream per
+upgrade) — same as any reverse proxy.
+
+**Buffer ceilings.** `ResilientProxy` today buffers 512 KB per direction.
+For static-asset downloads this caps single-request throughput at
+buffer-size × refill rate. Keep the existing buffer for the dev-preview
+case; for project web services raise the cap (configurable; default 4 MB
+each way) so file downloads aren't pathologically slow. Tracked as a
+follow-up if real workloads need streaming with no buffer.
+
 **Anti-hijack: reserved hostnames.** Domain-registration code (custom-domain
 POST, default-subdomain allocation on enable, random-preview minting) all go
 through a single `vhost.ReserveHostname()` helper that rejects:
 
-- any host in `HELIX_CANONICAL_DOMAIN` (case-insensitive, normalised);
-- the apex `HELIX_VHOST_BASE_DOMAIN`;
+- the canonical hostname from `SERVER_URL` and any `SERVER_URL_ALIASES`
+  (case-insensitive, normalised);
+- the apex of `DEV_SUBDOMAIN`'s base domain;
 - any `<label>.<base>` whose label is in the built-in reserved set
   (`api`, `app`, `www`, `auth`, `admin`, `helix`, `console`, `dashboard`,
   `helix-admin`, `mail`, `ns`) or in `HELIX_VHOST_RESERVED_SUBDOMAINS`;
@@ -120,7 +198,9 @@ somehow appeared.
 
 - Random segment is two adjective+noun words plus a 4-hex suffix
   (`purple-otter-3f8a`); generated from `crypto/rand` to give ≥64 bits of
-  entropy. Concatenated with `HELIX_VHOST_BASE_DOMAIN`.
+  entropy. Concatenated with `<DEV_SUBDOMAIN>.<base>` (using the existing
+  parsed config), so a preview URL looks like
+  `purple-otter-3f8a.dev.helix.example.com`.
 - Lifecycle is tied to the sandbox: enabling the "Share preview" toggle
   creates a `vhost_routes` row; disabling it or stopping/deleting the
   sandbox removes it. The sandbox controller's existing cleanup hook
@@ -217,9 +297,10 @@ canonical source so the cleanup hook can find it without joining).
 When Caddy fronts Helix:
 - Set `HELIX_VHOST_TLS_MODE=passthrough`.
 - For dynamic previews + project default subdomains to work, give Caddy a
-  wildcard cert for `*.<base>` via a DNS-01 provider plugin, e.g.:
+  wildcard cert for `*.<DEV_SUBDOMAIN base>` via a DNS-01 provider plugin.
+  Example with `DEV_SUBDOMAIN=dev.helix.example.com`:
   ```
-  *.apps.example.com, apps.example.com {
+  *.dev.helix.example.com, dev.helix.example.com {
       tls { dns cloudflare {env.CF_API_TOKEN} }
       reverse_proxy helix-api:80
   }
