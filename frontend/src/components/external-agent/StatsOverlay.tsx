@@ -427,15 +427,18 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                   )}
                 </div>
               )}
-              {/* Adaptive playout buffer depth (0 while interacting, grows when
-                  idle to absorb network/WiFi jitter). */}
+              {/* Adaptive playout buffer depth. Grows when idle to absorb
+                  network/WiFi jitter; 0 either because we're interacting (kept
+                  low for latency) or because there's no jitter worth buffering. */}
               {stats.video.playoutBufferMs !== undefined && (
                 <div>
                   <strong>Playout Buffer:</strong> {stats.video.playoutBufferMs} ms
-                  {stats.video.playoutBufferMs === 0 ? (
+                  {stats.video.playoutBufferMs > 0 ? (
+                    <span style={{ color: '#888' }}> (smoothing)</span>
+                  ) : stats.video.playoutState === 'interactive' ? (
                     <span style={{ color: '#4caf50' }}> (interactive)</span>
                   ) : (
-                    <span style={{ color: '#888' }}> (smoothing)</span>
+                    <span style={{ color: '#888' }}> (no jitter detected)</span>
                   )}
                 </div>
               )}
