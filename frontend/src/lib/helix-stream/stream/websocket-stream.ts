@@ -1100,24 +1100,29 @@ export class WebSocketStream {
     const dt = Math.max(0, now - this.playoutLastTickMs) / 1000
     this.playoutLastTickMs = now
 
-    // Ramp current delay toward target by shifting the epoch (preserves cadence).
+    // Ramp the current delay toward the measured target. This MUST run every
+    // tick regardless of whether the playout clock is currently established.
+    // When the delay is 0 the queue drains each tick and the epoch is reset to
+    // null at the end of the tick, so gating the ramp on a live epoch would pin
+    // the delay at 0 forever — the buffer could never bootstrap above zero
+    // (empty because it can't grow, can't grow because it's empty). We shift the
+    // epoch only when it exists; otherwise it is (re)established below from the
+    // freshly-ramped playoutDelayMs, which is what lets the buffer start holding.
     const target = this.computePlayoutTargetDelay(now)
-    if (this.playoutEpochLocalMs !== null) {
-      if (target < this.playoutDelayMs) {
-        const step = Math.min(this.playoutDelayMs - target, this.PLAYOUT_SHRINK_MS_PER_S * dt)
-        this.playoutDelayMs -= step
-        this.playoutEpochLocalMs -= step // present sooner
-      } else if (target > this.playoutDelayMs) {
-        const step = Math.min(target - this.playoutDelayMs, this.PLAYOUT_GROW_MS_PER_S * dt)
-        this.playoutDelayMs += step
-        this.playoutEpochLocalMs += step // hold longer
-      }
-      // Guard against PTS discontinuities: if the head is scheduled absurdly far
-      // out, drop the clock and re-establish from the current head.
-      if (this.playoutQueue.length > 0) {
-        const pt = this.playoutPresentTimeMs(this.playoutQueue[0].ptsUs)
-        if (pt > now + 1000 || pt < now - 1000) this.playoutEpochLocalMs = null
-      }
+    if (target < this.playoutDelayMs) {
+      const step = Math.min(this.playoutDelayMs - target, this.PLAYOUT_SHRINK_MS_PER_S * dt)
+      this.playoutDelayMs -= step
+      if (this.playoutEpochLocalMs !== null) this.playoutEpochLocalMs -= step // present sooner
+    } else if (target > this.playoutDelayMs) {
+      const step = Math.min(target - this.playoutDelayMs, this.PLAYOUT_GROW_MS_PER_S * dt)
+      this.playoutDelayMs += step
+      if (this.playoutEpochLocalMs !== null) this.playoutEpochLocalMs += step // hold longer
+    }
+    // Guard against PTS discontinuities: if the head is scheduled absurdly far
+    // out, drop the clock and re-establish from the current head.
+    if (this.playoutEpochLocalMs !== null && this.playoutQueue.length > 0) {
+      const pt = this.playoutPresentTimeMs(this.playoutQueue[0].ptsUs)
+      if (pt > now + 1000 || pt < now - 1000) this.playoutEpochLocalMs = null
     }
 
     // Establish the clock on the first buffered frame.
