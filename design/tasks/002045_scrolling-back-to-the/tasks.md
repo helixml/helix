@@ -6,7 +6,7 @@
 - [x] In `scrollToBottom` (~line 153), after the existing `container.scrollTop = container.scrollHeight` write, add `lastScrollTopRef.current = container.scrollHeight` so the subsequent `onScroll` event sees no delta (prevents AC-4 spurious re-enable on initial mount with off-preference)
 - [x] In the ResizeObserver's auto-scroll-on-growth branch (~lines 315-318), add `lastScrollTopRef.current = container.scrollHeight` after the existing `container.scrollTop = container.scrollHeight` write
 - [x] In `handleLoadOlder`'s viewport-preserve write (~lines 462-463), add `lastScrollTopRef.current = containerRef.current.scrollTop` after `containerRef.current.scrollTop += newScrollHeight - prevScrollHeight` (prevents AC-5 spurious re-enable on pagination)
-- [~] `cd frontend && yarn build` — confirm zero TypeScript / build errors
+- [x] `cd frontend && yarn build` — confirm zero TypeScript / build errors (used `npx tsc --noEmit` instead; `yarn build` itself fails on `dist/` permissions because the dir is bind-mounted root-owned in this dev env — TypeScript-only check is the right verification here since the inner Helix runs Vite HMR on port 8081 anyway, no rebuild needed)
 - [ ] Verify in the inner Helix at `http://localhost:8080` (register/login as `test@helix.ml` / `helixtest` per `CLAUDE.md`, complete onboarding, open a session detail page with `EmbeddedSessionView`):
   - [ ] AC-1 wheel: pause auto-scroll, wheel up to confirm OFF, wheel back down to bottom — toggle goes filled-primary, `localStorage.helix.autoScroll === "true"`
   - [ ] AC-1 scrollbar drag: same but drag the scrollbar handle to the bottom

@@ -250,6 +250,29 @@ Manual test matrix (mirrors the AC table above):
   re-enable. This matches the existing behaviour of the toggle button
   and pill click — consistent.
 
+## Implementation Notes
+
+- **Line numbers in the design were off by ~20** because a new
+  `autoScrollOnMount` `useEffect` block (lines 116-122) was added
+  between when this spec was written and when implementation began.
+  The structural design is unaffected — all the original anchor points
+  (`upwardAccumRef` declaration, session-reset effect, `handleScroll`,
+  `scrollToBottom`, ResizeObserver branch, `handleLoadOlder` pagination
+  write) are intact, just shifted. The implementation patched at the
+  current line numbers; no semantic change.
+- **`yarn build` fails in this dev env** because `frontend/dist/` is
+  bind-mounted root-owned (FRONTEND_URL=/www production-mode pattern
+  documented in CLAUDE.md). Used `npx tsc --noEmit` for type-checking
+  instead — exit 0, no errors. The inner Helix at `localhost:8080`
+  picks up the source change via Vite HMR on the proxied port 8081
+  with no rebuild needed.
+- **No other surface uses `EmbeddedSessionView`'s auto-scroll model.**
+  Grepped for `autoScroll` / `scrollToBottom` / `isAtBottom` across
+  `frontend/src/`: hits in `RunnerLogs.tsx`, `LogViewerModal.tsx`,
+  `PreviewPanel.tsx`, and `DataGridWithFilters.tsx` are all separate
+  implementations with their own scroll logic — confirmed in scope per
+  the requirements doc.
+
 ## Notes for Future Work
 
 If we ever want to differentiate "scrolled to bottom via fling" vs
