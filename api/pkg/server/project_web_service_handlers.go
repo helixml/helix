@@ -45,8 +45,15 @@ type AddDomainRequest struct {
 	Hostname string `json:"hostname"`
 }
 
-// getProjectWebService returns state + verified routes + recent deploys
-// for a project's web service feature.
+// getProjectWebService godoc
+// @Summary Get project web service state
+// @Description Return enable/disable state, hostnames, and recent deploys for a project's web service.
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} ProjectWebServiceResponse
+// @Router /api/v1/projects/{id}/web-service [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Request) (*ProjectWebServiceResponse, *system.HTTPError) {
 	project, herr := s.requireProjectAccess(r, types.ActionGet)
 	if herr != nil {
@@ -80,9 +87,17 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 	}, nil
 }
 
-// putProjectWebService toggles the feature and updates container_port.
-// Enabling pre-seeds a default subdomain under DEV_SUBDOMAIN if one is
-// configured. Disabling removes every vhost route for the project.
+// putProjectWebService godoc
+// @Summary Update project web service state
+// @Description Toggle web service enable/disable and update container_port. Enabling pre-seeds the default subdomain.
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param body body PutProjectWebServiceRequest true "Update request"
+// @Success 200 {object} ProjectWebServiceResponse
+// @Router /api/v1/projects/{id}/web-service [put]
+// @Security BearerAuth
 func (s *HelixAPIServer) putProjectWebService(_ http.ResponseWriter, r *http.Request) (*ProjectWebServiceResponse, *system.HTTPError) {
 	project, herr := s.requireProjectAccess(r, types.ActionUpdate)
 	if herr != nil {
@@ -153,10 +168,17 @@ func (s *HelixAPIServer) putProjectWebService(_ http.ResponseWriter, r *http.Req
 	return s.getProjectWebService(nil, r)
 }
 
-// setActiveWebServiceSandbox is the manual-deploy primitive: point the
-// project's web service at a specific sandbox. The auto-deploy-on-push
-// path (deferred) uses the same store primitive once it knows which
-// sandbox holds the new build.
+// setActiveWebServiceSandbox godoc
+// @Summary Point a project web service at a sandbox
+// @Description Manual deploy primitive — set the sandbox that vhost requests route to.
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param body body SetActiveSandboxRequest true "Active sandbox request"
+// @Success 200 {object} types.ProjectWebServiceState
+// @Router /api/v1/projects/{id}/web-service/active-sandbox [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) setActiveWebServiceSandbox(_ http.ResponseWriter, r *http.Request) (*types.ProjectWebServiceState, *system.HTTPError) {
 	project, herr := s.requireProjectAccess(r, types.ActionUpdate)
 	if herr != nil {
@@ -202,6 +224,18 @@ func (s *HelixAPIServer) setActiveWebServiceSandbox(_ http.ResponseWriter, r *ht
 	return state, nil
 }
 
+// addProjectWebServiceDomain godoc
+// @Summary Add a custom domain to a project web service
+// @Description Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param body body AddDomainRequest true "Domain to add"
+// @Success 200 {object} types.VHostRoute
+// @Router /api/v1/projects/{id}/web-service/domains [post]
+// @Security BearerAuth
+//
 // addProjectWebServiceDomain registers a custom hostname for the project.
 // Inserts the row in unverified state with a fresh verification_token.
 // Verification (DNS resolves to us + token check) happens out-of-band
@@ -257,7 +291,15 @@ func (s *HelixAPIServer) addProjectWebServiceDomain(_ http.ResponseWriter, r *ht
 	return route, nil
 }
 
-// deleteProjectWebServiceDomain removes one domain from the project.
+// deleteProjectWebServiceDomain godoc
+// @Summary Remove a custom domain from a project web service
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param domain_id path string true "Domain row ID"
+// @Success 200 {object} map[string]bool
+// @Router /api/v1/projects/{id}/web-service/domains/{domain_id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteProjectWebServiceDomain(_ http.ResponseWriter, r *http.Request) (interface{}, *system.HTTPError) {
 	project, herr := s.requireProjectAccess(r, types.ActionUpdate)
 	if herr != nil {

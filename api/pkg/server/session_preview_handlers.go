@@ -17,8 +17,14 @@ type MintPreviewTokenRequest struct {
 	Port int `json:"port"`
 }
 
-// listSessionPreviewTokens returns the currently active preview tokens
-// for a session.
+// listSessionPreviewTokens godoc
+// @Summary List session preview tokens
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {array} types.VHostRoute
+// @Router /api/v1/sessions/{id}/preview-tokens [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listSessionPreviewTokens(_ http.ResponseWriter, r *http.Request) ([]*types.VHostRoute, *system.HTTPError) {
 	user := getRequestUser(r)
 	sessionID := mux.Vars(r)["id"]
@@ -36,8 +42,17 @@ func (s *HelixAPIServer) listSessionPreviewTokens(_ http.ResponseWriter, r *http
 	return routes, nil
 }
 
-// mintSessionPreviewToken creates a new preview token row for a session
-// + port. Returns the new route (so the UI gets the URL immediately).
+// mintSessionPreviewToken godoc
+// @Summary Mint a preview token for a session port
+// @Description Mints a share-<adj>-<noun>-<8hex> hostname pointing at the session's container on the given port.
+// @Tags Sessions
+// @Accept json
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param body body MintPreviewTokenRequest true "Port to expose"
+// @Success 200 {object} types.VHostRoute
+// @Router /api/v1/sessions/{id}/preview-tokens [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) mintSessionPreviewToken(_ http.ResponseWriter, r *http.Request) (*types.VHostRoute, *system.HTTPError) {
 	user := getRequestUser(r)
 	sessionID := mux.Vars(r)["id"]
@@ -81,8 +96,15 @@ func (s *HelixAPIServer) mintSessionPreviewToken(_ http.ResponseWriter, r *http.
 	return route, nil
 }
 
-// rotateSessionPreviewToken replaces the hostname on an existing token
-// row (old URL stops working, new one takes effect).
+// rotateSessionPreviewToken godoc
+// @Summary Rotate a session preview token hostname
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param token_id path string true "Token row ID"
+// @Success 200 {object} types.VHostRoute
+// @Router /api/v1/sessions/{id}/preview-tokens/{token_id}/rotate [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) rotateSessionPreviewToken(_ http.ResponseWriter, r *http.Request) (*types.VHostRoute, *system.HTTPError) {
 	user := getRequestUser(r)
 	sessionID := mux.Vars(r)["id"]
@@ -123,7 +145,15 @@ func (s *HelixAPIServer) rotateSessionPreviewToken(_ http.ResponseWriter, r *htt
 	return updated, nil
 }
 
-// deleteSessionPreviewToken revokes a preview token.
+// deleteSessionPreviewToken godoc
+// @Summary Revoke a session preview token
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param token_id path string true "Token row ID"
+// @Success 200 {object} map[string]bool
+// @Router /api/v1/sessions/{id}/preview-tokens/{token_id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteSessionPreviewToken(_ http.ResponseWriter, r *http.Request) (interface{}, *system.HTTPError) {
 	user := getRequestUser(r)
 	sessionID := mux.Vars(r)["id"]
