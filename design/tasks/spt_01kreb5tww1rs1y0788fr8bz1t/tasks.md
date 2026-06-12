@@ -1,8 +1,9 @@
-# Implementation Tasks: Fix dark-on-dark text in message queue header in light mode
+# Implementation Tasks: Fix light-mode contrast bugs in queue header and usage sparkline tooltip
 
-- [ ] In `frontend/src/components/common/RobustPromptInput.tsx`, add a `color` rule to the queue-header `Box` `sx` (around line 1161) that mirrors the existing `bgcolor` conditional: `color: editingId ? 'info.contrastText' : isOnline ? 'primary.contrastText' : 'warning.contrastText'`
-- [ ] Run `cd frontend && yarn build` (or rely on the Vite dev server in `helix-frontend-1` for HMR) and verify it compiles cleanly
-- [ ] In the inner Helix at `http://localhost:8080`, switch to **light mode** and reproduce the queue header in all three states (online queued, offline queued, editing); confirm the label and icon are clearly readable on the dark header strip
-- [ ] Switch to **dark mode** and confirm there is no visual regression (header still looks identical to before)
-- [ ] Capture before/after screenshots into `screenshots/` in this task folder (one pair per state is enough; light-mode before is the key one)
-- [ ] Commit with a conventional-commit subject like `fix(frontend): make message queue header readable in light mode` and open a PR against `helixml/helix`
+- [ ] In `frontend/src/components/common/RobustPromptInput.tsx`, add a `color` rule to the queue-header `Box` `sx` (around line 1161) mirroring the existing `bgcolor` conditional: `color: editingId ? 'info.contrastText' : isOnline ? 'primary.contrastText' : 'warning.contrastText'`
+- [ ] In `frontend/src/components/usage/UsageSparkline.tsx`, import `useLightTheme` from `../../hooks/useLightTheme`, call it in the component body, and use it to switch (a) the SVG hover guideline `stroke` (around line 107) between `rgba(0,0,0,0.4)` (light) and the existing `rgba(255,255,255,0.5)` (dark), and (b) the tooltip `<Paper>` `backgroundColor` / `border` / `boxShadow` (around lines 132–137) so light mode uses `rgba(255,255,255,0.97)` / `1px solid rgba(0,0,0,0.10)` / `0 4px 16px rgba(0,0,0,0.12)` and dark mode keeps the current dark values
+- [ ] Run `cd frontend && yarn build` (or rely on Vite HMR in `helix-frontend-1`) and verify it compiles cleanly
+- [ ] In the inner Helix at `http://localhost:8080`, **light mode**: queue messages in a session and confirm the header label and icon are legible in all three states (online, offline, editing); navigate to the Projects cards view and hover a sparkline — confirm the tooltip and the vertical dashed guideline are visible/legible
+- [ ] Switch to **dark mode** and confirm no visual regression in either surface (header still readable; sparkline tooltip still has dark surface with light text)
+- [ ] Capture before/after screenshots into `screenshots/` in this task folder (light-mode "before" for both bugs is the critical evidence)
+- [ ] Commit with a conventional-commit subject like `fix(frontend): repair light-mode contrast in queue header and sparkline tooltip` and open a PR against `helixml/helix`
