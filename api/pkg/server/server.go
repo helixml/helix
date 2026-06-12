@@ -977,6 +977,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// apiServer.registerSecurityRoutes(subRouter)
 
 	// OpenAI API compatible routes
+	// Domain ownership verification (HTTP-01-style). Public on purpose:
+	// the operator's DNS verifier must reach us without auth and the
+	// only thing we return is the token from the URL.
+	router.HandleFunc("/.well-known/helix-domain-verify/{token}", apiServer.domainVerificationResponse).Methods(http.MethodGet)
+
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
@@ -1018,6 +1023,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
+
+	// Preview-token URLs for sharing a session's running port over a
+	// random share-* subdomain.
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens", system.Wrapper(apiServer.listSessionPreviewTokens)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens", system.Wrapper(apiServer.mintSessionPreviewToken)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens/{token_id}/rotate", system.Wrapper(apiServer.rotateSessionPreviewToken)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens/{token_id}", system.Wrapper(apiServer.deleteSessionPreviewToken)).Methods(http.MethodDelete)
 
 	// Session TOC and turn-based navigation for agent context retrieval
 	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)
@@ -1503,6 +1515,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
+
+	// Project web service hosting (name-based virtual hosting + custom domains).
+	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.getProjectWebService)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.putProjectWebService)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/web-service/active-sandbox", system.Wrapper(apiServer.setActiveWebServiceSandbox)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/domains", system.Wrapper(apiServer.addProjectWebServiceDomain)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/domains/{domain_id}", system.Wrapper(apiServer.deleteProjectWebServiceDomain)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/build", system.Wrapper(apiServer.triggerGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/cancel", system.Wrapper(apiServer.cancelGoldenBuild)).Methods(http.MethodPost)
