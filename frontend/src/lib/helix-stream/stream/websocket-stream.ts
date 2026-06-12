@@ -2213,7 +2213,8 @@ export class WebSocketStream {
     avgRenderIntervalMs: number      // Average render interval
     receiveIntervalSamples: number[] // Rolling window of inter-arrival intervals (for sparkline/burst)
     renderIntervalSamples: number[]  // Rolling window of inter-render intervals (for sparkline/burst)
-    playoutBufferMs: number          // Current adaptive playout buffer depth (0 while interacting)
+    playoutBufferMs: number          // Current adaptive playout buffer depth (0 while interacting / no jitter)
+    playoutState: 'smoothing' | 'interactive' | 'idle' // why the buffer is at its current depth
     // FPS timestamp
     fpsUpdatedAt: number             // Wall clock timestamp of last FPS update
     // Debug flags
@@ -2296,6 +2297,12 @@ export class WebSocketStream {
       receiveIntervalSamples: this.receiveIntervalSamples.slice(),
       renderIntervalSamples: this.renderIntervalSamples.slice(),
       playoutBufferMs: Math.round(this.playoutDelayMs),
+      // Why the buffer is at its current depth: 'smoothing' (engaged), or one of
+      // the two zero cases — 'interactive' (collapsed for low latency on recent
+      // input) vs 'idle' (no jitter worth buffering).
+      playoutState: this.playoutDelayMs > 0
+        ? 'smoothing'
+        : (performance.now() - this.lastInputMs < this.PLAYOUT_IDLE_RAMP_MS ? 'interactive' : 'idle'),
       // Debug flags
       usingSoftwareDecoder: this.forceSoftwareDecoding,
       // Frame health monitoring (for iOS Safari stall detection)
