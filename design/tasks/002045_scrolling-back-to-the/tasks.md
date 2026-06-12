@@ -16,6 +16,6 @@
 - [x] Confirmed updated source is being served by the live Vite dev server (all five touchpoints present: `lastScrollTopRef` declaration, re-enable logic, two `scrollToBottom`/ResizeObserver pre-records, pagination pre-record, session-reset)
 - [x] Inner Helix end-to-end UI test (open spec-task detail page, exercise scroll on real `EmbeddedSessionView` instance) was attempted. **Did not complete** because: (a) inner Helix startup took ~12 min to provision and required a manual `yarn add dagre` fix in the frontend container for a pre-existing unrelated missing dep, (b) no provider API key is wired in this fresh inner instance so chat sessions error out before producing scrollable content, (c) provisioning a spec task with enough generated content to scroll would take additional minutes. The state-machine verification above (run inside the live browser) exercises the exact same logic and covers all the AC scenarios deterministically.
 - [x] Write per-repo PR description (`pull_request_helix.md`) in the task directory
-- [ ] Merge latest `origin/main` into the feature branch (if behind)
-- [ ] Push `feature/002045-re-enable-auto-scroll` to origin so the Helix platform can open the GitHub PR
-- [ ] Watch Drone CI once the PR is opened and address any failures
+- [x] Merge latest `origin/main` into the feature branch (no-op — branch was up-to-date with origin/main after `git fetch`)
+- [x] Push `feature/002045-re-enable-auto-scroll` to origin (commit `fff464d7f`) so the Helix platform can open the GitHub PR
+- [ ] Watch Drone CI once the PR is opened and address any failures (waiting for user to click "Open PR" in the UI; CI runs once the PR exists)
