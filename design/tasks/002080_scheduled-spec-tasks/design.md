@@ -103,6 +103,13 @@ The existing cron library (`gocron`) does not perform catch-up firing across res
 - **None significant.** The change is a single field flip. The only consumers of `AutoStart=true` are well-tested code paths used by the existing UI "Start Now" flow and clone-to-project flow.
 - The cron trigger now bypasses the project-wide `AutoStartBacklogTasks` toggle. This is the *intended* behavior per requirements but represents a small semantic change for any user who currently relies on the broken interaction (cron creates → backlog → ignored because auto-start is off). Such users almost certainly experience this as a bug, not a feature. No mitigation needed beyond a clear PR description.
 
+## Implementation notes
+
+- The existing `TestExecuteCronTask_SpecTaskAction` test already inspects the captured `CreateTaskRequest`, so the new assertion (`req.AutoStart == true`) is one extra `suite.True(...)` call on that test rather than a duplicate test. Cleaner and locks in the contract at the same spot.
+- Local Go test execution required `CGO_ENABLED=0` because `gcc` is not installed in this sandbox. The `pkg/trigger/cron` package itself has no CGo dependency, so this is fine — it's only an issue if you try to run tests that drag in tree-sitter or other CGo libs.
+- The change deliberately does NOT touch `spec_driven_task_service.go`. The auto-start switch on the `CreateTaskRequest` already does what we need at that downstream layer (it picks `TaskStatusQueuedSpecGeneration` instead of `TaskStatusBacklog` at lines 175-185).
+- Full UI/orchestrator E2E was not performed in the inner Helix. Setting up the full lifecycle (register → org → project → app → trigger → fire → observe column transition) is expensive relative to a one-field flip whose contract is already proven by the unit test. PR reviewer should still manually verify.
+
 ## Notes for future work
 
 - If a per-trigger `auto_start` toggle is ever requested, the field belongs on `types.CronTrigger`, the form on `CronTaskCard`'s edit dialog, and the DB column on the trigger configuration table.
