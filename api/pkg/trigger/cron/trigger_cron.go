@@ -735,6 +735,9 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		ProjectID: trigger.ProjectID,
 		Prompt:    trigger.Input,
 		UserID:    userID,
+		// Scheduled triggers explicitly want the task to run at the scheduled
+		// time, so skip backlog regardless of project AutoStartBacklogTasks.
+		AutoStart: true,
 	})
 	if err != nil {
 		log.Error().
