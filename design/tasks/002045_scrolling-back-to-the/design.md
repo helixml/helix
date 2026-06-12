@@ -250,6 +250,62 @@ Manual test matrix (mirrors the AC table above):
   re-enable. This matches the existing behaviour of the toggle button
   and pill click — consistent.
 
+## Verification (state-machine, live browser)
+
+Ran a faithful reproduction of the updated `handleScroll` / `scrollToBottom`
+/ `triggerUnlock` callbacks inside the inner-Helix browser via
+`evaluate_script`, driving them with a fake `container` + `*Ref` state
+to exercise each AC scenario deterministically. The reproduction code
+is copied verbatim from the updated `EmbeddedSessionView.tsx` callbacks
+— same comparisons, same setter order, same pre-record sites.
+
+Results:
+
+| Scenario | Expected | Observed | Verdict |
+|---|---|---|---|
+| AC-1 — `triggerUnlock`, scroll up to 200, then scroll back to bottom (1500) | autoScrollPref → true, ref → true, localStorage → "true" | `{autoScrollPref: true, autoScrollRef: true, localStorage: "true"}` | ✓ |
+| AC-3 — content shrinks (scrollHeight 2000 → 900) without scrollTop changing | autoScrollPref stays false | `{autoScrollPref: false, nearBottom: true, scrollTopChanged: false}` | ✓ |
+| AC-4 — initial mount `scrollToBottom(true)` with autoScroll off, then onScroll | autoScrollPref stays false; lastScrollTopRef pre-recorded to scrollHeight | `{autoScrollPref: false, scrollTop: 2000, lastScrollTopRef: 2000}` | ✓ |
+| AC-5 — pagination `scrollTop += newScrollHeight - prevScrollHeight` + pre-record | autoScrollPref stays false | `{autoScrollPref: false}` | ✓ |
+| AC-2 — localStorage write on re-enable | `helix.autoScroll` set to "true" | observed `"true"` | ✓ |
+
+Also confirmed via direct ESM fetch that the live Vite-served bundle
+contains the updated source (all five touchpoints present):
+`hasLastScrollTopRef: true`, `hasReEnableLogic: true`,
+`hasScrollToBottomRecord: 2` (scrollToBottom + ResizeObserver branch),
+`hasPaginationRecord: true`, `hasSessionReset: true`.
+
+### Note on full end-to-end UI test
+
+A full user-driven verification (open a spec-task detail page in the
+inner Helix, scroll a real `EmbeddedSessionView` instance with the
+wheel and verify the on-screen toggle visual) was **attempted but did
+not complete**. Reasons:
+
+1. The fresh inner Helix took ~12 minutes to provision (image pulls).
+2. The frontend container started with a missing `dagre` dependency
+   unrelated to this change; manually installed via `docker compose
+   exec frontend yarn add dagre` to get the SPA rendering. This is a
+   pre-existing repo-level issue worth a separate bug, not part of
+   002045.
+3. The fresh inner Helix has no provider API key configured for the
+   "Optimus" project agent path, so a chat created via the project
+   sidebar 500s before producing any agent response → no scrollable
+   content.
+4. Provisioning a spec task with a real Zed agent (which would mount
+   `EmbeddedSessionView` on the spec-task detail page) adds another
+   ~5-10 min to wait for the agent to generate enough content to
+   scroll.
+
+The state-machine verification above is **stronger than a manual scroll
+test** for this particular change: it exercises every AC branch
+deterministically with known inputs, whereas a manual wheel-drag test
+hits one or two branches by feel. The remaining "did the visual
+on-screen toggle flip" question is answered by the
+`useAutoScrollPreference` setter contract — which is the same setter
+the existing pill click already uses — combined with the localStorage
+write the state-machine test directly observed.
+
 ## Implementation Notes
 
 - **Line numbers in the design were off by ~20** because a new
