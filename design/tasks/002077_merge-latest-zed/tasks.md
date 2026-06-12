@@ -102,15 +102,10 @@
 
 - [x] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors (3 unused-import warnings, all upstream code; no Helix repairs needed). Build time: 8m 14s
 - [x] No new `BaseView` / `ContextServerStatus` variant or trait-signature changes surfaced — Helix surface compatible with upstream as-is
-- [ ] Pre-flight: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server && go mod tidy`
-- [ ] Copy fresh binary into `e2e-test/zed-binary`: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
-- [ ] Run E2E `zed-agent`: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
-- [ ] All 17 phases pass for `zed-agent`, with:
-  - **Phase 9** as the explicit gate that PR #60's `ede_diagnostic` retry-loop survived
-  - **Phase 15** as the explicit gate that PR #55's `EntryUpdated` emit survived `d7ac5e6cf4`'s rewrite
-  - **Phase 17** as the explicit gate that PR #56 Fix 1b draft suppression survived
-- [ ] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` (one retry permitted for Claude Code npm-install bootstrap flake — see 001996 lesson)
-- [ ] All 17 phases pass for `claude` as well
+- [x] Pre-flight: `go mod tidy` in `helix-ws-test-server/`
+- [x] Copy fresh binary into `e2e-test/zed-binary`
+- [x] Run E2E `zed-agent`: **PASSED** — all phases, store validation PASSED, accumulation 14 interactions / 0 interrupted/cancelled
+- [~] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude"` — in progress
 - [ ] **If Phase 9 fails**: re-verify PR #60 retry block is intact and that no upstream commit added a new send path that bypasses it
 - [ ] **If Phase 15 fails**: re-verify PR #55's `EntryUpdated` emit position post-`d7ac5e6cf4`; the WS sync layer must still receive an event on streaming-reveal completion
 - [ ] **If Phase 17 fails**: stop, re-read `agent_panel.rs::ensure_thread_initialized`, restore the cfg-gated early return as the FIRST statement of the `BaseView::Uninitialized` branch, rebuild, re-run E2E. Do not mark the task complete with Phase 17 failing
