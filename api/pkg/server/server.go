@@ -162,8 +162,7 @@ type HelixAPIServer struct {
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
-	exposedPortManager         *ExposedPortManager // Tracks exposed ports for session dev containers
-	wg                         sync.WaitGroup      // Control for goroutines to enable tests
+	wg                         sync.WaitGroup // Control for goroutines to enable tests
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook      // optional test hook, nil in production
@@ -495,9 +494,6 @@ func NewServer(
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
 
-	// Initialize exposed port manager for dev container service exposure
-	apiServer.initExposedPortManager()
-
 	// Register Kodit MCP backend (code intelligence)
 	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
@@ -741,17 +737,18 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Set up the HTTP handler, optionally wrapping with subdomain proxy
 	var handler http.Handler = apiServer.router
 
-	// Configure subdomain-based virtual hosting for dev container ports
-	subdomainConfig := parseDevSubdomainConfig(apiServer.Cfg.WebServer.DevSubdomain, apiServer.Cfg.WebServer.URL)
-	if subdomainConfig.Enabled {
+	// Configure name-based virtual hosting (project web services + sandbox
+	// preview tokens). Reuses existing DEV_SUBDOMAIN as the base and
+	// SERVER_URL as the canonical hostname. The middleware is a no-op
+	// fall-through when DEV_SUBDOMAIN is unset.
+	vhostCfg := parseVHostConfig(apiServer.Cfg.WebServer.DevSubdomain, apiServer.Cfg.WebServer.URL)
+	if vhostCfg.Enabled {
 		log.Info().
-			Str("dev_subdomain", subdomainConfig.DevSubdomain).
-			Str("base_domain", subdomainConfig.BaseDomain).
-			Msg("Subdomain proxy enabled for dev container ports")
-
-		subdomainMiddleware := NewSubdomainProxyMiddleware(subdomainConfig, apiServer.router, apiServer.router)
-		handler = subdomainMiddleware
+			Str("base_domain", vhostCfg.BaseDomain).
+			Int("canonical_hostnames", len(vhostCfg.CanonicalHostnames)).
+			Msg("vhost middleware enabled (project web services + preview tokens)")
 	}
+	handler = NewVHostMiddleware(vhostCfg, apiServer, apiServer.router)
 
 	srv := &http.Server{
 		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
@@ -1021,13 +1018,6 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
-
-	// Port exposure for dev containers - expose services running inside dev containers
-	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.exposeSessionPort)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.listExposedPorts)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/expose/{port}", system.Wrapper(apiServer.unexposeSessionPort)).Methods(http.MethodDelete)
-	// Proxy to exposed port (no auth for now - TODO: add optional auth)
-	subRouter.PathPrefix("/sessions/{id}/proxy/{port}").HandlerFunc(apiServer.proxyToSessionPort)
 
 	// Session TOC and turn-based navigation for agent context retrieval
 	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)

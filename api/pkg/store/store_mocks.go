@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -1170,6 +1169,20 @@ func (mr *MockStoreMockRecorder) CreateUserSession(ctx, session any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserSession", reflect.TypeOf((*MockStore)(nil).CreateUserSession), ctx, session)
 }
 
+// CreateVHostRoute mocks base method.
+func (m *MockStore) CreateVHostRoute(ctx context.Context, r *types.VHostRoute) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateVHostRoute", ctx, r)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateVHostRoute indicates an expected call of CreateVHostRoute.
+func (mr *MockStoreMockRecorder) CreateVHostRoute(ctx, r any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateVHostRoute", reflect.TypeOf((*MockStore)(nil).CreateVHostRoute), ctx, r)
+}
+
 // CreateWallet mocks base method.
 func (m *MockStore) CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
 	m.ctrl.T.Helper()
@@ -1183,6 +1196,20 @@ func (m *MockStore) CreateWallet(ctx context.Context, wallet *types.Wallet) (*ty
 func (mr *MockStoreMockRecorder) CreateWallet(ctx, wallet any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWallet", reflect.TypeOf((*MockStore)(nil).CreateWallet), ctx, wallet)
+}
+
+// CreateWebServiceDeploy mocks base method.
+func (m *MockStore) CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWebServiceDeploy", ctx, d)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWebServiceDeploy indicates an expected call of CreateWebServiceDeploy.
+func (mr *MockStoreMockRecorder) CreateWebServiceDeploy(ctx, d any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).CreateWebServiceDeploy), ctx, d)
 }
 
 // DecrementSandboxContainerCount mocks base method.
@@ -2039,6 +2066,34 @@ func (m *MockStore) DeleteUserSessionsByUser(ctx context.Context, userID string)
 func (mr *MockStoreMockRecorder) DeleteUserSessionsByUser(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserSessionsByUser", reflect.TypeOf((*MockStore)(nil).DeleteUserSessionsByUser), ctx, userID)
+}
+
+// DeleteVHostRoute mocks base method.
+func (m *MockStore) DeleteVHostRoute(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteVHostRoute", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteVHostRoute indicates an expected call of DeleteVHostRoute.
+func (mr *MockStoreMockRecorder) DeleteVHostRoute(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteVHostRoute", reflect.TypeOf((*MockStore)(nil).DeleteVHostRoute), ctx, id)
+}
+
+// DeleteVHostRoutesByTarget mocks base method.
+func (m *MockStore) DeleteVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteVHostRoutesByTarget", ctx, kind, targetID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteVHostRoutesByTarget indicates an expected call of DeleteVHostRoutesByTarget.
+func (mr *MockStoreMockRecorder) DeleteVHostRoutesByTarget(ctx, kind, targetID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteVHostRoutesByTarget", reflect.TypeOf((*MockStore)(nil).DeleteVHostRoutesByTarget), ctx, kind, targetID)
 }
 
 // DeleteWallet mocks base method.
@@ -2983,6 +3038,21 @@ func (mr *MockStoreMockRecorder) GetProjectExploratorySession(ctx, projectID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectExploratorySession", reflect.TypeOf((*MockStore)(nil).GetProjectExploratorySession), ctx, projectID)
 }
 
+// GetProjectWebServiceState mocks base method.
+func (m *MockStore) GetProjectWebServiceState(ctx context.Context, projectID string) (*types.ProjectWebServiceState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProjectWebServiceState", ctx, projectID)
+	ret0, _ := ret[0].(*types.ProjectWebServiceState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProjectWebServiceState indicates an expected call of GetProjectWebServiceState.
+func (mr *MockStoreMockRecorder) GetProjectWebServiceState(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectWebServiceState", reflect.TypeOf((*MockStore)(nil).GetProjectWebServiceState), ctx, projectID)
+}
+
 // GetProjectsCount mocks base method.
 func (m *MockStore) GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error) {
 	m.ctrl.T.Helper()
@@ -3866,6 +3936,36 @@ func (m *MockStore) GetUsersAggregatedUsageMetrics(ctx context.Context, provider
 func (mr *MockStoreMockRecorder) GetUsersAggregatedUsageMetrics(ctx, provider, from, to any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsersAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetUsersAggregatedUsageMetrics), ctx, provider, from, to)
+}
+
+// GetVHostRouteByHostname mocks base method.
+func (m *MockStore) GetVHostRouteByHostname(ctx context.Context, hostname string) (*types.VHostRoute, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVHostRouteByHostname", ctx, hostname)
+	ret0, _ := ret[0].(*types.VHostRoute)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVHostRouteByHostname indicates an expected call of GetVHostRouteByHostname.
+func (mr *MockStoreMockRecorder) GetVHostRouteByHostname(ctx, hostname any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVHostRouteByHostname", reflect.TypeOf((*MockStore)(nil).GetVHostRouteByHostname), ctx, hostname)
+}
+
+// GetVHostRouteByID mocks base method.
+func (m *MockStore) GetVHostRouteByID(ctx context.Context, id string) (*types.VHostRoute, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVHostRouteByID", ctx, id)
+	ret0, _ := ret[0].(*types.VHostRoute)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVHostRouteByID indicates an expected call of GetVHostRouteByID.
+func (mr *MockStoreMockRecorder) GetVHostRouteByID(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVHostRouteByID", reflect.TypeOf((*MockStore)(nil).GetVHostRouteByID), ctx, id)
 }
 
 // GetWallet mocks base method.
@@ -5191,6 +5291,21 @@ func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
 }
 
+// ListVHostRoutesByTarget mocks base method.
+func (m *MockStore) ListVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) ([]*types.VHostRoute, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVHostRoutesByTarget", ctx, kind, targetID)
+	ret0, _ := ret[0].([]*types.VHostRoute)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVHostRoutesByTarget indicates an expected call of ListVHostRoutesByTarget.
+func (mr *MockStoreMockRecorder) ListVHostRoutesByTarget(ctx, kind, targetID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVHostRoutesByTarget", reflect.TypeOf((*MockStore)(nil).ListVHostRoutesByTarget), ctx, kind, targetID)
+}
+
 // ListWallets mocks base method.
 func (m *MockStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error) {
 	m.ctrl.T.Helper()
@@ -5204,6 +5319,21 @@ func (m *MockStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListWallets(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWallets", reflect.TypeOf((*MockStore)(nil).ListWallets), ctx, q)
+}
+
+// ListWebServiceDeploys mocks base method.
+func (m *MockStore) ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWebServiceDeploys", ctx, projectID, limit)
+	ret0, _ := ret[0].([]*types.WebServiceDeploy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWebServiceDeploys indicates an expected call of ListWebServiceDeploys.
+func (mr *MockStoreMockRecorder) ListWebServiceDeploys(ctx, projectID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).ListWebServiceDeploys), ctx, projectID, limit)
 }
 
 // ListWorkSessionsBySpecTask mocks base method.
@@ -5320,6 +5450,20 @@ func (m *MockStore) MarkSandboxInstanceOfflineIfStale(ctx context.Context, id st
 func (mr *MockStoreMockRecorder) MarkSandboxInstanceOfflineIfStale(ctx, id, staleBefore any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSandboxInstanceOfflineIfStale", reflect.TypeOf((*MockStore)(nil).MarkSandboxInstanceOfflineIfStale), ctx, id, staleBefore)
+}
+
+// MarkVHostRouteVerified mocks base method.
+func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkVHostRouteVerified", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkVHostRouteVerified indicates an expected call of MarkVHostRouteVerified.
+func (mr *MockStoreMockRecorder) MarkVHostRouteVerified(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkVHostRouteVerified", reflect.TypeOf((*MockStore)(nil).MarkVHostRouteVerified), ctx, id)
 }
 
 // ParseAndCreateImplementationTasks mocks base method.
@@ -5467,6 +5611,20 @@ func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
 }
 
+// RotateVHostRouteHostname mocks base method.
+func (m *MockStore) RotateVHostRouteHostname(ctx context.Context, id, newHostname string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateVHostRouteHostname", ctx, id, newHostname)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RotateVHostRouteHostname indicates an expected call of RotateVHostRouteHostname.
+func (mr *MockStoreMockRecorder) RotateVHostRouteHostname(ctx, id, newHostname any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateVHostRouteHostname", reflect.TypeOf((*MockStore)(nil).RotateVHostRouteHostname), ctx, id, newHostname)
+}
+
 // SearchPrompts mocks base method.
 func (m *MockStore) SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error) {
 	m.ctrl.T.Helper()
@@ -5510,6 +5668,20 @@ func (m *MockStore) SeedModelsFromEnvironment(ctx context.Context) error {
 func (mr *MockStoreMockRecorder) SeedModelsFromEnvironment(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SeedModelsFromEnvironment", reflect.TypeOf((*MockStore)(nil).SeedModelsFromEnvironment), ctx)
+}
+
+// SetActiveWebServiceSandbox mocks base method.
+func (m *MockStore) SetActiveWebServiceSandbox(ctx context.Context, projectID, sandboxID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetActiveWebServiceSandbox", ctx, projectID, sandboxID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetActiveWebServiceSandbox indicates an expected call of SetActiveWebServiceSandbox.
+func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sandboxID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
 // SetLicenseKey mocks base method.
@@ -6670,6 +6842,34 @@ func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, am
 func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
+}
+
+// UpdateWebServiceDeploy mocks base method.
+func (m *MockStore) UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]any) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWebServiceDeploy", ctx, id, updates)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWebServiceDeploy indicates an expected call of UpdateWebServiceDeploy.
+func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
+}
+
+// UpsertProjectWebServiceState mocks base method.
+func (m *MockStore) UpsertProjectWebServiceState(ctx context.Context, state *types.ProjectWebServiceState) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertProjectWebServiceState", ctx, state)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertProjectWebServiceState indicates an expected call of UpsertProjectWebServiceState.
+func (mr *MockStoreMockRecorder) UpsertProjectWebServiceState(ctx, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertProjectWebServiceState", reflect.TypeOf((*MockStore)(nil).UpsertProjectWebServiceState), ctx, state)
 }
 
 // UpsertZedSettingsOverride mocks base method.
