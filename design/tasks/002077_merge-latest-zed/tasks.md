@@ -2,14 +2,14 @@
 
 ## Setup
 
-- [ ] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, **892 lines** as of start of task; latest entry `## Merge 002029-extension round 2 (2026-06-02)` at line 750
-- [ ] Read prior plan `002029_merge-latest-zed/` end-to-end (requirements.md, design.md, tasks.md, pull_request_zed.md, pull_request_helix.md) — closest precedent (mandatory)
-- [ ] Skim 002059 plan to understand context; do NOT reuse `feature/002059-merge-latest-zed` (task was planned but never executed)
-- [ ] Read PR #60 commits in full: `git show 27e8867c9e` (retry loop) + `git show e4c36d837c` (cleanup). The retry logic in `crates/external_websocket_sync/src/thread_service.rs::handle_follow_up_message` must survive any cleanup
-- [ ] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] `git fetch upstream && git fetch origin`
-- [ ] Verify divergence: **256** commits to merge, fork HEAD `ecdc2ea67d`, upstream HEAD `992f395c3d` (re-confirm at runtime — numbers may shift if anyone pushed since planning)
-- [ ] Confirm Helix-only commits since 002029: `git log 79b9bfb1d6..origin/main --no-merges` should show `27e8867c9e` + `e4c36d837c` (PR #60). If more, read them.
+- [~] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, **892 lines** as of start of task; latest entry `## Merge 002029-extension round 2 (2026-06-02)` at line 750
+- [x] Read prior plan `002029_merge-latest-zed/` end-to-end (requirements.md, design.md, tasks.md, pull_request_zed.md, pull_request_helix.md) — closest precedent (mandatory)
+- [x] Skim 002059 plan to understand context; do NOT reuse `feature/002059-merge-latest-zed` (task was planned but never executed)
+- [~] Read PR #60 commits in full: `git show 27e8867c9e` (retry loop) + `git show e4c36d837c` (cleanup). The retry logic in `crates/external_websocket_sync/src/thread_service.rs::handle_follow_up_message` must survive any cleanup
+- [x] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
+- [x] `git fetch upstream && git fetch origin`
+- [x] Verify divergence: **256** commits to merge, fork HEAD `ecdc2ea67d`, upstream HEAD `992f395c3d` (re-confirm at runtime — numbers may shift if anyone pushed since planning)
+- [x] Confirm Helix-only commits since 002029: `git log 79b9bfb1d6..origin/main --no-merges` should show `27e8867c9e` + `e4c36d837c` (PR #60). If more, read them.
 - [ ] Pull `origin/main` first in case fork main moved
 - [ ] Create feature branch: `feature/002077-merge-latest-zed` from current fork main
 
