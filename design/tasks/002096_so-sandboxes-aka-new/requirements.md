@@ -64,13 +64,57 @@ So that existing deployments don't break.
   proxy (Caddy, Cloudflare, etc.), or disable vhost-based hosting entirely.
 - In `passthrough` mode Helix listens HTTP only on its existing port and
   trusts `X-Forwarded-Proto` / `X-Forwarded-Host`.
-- In `auto` mode Helix listens on `:443` and `:80` for ACME challenges.
+- In `auto` mode Helix listens on `:443` and `:80` for ACME challenges, and
+  terminates TLS for **all** hostnames it serves — including the main Helix
+  control-plane domain itself. No separate listener / cert manager for the
+  main app vs hosted web services.
 - **Constraint:** if dynamic vhosting is enabled (random per-sandbox
   subdomains under `HELIX_VHOST_BASE_DOMAIN`), the only supported mode is
   `auto`. Helix refuses to start in `passthrough` mode with dynamic vhosting
   on, because an external terminator cannot dynamically issue certs for
   hostnames that are minted at runtime. The startup error must explain this
   and link to docs.
+
+### As an operator, I want the main Helix app to be served through the same vhost layer
+So that there is one consistent routing/TLS path and no parallel listener to maintain.
+
+**Acceptance:**
+- The canonical Helix hostname(s) — declared via `HELIX_CANONICAL_DOMAIN`
+  (comma-separated list allowed) — are served by the same listener and the
+  same cert manager as project web services and sandbox previews.
+- A request whose `Host` matches a canonical Helix hostname is dispatched to
+  the existing main API / UI mux; a request whose `Host` matches a
+  `vhost_routes` row is proxied to the appropriate sandbox; an unknown host
+  returns a Helix-branded 404.
+- This holds in both `auto` and `passthrough` modes. In `passthrough` mode
+  the upstream proxy is expected to forward all relevant hostnames
+  (canonical + base wildcard + custom domains) to Helix on its HTTP port.
+
+### As an operator, I want users unable to hijack the main Helix domain
+So that no project can serve its own content from the control-plane URL.
+
+**Acceptance:**
+- A reserved-hostname list blocks any user from registering, verifying, or
+  having a default subdomain allocated for:
+  - any hostname listed in `HELIX_CANONICAL_DOMAIN`;
+  - any hostname listed in `HELIX_VHOST_BASE_DOMAIN` (the bare apex of the
+    preview/project base);
+  - a built-in set of reserved labels under the base domain
+    (`api`, `app`, `www`, `auth`, `admin`, `helix`, `console`, `dashboard`,
+    `helix-admin`, `mail`, `ns`) plus any extras the operator adds via
+    `HELIX_VHOST_RESERVED_SUBDOMAINS`;
+  - any hostname that already exists in `vhost_routes` (FK uniqueness on
+    `hostname`).
+- Custom-domain registration attempts that hit one of these are rejected
+  at the API with a clear error; UI surfaces the same message.
+- Project-slug → default-subdomain allocation skips reserved labels and
+  appends a numeric suffix if the slug itself collides (e.g.
+  `app-2.<base>` if the slug is `app`).
+- Auto-generated random preview subdomains regenerate if the rolled name
+  hits a reserved label or an existing row.
+- Security test: a project owner POSTing the canonical Helix domain (or
+  `api.<base>`, etc.) as a custom domain receives `409 Conflict` /
+  `403 Forbidden` and no row is written.
 
 ### As an agent or human user, I want to share a live URL for my running sandbox
 So that I can show a teammate the current state of an agent's work or my desktop.

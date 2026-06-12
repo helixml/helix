@@ -6,9 +6,11 @@
 visitor ──HTTPS──► Helix API (:443)
                      │
                      ├─ TLS terminate  ◄── certmagic / Let's Encrypt (on-demand)
-                     ├─ vhost lookup   ◄── vhost_routes (project web services
-                     │                       AND ephemeral sandbox previews)
-                     └─ proxy via revdial → runner host → container:port
+                     │
+                     └─ Host header dispatch
+                          ├─ canonical Helix domain → main API/UI mux
+                          ├─ vhost_routes hit       → proxy via revdial → container:port
+                          └─ otherwise              → 404 unknown-host page
                                               ▲
                                               │ deploy: git push, manual, or
                                               │  "share preview" toggle
@@ -17,10 +19,14 @@ visitor ──HTTPS──► Helix API (:443)
 ```
 
 Three new subsystems are added; everything else extends existing code paths.
-The same vhost+TLS plumbing serves **two consumers**:
+The same vhost+TLS plumbing serves **three consumers**:
 
-1. **Project web services** — durable, per-project, user-named domains.
-2. **Sandbox dev previews** — ephemeral, per-sandbox, random subdomains, lifecycle
+1. **The main Helix control-plane app itself** — the canonical hostname(s)
+   declared via `HELIX_CANONICAL_DOMAIN` are dispatched to the existing API
+   and UI mux. There is no separate listener for the main app vs hosted
+   services; one listener, one cert manager.
+2. **Project web services** — durable, per-project, user-named domains.
+3. **Sandbox dev previews** — ephemeral, per-sandbox, random subdomains, lifecycle
    bound to the sandbox.
 
 ## Key Decisions
@@ -73,18 +79,42 @@ Other columns: `is_default` (default subdomain for a project), `is_dynamic`
 `verified_at` / `verification_token` (only meaningful for user-supplied custom
 domains; default and dynamic rows are auto-verified).
 
-On request:
-1. HTTP middleware looks at `Host`, queries the table (cached in memory with
-   change-notify via existing pubsub).
-2. Resolves the target sandbox (project → active sandbox, or direct lookup
-   for previews); gets its `HostDeviceID` and configured port.
-3. Reuses `connman.Dial(deviceID)` + `ResilientProxy` to bridge the
-   client connection to the runner, which forwards locally to `127.0.0.1:port`
-   inside the container. No new transport; same revdial used for desktop
-   bridges today (api/pkg/sandbox/controller.go:260).
+The middleware runs **before** the existing API/UI mux and decides on `Host`:
+
+1. If `Host ∈ HELIX_CANONICAL_DOMAIN` → fall through to the existing API/UI
+   mux. The control-plane app is just another consumer of the same listener;
+   there is no second listener.
+2. Else if `Host` matches a verified `vhost_routes` row (in-memory cache,
+   change-notified via existing pubsub) → resolve the target sandbox (project
+   → active sandbox, or direct lookup for previews); get its `HostDeviceID`
+   and configured port; proxy via `connman.Dial(deviceID)` + `ResilientProxy`
+   to the runner, which forwards locally to `127.0.0.1:port` inside the
+   container. No new transport; same revdial used for desktop bridges today
+   (api/pkg/sandbox/controller.go:260).
+3. Else → 404 unknown-host page (Helix-branded; clearly identifies the
+   responding server).
 
 WebSocket and HTTP/2 just work because `ResilientProxy` already handles
 upgrades.
+
+**Anti-hijack: reserved hostnames.** Domain-registration code (custom-domain
+POST, default-subdomain allocation on enable, random-preview minting) all go
+through a single `vhost.ReserveHostname()` helper that rejects:
+
+- any host in `HELIX_CANONICAL_DOMAIN` (case-insensitive, normalised);
+- the apex `HELIX_VHOST_BASE_DOMAIN`;
+- any `<label>.<base>` whose label is in the built-in reserved set
+  (`api`, `app`, `www`, `auth`, `admin`, `helix`, `console`, `dashboard`,
+  `helix-admin`, `mail`, `ns`) or in `HELIX_VHOST_RESERVED_SUBDOMAINS`;
+- any host already present in `vhost_routes` (DB unique constraint on
+  `hostname`).
+
+Default-subdomain allocation that collides with the reserved set or an
+existing row appends `-2`, `-3`, … to the slug. Random preview generation
+loops until it finds a free name. The reserved set is consulted from a single
+place — the helper — so the certmagic `OnDemand.DecisionFunc` reuses it to
+refuse cert issuance for any forbidden hostname even if a malicious row
+somehow appeared.
 
 **Dynamic subdomain minting** (sandbox previews):
 
@@ -184,12 +214,17 @@ canonical source so the cleanup hook can find it without joining).
 
 ## Caddy Compatibility Notes
 
-When Caddy fronts Helix:
-- Set `HELIX_WEB_SERVICE_TLS_MODE=passthrough`.
-- Caddy config: `*.apps.example.com, my-custom.example.com { reverse_proxy helix-api:80 }`.
-  Caddy already does on-demand TLS with DNS plugins for the wildcard.
-- Helix still owns vhost → sandbox routing because Caddy doesn't know about
-  per-project sandboxes; it just hands every matching hostname to Helix.
+When Caddy fronts Helix (only legal with dynamic previews **off**):
+- Set `HELIX_VHOST_TLS_MODE=passthrough`.
+- Caddy config: `helix.example.com, *.apps.example.com, my-custom.example.com { reverse_proxy helix-api:80 }` —
+  include the canonical Helix domain in the same block so the main app and
+  hosted services both reach the same upstream.
+- Helix still owns vhost → sandbox routing and the canonical-domain dispatch
+  because Caddy doesn't know about per-project sandboxes; it just hands every
+  matching hostname to Helix on HTTP.
+- Wildcard custom domains are still hijack-protected by the reserved-hostname
+  helper (§2), so a project cannot register `helix.example.com` even if
+  Caddy is configured to forward it.
 
 ## Open Questions (resolve during implementation)
 
