@@ -41,9 +41,10 @@ terminates.
 
 ## Phase 3 — vhost helpers (new `api/pkg/vhost/` package)
 
-- [~] `sharetoken.go`: ~150 adjectives × ~150 nouns + 8-hex `crypto/rand` → `share-<adj>-<noun>-<8hex>`.
-- [ ] `reserve.go`: `ReserveHostname(ctx, hostname, opts)` — rejects canonical hostname (parsed from `SERVER_URL`), `DEV_SUBDOMAIN` apex, built-in reserved labels under base, `share-` prefix unless caller is the minter, and existing `vhost_routes` rows.
-- [ ] `slug.go`: `AllocateDefaultSubdomain(projectSlug, base, store)` — appends `-2`, `-3`, … on collision until unique.
+- [x] `sharetoken.go`: ~190 adjectives × ~225 nouns + 8-hex `crypto/rand` → `share-<adj>-<noun>-<8hex>`.
+- [x] `reserve.go`: walks every label, rejects canonical hostname (from `SERVER_URL`), aliases, `DEV_SUBDOMAIN` apex, built-in reserved labels + sub-of-reserved, operator extras, `share-` prefix unless caller is minter, existing rows.
+- [x] `slug.go`: `AllocateDefaultSubdomain` with collision suffixing; `MintShareHostname` loops generate + reserve.
+- [x] Unit tests pass: share format, 5k uniqueness, reserve rejection table, slug normalisation.
 
 ## Phase 4 — Middleware + proxy handler
 
