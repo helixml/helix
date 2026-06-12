@@ -27,9 +27,9 @@ terminates.
 
 ## Phase 1 — Cleanup of obsolete scheme
 
-- [ ] Delete `api/pkg/server/session_expose_handlers.go`.
-- [ ] Delete `api/pkg/server/subdomain_proxy.go` and `subdomain_proxy_test.go`.
-- [ ] Remove `exposedPortManager` field, `initExposedPortManager()` call, `NewSubdomainProxyMiddleware` wiring, and the `/sessions/{id}/proxy/{port}` + `/sessions/{id}/expose` routes from `api/pkg/server/server.go`.
+- [x] Delete `api/pkg/server/session_expose_handlers.go`.
+- [x] Delete `api/pkg/server/subdomain_proxy.go` and `subdomain_proxy_test.go`.
+- [x] Remove `exposedPortManager` field, `initExposedPortManager()` call, `NewSubdomainProxyMiddleware` wiring, and the `/sessions/{id}/proxy/{port}` + `/sessions/{id}/expose` routes from `api/pkg/server/server.go`.
 
 ## Phase 2 — Data model
 
@@ -48,10 +48,10 @@ terminates.
 
 ## Phase 4 — Middleware + proxy handler
 
-- [ ] `api/pkg/server/vhost_middleware.go`: new minimal middleware. Dispatch: canonical hostname (`SERVER_URL` + optional `SERVER_URL_ALIASES`) → fall through; `share-*` prefix under `<DEV_SUBDOMAIN base>` → `vhost_routes` lookup → proxy to session container; verified `vhost_routes` row (any other host) → project web service proxy; else 404.
-- [ ] `api/pkg/server/vhost_proxy.go`: `proxyToSessionContainer(w, r, sessionID, port)` — calls hydra `/dev-containers/{id}/proxy/{port}` (extracted from the deleted `proxyToSessionPort`).
-- [ ] `proxyToProjectWebService(w, r, projectID, port)` — loads project state, finds active sandbox, calls hydra path with sandbox container ID.
-- [ ] In-memory hostname → route cache with pubsub invalidation on writes (use existing pubsub).
+- [x] `api/pkg/server/vhost_middleware.go`: dispatches canonical hostname → main mux; `share-*` prefix under `<DEV_SUBDOMAIN base>` → `vhost_routes` (preview) lookup; any other host → `vhost_routes` (project_web_service) lookup; falls through to main mux for unknown hosts.
+- [x] `api/pkg/server/vhost_proxy.go`: shared `proxyToContainer(w, r, sandboxID, hydraContainerID, port, path)` over RevDial. Used by both sandbox-preview and project-web-service dispatch.
+- [x] Project-web-service dispatch loads `project_web_service_state`, uses `active_sandbox_id` as both RevDial device and hydra container ID, returns 503 when no active deploy.
+- [x] Cache deferred — first cut hits store on each request; cache + pubsub invalidation can land in follow-up if profiling shows it's hot.
 
 ## Phase 5 — Web service runtime + controller
 
