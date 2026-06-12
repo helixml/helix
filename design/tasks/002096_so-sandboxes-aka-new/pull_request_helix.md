@@ -106,24 +106,59 @@ DEL api/pkg/server/subdomain_proxy_test.go              - 247 lines removed
   stripPort IPv6 handling.
 - `go build ./api/...` green.
 
+## What ALSO landed (originally planned as follow-ups, all shipped)
+
+- **`WebServiceTab` in Project Settings** — sidebar item with globe
+  icon, full enable/port/domains/deploy/active-sandbox/deploys UI.
+  Uses the regenerated typed API client; React Query for cache +
+  invalidation. Visually verified in helix-in-helix
+  (`screenshots/03-web-service-tab-enabled.png`).
+- **Auto-deploy on push** — `GitHTTPServer.SetOnDefaultBranchPush`
+  hook fires after every successful push to a primary repo's
+  default branch. The hook calls `webservice.Controller.Redeploy`
+  on every project whose primary repository is that repo AND has
+  web service enabled. New store method
+  `ListEnabledWebServiceProjectsByRepo` joins
+  `projects + project_web_service_states`.
+- **DNS verifier cron** — `webservice.DomainVerifier` runs every
+  60s, polls pending vhost_routes rows, makes
+  `GET http://<host>/.well-known/helix-domain-verify/<token>`, and
+  marks `verified_at` when the response body echoes the token.
+  No redirect following (defends against bogus echo services).
+- **Real readiness check before cutover** —
+  `hydra.RevDialClient.ProbeDevContainerPort` makes a HEAD request
+  through the existing dev-container proxy until any HTTP response
+  comes back, or 90s deadline. Replaces the previous fixed 10s
+  sleep. Treats 4xx/5xx as success (listener bound is what we care
+  about, not the response shape).
+- **`./stack update_openapi` regenerated** — frontend gets typed
+  methods for every new endpoint plus typed result shapes.
+
 ## What's deferred to follow-up PRs
 
-- **Frontend `WebServiceTab` + `<SharePreviewSection>`.** Endpoints are
-  callable via curl today; swagger annotations are in place so
-  `./stack update_openapi` regenerates the typed client cleanly.
-- **Auto-deploy on push.** Hook into the existing internal git push
-  handler to call `webservice.Controller.Redeploy` when the push lands
-  on a project's primary repo default branch. The orchestrator
-  itself ships here, so this follow-up is a small wrapper.
-- **certmagic `auto` TLS mode** (passthrough ships now).
-- **Sandbox `sbx_*` preview tokens** (sessions cover spec tasks,
-  agents, desktops — the high-value cases).
-- **DNS verifier cron** (verifier endpoint ships now; automated
-  poller is the cleanup).
-- **Health-check gate before cutover.** Current v1 sleeps
-  `bootstrapSleep` (10s) before flipping routing. A real readiness
-  check (poll `http://container:port/` until 2xx/3xx) is a clean
-  upgrade.
+- **certmagic `auto` TLS mode.** Passthrough mode ships now —
+  operator runs Caddy with a wildcard DNS-01 cert. Embedded
+  certmagic with on-demand TLS gated on `vhost.ReserveHostname`
+  is the cleanup.
+- **Sandbox `sbx_*` preview tokens.** Sessions cover spec tasks,
+  agents, and desktops — the high-value cases. Sandbox-API
+  containers are unblocked in the middleware (the `sbx_` branch
+  works now that the device-key fix is in); mirror endpoints
+  under `/api/v1/sandboxes/:id/preview-tokens` is a small follow-up.
+- **`<SharePreviewSection>` in session detail UI.** Preview-token
+  endpoints are callable today.
+- **External-webhook `TriggerKind = "web-service-deploy"`** —
+  GitHub Actions / GitLab CI call `POST /web-service/deploy`
+  directly today. The trigger config is the configurable wrapper.
+
+## Screenshots
+
+![Web Service tab in Project Settings](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002096_so-sandboxes-aka-new/screenshots/03-web-service-tab-enabled.png)
+
+`screenshots/test-results.md` contains the full curl-level
+validation log: vhost dispatch by Host header, fall-through to
+main app, reserved-hostname rejection, DNS verification round-trip,
+unverified→503 / verified→proxy.
 
 ## Operator setup
 

@@ -53,6 +53,11 @@ terminates.
 - [x] Project-web-service dispatch loads `project_web_service_state`, uses `active_sandbox_id` as both RevDial device and hydra container ID, returns 503 when no active deploy.
 - [x] Cache deferred — first cut hits store on each request; cache + pubsub invalidation can land in follow-up if profiling shows it's hot.
 
+> **Wait** — most things marked DONE below were actually built. The
+> `DEFERRED` -> `DONE` rename above corrects the section headers from
+> when those phases were scoped out. See per-task checkboxes for the
+> real status.
+
 ## Phase 5 — Web service runtime + controller
 
 - [x] Reused existing `SandboxRuntimeHeadlessUbuntu` runtime — no new runtime kind needed for v1. The bootstrap script is what makes it a web service, not the image.
@@ -66,14 +71,11 @@ terminates.
 - [x] Failures leave the previous sandbox active and record an error message on the failed deploy row; the new sandbox stays running for debug exec.
 - [x] `POST /api/v1/projects/:id/web-service/deploy {commit_sha?}` endpoint that triggers it.
 
-## Phase 7 — Webhook auto-deploy (DEFERRED)
+## Phase 7 — Webhook auto-deploy
 
-- [ ] Hook into the existing internal git push handler (`git_repository_handlers.go pushToRemote`) to call `Redeploy` when the push is to the primary repo's default branch on a project with web service enabled.
-- [ ] Optional `TriggerKind = "web-service-deploy"` for external (GitHub/GitLab webhook) integration.
-
-> **Why deferred:** the Phase 6 orchestrator is callable by anything —
-> manual operator action, CI pipelines, GitHub Actions, the git push
-> handler. The webhook trigger is just a small wrapper that calls it.
+- [x] `GitHTTPServer.SetOnDefaultBranchPush` hook fires after every successful receive-pack that touched the repo's default branch.
+- [x] The API server installs a hook that calls `webservice.Controller.Redeploy` on every project whose primary repository is the pushed repo AND has web service enabled. New store method `ListEnabledWebServiceProjectsByRepo` joins `projects + project_web_service_states`.
+- [ ] External-webhook `TriggerKind = "web-service-deploy"` — deferred. The manual `POST /web-service/deploy` endpoint is what GitHub Actions / GitLab CI / external webhooks call today.
 
 ## Phase 8 — Project web service API
 
@@ -89,23 +91,20 @@ terminates.
 - [x] Session-delete cleanup deletes preview rows for the session.
 - [ ] (Sandbox `sbx_*` mirror endpoints — deferred.)
 
-## Phase 10 — Frontend (DEFERRED)
+## Phase 10 — Frontend
 
-- [ ] Add `web-service` tab to `frontend/src/pages/ProjectSettings.tsx`.
-- [ ] `<WebServiceTab>`: enable toggle, default URL display, custom-domain list with per-row verification badge + add/remove, container-port input, manual-deploy "set active sandbox" picker, deploys table.
-- [ ] `<SharePreviewSection>` in session detail page.
-
-> **Why deferred:** the backend HTTP surface is complete and tested via
-> swagger annotations on every handler. Frontend wiring needs a fresh
-> `./stack update_openapi` run + new React components; it's the biggest
-> single bite and the cleanest seam to land separately.
+- [x] Add `web-service` to `ProjectSettingsSidebar` (globe icon).
+- [x] `<WebServiceTab>` component: enable toggle, container port + Save, domains list with Open/Copy/Delete per row + Verified/Pending status chips, Add domain form with DNS verification hint, Deploy now button, active sandbox display, recent deploys table.
+- [x] Uses the regenerated typed API client (no raw fetch). React Query manages cache + invalidation.
+- [ ] `<SharePreviewSection>` in session detail page — deferred. Session preview endpoints are callable via API today.
 
 ## Phase 11 — Tests + docs
 
 - [x] Unit tests for share-token format, 5k uniqueness, every reserve rejection category, slug normalisation, parseVHostConfig matrix, stripPort IPv6.
 - [x] Swagger annotations on every new handler so `update_openapi` regenerates a clean typed client.
 - [x] Caddy `passthrough` snippet in `design.md` + implementation notes.
-- [ ] `./stack update_openapi` regeneration — needs to be run by an operator with `swag` available (the script does `go install` it). Deferred with the frontend.
+- [x] `./stack update_openapi` regenerated; `frontend/src/api/api.ts` now exposes `v1ProjectsWebService*` and `v1SessionsPreviewTokens*` methods plus `TypesVHostRoute`, `TypesProjectWebServiceState`, `TypesWebServiceDeploy`, `ServerProjectWebServiceResponse`.
+- [x] End-to-end validation in helix-in-helix (see `screenshots/test-results.md`): vhost middleware proxies real HTTP traffic through RevDial → hydra → container; reserved-hostname guards reject `api.<base>` / `share-…` / canonical; verifier endpoint round-trips; UI renders the tab with verified domains.
 
 ---
 
