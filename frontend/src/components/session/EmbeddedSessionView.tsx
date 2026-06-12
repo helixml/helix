@@ -141,6 +141,13 @@ const EmbeddedSessionView = forwardRef<
   // Touch state for tracking finger-drag direction.
   const touchStartYRef = useRef<number | null>(null);
   const lastTouchYRef = useRef<number | null>(null);
+  // Last scrollTop observed in handleScroll. Used to distinguish
+  // "user actively scrolled toward the bottom" (delta > 0) from
+  // "content shrank and the viewport happens to be near the bottom now"
+  // (delta == 0). Pre-recorded after every programmatic scrollTop write
+  // so the resulting onScroll event sees no delta and doesn't falsely
+  // re-enable auto-scroll.
+  const lastScrollTopRef = useRef(0);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -158,13 +165,32 @@ const EmbeddedSessionView = forwardRef<
     return scrollTop + clientHeight >= scrollHeight - AUTO_SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
-  // Only used to clear the pill when the user scrolls back to the bottom.
-  // We deliberately do NOT track "is the user at the bottom" for auto-scroll
-  // decisions — auto-scroll is purely driven by the preference toggle.
+  // Clears the pill when the user scrolls back to the bottom, and re-enables
+  // auto-scroll when the user actively scrolls down into the near-bottom zone.
+  // We detect "user actively scrolled down" via a strictly-increasing
+  // scrollTop delta — content reflow (e.g. a tool-call below the viewport
+  // collapsing) leaves scrollTop unchanged, so we won't re-engage auto-scroll
+  // without a user signal. Programmatic scroll writes elsewhere in this file
+  // pre-record lastScrollTopRef so the resulting onScroll sees no delta.
   const handleScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const prevScrollTop = lastScrollTopRef.current;
+    const currScrollTop = container.scrollTop;
+    lastScrollTopRef.current = currScrollTop;
+
     if (autoScrollRef.current) return;
-    if (isNearBottom()) setHasNewBelow(false);
-  }, [isNearBottom]);
+    if (!isNearBottom()) return;
+
+    setHasNewBelow(false);
+
+    if (currScrollTop > prevScrollTop) {
+      setAutoScroll(true);
+      autoScrollRef.current = true;
+      upwardAccumRef.current = 0;
+    }
+  }, [isNearBottom, setAutoScroll]);
 
   // Scroll to bottom. Respects the auto-scroll preference unless `force` is set
   // (force is only used for initial mount, session change, and the
@@ -178,6 +204,7 @@ const EmbeddedSessionView = forwardRef<
       if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
       container.scrollTop = container.scrollHeight;
       lastScrolledHeightRef.current = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollHeight;
       setHasNewBelow(false);
       onScrollToBottom?.();
     },
@@ -277,6 +304,7 @@ const EmbeddedSessionView = forwardRef<
       lastWheelTsRef.current = 0;
       touchStartYRef.current = null;
       lastTouchYRef.current = null;
+      lastScrollTopRef.current = 0;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
       setOlderInteractions([]);
@@ -335,6 +363,7 @@ const EmbeddedSessionView = forwardRef<
       if (autoScrollRef.current) {
         container.scrollTop = container.scrollHeight;
         lastScrolledHeightRef.current = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollHeight;
         setHasNewBelow(false);
       } else if (!isNearBottom()) {
         setHasNewBelow(true);
@@ -481,6 +510,7 @@ const EmbeddedSessionView = forwardRef<
       if (containerRef.current) {
         const newScrollHeight = containerRef.current.scrollHeight;
         containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
+        lastScrollTopRef.current = containerRef.current.scrollTop;
       }
     });
   }, [api, sessionId, oldestPageLoaded, isLoadingOlder]);
