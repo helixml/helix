@@ -8,7 +8,7 @@
 - [x] Verify the filter on line ≈737 (`task.repo_pull_requests?.filter(pr => pr.pr_url)`) is preserved — do NOT add a state-based filter. Closed PRs must remain in the list.
 - [x] Verify no other component drops closed PRs: grep for `repo_pull_requests` in `frontend/src/` and confirm no `.filter(pr => pr.pr_state !== 'closed')` (or similar) was added since this spec was written.
 - [x] Run `cd frontend && yarn build` to confirm types and bundling pass.
-- [ ] Manual test in the inner Helix at `http://localhost:8080`: register / log in, find or create a spec task with at least one merged PR and one closed PR. Confirm the dropdown shows correct chips and CI icons, and that the closed PR row is muted but clickable.
-- [ ] Manual test the single-PR variant: pick a task with exactly one PR (open, then merged) and confirm the button reflects state and CI icon correctly.
-- [ ] Confirm tasks in `backlog` / `in_progress` / earlier statuses render unchanged (no regression in action button area).
+- [ ] Manual test in the inner Helix at `http://localhost:8080`: register / log in, find or create a spec task with at least one merged PR and one closed PR. Confirm the dropdown shows correct chips and CI icons, and that the closed PR row is muted but clickable. **NOT DONE** — no inner Helix is running in this environment (no `helix-postgres-1` container, nothing listening on `:8080`). Reviewer needs to verify visually. `yarn build` does pass.
+- [ ] Manual test the single-PR variant: pick a task with exactly one PR (open, then merged) and confirm the button reflects state and CI icon correctly. **NOT DONE** — same reason as above.
+- [ ] Confirm tasks in `backlog` / `in_progress` / earlier statuses render unchanged (no regression in action button area). **NOT DONE** — same reason as above. By inspection: the new code paths sit behind the existing `task.status === "pull_request" || task.status === "done"` gate, so earlier-status branches are untouched.
 - [ ] Commit with conventional-commit format (e.g. `feat(frontend): show PR state and CI status in spec task PR dropdown`) and open a PR.
