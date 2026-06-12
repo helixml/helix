@@ -12,8 +12,16 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/vhost"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/rs/zerolog/log"
 )
+
+// DeployWebServiceRequest is the body for POST
+// /api/v1/projects/:id/web-service/deploy. CommitSHA is optional; empty
+// means "deploy current HEAD of the primary repo".
+type DeployWebServiceRequest struct {
+	CommitSHA string `json:"commit_sha,omitempty"`
+}
 
 // ProjectWebServiceResponse aggregates everything the UI needs to render
 // the Web Service tab for a project.
@@ -222,6 +230,49 @@ func (s *HelixAPIServer) setActiveWebServiceSandbox(_ http.ResponseWriter, r *ht
 		return nil, system.NewHTTPError500(err.Error())
 	}
 	return state, nil
+}
+
+// deployProjectWebService godoc
+// @Summary Trigger an auto-deploy of the project's web service
+// @Description Provisions a fresh sandbox, clones the primary repo at the requested SHA, runs .helix/startup.sh, and cuts routing over once it's up.
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param body body DeployWebServiceRequest true "Deploy request"
+// @Success 202 {object} types.WebServiceDeploy
+// @Router /api/v1/projects/{id}/web-service/deploy [post]
+// @Security BearerAuth
+//
+// deployProjectWebService triggers webservice.Controller.Redeploy. Returns
+// the in-flight deploy row (status=pending/building); the actual
+// provisioning + bootstrap + cutover runs asynchronously.
+func (s *HelixAPIServer) deployProjectWebService(_ http.ResponseWriter, r *http.Request) (*types.WebServiceDeploy, *system.HTTPError) {
+	user := getRequestUser(r)
+	project, herr := s.requireProjectAccess(r, types.ActionUpdate)
+	if herr != nil {
+		return nil, herr
+	}
+	if s.webServiceController == nil {
+		return nil, system.NewHTTPError500("web service controller not initialised")
+	}
+
+	var req DeployWebServiceRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		}
+	}
+
+	deploy, err := s.webServiceController.Redeploy(r.Context(), webservice.DeployRequest{
+		ProjectID: project.ID,
+		Owner:     user.ID,
+		CommitSHA: req.CommitSHA,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+	return deploy, nil
 }
 
 // addProjectWebServiceDomain godoc

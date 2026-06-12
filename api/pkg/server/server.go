@@ -44,6 +44,7 @@ import (
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/sandbox"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
 	"github.com/helixml/helix/api/pkg/server/spa"
@@ -173,6 +174,9 @@ type HelixAPIServer struct {
 	activeStreamProxiesMu sync.Mutex
 	// Sandboxes API: ephemeral user-created containers
 	sandboxController *sandbox.Controller
+
+	// Project web service orchestrator (provision → bootstrap → cutover)
+	webServiceController *webservice.Controller
 
 	// computeManager pre-provisions sandbox HOSTS via a cloud
 	// compute.Provider (currently only yellowdog). Nil when
@@ -407,6 +411,7 @@ func NewServer(
 		sandboxAPIURL,
 		"/data/workspaces/sandboxes",
 	)
+	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
 
 	// Bootstrap the compute subsystem (cloud-side host provisioning).
 	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving
@@ -1520,6 +1525,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.getProjectWebService)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.putProjectWebService)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/web-service/active-sandbox", system.Wrapper(apiServer.setActiveWebServiceSandbox)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/deploy", system.Wrapper(apiServer.deployProjectWebService)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/web-service/domains", system.Wrapper(apiServer.addProjectWebServiceDomain)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/web-service/domains/{domain_id}", system.Wrapper(apiServer.deleteProjectWebServiceDomain)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
