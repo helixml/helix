@@ -72,17 +72,17 @@ terminates.
 
 ## Phase 8 — Project web service API
 
-- [ ] `PUT /api/v1/projects/:id/web-service` — sets `enabled` + `container_port`. Toggling on pre-seeds the default subdomain via `AllocateDefaultSubdomain`. Toggling off stops the sandbox + removes all `vhost_routes` rows for the project.
-- [ ] `GET /api/v1/projects/:id/web-service` — returns state, active sandbox, domain list, recent deploys.
-- [ ] `POST /api/v1/projects/:id/web-service/deploy` — triggers `Redeploy` at current HEAD of primary repo.
-- [ ] `POST /api/v1/projects/:id/web-service/domains {hostname}` — insert custom domain row (verified_at=null). `DELETE .../domains/:id`.
-- [ ] `/.well-known/helix-domain-verify/:token` endpoint returning the token in plain text; verifier cron polls pending domains and marks `verified_at` when DNS resolves to us and the token check passes.
+- [x] `PUT /api/v1/projects/:id/web-service` — sets `enabled` + `container_port`. Toggling on pre-seeds the default subdomain via `AllocateDefaultSubdomain`. Toggling off removes all `vhost_routes` rows for the project.
+- [x] `GET /api/v1/projects/:id/web-service` — returns state, domain list, recent deploys.
+- [x] `POST /api/v1/projects/:id/web-service/active-sandbox` — operator-driven "manual deploy": point the project at a specific sandbox. Records a deploy row. (Auto-deploy on push is the deferred follow-up; this primitive is what the orchestrator will call too.)
+- [x] `POST /api/v1/projects/:id/web-service/domains {hostname}` — insert custom domain row (verified_at=null) with a fresh verification token. `DELETE .../domains/{domain_id}`.
+- [x] `/.well-known/helix-domain-verify/:token` endpoint returning the token in plain text. (Cron-based verifier poller is deferred — the endpoint is sufficient for manual verification flow today.)
 
 ## Phase 9 — Dev preview tokens (add-on)
 
-- [ ] `POST /api/v1/sessions/:id/preview-tokens {port}` — mints `share-...` token row. `GET` lists, `POST .../:token_id/rotate` rotates, `DELETE .../:token_id` removes.
-- [ ] Session-stop cleanup deletes preview rows for the session.
-- [ ] (Sandbox `sbx_*` mirror endpoints — deferred unless time permits.)
+- [x] `POST /api/v1/sessions/:id/preview-tokens {port}` — mints `share-…` token row. `GET` lists, `POST .../:token_id/rotate` rotates, `DELETE .../:token_id` removes.
+- [x] Session-delete cleanup deletes preview rows for the session.
+- [ ] (Sandbox `sbx_*` mirror endpoints — deferred.)
 
 ## Phase 10 — Frontend
 
