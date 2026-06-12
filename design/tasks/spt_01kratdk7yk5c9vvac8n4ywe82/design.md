@@ -109,3 +109,43 @@ prop. The button remains functionally identical when `isSubmitting` is
 false. The one thing to watch is that `startIcon={undefined}` (rather
 than omitting the prop) does not introduce extra left padding — MUI
 treats `undefined` startIcon as absent, so spacing stays clean.
+
+## Implementation Notes (for future cloners)
+
+- **Final diff is exactly the 3 lines in the design above.** No
+  additional file touched — `isSubmitting` was already passed from
+  `DesignReviewContent.tsx` via the React Query mutation.
+- **Verification trick — no need to drive a real spec task through to
+  design review.** Building review state requires onboarding + project
+  + task + waiting for agent design generation, which is slow. Instead
+  mount `ReviewSubmitDialog` directly via Vite's already-loaded module
+  graph and screenshot. Pattern that worked from the chrome-devtools
+  MCP `evaluate_script`:
+  ```js
+  const React = (await import('/node_modules/.vite/deps/react.js')).default;
+  const ReactDOM = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
+  const Mui = await import('/node_modules/.vite/deps/@mui_material.js');
+  const Dialog = (await import('/src/components/spec-tasks/ReviewSubmitDialog.tsx')).default;
+  // mount with isSubmitting=true and inspect / screenshot
+  ```
+  Notes: React and ReactDOM are CJS, so use `.default`; `@mui/material`
+  is ESM, so destructure directly. Hash query param (`?v=…`) is
+  optional and unstable per module — omit it.
+- **Gotcha: `frontend/dist` is bind-mounted root-owned on a fresh
+  workspace.** `yarn build` fails with `EACCES … mkdir
+  'frontend/dist/external-libs'`. Fix is `sudo chown -R retro:retro
+  frontend/dist`. Do NOT `rm -rf frontend/dist` (would break the
+  bind-mount per `CLAUDE.md`). Use `rm -rf frontend/dist/*` instead.
+  In dev mode (`FRONTEND_URL` unset) the build isn't needed for
+  runtime — Vite HMR at port 8081 serves the source directly — but the
+  build still has to pass for CI / prod-frontend mode.
+- **MUI quirk worth knowing.** When `disabled` is combined with
+  `variant="contained" color="success"`, MUI overrides the background
+  to the disabled grey (`rgba(255,255,255,0.12)` in dark mode). The
+  spinner with `color="inherit"` then takes the disabled text colour
+  (also greyed). This matches every other in-flight button in the
+  codebase (e.g. `SpecTaskActionButtons` Approve Implementation
+  button) — it's the intended pattern, not a bug. Don't try to "fix"
+  it by overriding the disabled background.
+- **First yarn install on a new workspace** takes ~30s; subsequent
+  `yarn tsc` is ~28s; full `yarn build` ~37s.
