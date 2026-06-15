@@ -20589,9 +20589,6 @@ const docTemplate = `{
                 "db_path": {
                     "type": "string"
                 },
-                "envs_dir": {
-                    "type": "string"
-                },
                 "public_url": {
                     "type": "string"
                 },

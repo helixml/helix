@@ -186,7 +186,6 @@ export interface ApiSetSettingRequest {
 
 export interface ApiSettingsResponse {
   db_path?: string;
-  envs_dir?: string;
   public_url?: string;
   specs?: ApiSettingsSpecDTO[];
 }
