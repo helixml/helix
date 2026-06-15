@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1840,10 +1842,13 @@ func (s *HelixAPIServer) downloadAndExtractZipToKnowledge(ctx context.Context, z
 		Str("destination_path", knowledgeStorePath).
 		Msg("Starting zip file download and extraction")
 
-	// Download the zip file with a timeout
-	client := &http.Client{
-		Timeout: 10 * time.Minute, // Allow up to 10 minutes for large zip files
+	if err := validateSeedZipURL(zipURL); err != nil {
+		return fmt.Errorf("rejected seed zip URL: %w", err)
 	}
+
+	// Use the SSRF-safe client so any DNS rebind or redirect to a blocked
+	// address is rejected at dial time, not just at the URL string level.
+	client := newSafeFetchClient(10 * time.Minute)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
 	if err != nil {
@@ -2111,4 +2116,91 @@ func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request)
 	return &types.Memory{
 		ID: memoryID,
 	}, nil
+}
+
+// validateSeedZipURL does the cheap up-front URL checks: parseable, scheme is
+// http(s), host is present. The real SSRF defence is at dial time - see
+// newSafeFetchClient. Doing only the cheap checks here keeps the error path
+// fast for obviously-bad input (file://, empty host) without duplicating the
+// IP block list that the dialer enforces anyway.
+func validateSeedZipURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme %q not allowed (only http/https)", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
+
+// newSafeFetchClient returns an http.Client that refuses to dial loopback,
+// link-local, or cloud-instance-metadata addresses. Knowledge seed URLs come
+// from caller-supplied app config; without this guard, a tenant could point
+// the API process at `127.0.0.1` (probe internal services) or
+// `169.254.169.254` (exfiltrate IAM credentials on cloud-hosted Helix).
+//
+// We deliberately allow other RFC1918 ranges - downloadAndExtractZipToKnowledge
+// is documented as supporting air-gapped deployments seeding from internal
+// mirrors. If an operator needs stricter egress control, that belongs at the
+// network layer.
+//
+// Enforcement is at dial time, not URL parse time, so it survives:
+//   - DNS rebinding (each Dial does its own resolution)
+//   - HTTP redirects to blocked addresses (each followed redirect dials)
+//   - Obscure IPv4 literals like 2130706433 or 0x7f.0.0.1 (the resolved IP is
+//     checked, not the literal string in the URL)
+func newSafeFetchClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			// Reject if ANY resolved address is unsafe - a multi-A-record
+			// hostname that includes a blocked IP gets rejected outright
+			// rather than trying to pick a "safe" one (which would still
+			// leak DNS to the attacker).
+			for _, ip := range ips {
+				if !isSafeFetchIP(ip.IP) {
+					return nil, fmt.Errorf("blocked dial: host %s resolves to %s", host, ip.IP)
+				}
+			}
+			// Pin to the first resolved IP we already checked - prevents the
+			// http stack from doing its own second lookup that could return
+			// a different (unsafe) IP between our check and the actual dial.
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+// isSafeFetchIP returns false for any address the seed-zip fetcher must not
+// reach. Centralised so the deny set is one list, not scattered.
+func isSafeFetchIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	// Cloud instance metadata endpoints. 169.254.169.254 is already covered
+	// by IsLinkLocalUnicast on most stacks but we match explicitly so the
+	// intent is greppable, and to cover the IPv4-mapped IPv6 form.
+	if ip.Equal(net.ParseIP("169.254.169.254")) {
+		return false
+	}
+	if ip.Equal(net.ParseIP("fd00:ec2::254")) {
+		return false
+	}
+	return true
 }

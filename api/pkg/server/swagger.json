@@ -12477,6 +12477,265 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/web-service": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return enable/disable state, hostnames, and recent deploys for a project's web service.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project web service state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Toggle web service enable/disable and update container_port. Enabling pre-seeds the default subdomain.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project web service state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PutProjectWebServiceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/active-sandbox": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manual deploy primitive — set the sandbox that vhost requests route to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Point a project web service at a sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Active sandbox request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SetActiveSandboxRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectWebServiceState"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/deploy": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provisions a fresh sandbox, clones the primary repo at the requested SHA, runs .helix/startup.sh, and cuts routing over once it's up.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Trigger an auto-deploy of the project's web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Deploy request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.DeployWebServiceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebServiceDeploy"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Add a custom domain to a project web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Domain to add",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.AddDomainRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains/{domain_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Remove a custom domain from a project web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain row ID",
+                        "name": "domain_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{projectId}/labels": {
             "get": {
                 "description": "Returns a sorted list of unique labels across all spec tasks in a project",
@@ -15542,48 +15801,14 @@
                 }
             }
         },
-        "/api/v1/sessions/{id}/expose": {
-            "get": {
-                "description": "Returns all ports currently exposed from the session's dev container",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "List exposed ports for a session",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.ListExposedPortsResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            },
+        "/api/v1/sessions/{id}/fork": {
             "post": {
-                "description": "Makes a port from the session's dev container accessible via a public URL",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15593,22 +15818,22 @@
                 "tags": [
                     "sessions"
                 ],
-                "summary": "Expose a port from the session's dev container",
+                "summary": "Fork a session to a different agent (fork-and-pause)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Session ID",
+                        "description": "Source session ID to fork from",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Port to expose",
+                        "description": "Target runtime selection",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ExposePortRequest"
+                            "$ref": "#/definitions/server.ForkSessionRequest"
                         }
                     }
                 ],
@@ -15616,76 +15841,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.ExposePortResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sessions/{id}/expose/{port}": {
-            "delete": {
-                "description": "Removes public access to a previously exposed port",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Unexpose a port from the session's dev container",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Port number",
-                        "name": "port",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session or port not found",
-                        "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/server.ForkSessionResponse"
                         }
                     }
                 }
@@ -15951,6 +16107,169 @@
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session preview tokens",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.VHostRoute"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mints a share-\u003cadj\u003e-\u003cnoun\u003e-\u003c8hex\u003e hostname pointing at the session's container on the given port.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Mint a preview token for a session port",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Port to expose",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.MintPreviewTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Revoke a session preview token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}/rotate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Rotate a session preview token hostname",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
                         }
                     }
                 }
@@ -16413,6 +16732,40 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/workspace-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Used by the fork-confirm modal so we can show \"N files will be committed \u0026 pushed\" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as \"unknown\".",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Check uncommitted / unpushed git state in a session's desktop container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.WorkspaceStatusResponse"
                         }
                     }
                 }
@@ -22080,6 +22433,14 @@
                 }
             }
         },
+        "server.AddDomainRequest": {
+            "type": "object",
+            "properties": {
+                "hostname": {
+                    "type": "string"
+                }
+            }
+        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -22290,6 +22651,14 @@
                 }
             }
         },
+        "server.DeployWebServiceRequest": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                }
+            }
+        },
         "server.DevContainerWithClients": {
             "type": "object",
             "properties": {
@@ -22380,72 +22749,25 @@
                 }
             }
         },
-        "server.ExposePortRequest": {
+        "server.ForkSessionRequest": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string"
+                "auto_commit_uncommitted": {
+                    "description": "AutoCommitUncommitted, when true, runs `git add -A \u0026\u0026 git commit\n\u0026\u0026 git push` per dirty repo in the parent's container BEFORE the\nparent is paused. Without this, any uncommitted file edits or\nunpushed commits in the parent's container would be invisible to\nthe child (which boots a fresh clone). Defaults to true at the\nAPI level — pass false explicitly to opt out (loses changes).\nPush failures abort the fork; the parent is NOT paused.",
+                    "type": "boolean"
                 },
-                "port": {
-                    "type": "integer"
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
                 },
-                "protocol": {
-                    "description": "defaults to \"http\"",
+                "helix_app_id": {
                     "type": "string"
                 }
             }
         },
-        "server.ExposePortResponse": {
+        "server.ForkSessionResponse": {
             "type": "object",
             "properties": {
-                "allocated_port": {
-                    "description": "for random port mode",
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "protocol": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "urls": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "server.ExposedPort": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "protocol": {
-                    "description": "\"http\" or \"tcp\"",
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"active\", \"inactive\"",
-                    "type": "string"
-                },
-                "url": {
+                "new_session_id": {
                     "type": "string"
                 }
             }
@@ -23457,17 +23779,11 @@
                 }
             }
         },
-        "server.ListExposedPortsResponse": {
+        "server.MintPreviewTokenRequest": {
             "type": "object",
             "properties": {
-                "exposed_ports": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.ExposedPort"
-                    }
-                },
-                "session_id": {
-                    "type": "string"
+                "port": {
+                    "type": "integer"
                 }
             }
         },
@@ -23580,6 +23896,30 @@
                 }
             }
         },
+        "server.ProjectWebServiceResponse": {
+            "type": "object",
+            "properties": {
+                "cname_target": {
+                    "description": "CNAMETarget is the hostname customers should add as the value of\ntheir CNAME record when registering a custom domain — i.e. the\ncanonical Helix hostname parsed from SERVER_URL. Empty when the\nvhost feature is not configured on this instance.",
+                    "type": "string"
+                },
+                "deploys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebServiceDeploy"
+                    }
+                },
+                "domains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.VHostRoute"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/types.ProjectWebServiceState"
+                }
+            }
+        },
         "server.PromptPinRequest": {
             "type": "object",
             "properties": {
@@ -23610,6 +23950,17 @@
                     "type": "string"
                 },
                 "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.PutProjectWebServiceRequest": {
+            "type": "object",
+            "properties": {
+                "container_port": {
+                    "type": "integer"
+                },
+                "enabled": {
                     "type": "boolean"
                 }
             }
@@ -23906,6 +24257,14 @@
                 }
             }
         },
+        "server.SetActiveSandboxRequest": {
+            "type": "object",
+            "properties": {
+                "sandbox_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SharePointSiteResolveRequest": {
             "type": "object",
             "properties": {
@@ -24088,6 +24447,66 @@
                     "type": "integer"
                 },
                 "gop_buffer_size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.WorkspaceRepoStatus": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error is set when we couldn't determine the status (container\nunreachable, path missing, git command failed). The repo is then\nexcluded from \"dirty\" totals — we don't refuse a fork because we\ncan't see one repo's state.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                },
+                "uncommitted_files": {
+                    "type": "integer"
+                },
+                "unpushed_commits": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.WorkspaceStatusResponse": {
+            "type": "object",
+            "properties": {
+                "can_save_changes": {
+                    "description": "CanSaveChanges is false when there ARE dirty changes but the\nfork's pre-commit safety net has nowhere viable to push them.\nConcretely: the session has no spec task, or the spec task has\nno branch name set, or the spec task's branch is a protected\nbranch (main / master) that the remote pre-receive hook will\nreject. In any of those cases the frontend should refuse to\noffer \"Fork with auto-commit\" — the user has to fix git state\nmanually (commit/push to a feature branch from the terminal)\nbefore forking, OR explicitly abandon the changes.",
+                    "type": "boolean"
+                },
+                "cannot_save_reason": {
+                    "description": "CannotSaveReason is a human-readable explanation surfaced in\nthe blocking modal. Empty when CanSaveChanges is true.",
+                    "type": "string"
+                },
+                "container_reachable": {
+                    "description": "ContainerReachable=false means we couldn't talk to the desktop\nat all (e.g. it's been reaped). The frontend should treat this\nas \"unknown\" and let the user decide whether to fork anyway.",
+                    "type": "boolean"
+                },
+                "expected_branch": {
+                    "description": "ExpectedBranch is the branch the pre-fork commit will target,\nresolved from the spec task. Empty for sessions without a\nspec task. Exposed so the frontend can say \"will commit to\n\u003cbranch\u003e\" instead of just \"will commit\" — helps the user\nunderstand what's about to happen.",
+                    "type": "string"
+                },
+                "is_dirty": {
+                    "type": "boolean"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WorkspaceRepoStatus"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "total_dirty": {
                     "type": "integer"
                 }
             }
@@ -30458,6 +30877,30 @@
                 }
             }
         },
+        "types.ProjectWebServiceState": {
+            "type": "object",
+            "properties": {
+                "active_sandbox_id": {
+                    "type": "string"
+                },
+                "container_port": {
+                    "description": "port the project's web app binds to inside its container",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PromptHistoryEntry": {
             "type": "object",
             "properties": {
@@ -32543,6 +32986,12 @@
                     "description": "NEW: External agent status (running, stopped, terminated_idle)",
                     "type": "string"
                 },
+                "forked_at": {
+                    "type": "string"
+                },
+                "forked_at_interaction_id": {
+                    "type": "string"
+                },
                 "gpu_vendor": {
                     "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
                     "type": "string"
@@ -32556,6 +33005,20 @@
                 },
                 "manually_review_questions": {
                     "type": "boolean"
+                },
+                "parent_session_id": {
+                    "description": "Fork lineage — set on a session created by forking from a parent.\nSee design/tasks/002081_kickoff-mid-session/design.md.",
+                    "type": "string"
+                },
+                "paused": {
+                    "description": "Pause state — sessions cannot accept new messages while paused.\nPausedReason is the only producer in v1: \"forked_to:\u003cchild_id\u003e\".",
+                    "type": "boolean"
+                },
+                "paused_at": {
+                    "type": "string"
+                },
+                "paused_reason": {
+                    "type": "string"
                 },
                 "paused_screenshot_path": {
                     "description": "Path to saved screenshot when agent is paused",
@@ -35917,6 +36380,57 @@
                 }
             }
         },
+        "types.VHostRoute": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "hostname": {
+                    "description": "always lowercased",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_default": {
+                    "description": "IsDefault is true for project default subdomains (\u003cslug\u003e.\u003cbase\u003e).\nUser-added custom domains and preview tokens are false.",
+                    "type": "boolean"
+                },
+                "port": {
+                    "description": "destination port inside the container",
+                    "type": "integer"
+                },
+                "rotated_at": {
+                    "type": "string"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_kind": {
+                    "$ref": "#/definitions/types.VHostTargetKind"
+                },
+                "verification_token": {
+                    "description": "VerificationToken is only meaningful for custom domains awaiting\nDNS-based verification. Null for default and preview rows.",
+                    "type": "string"
+                },
+                "verified_at": {
+                    "description": "VerifiedAt is non-null once the route is usable. Auto-set for default\nsubdomains and preview tokens; set after DNS verification for custom\ndomains.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.VHostTargetKind": {
+            "type": "string",
+            "enum": [
+                "project_web_service",
+                "sandbox_preview"
+            ],
+            "x-enum-varnames": [
+                "VHostTargetProjectWebService",
+                "VHostTargetSandboxPreview"
+            ]
+        },
         "types.WIPLimits": {
             "type": "object",
             "properties": {
@@ -35975,6 +36489,55 @@
                     "type": "string"
                 }
             }
+        },
+        "types.WebServiceDeploy": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "log_path": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebServiceDeployStatus"
+                }
+            }
+        },
+        "types.WebServiceDeployStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "building",
+                "live",
+                "failed",
+                "superseded"
+            ],
+            "x-enum-varnames": [
+                "WebServiceDeployStatusPending",
+                "WebServiceDeployStatusBuilding",
+                "WebServiceDeployStatusLive",
+                "WebServiceDeployStatusFailed",
+                "WebServiceDeployStatusSuperseded"
+            ]
         },
         "types.WebsiteCrawler": {
             "type": "object",

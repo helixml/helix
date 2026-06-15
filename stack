@@ -6,12 +6,32 @@ export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export PROJECTS_ROOT="$(dirname "$DIR")"
 export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
-export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
 export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
-export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
+
+# Auto-include docker-compose.tls.yaml when embedded TLS is enabled
+# via the .env file (HELIX_VHOST_TLS_MODE=auto) or the shell. The
+# overlay adds :443 / :80 host port mappings to the api service so the
+# certmagic listener inside the container is reachable.
+COMPOSE_TLS_OVERLAY_ARGS=()
+function detect_tls_overlay() {
+  local mode=""
+  if [[ -f "$DIR/.env" ]]; then
+    # Last assignment wins; tolerate quoted values and trailing whitespace.
+    mode=$(grep -E '^[[:space:]]*HELIX_VHOST_TLS_MODE[[:space:]]*=' "$DIR/.env" 2>/dev/null \
+      | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+  fi
+  # Shell-exported env wins over .env, matching how docker compose
+  # resolves variables.
+  mode="${HELIX_VHOST_TLS_MODE:-$mode}"
+  if [[ "$mode" == "auto" ]]; then
+    COMPOSE_TLS_OVERLAY_ARGS=(-f docker-compose.tls.yaml)
+    echo "🔒 HELIX_VHOST_TLS_MODE=auto detected — including docker-compose.tls.yaml"
+  fi
+}
+detect_tls_overlay
 
 # Smart --load logic has been consolidated into the docker wrapper
 # (desktop/shared/docker-buildx-wrapper.sh), which intercepts both
@@ -61,48 +81,6 @@ function setup_dev_networking() {
     sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
     sudo sysctl -w fs.inotify.max_user_instances=8192 >/dev/null 2>&1 || true
     echo "✅ inotify limits increased"
-  fi
-}
-
-# Helper function to check for GPU and set appropriate runner profile
-function setup_runner_profile() {
-  export FORCE_CPU=${FORCE_CPU:=""}
-
-  if [[ -n "$FORCE_CPU" ]]; then
-    # Forced CPU mode
-    echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
-    export RUNNER_CONTAINER="runner"
-    export RUNNER_PROFILE="--profile runner"
-    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
-    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
-  elif command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-    # NVIDIA GPU mode
-    echo "🚀 NVIDIA GPU detected, using GPU support"
-    export RUNNER_CONTAINER="runner_gpu"
-    export RUNNER_PROFILE="--profile runner_gpu"
-    export DEV_CPU_ONLY_CMD=""
-    export VLLM_ENV_VARS=""
-  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
-    # AMD GPU mode (ROCm)
-    echo "🚀 AMD GPU detected (ROCm), using AMD GPU support"
-    export RUNNER_CONTAINER="runner_gpu_amd"
-    export RUNNER_PROFILE="--profile runner_gpu_amd"
-    export DEV_CPU_ONLY_CMD=""
-    export VLLM_ENV_VARS=""
-  elif [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*(Intel|Iris)" &> /dev/null; then
-    # Intel GPU mode - video encoding supported (QSV), but no GPU compute for LLM inference
-    echo "🖥️ Intel GPU detected - sandbox/video encoding supported (QSV), external LLM recommended for AI inference"
-    export RUNNER_CONTAINER="runner"
-    export RUNNER_PROFILE="--profile runner"
-    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
-    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
-  else
-    # CPU mode (fallback)
-    echo "❌ No supported GPU detected, running without GPU support"
-    export RUNNER_CONTAINER="runner"
-    export RUNNER_PROFILE="--profile runner"
-    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
-    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   fi
 }
 
@@ -208,104 +186,21 @@ function setup_sandbox_profile() {
   get_sandbox_names
 }
 
-function mock-runner() {
-  echo "🔨 Building helix-runner binary for mock runner..."
-  build-runner || return 1
-
-  echo "🚀 Starting mock runner..."
-  ./helix-runner \
-    --mock-runner \
-    --server-port 8090 \
-    --api-host http://localhost:8080 \
-    --api-token oh-hallo-insecure-token \
-    --memory 24GB \
-    --runner-id mock \
-    --label gpu=4090 "$@"
-}
-
-
 function build() {
-  # First detect GPU and set variables
-  setup_runner_profile
-
-  if [[ -n "$WITH_RUNNER" ]]; then
-    # Check for Zed dependency and build if needed
-    if [ ! -d "$PROJECTS_ROOT/zed" ]; then
-      echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
-      echo ""
-      echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
-      echo ""
-      echo "Please run:"
-      echo "  cd .."
-      echo "  git clone https://github.com/helixml/zed.git"
-      echo "  cd helix"
-      echo "  WITH_RUNNER=1 ./stack build"
-      exit 1
-    fi
-
-    if [ ! -f "./zed-build/zed" ]; then
-      echo "🔨 Zed binary not found, building automatically..."
-      build-zed || {
-        echo "❌ Failed to build Zed. Please check the error messages above."
-        echo "Note: Rust/Cargo is required to build Zed. Install from: https://rustup.rs/"
-        exit 1
-      }
-    fi
-
-    echo "🔨 Building runner: $RUNNER_CONTAINER"
-    docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" build
-    return
-  fi
-
   if [[ -n "$WITH_DEMOS" ]]; then
     echo "🔨 Building demos"
-    docker compose -f docker-compose.dev.yaml --profile demos build
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos build
     return
   fi
 
   # No profiles specified, just build everything
   echo "🔨 Building all services"
-  docker compose -f docker-compose.dev.yaml build
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" build
 }
 
 function static-compile() {
   export CGO_ENABLED=0
   go build -ldflags '-extldflags "-static"' -o helix .
-}
-
-function build-runner() {
-  echo "🔨 Building helix-runner binary..."
-  export CGO_ENABLED=1
-  local APP_VERSION=${APP_VERSION:-"v0.0.0+dev"}
-
-  if go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version='$APP_VERSION -o helix-runner ./runner-cmd/helix-runner; then
-    echo "✅ Successfully built helix-runner binary"
-  else
-    echo "❌ Failed to build helix-runner binary"
-    return 1
-  fi
-}
-
-function build-runner-image() {
-  echo "🐳 Building runner Docker image..."
-  local IMAGE_TAG="${1:-test}"
-  local APP_VERSION=$(git rev-parse HEAD 2>/dev/null || echo "v0.0.0+dev")
-  # Base image tag - default to latest-empty for fast test builds (skips ~16GB download)
-  # Use 'latest-small' for production builds that need full base image
-  local BASE_TAG="${2:-latest-empty}"
-
-  echo "  Output: ghcr.io/helixml/runner:$IMAGE_TAG"
-  echo "  Base: ghcr.io/helixml/runner-base:$BASE_TAG"
-  echo "  Version: $APP_VERSION"
-  echo "  Note: ROCm vLLM build takes ~10 minutes"
-  echo ""
-
-  docker buildx build \
-    -f Dockerfile.runner \
-    --build-arg TAG="$BASE_TAG" \
-    --build-arg APP_VERSION="$APP_VERSION" \
-    -t "ghcr.io/helixml/runner:$IMAGE_TAG" \
-    .
 }
 
 # Background helper used by build-zed (and other long Rust builds) to keep
@@ -393,10 +288,11 @@ EIGNORE
 
   echo "🚀 Starting Docker build (cached after first run)..."
 
-  # Background-nice rustc/cc1/lld so helix-api and sandbox-nvidia stay
-  # responsive while this build saturates the host. See _nice_rust_workers.
-  _nice_rust_workers &
-  local _NICE_PID=$!
+  # rustc/cc1/lld run at nice 19 — set via `nice -n 19 cargo build` in
+  # Dockerfile.zed-build so the build stays low-priority no matter how it's
+  # launched (./stack, startup.sh, CI, manual). This survives the foreground
+  # process disconnecting, unlike a host-side renice watcher, because BuildKit
+  # keeps compiling inside buildkitd after `docker buildx build` returns.
 
   # Build using Dockerfile.zed-build with the Zed source as context
   # --output extracts just the binary from the scratch final stage
@@ -410,9 +306,6 @@ EIGNORE
     "$ZED_SOURCE_DIR"
 
   local BUILD_EXIT=$?
-
-  kill $_NICE_PID 2>/dev/null || true
-  wait $_NICE_PID 2>/dev/null || true
 
   # Clean up temporary .dockerignore (unless it existed before)
   if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
@@ -515,9 +408,6 @@ function _start_services() {
 
   echo "🐳 Starting docker compose"
 
-  # Setup runner profiles first
-  setup_runner_profile
-
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
 
@@ -526,24 +416,14 @@ function _start_services() {
   # recreates the container when the image changes, and an explicit stop causes a
   # race with the NVIDIA driver that leaves the container in an unstoppable state
   # (especially when build-sandbox just started it moments before).
-  if [[ -n "$WITH_RUNNER" ]]; then
-    if [[ -n "$WITH_DEMOS" ]]; then
-      # Both runner and demos
-      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
-      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos up -d
-    else
-      # Just runner
-      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) profile"
-      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" up -d
-    fi
-  elif [[ -n "$WITH_DEMOS" ]]; then
+  if [[ -n "$WITH_DEMOS" ]]; then
     # Just demos
     echo "🚀 Starting services with demos profile"
-    docker compose -f docker-compose.dev.yaml --profile demos up -d
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos up -d
   else
     # No special profiles
     echo "🚀 Starting base services"
-    docker compose -f docker-compose.dev.yaml up -d
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d
   fi
 
   sleep 2
@@ -561,13 +441,6 @@ function _start_services() {
     sleep 1
   done
 
-  # Check if WIPE_SLOTS is set and wipe slots if requested
-  if [[ -n "$WIPE_SLOTS" ]]; then
-    echo "🧹 WIPE_SLOTS is set, wiping slots from database..."
-    if ! wipe-slots; then
-      echo "⚠️ Warning: Failed to wipe slots, but continuing startup..."
-    fi
-  fi
 }
 
 function start-tmux() {
@@ -619,57 +492,34 @@ function start-tmux() {
   local SANDBOX_LOGS_CMD
   SANDBOX_LOGS_CMD="docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
 
-  # Middle row (3-5): Context-aware based on WITH_RUNNER
-  if [[ -n "$WITH_RUNNER" ]]; then
-    # WITH_RUNNER mode: Sandbox logs in pane 3
-    tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
-    tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
+  # Middle row (3-5)
+  # Sandbox logs in pane 3
+  tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
 
-    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
-    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
-      tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
-      tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
-    else
-      tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
-      tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
-    fi
-
-    # GPU runner logs with air hot reloading
-    tmux select-pane -t "$TMUX_SESSION:0.5" -T "GPU Runner ($RUNNER_CONTAINER)"
-    tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
+  # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+  if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+    tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
+    tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
   else
-    # WITHOUT_RUNNER mode: Sandbox logs
-    tmux select-pane -t "$TMUX_SESSION:0.3" -T "Sandbox Logs"
-    tmux send-keys -t "$TMUX_SESSION:0.3" "$SANDBOX_LOGS_CMD" C-m
+    tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
+    tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+  fi
 
-    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
-    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
-      tmux select-pane -t "$TMUX_SESSION:0.4" -T "Kodit Logs"
-      tmux send-keys -t "$TMUX_SESSION:0.4" 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
-    else
-      tmux select-pane -t "$TMUX_SESSION:0.4" -T "🔨 HACKING TERMINAL"
-      tmux send-keys -t "$TMUX_SESSION:0.4" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
-    fi
-
-    # Middle right pane (5) - contextual based on demos
-    if [[ -n "$WITH_DEMOS" ]]; then
-      # Demos interactive session
-      tmux select-pane -t "$TMUX_SESSION:0.5" -T "Demos"
-      tmux send-keys -t "$TMUX_SESSION:0.5" 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
-    else
-      # Hacking terminal
-      tmux select-pane -t "$TMUX_SESSION:0.5" -T "🔨 HACKING TERMINAL"
-      tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
-    fi
+  # Middle right pane (5) - contextual based on demos
+  if [[ -n "$WITH_DEMOS" ]]; then
+    # Demos interactive session
+    tmux select-pane -t "$TMUX_SESSION:0.5" -T "Demos"
+    tmux send-keys -t "$TMUX_SESSION:0.5" 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
+  else
+    # Hacking terminal
+    tmux select-pane -t "$TMUX_SESSION:0.5" -T "🔨 HACKING TERMINAL"
+    tmux send-keys -t "$TMUX_SESSION:0.5" 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
   fi
 
   # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
   tmux select-pane -t "$TMUX_SESSION:0.6" -T "🔨 HACKING TERMINAL"
   tmux send-keys -t "$TMUX_SESSION:0.6" 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
-
-  if [[ -n "$WITH_DEMOS" && -n "$WITH_RUNNER" ]]; then
-    echo "Note: Both GPU runner and demos enabled - demos available in background. Run manually with: docker compose -f docker-compose.dev.yaml --profile demos exec demos bash"
-  fi
 
   # Enable pane titles display
   tmux set-option -t "$TMUX_SESSION" pane-border-status top
@@ -702,31 +552,18 @@ function stop() {
   [[ -z "$STOP_POSTGRES" ]] && exclude_services+=("postgres")
   [[ -z "$STOP_PGVECTOR" ]] && exclude_services+=("pgvector")
 
-  # Setup runner profiles first
-  setup_runner_profile
-
   if [[ ${#exclude_services[@]} -eq 0 ]]; then
     echo "🗑️ Removing all docker containers"
 
     # Stop containers based on enabled profiles
-    if [[ -n "$WITH_RUNNER" ]]; then
-      if [[ -n "$WITH_DEMOS" ]]; then
-        # Both runner and demos
-        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
-      else
-        # Just runner
-        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 || echo "⚠️  Some services may not exist"
-      fi
-    elif [[ -n "$WITH_DEMOS" ]]; then
+    if [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
       echo "🔄 Stopping services with demos profile"
-      docker compose -f docker-compose.dev.yaml --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     else
       # Include all profiles when no environment variables are set
       echo "🔄 Stopping all services (all profiles)"
-      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     fi
   else
     # Create exclude list for display and grep pattern
@@ -735,20 +572,12 @@ function stop() {
     echo "🗑️ Removing docker containers (except: $exclude_list)"
 
     # Get list of services to stop (excluding the ones we want to keep)
-    if [[ -n "$WITH_RUNNER" ]]; then
-      if [[ -n "$WITH_DEMOS" ]]; then
-        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: $exclude_list)"
-        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
-      else
-        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile (except: $exclude_list)"
-        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
-      fi
-    elif [[ -n "$WITH_DEMOS" ]]; then
+    if [[ -n "$WITH_DEMOS" ]]; then
       echo "🔄 Stopping services with demos profile (except: $exclude_list)"
       local services=$(docker compose -f docker-compose.dev.yaml --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
     else
       echo "🔄 Stopping all services (all profiles, except: $exclude_list)"
-      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+      local services=$(docker compose -f docker-compose.dev.yaml --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
     fi
 
     # Stop only the non-excluded services
@@ -785,7 +614,7 @@ function up() {
   # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
   # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU
 
-  docker compose -f docker-compose.dev.yaml up -d $@
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d $@
 }
 
 function build-zed-agent() {
@@ -853,7 +682,7 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  docker compose -f docker-compose.dev.yaml up -d --build $@
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d --build $@
 }
 
 # Helper function to build image tags string (commit hash + git tag if available)
@@ -1634,58 +1463,6 @@ function pgvector_pipe() {
   db pipe pgvector "$@"
 }
 
-function list-slots() {
-  echo "SELECT * FROM runner_slots ORDER BY created DESC;" | db pipe postgres
-}
-
-function slots() {
-  echo "Formatted view of all slots:"
-  echo "SELECT
-    id,
-    runner_id,
-    model,
-    runtime,
-    active,
-    ready,
-    status,
-    created::timestamp(0) as created,
-    updated::timestamp(0) as updated
-  FROM runner_slots
-  ORDER BY created DESC;" | db pipe postgres
-}
-
-function active-slots() {
-  echo "Active slots only:"
-  echo "SELECT
-    id,
-    runner_id,
-    model,
-    runtime,
-    status,
-    created::timestamp(0) as created
-  FROM runner_slots
-  WHERE active = true
-  ORDER BY created DESC;" | db pipe postgres
-}
-
-function slot-stats() {
-  echo "Slot statistics:"
-  echo "SELECT
-    runner_id,
-    COUNT(*) as total_slots,
-    COUNT(CASE WHEN active = true THEN 1 END) as active_slots,
-    COUNT(CASE WHEN active = false THEN 1 END) as inactive_slots
-  FROM runner_slots
-  GROUP BY runner_id
-  ORDER BY total_slots DESC;" | db pipe postgres
-}
-
-function wipe-slots() {
-  echo "🧹 Wiping all slots from database..."
-  echo "DELETE FROM runner_slots;" | db pipe postgres
-  echo "✅ All slots have been deleted from the database."
-}
-
 function install() {
   go install ./api/..
 }
@@ -1960,133 +1737,6 @@ function test-integration() {
 # Run specific tests:               ./stack test ./api/pkg/oauth_test
 # Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
 
-function ollama-sync() {
-  local OLLAMA_PATH="$PROJECTS_ROOT/ollama"
-  local TARGET_DIR="api/pkg/ollamav11"
-
-  # Check if we're in the right directory (should have api/ subdirectory)
-  if [[ ! -d "api" ]]; then
-    echo "Error: Must run from the root of the helix repository"
-    echo "Expected to find 'api/' directory in current path"
-    exit 1
-  fi
-
-  if [[ ! -d "$OLLAMA_PATH" ]]; then
-    echo "Error: Ollama repository not found at $OLLAMA_PATH"
-    echo "Expected ollama to be checked out as a sibling directory to helix"
-    exit 1
-  fi
-
-  # Check that ollama is on a release tag
-  echo "Checking Ollama version..."
-  if [[ ! -d "$OLLAMA_PATH/.git" ]]; then
-    echo "Error: $OLLAMA_PATH is not a git repository"
-    exit 1
-  fi
-
-  local OLLAMA_TAG=$(cd "$OLLAMA_PATH" && git describe --exact-match --tags HEAD 2>/dev/null)
-  if [[ -z "$OLLAMA_TAG" ]]; then
-    local CURRENT_COMMIT=$(cd "$OLLAMA_PATH" && git rev-parse --short HEAD)
-    echo "Error: Ollama is not checked out on a release tag"
-    echo "Current commit: $CURRENT_COMMIT"
-    echo "Please checkout a specific release tag (e.g., v0.11.4) before syncing"
-    echo "Example: cd $OLLAMA_PATH && git checkout v0.11.4"
-    exit 1
-  fi
-
-  echo "✅ Ollama is on release tag: $OLLAMA_TAG"
-  echo "Syncing Ollama memory estimation files..."
-
-  # Clean out target directory first to avoid stale files
-  if [[ -d "$TARGET_DIR" ]]; then
-    echo "Cleaning existing target directory..."
-    rm -rf "$TARGET_DIR"
-  fi
-
-  # Create target directory
-  mkdir -p "$TARGET_DIR"
-
-  # Copy core memory estimation files
-  echo "Copying memory estimation files..."
-  cp "$OLLAMA_PATH/llm/memory.go" "$TARGET_DIR/"
-
-  # Copy GGML/GGUF parsing files
-  echo "Copying GGML/GGUF files..."
-  cp -r "$OLLAMA_PATH/fs/ggml" "$TARGET_DIR/"
-  cp -r "$OLLAMA_PATH/fs/gguf" "$TARGET_DIR/"
-
-  # Copy supporting files
-  echo "Copying supporting files..."
-  cp -r "$OLLAMA_PATH/discover" "$TARGET_DIR/"
-  cp "$OLLAMA_PATH/api/types.go" "$TARGET_DIR/api_types.go"
-  cp "$OLLAMA_PATH/envconfig/config.go" "$TARGET_DIR/envconfig.go"
-  cp "$OLLAMA_PATH/format/bytes.go" "$TARGET_DIR/format.go"
-  cp -r "$OLLAMA_PATH/fs/util" "$TARGET_DIR/"
-
-  # Transform imports to use local versions
-  echo "Transforming imports for local use..."
-
-  # Transform package declarations to avoid import cycle
-  sed -i 's|package llm|package ollamav11|g' "$TARGET_DIR/memory.go"
-  sed -i 's|package api|package ollamav11|g' "$TARGET_DIR/api_types.go"
-  sed -i 's|package envconfig|package ollamav11|g' "$TARGET_DIR/envconfig.go"
-  sed -i 's|package format|package ollamav11|g' "$TARGET_DIR/format.go"
-
-  # Transform imports in memory.go - avoid self-imports by removing local package imports
-  sed -i 's|"github.com/ollama/ollama/api"|.|g' "$TARGET_DIR/memory.go"
-  sed -i 's|"github.com/ollama/ollama/discover"|"github.com/helixml/helix/api/pkg/ollamav11/discover"|g' "$TARGET_DIR/memory.go"
-  sed -i 's|"github.com/ollama/ollama/envconfig"|.|g' "$TARGET_DIR/memory.go"
-  sed -i 's|"github.com/ollama/ollama/format"|.|g' "$TARGET_DIR/memory.go"
-  sed -i 's|"github.com/ollama/ollama/fs/ggml"|"github.com/helixml/helix/api/pkg/ollamav11/ggml"|g' "$TARGET_DIR/memory.go"
-
-  # Remove the dot imports that were created (they'll use local functions)
-  sed -i '/^\s*\.\s*$/d' "$TARGET_DIR/memory.go"
-
-  # Transform imports in subdirectories
-  find "$TARGET_DIR/ggml" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/gguf"|"github.com/helixml/helix/api/pkg/ollamav11/gguf"|g' {} \;
-  find "$TARGET_DIR/ggml" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/util/bufioutil"|"github.com/helixml/helix/api/pkg/ollamav11/util/bufioutil"|g' {} \;
-  find "$TARGET_DIR/gguf" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/ggml"|"github.com/helixml/helix/api/pkg/ollamav11/ggml"|g' {} \;
-  find "$TARGET_DIR/discover" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/envconfig"|"github.com/helixml/helix/api/pkg/ollamav11"|g' {} \;
-  find "$TARGET_DIR/discover" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/format"|"github.com/helixml/helix/api/pkg/ollamav11"|g' {} \;
-
-  echo "Import transformations complete. You can now create type adapters manually."
-
-  # Create sync info file
-  cat > "$TARGET_DIR/SYNC_INFO.md" << EOF
-# Ollama Memory Estimation Sync
-
-**Synced from:** $OLLAMA_PATH
-**Ollama version:** $OLLAMA_TAG
-**Sync date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-## Files synced:
-- llm/memory.go → memory.go
-- fs/ggml/ → ggml/
-- fs/gguf/ → gguf/
-- discover/ → discover/
-- api/types.go → api_types.go
-- envconfig/config.go → envconfig.go
-- format/bytes.go → format.go
-- fs/util/ → util/
-
-## Next steps:
-1. Create type adapters to convert Helix types to Ollama types
-2. Modify imports in copied files to use local versions
-3. Use exact Ollama EstimateGPULayers function with adapted types
-
-## Important:
-This sync was done against Ollama $OLLAMA_TAG. If Ollama is updated,
-re-run './stack ollama-sync' to get the latest memory estimation algorithms.
-EOF
-
-  echo "✅ Ollama files synced to $TARGET_DIR"
-  echo "📄 See $TARGET_DIR/SYNC_INFO.md for details"
-  echo ""
-  echo "Next steps:"
-  echo "1. Create type adapters in api/pkg/memory/ollama_wrapper.go"
-  echo "2. Update imports in copied files to use local versions"
-  echo "3. Test with exact Ollama memory estimation algorithm"
-}
 
 function test() {
   # Ingest env variables from .env file
@@ -2161,14 +1811,11 @@ function help() {
   echo "Helix Stack Management Tool"
   echo ""
   echo "Available commands:"
-  echo "  build              - Build docker containers (optionally with WITH_RUNNER or WITH_DEMOS)"
-  echo "  build-runner       - Build the helix-runner binary locally"
-  echo "  build-runner-image - Build the runner Docker image (includes ROCm vLLM)"
+  echo "  build              - Build docker containers (optionally with WITH_DEMOS)"
   echo "  static-compile     - Build static Go binary"
   echo "  start              - Start the development environment"
   echo "  start-tmux         - Start the development environment with tmux session attached to watch logs"
   echo "  stop               - Stop docker containers"
-  echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
   echo ""
@@ -2196,11 +1843,6 @@ function help() {
   echo "  db [cli|pipe] [postgres|pgvector] - Access database"
   echo "  psql               - PostgreSQL CLI"
   echo "  pgvector           - PGVector CLI"
-  echo "  list-slots         - List all runner slots"
-  echo "  slots              - Formatted view of all slots"
-  echo "  active-slots       - Show only active slots"
-  echo "  slot-stats         - Show slot statistics"
-  echo "  wipe-slots         - Delete all slots from database"
   echo ""
   echo "Development commands:"
   echo "  generate           - Generate test mocks"
@@ -2208,13 +1850,10 @@ function help() {
   echo "  lint               - Run linter"
   echo "  test [path]        - Run tests"
   echo "  test-integration   - Run integration tests"
-  echo "  ollama-sync        - Sync Ollama memory estimation files"
   echo ""
   echo "Environment variables:"
-  echo "  WITH_RUNNER=1      - Include runner containers"
   echo "  WITH_DEMOS=1       - Include demo containers"
   echo "  FORCE_CPU=1        - Force CPU-only mode"
-  echo "  WIPE_SLOTS=1       - Wipe database slots on start"
   echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
   echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"

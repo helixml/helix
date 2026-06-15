@@ -664,6 +664,22 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 				Msg("[AUTO_WAKE] Failed to mark cold-start-exhausted interaction as error")
 			return
 		}
+		// Revert any sync-time "starting" mark left behind by
+		// syncPromptHistory's markCanonicalSessionStartingForSync. Without
+		// this, the spec-task detail page sits on a perpetual
+		// "Starting Desktop..." spinner instead of reverting to
+		// "Desktop Paused". Targeted JSONB merge gated on
+		// status='starting' so we don't clobber a status that hydra has
+		// since updated. See spec design/tasks/002047_yet-again-sending-a/.
+		if cleared, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
+			log.Warn().Err(clearErr).
+				Str("session_id", stuck.SessionID).
+				Msg("[AUTO_WAKE] Failed to clear sync-time starting status on cold-start exhaustion")
+		} else if cleared {
+			log.Info().
+				Str("session_id", stuck.SessionID).
+				Msg("[AUTO_WAKE] Cleared sync-time starting status after cold-start exhaustion — spinner will return to paused")
+		}
 		log.Warn().
 			Str("interaction_id", stuck.ID).
 			Str("session_id", stuck.SessionID).

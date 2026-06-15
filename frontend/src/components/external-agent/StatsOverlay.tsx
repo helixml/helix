@@ -6,6 +6,142 @@ import React, { useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { StreamStats, ActiveConnection, QualityMode } from './DesktopStreamViewer.types';
 
+// An inter-frame interval below this (ms) is physically impossible as a freshly
+// rendered 60Hz frame — it means a queue piled up and then drained (a "burst").
+const BURST_THRESHOLD_MS = 8;
+
+const countBursts = (samples?: number[]): number =>
+  samples ? samples.reduce((n, s) => (s < BURST_THRESHOLD_MS ? n + 1 : n), 0) : 0;
+
+// Inline SVG sparkline of recent inter-frame intervals. Y auto-scales to the
+// window max so a brief spike stands out next to the 16ms baseline. The 60fps
+// reference (16.67ms) is a faint dashed line; sub-8ms "burst" samples are
+// overdrawn as red dots so pileup-drains are visible at a glance.
+const Sparkline: React.FC<{
+  samples: number[];
+  width?: number;
+  height?: number;
+  color?: string;
+}> = ({ samples, width = 120, height = 22, color = '#00ff00' }) => {
+  if (samples.length < 2) {
+    return <svg width={width} height={height} />;
+  }
+  const max = Math.max(...samples, 16.67);
+  const range = Math.max(max, 1);
+  const step = width / Math.max(samples.length - 1, 1);
+  const x = (i: number) => i * step;
+  const y = (v: number) => height - (v / range) * height;
+  const points = samples.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const refY = height - (16.67 / range) * height;
+  return (
+    <svg
+      width={width}
+      height={height}
+      style={{ verticalAlign: 'middle', marginLeft: 6 }}
+      aria-label={`${samples.length} samples, max ${Math.round(max)}ms`}
+    >
+      <line x1={0} y1={refY} x2={width} y2={refY} stroke="rgba(255,255,255,0.15)" strokeDasharray="2,2" strokeWidth={1} />
+      <polyline points={points} fill="none" stroke={color} strokeWidth={1} opacity={0.9} />
+      {samples.map((v, i) =>
+        v < BURST_THRESHOLD_MS ? (
+          <circle key={i} cx={x(i)} cy={y(v)} r={1.6} fill="#ff4d4d" />
+        ) : null,
+      )}
+    </svg>
+  );
+};
+
+// Build the plain-text representation written to clipboard by the Copy button,
+// so stats can be pasted into chat without screenshotting. Mirrors the panel,
+// plus burst counts and the raw sample arrays for offline plotting.
+function buildStatsClipboardText(
+  stats: StreamStats | null,
+  qualityMode: QualityMode,
+  activeConnections: ActiveConnection[],
+  requestedBitrate: number,
+  screenshotFps: number,
+  screenshotQuality: number,
+  shouldPollScreenshots: boolean,
+): string {
+  const lines: string[] = [];
+  lines.push('Stats for Nerds');
+  lines.push('Transport: WebSocket');
+  lines.push(
+    `Active: ${activeConnections.length === 0 ? 'none' : activeConnections.map((c) => c.type.replace(/-/g, ' ')).join(', ')}`,
+  );
+  const v = stats?.video;
+  if (v?.codec) {
+    lines.push(`Codec: ${v.codec}${v.usingSoftwareDecoder ? ' (SW decode)' : ' (HW decode)'}`);
+    lines.push(`Resolution: ${v.width}x${v.height}`);
+    lines.push(`FPS: ${v.receiveFps} recv / ${v.fps} decoded`);
+    lines.push(`Bitrate: ${v.totalBitrate} Mbps (req: ${requestedBitrate})`);
+    lines.push(`Received: ${v.framesReceived} frames`);
+    lines.push(`Decoded: ${v.framesDecoded} frames`);
+    lines.push(`Dropped: ${v.framesDropped} frames`);
+    if (v.rttMs !== undefined) {
+      const parts = [`RTT: ${v.rttMs.toFixed(0)} ms`];
+      if (v.encoderLatencyMs !== undefined && v.encoderLatencyMs > 0) {
+        parts.push(`Encoder: ${v.encoderLatencyMs.toFixed(0)} ms`);
+        parts.push(`Total: ${(v.encoderLatencyMs + v.rttMs).toFixed(0)} ms`);
+      }
+      lines.push(parts.join(' | '));
+    }
+    if (v.adaptiveThrottleRatio !== undefined) {
+      lines.push(`Input Throttle: ${(v.adaptiveThrottleRatio * 100).toFixed(0)}% (${v.effectiveInputFps?.toFixed(0) || 0} Hz)`);
+    }
+    if (qualityMode !== 'screenshot' && v.frameLatencyMs !== undefined) {
+      lines.push(`Frame Drift: ${v.frameLatencyMs > 0 ? '+' : ''}${v.frameLatencyMs.toFixed(0)} ms`);
+    }
+    if (v.decodeQueueSize !== undefined) {
+      lines.push(`Decode Queue: ${v.decodeQueueSize}${(v.maxDecodeQueueSize ?? 0) > 3 ? ` (peak: ${v.maxDecodeQueueSize})` : ''}`);
+    }
+    if (v.framesSkippedToKeyframe !== undefined) {
+      lines.push(`Skipped to KF: ${v.framesSkippedToKeyframe} frames`);
+    }
+    if (v.receiveJitterMs) {
+      lines.push(
+        `Receive Jitter: ${v.receiveJitterMs} ms (avg ${v.avgReceiveIntervalMs ?? 0} ms, burst<8ms ${countBursts(v.receiveIntervalSamples)})`,
+      );
+    }
+    if (v.renderJitterMs) {
+      lines.push(
+        `Render Jitter: ${v.renderJitterMs} ms (avg ${v.avgRenderIntervalMs ?? 0} ms, burst<8ms ${countBursts(v.renderIntervalSamples)})`,
+      );
+    }
+    if (
+      v.schedulerJitterMaxMs !== undefined ||
+      v.schedulerJitterP99Ms !== undefined ||
+      v.schedulerJitterP50Ms !== undefined
+    ) {
+      lines.push(
+        `Scheduler Jitter: ${v.schedulerJitterP50Ms ?? 0}/${v.schedulerJitterP99Ms ?? 0}/${v.schedulerJitterMaxMs ?? 0} ms (p50/p99/max)`,
+      );
+    }
+  }
+  if (stats?.input) {
+    const i = stats.input;
+    lines.push('--- Input ---');
+    lines.push(`Send Buffer: ${i.bufferBytes} bytes`);
+    lines.push(`Sent: ${i.inputsSent}${(i.inputsDropped ?? 0) > 0 ? ` (skipped: ${i.inputsDropped})` : ''}`);
+    if ((i.maxSendMs ?? 0) > 1) {
+      lines.push(`Send Latency: ${i.avgSendMs?.toFixed(2)}ms (peak: ${i.maxSendMs?.toFixed(1)}ms)`);
+    }
+    lines.push(`Event Loop: ${i.avgEventLoopLatencyMs?.toFixed(1) || 0}ms${(i.maxEventLoopLatencyMs ?? 0) > 10 ? ` (peak: ${i.maxEventLoopLatencyMs?.toFixed(0)}ms)` : ''}`);
+  }
+  if (shouldPollScreenshots) {
+    lines.push('--- Screenshot Mode ---');
+    lines.push(`FPS: ${screenshotFps}`);
+    lines.push(`JPEG Quality: ${screenshotQuality}%`);
+  }
+  if (v?.receiveIntervalSamples && v.receiveIntervalSamples.length > 0) {
+    lines.push(`Receive samples (ms, oldest→newest, n=${v.receiveIntervalSamples.length}): ${v.receiveIntervalSamples.map((s) => Math.round(s)).join(',')}`);
+  }
+  if (v?.renderIntervalSamples && v.renderIntervalSamples.length > 0) {
+    lines.push(`Render samples (ms, oldest→newest, n=${v.renderIntervalSamples.length}): ${v.renderIntervalSamples.map((s) => Math.round(s)).join(',')}`);
+  }
+  return lines.join('\n');
+}
+
 export interface ConnectionLogEntry {
   time: string;
   msg: string;
@@ -58,6 +194,40 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   twoFingerDebug,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('stats');
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  const handleCopy = async () => {
+    const text = buildStatsClipboardText(
+      stats,
+      qualityMode,
+      activeConnections,
+      requestedBitrate,
+      screenshotFps,
+      screenshotQuality,
+      shouldPollScreenshots,
+    );
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState('copied');
+    } catch {
+      // Clipboard API is unavailable on insecure (http) origins; fall back to a
+      // hidden textarea + execCommand so localhost still works.
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setCopyState('copied');
+      } catch {
+        setCopyState('failed');
+      }
+      document.body.removeChild(ta);
+    }
+    setTimeout(() => setCopyState('idle'), 1500);
+  };
 
   return (
     <Box
@@ -77,9 +247,27 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
         border: '1px solid rgba(0, 255, 0, 0.3)',
       }}
     >
-      <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1, color: '#00ff00' }}>
-        Stats for Nerds
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#00ff00' }}>
+          Stats for Nerds
+        </Typography>
+        <button
+          onClick={handleCopy}
+          title="Copy stats to clipboard as plain text"
+          style={{
+            padding: '2px 8px',
+            fontSize: '10px',
+            background: copyState === 'copied' ? 'rgba(76, 175, 80, 0.25)' : 'rgba(0, 255, 0, 0.1)',
+            border: copyState === 'copied' ? '1px solid #4caf50' : '1px solid rgba(0, 255, 0, 0.4)',
+            borderRadius: 3,
+            color: copyState === 'copied' ? '#4caf50' : '#00ff00',
+            cursor: 'pointer',
+            fontFamily: 'monospace',
+          }}
+        >
+          {copyState === 'copied' ? '✓ Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
+        </button>
+      </Box>
 
       {/* Tab buttons */}
       <Box sx={{ display: 'flex', gap: 1, mb: 1.5, borderBottom: '1px solid rgba(0, 255, 0, 0.3)', pb: 1 }}>
@@ -210,7 +398,8 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                   {stats.video.framesSkippedToKeyframe > 0 && <span style={{ color: '#ff9800' }}> Skip</span>}
                 </div>
               )}
-              {/* Frame jitter - shows timing variance */}
+              {/* Frame jitter - shows timing variance. burst = intervals <8ms
+                  (pileup drains), tinted red on the sparkline. */}
               {stats.video.receiveJitterMs && (
                 <div>
                   <strong>Receive Jitter:</strong> {stats.video.receiveJitterMs} ms
@@ -218,12 +407,39 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                   {(stats.video.avgReceiveIntervalMs ?? 0) > 0 && (stats.video.avgReceiveIntervalMs ?? 0) < 20 && (
                     <span style={{ color: '#4caf50' }}> {Math.round(1000 / (stats.video.avgReceiveIntervalMs ?? 16.7))}fps</span>
                   )}
+                  {countBursts(stats.video.receiveIntervalSamples) > 0 && (
+                    <span style={{ color: '#ff4d4d' }}> burst {countBursts(stats.video.receiveIntervalSamples)}</span>
+                  )}
+                  {stats.video.receiveIntervalSamples && stats.video.receiveIntervalSamples.length > 1 && (
+                    <Sparkline samples={stats.video.receiveIntervalSamples} color="#00ff00" />
+                  )}
                 </div>
               )}
               {stats.video.renderJitterMs && (
                 <div>
                   <strong>Render Jitter:</strong> {stats.video.renderJitterMs} ms
                   {' '}(avg {stats.video.avgRenderIntervalMs ?? 0}ms)
+                  {countBursts(stats.video.renderIntervalSamples) > 0 && (
+                    <span style={{ color: '#ff4d4d' }}> burst {countBursts(stats.video.renderIntervalSamples)}</span>
+                  )}
+                  {stats.video.renderIntervalSamples && stats.video.renderIntervalSamples.length > 1 && (
+                    <Sparkline samples={stats.video.renderIntervalSamples} color="#4fc3f7" />
+                  )}
+                </div>
+              )}
+              {/* Adaptive playout buffer depth. Grows when idle to absorb
+                  network/WiFi jitter; 0 either because we're interacting (kept
+                  low for latency) or because there's no jitter worth buffering. */}
+              {stats.video.playoutBufferMs !== undefined && (
+                <div>
+                  <strong>Playout Buffer:</strong> {stats.video.playoutBufferMs} ms
+                  {stats.video.playoutBufferMs > 0 ? (
+                    <span style={{ color: '#888' }}> (smoothing)</span>
+                  ) : stats.video.playoutState === 'interactive' ? (
+                    <span style={{ color: '#4caf50' }}> (interactive)</span>
+                  ) : (
+                    <span style={{ color: '#888' }}> (no jitter detected)</span>
+                  )}
                 </div>
               )}
               {/* Scheduler jitter — synthetic 60Hz canary in desktop-bridge.

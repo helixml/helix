@@ -178,6 +178,7 @@ func newGitHubManifestCallbackHandler(
 	webURL string,
 	apiBaseURL string,
 ) http.HandlerFunc {
+	safeWebURL := sanitizeGitHubWebURL(webURL)
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		code := r.URL.Query().Get("code")
@@ -247,10 +248,28 @@ func newGitHubManifestCallbackHandler(
 		// select_target) 404s for a few seconds until GitHub finishes
 		// provisioning it, so wait until it's live before redirecting (a real
 		// readiness check, not a blind sleep) — bounded so we never hang.
-		installURL := webURL + "/apps/" + url.PathEscape(cfg.GetSlug()) + "/installations/new"
+		installURL := safeWebURL + "/apps/" + url.PathEscape(cfg.GetSlug()) + "/installations/new"
 		waitForGitHubAppInstallReady(ctx, installURL, 20*time.Second)
 		http.Redirect(w, r, installURL, http.StatusFound)
 	}
+}
+
+// sanitizeGitHubWebURL canonicalizes the configured GitHub web origin used for
+// browser redirects. Falls back to github.com when invalid.
+func sanitizeGitHubWebURL(raw string) string {
+	const fallback = "https://github.com"
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fallback
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return fallback
+	}
+	if u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fallback
+	}
+	return strings.TrimRight(u.String(), "/")
 }
 
 // waitForGitHubAppInstallReady polls the app's install URL (following GitHub's

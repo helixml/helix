@@ -1244,6 +1244,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               px: 1.5,
               py: 0.75,
               bgcolor: editingId ? 'info.dark' : isOnline ? 'primary.dark' : 'warning.dark',
+              color: editingId ? 'info.contrastText' : isOnline ? 'primary.contrastText' : 'warning.contrastText',
               borderBottom: '1px solid',
               borderColor: 'divider',
             }}

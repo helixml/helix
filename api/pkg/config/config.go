@@ -182,9 +182,112 @@ type Compute struct {
 	// headroom for cross-region fallback and slow NVIDIA image pulls.
 	MaxProvisioningAge time.Duration `envconfig:"HELIX_COMPUTE_MAX_PROVISIONING_AGE" default:"30m"`
 
+	// Max is the hard ceiling on Manager-owned hosts (Ready +
+	// Provisioning combined). Zero (the default) disables on-demand
+	// scale-up - the Manager only maintains Floor and ignores demand
+	// pressure. Set Max > Floor to allow the Manager to provision
+	// extra hosts when sandbox-session demand exhausts the headroom
+	// on existing hosts. Must be >= Floor when non-zero.
+	Max int `envconfig:"HELIX_COMPUTE_MAX" default:"0"`
+
+	// ScaleUpHeadroomMin is the minimum number of free sandbox slots
+	// the Manager tries to keep available across all Ready hosts.
+	// When (sum(MaxSandboxes) - sum(ActiveSandboxes)) drops below this
+	// value AND total owned is below Max, the Manager provisions
+	// an additional host. Default 1 (provision when 0 slots remain)
+	// when Max > Floor; ignored when Max = 0 (D3 disabled).
+	//
+	// Operators serving bursty workloads can raise this (e.g. to 2-3)
+	// to provision the next host before the last slot is claimed,
+	// hiding the ~90s cold-start latency from the user.
+	ScaleUpHeadroomMin int `envconfig:"HELIX_COMPUTE_SCALEUP_HEADROOM_MIN" default:"0"`
+
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it (D4).
+	// Default 10m. Hosts are never dropped below Floor.
+	//
+	// The idle timer is tracked in-memory: Manager restart resets it,
+	// so a fleet mid-scale-down sees one extra IdleTimeout window of
+	// grace before convergence resumes.
+	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
+
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
+
+	// SandboxRegistry overrides the container registry HOSTNAME that
+	// workers pull the helix-sandbox image from. Default empty means
+	// workers pull from `ghcr.io/helixml/helix-sandbox:<version>`
+	// (current behaviour, cross-cloud pull from GHCR over GitHub's CDN).
+	//
+	// Setting this to an operator-controlled registry lets workers
+	// pull from a same-region mirror — typically ECR in the same AWS
+	// account as the YD worker pool. Cross-cloud (~120s for ~10GB on
+	// inf2.xlarge / g5.xlarge) becomes intra-region (~15-30s), which
+	// is the difference between "auto-scaling works" and "auto-scaling
+	// is broken" for the D3 on-demand path where the user is waiting
+	// during scale-up.
+	//
+	// Value is the registry HOSTNAME ONLY. The "helixml/helix-sandbox"
+	// org+image path is always appended. Examples:
+	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	//     -> "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17"
+	//   "internal-registry.corp.example.com"
+	//     -> "internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17"
+	//
+	// IMPORTANT: this env var is ALSO read by sandbox/04-start-dockerd.sh
+	// (the in-container hydra dockerd loader, which sed-swaps the
+	// leading hostname segment of the desktop image ref). That consumer
+	// expects the same HOSTNAME ONLY semantic. Passing a host+org
+	// prefix here is REJECTED at boot to prevent cross-consumer
+	// divergence on the same env var.
+	//
+	// composemgr's rewriteRegistry (Runner Profile compose-stack image
+	// rewriting) does NOT read this var - it reads the parallel
+	// HELIX_RUNNER_REGISTRY. To mirror Runner Profile pulls as well as
+	// sandbox host pulls, operators set both vars (and ideally to the
+	// same hostname).
+	//
+	// Several malformed shapes are rejected loudly at boot rather
+	// than passed through to fail opaquely at docker pull on the
+	// worker:
+	//
+	//   - Embedded path segments: "mirror.corp/helixml"
+	//     - would produce a DOUBLE-ORG path on the YD side
+	//       ("mirror.corp/helixml/helixml/helix-sandbox:tag") and
+	//       different garbage on the shell side. The exact footgun
+	//       the hostname-only contract exists to prevent.
+	//
+	//   - Leading slash: "/mirror.corp", "/${REGISTRY}" (templating
+	//     leak) - Go side could strip it but the shell consumer
+	//     (sandbox/04-start-dockerd.sh sed) does not, so a leading
+	//     slash on the env var means the two consumers diverge.
+	//
+	//   - URL form: "https://mirror.corp" - shell consumer would
+	//     produce "https://mirror.corp/..." which docker rejects.
+	//
+	//   - Internal whitespace: "mirror.corp\nhelixml", "foo bar" -
+	//     usually a line-wrapped paste or a multi-line ConfigMap value.
+	//
+	//   - Empty after trim: "/", "  /  ", "   " - silent fallback to
+	//     ghcr.io is the wrong default for air-gapped deployments
+	//     that meant to set a value.
+	//
+	// Edge whitespace and a single trailing slash ARE tolerated and
+	// stripped ("  ghcr.io/" -> "ghcr.io"); they're common in
+	// copy-pasted values.
+	//
+	// The version tag is still auto-derived from data.GetHelixVersion()
+	// — operators override the registry hostname, never the version.
+	// That preserves the "release-tag-is-the-truth" property the YD
+	// provisioning loop relies on.
+	//
+	// Operator workflow: before bumping the Helix release on a
+	// deployment that uses an override, manually push the matching
+	// helix-sandbox tag to the override registry. Forgetting leaves
+	// workers in a docker-pull-retry loop; loud failure, easy
+	// diagnostic (and the resolved image is logged at boot).
+	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.
@@ -343,13 +446,8 @@ type Anthropic struct {
 }
 
 type Helix struct {
-	OwnerID            string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
-	OwnerType          string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
-	ModelTTL           time.Duration `envconfig:"HELIX_MODEL_TTL" default:"10s"`                          // How long to keep models warm before allowing other work to be scheduled
-	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"600s"`                          // How long to wait for work to complete before slots are considered dead
-	RunnerTTL          time.Duration `envconfig:"HELIX_RUNNER_TTL" default:"30s"`                         // How long before runners are considered dead
-	SchedulingStrategy string        `envconfig:"HELIX_SCHEDULING_STRATEGY" default:"max_spread" description:"The strategy to use for scheduling workloads."`
-	QueueSize          int           `envconfig:"HELIX_QUEUE_SIZE" default:"100" description:"The size of the queue when buffering workloads."`
+	OwnerID   string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+	OwnerType string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 }
 
 type Tools struct {
@@ -673,6 +771,31 @@ type WebServer struct {
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
 	// Example: http://api-internal.example.com:8080 (direct HTTP, bypassing Caddy)
 	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
+
+	// VHostTLSMode controls embedded TLS termination for project web
+	// services and sandbox preview tokens. "off" (default) means Helix
+	// listens HTTP only and a reverse proxy in front terminates TLS.
+	// "auto" enables certmagic — Helix binds :443 + :80 and issues
+	// per-hostname Let's Encrypt certs on demand for any hostname
+	// registered in vhost_routes or matching SERVER_URL.
+	VHostTLSMode string `envconfig:"HELIX_VHOST_TLS_MODE" default:"off" description:"TLS termination mode for vhost-routed traffic: 'off' (rely on upstream) or 'auto' (embed certmagic + Let's Encrypt)."`
+
+	// VHostLetsEncryptEmail is the ACME registration email used by
+	// certmagic when VHostTLSMode=auto. Required in that mode.
+	VHostLetsEncryptEmail string `envconfig:"HELIX_VHOST_LETSENCRYPT_EMAIL" description:"ACME registration email used by certmagic when HELIX_VHOST_TLS_MODE=auto."`
+
+	// VHostACMEDNSProvider selects a DNS-01 challenge provider for
+	// certmagic when VHostTLSMode=auto. Empty (the default) uses the
+	// network challenges (HTTP-01 + TLS-ALPN-01). Set to "cloudflare"
+	// when running behind a Cloudflare proxy (orange-cloud DNS), where
+	// the network challenges cannot reach Helix.
+	VHostACMEDNSProvider string `envconfig:"HELIX_VHOST_ACME_DNS_PROVIDER" description:"DNS-01 challenge provider for certmagic when HELIX_VHOST_TLS_MODE=auto. Empty=use HTTP-01+TLS-ALPN-01. Supported: cloudflare."`
+
+	// VHostCloudflareAPIToken is the Cloudflare API token used when
+	// VHostACMEDNSProvider=cloudflare. Must be an API token (not a
+	// legacy global API key) with Zone:Zone:Read + Zone:DNS:Edit
+	// permissions on the zones Helix issues certs for.
+	VHostCloudflareAPIToken string `envconfig:"HELIX_VHOST_CLOUDFLARE_API_TOKEN" description:"Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit) used when HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins

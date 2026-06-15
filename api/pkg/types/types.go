@@ -125,6 +125,34 @@ const (
 	FeedbackDislike Feedback = "dislike"
 )
 
+// Interaction.Trigger values for synthetic system interactions that are
+// not user-initiated (those use the default empty string or app-trigger
+// names like "slack", "crisp"). Used by the fork-and-pause flow.
+const (
+	// InteractionTriggerForkSeed marks the single synthetic divider
+	// interaction created on a forked child, carrying lineage metadata
+	// and (for the agent prepend path) a serialized blob of the parent
+	// transcript.
+	InteractionTriggerForkSeed = "fork_seed"
+
+	// InteractionTriggerForkInherited marks an interaction that was
+	// copied from a parent session at fork time. The child now owns
+	// these rows — they live on the child's SessionID — but their
+	// trigger value lets the UI hide destructive actions (regenerate,
+	// edit) and lets a future fork-of-fork still recognise its inherited
+	// vs. own turns when deciding what to copy forward.
+	InteractionTriggerForkInherited = "fork_inherited"
+
+	// InteractionTriggerForkHandoff marks the synthetic first turn fired
+	// automatically when a session is forked. Its prompt explicitly
+	// tells the new agent it's taking over a conversation, includes the
+	// full prior transcript (via maybePrependTranscript), and asks for
+	// a one-or-two-sentence acknowledgment. This turns the otherwise
+	// "cold agent until you first prompt" UX into "agent has visibly
+	// warmed up on the context by the time you arrive on the child".
+	InteractionTriggerForkHandoff = "fork_handoff"
+)
+
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
 	messages := []openai.ChatCompletionMessage{}
 
@@ -451,6 +479,18 @@ type SessionMetadata struct {
 	AssistantID    string            `json:"assistant_id"`
 	AppQueryParams map[string]string `json:"app_query_params"`       // Passing through user defined app params
 	CallbackURL    string            `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
+
+	// Fork lineage — set on a session created by forking from a parent.
+	// See design/tasks/002081_kickoff-mid-session/design.md.
+	ParentSessionID       string    `json:"parent_session_id,omitempty"`
+	ForkedAt              time.Time `json:"forked_at,omitempty"`
+	ForkedAtInteractionID string    `json:"forked_at_interaction_id,omitempty"`
+
+	// Pause state — sessions cannot accept new messages while paused.
+	// PausedReason is the only producer in v1: "forked_to:<child_id>".
+	Paused       bool      `json:"paused,omitempty"`
+	PausedReason string    `json:"paused_reason,omitempty"`
+	PausedAt     time.Time `json:"paused_at,omitempty"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount

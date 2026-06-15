@@ -129,6 +129,19 @@ controlplane:
     # baseURL: # Defaults to http://{{ .Release.Name }}-kodit:8080
     # gitURL: # Defaults to http://{{ .Release.Name }}:80
 
+  # Embedded TLS termination via certmagic + Let's Encrypt
+  # (HELIX_VHOST_TLS_MODE=auto). Set enabled=true to expose :443 (and
+  # optionally :80) on both the controlplane container and the Service.
+  # Configure the actual TLS mode + ACME challenge via extraEnv above.
+  vhostTLS:
+    enabled: false
+    httpsPort: 443
+    # httpPort is only needed for the HTTP-01 ACME challenge. With
+    # DNS-01 (HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare) the API server
+    # does not bind :80 — set httpEnabled to false to skip exposing it.
+    httpEnabled: true
+    httpPort: 80
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""

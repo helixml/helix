@@ -262,6 +262,13 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	// Revoke any preview-token vhost routes pointing at this session
+	// before the session row disappears; otherwise the share-* URLs
+	// would 502 with no path to clean them up.
+	if err := apiServer.Store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetSandboxPreview, session.ID); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to revoke preview tokens before session delete")
+	}
+
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
@@ -534,6 +541,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// read-only members from driving the agent.
 		if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 			http.Error(rw, err.Error(), http.StatusForbidden)
+			return
+		}
+
+		if pauseErr := requireUnpaused(session); pauseErr != nil {
+			http.Error(rw, pauseErr.Message, pauseErr.StatusCode)
 			return
 		}
 
@@ -2284,6 +2296,10 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 
 	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if err := requireUnpaused(session); err != nil {
+		return nil, err
 	}
 
 	requestID, interactionID, err := s.sendMessageToSession(ctx, sessionID, body.Content, body.NotifyUserID, body.Interrupt)
