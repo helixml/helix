@@ -173,3 +173,36 @@ in the inner Helix browser at `http://localhost:8080`:
 
 Screenshot before/after both bugs in both modes into
 `screenshots/` in this task folder when implementing.
+
+## Implementation notes
+
+- TypeScript compiles cleanly (`yarn tsc` passes).
+- **Sparkline tooltip** was verified end-to-end in the inner Helix
+  (`http://localhost:8080`) with a real project + 7 days of seeded usage data:
+  - `screenshots/01-projects-light-mode.png` — project card in light mode
+  - `screenshots/02-sparkline-tooltip-light-after.png` — tooltip after fix
+    (white surface, dark legible text)
+  - `screenshots/03-sparkline-tooltip-light-before.png` — same view with the
+    old hard-coded `rgba(30,30,30,0.95)` re-applied via DevTools, showing the
+    "black on dark gray" bug as reported
+  - `screenshots/04-sparkline-tooltip-dark.png` — dark mode unchanged
+    (dark surface, light text)
+- **Queue header**: the `RobustPromptInput` queue header only renders inside a
+  worker / external-agent / spec-task session that has in-flight or failed
+  messages. Setting that up requires a working agent runtime, which the inner
+  Helix in this environment does not have (the model registry returns 401 from
+  the upstream provider — unrelated to this fix). To still get visual
+  confirmation, `screenshots/05-queue-header-states.png` renders the four
+  states (online BEFORE, online AFTER, offline AFTER, editing AFTER) using
+  MUI's default-palette `.dark` colors (`#1565c0`, `#e65100`, `#01579b`) and
+  the contrastText `#fff` that the fix applies. The BEFORE pill shows dark
+  text on dark navy — the bug the user reported — and the three AFTER pills
+  are clearly legible. Dark-mode regression is not a risk because
+  `<token>.dark` and `<token>.contrastText` are computed from the
+  palette family, not the `palette.mode`, so they resolve to the same value in
+  both modes — i.e. the fix can't change the dark-mode appearance.
+- **Discovery learning**: the inner Helix model selector is broken in this
+  environment (Anthropic + OpenAI providers return 401 against
+  `http://host.docker.internal:8081/v1/models`). Future agents trying to
+  exercise the full project-creation flow will hit this and need to either fix
+  the upstream credentials or inject test data via SQL like this task did.
