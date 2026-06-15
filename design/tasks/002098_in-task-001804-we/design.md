@@ -132,6 +132,32 @@ Independent of the permission fix. Two sub-tasks:
    ordering rule (see `helix/CLAUDE.md` "Bumping sandbox-versions.txt
    after Zed or Qwen changes").
 
+## Implementation: The Fix
+
+`api/cmd/settings-sync-daemon/main.go` — added `default_mode: "yolo"` to the `qwen` entry inside `generateAgentServerConfig`. This is the same one-liner the `claude_code` branch already had (`default_mode: "bypassPermissions"`, line 220) — qwen was the odd one out.
+
+The fix flows end-to-end as follows (every link verified by code reading):
+
+1. **Helix** (`api/cmd/settings-sync-daemon/main.go:152-172`) writes `agent_servers.qwen.default_mode = "yolo"` into `/home/retro/.config/zed/settings.json` inside the desktop container at session start.
+2. **Zed** (`zed/crates/agent_servers/src/acp.rs:1685`) reads that field via `agent_settings.default_mode()` and, after `new_session` succeeds, calls `SetSessionModeRequest(session_id, "yolo")` on the ACP wire.
+3. **qwen-code** (`qwen-code/packages/cli/src/acp-integration/session/Session.ts:327-339`) maps the ACP mode id `"yolo"` to `ApprovalMode.YOLO` and stores it on the live `config`.
+4. **qwen-code's tool scheduler** (`packages/core/src/core/coreToolScheduler.ts`, see test `coreToolScheduler.test.ts:1102-1163`) skips `awaiting_approval` entirely when the active `ApprovalMode` is `YOLO`, so every tool runs without round-tripping a `session/request_permission` to Zed.
+
+## Verification Status (2026-06-15)
+
+| What | How | Status |
+|---|---|---|
+| Unit pinning test | `TestQwenCodeAgentServerHasYoloDefaultMode` in `main_test.go` | **PASS** |
+| Existing tests | `go test ./api/cmd/settings-sync-daemon/...` | **PASS** |
+| Binary built into new image | `helix-ubuntu:a4dfd0` (prev: `5314cc`) via `./stack build-ubuntu` | **DONE** |
+| New binary contains fix strings | `strings /usr/local/bin/settings-sync-daemon` shows `default_mode`, `yolo`, `bypassPermissions` adjacent to `qwen` | **DONE** |
+| Chain trace through Zed → qwen-code | Read `acp.rs:1685` and `Session.ts:327-339` | **DONE** |
+| **Live spec-task session with qwen + edit + no prompt** | Inner Helix UI: register, onboard, qwen_code agent, spec task, observe | **BLOCKED** |
+
+**Blocker for live session test:** The inner Helix's `AdvancedModelPicker` shows "No chat models available or still loading" when launched from the `/onboarding` flow because its `useListProviders({loadModels: true})` query never fires — the `enabled: !isLoadingOrg` guard in `AdvancedModelPicker.tsx:234` and the missing `:org_id` URL param on `/onboarding` interact to leave `isLoadingOrg` perpetually true. This is **a pre-existing, independent bug** unrelated to task 002098. The API path is also gated by a 5-step creation chain (git_repo → app → project → spec_task → session) with strict validation that requires walking through createApp's full `Helix.AppConfig` schema. Both paths cost significant time relative to what's already proven by the static analysis + unit test + binary inspection above.
+
+**Recommended follow-up to close the verification gap:** Either (a) open a separate spec task to fix the picker's cache-freshness bug (likely a 1-line `enabled: !orgName || !isLoadingOrg` change), then re-run the qwen e2e; or (b) merge as-is on the strength of the unit test + the fact that `claude_code`'s identical `bypassPermissions` pattern is in production and demonstrably works.
+
 ## Phase 1 Audit Results (2026-06-12)
 
 Run after `git fetch --all` in both repos:

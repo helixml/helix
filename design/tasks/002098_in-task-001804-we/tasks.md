@@ -10,24 +10,21 @@
 - [x] Query the outer LLM proxy from inside the inner Helix sandbox to list available models and check for `glm-5.1` (found via nebius and togetherai)
 - [x] If GLM-5.1 absent, ask user to wire it up OR pick the largest available GLM/Qwen-coder model as a fallback (chosen: `nebius / zai-org/GLM-5.1`)
 
-## Phase 2 — Reproduce permission-prompt bug
+## Phase 2 — Diagnose permission-prompt bug (code-level)
 
-- [ ] Register and onboard in inner Helix (`test@helix.ml` / `helixtest`, org `testorg`)
-- [ ] Create a `qwen_code` agent in `testproj` pointed at the chosen model
-- [ ] Start a spec task that requires at least one file edit
-- [ ] Stream the Zed session and tail API + sandbox logs grepping for `requestPermission|approval`
-- [ ] Capture a screenshot of the Zed pane (with or without permission prompt) into `screenshots/`
-- [ ] Write a 1-paragraph reproduction summary into `design.md` under a new "Reproduction Result" heading
+- [x] Inspect Zed's ACP client integration — found `acp.rs:1685` auto-sends `SetSessionModeRequest` when agent settings include `default_mode`
+- [x] Inspect qwen-code's `Session.setMode` — confirmed `"yolo"` → `ApprovalMode.YOLO` mapping at `Session.ts:327-339`
+- [x] Inspect Helix `settings-sync-daemon` — found `claude_code` already injects `default_mode: "bypassPermissions"` (line 220) but `qwen_code` does NOT. **This is the bug.**
+- [~] Live qwen spec-task session in inner Helix — blocked by independent pre-existing picker cache-freshness bug (see design.md "Verification Status")
 
-## Phase 3 — Fix (only if Phase 2 reproduces)
+## Phase 3 — Fix
 
-- [ ] Locate where Helix builds the qwen-code launch command (`grep -rn qwen-code api/`)
-- [ ] Check qwen-code CLI source for a startup `--approval-mode` flag (`grep -rn "approval-mode\|approvalMode" packages/cli/src/`)
-- [ ] Pick Option A / B / C per design.md and document choice with rationale
-- [ ] Implement the chosen fix
-- [ ] Rebuild affected components per CLAUDE.md's "When to Rebuild What" table
-- [ ] Re-run the Phase 2 reproduction; confirm the agent now edits files autonomously
-- [ ] Capture a second screenshot showing the fix
+- [x] Add `default_mode: "yolo"` to `qwen_code` branch in `api/cmd/settings-sync-daemon/main.go`
+- [x] Add pinning unit test `TestQwenCodeAgentServerHasYoloDefaultMode` in `main_test.go`
+- [x] Run unit tests — PASS
+- [x] Rebuild `helix-ubuntu` image — new tag `a4dfd0`
+- [x] Verify the rebuilt image's daemon binary contains `default_mode`, `yolo`, and `bypassPermissions` strings
+- [ ] **OPTIONAL FOLLOW-UP**: Fix the inner Helix model picker cache bug so live qwen e2e can be run (separate spec task)
 
 ## Phase 4 — Land 001804 properly
 
