@@ -666,3 +666,140 @@ func (s *AuthzAppSuite) TestWithOrg_AdminAllowed() {
 	err := s.server.authorizeUserToApp(context.Background(), user, app, types.ActionGet)
 	s.NoError(err)
 }
+
+// ===== Project-via-team Authorization Suite =====
+//
+// Regression tests for the case where an org member belongs to a team that holds
+// an access grant on a project. Before the fix, RoleRead/RoleWrite omitted
+// ResourceProject so team-granted users could not see projects unless the team
+// had RoleAdmin (which uses ResourceAny).
+
+type AuthzProjectViaTeamSuite struct {
+	suite.Suite
+	ctrl      *gomock.Controller
+	mockStore *store.MockStore
+	server    *HelixAPIServer
+
+	orgID   string
+	userID  string
+	teamID  string
+	projID  string
+	project *types.Project
+	user    *types.User
+}
+
+func TestAuthzProjectViaTeamSuite(t *testing.T) {
+	suite.Run(t, new(AuthzProjectViaTeamSuite))
+}
+
+func (s *AuthzProjectViaTeamSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.mockStore = store.NewMockStore(s.ctrl)
+	s.orgID = "org1"
+	s.userID = "user1"
+	s.teamID = "team1"
+	s.projID = "proj1"
+
+	s.server = &HelixAPIServer{
+		Cfg:   &config.ServerConfig{},
+		Store: s.mockStore,
+	}
+
+	s.project = &types.Project{
+		ID:             s.projID,
+		OrganizationID: s.orgID,
+		UserID:         "someone_else",
+	}
+	s.user = &types.User{ID: s.userID}
+}
+
+func (s *AuthzProjectViaTeamSuite) expectOrgMember() {
+	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil).AnyTimes()
+}
+
+// expectTeamGrant mocks the lookup chain so the user is in `teamID` and that
+// team holds a single grant on `projID` carrying the given canonical role config.
+func (s *AuthzProjectViaTeamSuite) expectTeamGrant(cfg types.Config) {
+	s.mockStore.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return([]*types.Team{{ID: s.teamID, OrganizationID: s.orgID}}, nil)
+
+	s.mockStore.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		ResourceID:     s.projID,
+		TeamIDs:        []string{s.teamID},
+	}).Return([]*types.AccessGrant{
+		{
+			ID:             "grant1",
+			OrganizationID: s.orgID,
+			ResourceID:     s.projID,
+			TeamID:         s.teamID,
+			Roles:          []types.Role{{Config: cfg}},
+		},
+	}, nil)
+}
+
+// expectTeamNoGrant: user is in a team but ListAccessGrants returns nothing.
+func (s *AuthzProjectViaTeamSuite) expectTeamNoGrant() {
+	s.mockStore.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return([]*types.Team{{ID: s.teamID, OrganizationID: s.orgID}}, nil)
+
+	s.mockStore.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		ResourceID:     s.projID,
+		TeamIDs:        []string{s.teamID},
+	}).Return([]*types.AccessGrant{}, nil)
+}
+
+// TestTeamAdminGrant_AllowsProjectGet — ResourceAny path. This is the case the
+// user originally reported as broken. With autoMigrateRoleConfig syncing the
+// stored config from types.RoleAdmin at startup, this path works today, but it
+// must not silently regress.
+func (s *AuthzProjectViaTeamSuite) TestTeamAdminGrant_AllowsProjectGet() {
+	s.expectOrgMember()
+	s.expectTeamGrant(types.RoleAdmin)
+
+	err := s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet)
+	s.NoError(err)
+}
+
+// TestTeamReadGrant_AllowsProjectGet — regression guard for the actual bug fix:
+// RoleRead must include ResourceProject so a team with read access can see the project.
+func (s *AuthzProjectViaTeamSuite) TestTeamReadGrant_AllowsProjectGet() {
+	s.expectOrgMember()
+	s.expectTeamGrant(types.RoleRead)
+
+	err := s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet)
+	s.NoError(err)
+}
+
+// TestTeamWriteGrant_AllowsProjectGet — same regression guard for RoleWrite.
+func (s *AuthzProjectViaTeamSuite) TestTeamWriteGrant_AllowsProjectGet() {
+	s.expectOrgMember()
+	s.expectTeamGrant(types.RoleWrite)
+
+	err := s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet)
+	s.NoError(err)
+}
+
+// TestTeamMembership_NoGrant_Denied — negative case. User is in a team but the
+// team holds no grant on this project; must not see the project.
+func (s *AuthzProjectViaTeamSuite) TestTeamMembership_NoGrant_Denied() {
+	s.expectOrgMember()
+	s.expectTeamNoGrant()
+
+	err := s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet)
+	s.Error(err)
+}

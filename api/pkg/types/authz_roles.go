@@ -9,6 +9,7 @@ var (
 					ResourceApplication,
 					ResourceKnowledge,
 					ResourceAccessGrants,
+					ResourceProject,
 				},
 				Actions: []Action{
 					ActionGet,
@@ -28,6 +29,7 @@ var (
 				Resources: []Resource{
 					ResourceApplication,
 					ResourceKnowledge,
+					ResourceProject,
 				},
 				Actions: []Action{
 					ActionGet,
