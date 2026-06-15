@@ -2,7 +2,7 @@
 
 ## Frontend — Fix A (remove the self-invalidate)
 
-- [ ] In `frontend/src/utils/optimisticSessionStarting.ts`, delete the
+- [~] In `frontend/src/utils/optimisticSessionStarting.ts`, delete the
       `queryClient.invalidateQueries(...)` call at the end of
       `optimisticallyMarkSessionStarting` (lines 50-53).
 - [ ] Update the comment block at lines 11-18 to describe the new
