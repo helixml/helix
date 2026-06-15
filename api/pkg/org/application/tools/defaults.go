@@ -40,6 +40,30 @@ var BaseReadTools = []tool.Name{
 	MintCredentialName,
 }
 
+// OwnerRoleTools is the canonical tool set the bootstrap owner Role
+// receives: every mutation in the system plus the universal base read
+// set (via MergeBaseReadTools). It lives here — beside the tool name
+// constants and BaseReadTools — so the owner-seed policy references the
+// typed names directly and bootstrap (application) can be handed the
+// list without importing this package. mint_credential arrives through
+// BaseReadTools, so it is not repeated in the mutation list.
+func OwnerRoleTools() []tool.Name {
+	ownerMutations := []tool.Name{
+		CreateRoleName,
+		UpdateRoleName,
+		UpdateIdentityName,
+		HireWorkerName,
+		CreateStreamName,
+		StreamMembersName,
+		SubscribeName,
+		UnsubscribeName,
+		InviteWorkersName,
+		PublishName,
+		DMName,
+	}
+	return MergeBaseReadTools(ownerMutations)
+}
+
 // MergeBaseReadTools returns the union of `existing` and BaseReadTools.
 // The order of `existing` is preserved; any BaseReadTools entries not
 // already present are appended in BaseReadTools order. Duplicates within

@@ -982,6 +982,7 @@ func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
 	if _, err := bootstrap.Run(context.Background(), s, bootstrap.Params{
 		EnvironmentPath: ownerEnv,
 		OrganizationID:  "org-test",
+		OwnerRoleTools:  tools.OwnerRoleTools(),
 	}); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -1028,6 +1029,7 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 	if _, err := bootstrap.Run(context.Background(), s, bootstrap.Params{
 		EnvironmentPath: ownerEnv,
 		OrganizationID:  "org-test",
+		OwnerRoleTools:  tools.OwnerRoleTools(),
 	}); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

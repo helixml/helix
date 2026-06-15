@@ -106,6 +106,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		switch result, err := bootstrap.Run(ctx, s.orgStore, bootstrap.Params{
 			EnvironmentPath: ownerEnvPath,
 			OrganizationID:  orgID,
+			OwnerRoleTools:  tools.OwnerRoleTools(),
 		}); {
 		case err == nil:
 			log.Info().

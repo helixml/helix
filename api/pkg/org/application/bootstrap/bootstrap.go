@@ -14,7 +14,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -31,6 +30,13 @@ var ownerRoleContent string
 type Params struct {
 	EnvironmentPath string
 	OrganizationID  string
+	// OwnerRoleTools is the tool set the owner Role is seeded with —
+	// injected by the composition root (tools.OwnerRoleTools()) so this
+	// application package doesn't import the MCP-tool adapter package. The
+	// owner Role's Tools is the single source of truth for what MCP tools
+	// the owner Worker sees (the MCP handler reads Worker → Role.Tools
+	// live on every request).
+	OwnerRoleTools []tool.Name
 }
 
 // Result summarises the newly-created owner.
@@ -71,32 +77,12 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 
 	now := time.Now().UTC()
 
-	// The owner Role's Tools is the single source of truth for what
-	// MCP tools the owner Worker sees: the MCP handler reads
-	// Worker → Role.Tools live on every request.
-	//
-	// The owner gets every mutation in the system plus the universal
-	// base read set. The read half lives in tools.BaseReadTools so the
-	// reconciler and create_role can refer to the same list — keeping
-	// every Role's MCP surface consistent.
-	ownerMutationTools := []tool.Name{
-		tools.CreateRoleName,
-		tools.UpdateRoleName,
-		tools.UpdateIdentityName,
-		tools.HireWorkerName,
-		tools.CreateStreamName,
-		tools.StreamMembersName,
-		tools.SubscribeName,
-		tools.UnsubscribeName,
-		tools.InviteWorkersName,
-		tools.PublishName,
-		tools.DMName,
-		// (mint_credential is in tools.BaseReadTools, so every Role —
-		// owner included — gets it via MergeBaseReadTools.)
-	}
-	defaults := append(append([]tool.Name{}, ownerMutationTools...), tools.BaseReadTools...)
-
-	ownerRole, err := orgchart.NewRole("r-owner", ownerRoleContent, defaults, nil, now, params.OrganizationID)
+	// The owner Role's Tools is the single source of truth for what MCP
+	// tools the owner Worker sees: the MCP handler reads Worker →
+	// Role.Tools live on every request. The list is injected
+	// (tools.OwnerRoleTools()) so this package stays free of a dependency
+	// on the MCP-tool adapter package.
+	ownerRole, err := orgchart.NewRole("r-owner", ownerRoleContent, params.OwnerRoleTools, nil, now, params.OrganizationID)
 	if err != nil {
 		return Result{}, err
 	}
