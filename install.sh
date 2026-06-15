@@ -136,6 +136,9 @@ GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
 UPGRADE_MODE=false   # --upgrade: skip GPU/Docker/Caddy work; just bump HELIX_VERSION + recreate
 DRY_RUN=false        # --dry-run: only meaningful with --upgrade today; print what would change and exit
+VHOST_TLS_MODE=""           # --vhost-tls-mode: off | auto (enables embedded LE termination)
+LETSENCRYPT_EMAIL=""        # --letsencrypt-email: ACME contact when --vhost-tls-mode=auto
+CLOUDFLARE_API_TOKEN=""     # --cloudflare-api-token: scoped CF token for DNS-01 challenge
 
 # Enhanced environment detection
 detect_environment() {
@@ -252,6 +255,9 @@ Options:
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
+  --vhost-tls-mode <mode>  Embedded TLS termination for project web services + sandbox previews: 'off' (default, rely on upstream proxy) or 'auto' (certmagic + Let's Encrypt on :443)
+  --letsencrypt-email <email>  ACME registration email; required when --vhost-tls-mode=auto
+  --cloudflare-api-token <token>  Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit). Selects the DNS-01 ACME challenge via Cloudflare — required when Helix is behind a Cloudflare proxy (orange-cloud), since HTTP-01/TLS-ALPN-01 cannot reach the origin in that setup. Implies --vhost-tls-mode=auto if not already set.
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
   --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
@@ -457,6 +463,30 @@ while [[ $# -gt 0 ]]; do
             ;;
         --hf-token)
             HF_TOKEN="$2"
+            shift 2
+            ;;
+        --vhost-tls-mode=*)
+            VHOST_TLS_MODE="${1#*=}"
+            shift
+            ;;
+        --vhost-tls-mode)
+            VHOST_TLS_MODE="$2"
+            shift 2
+            ;;
+        --letsencrypt-email=*)
+            LETSENCRYPT_EMAIL="${1#*=}"
+            shift
+            ;;
+        --letsencrypt-email)
+            LETSENCRYPT_EMAIL="$2"
+            shift 2
+            ;;
+        --cloudflare-api-token=*)
+            CLOUDFLARE_API_TOKEN="${1#*=}"
+            shift
+            ;;
+        --cloudflare-api-token)
+            CLOUDFLARE_API_TOKEN="$2"
             shift 2
             ;;
         --providers-management-enabled=*)
@@ -813,6 +843,24 @@ else
     echo
 fi
 
+# Return docker compose -f flags as an array. Always includes the main
+# compose file; appends docker-compose.tls.yaml when
+# HELIX_VHOST_TLS_MODE=auto is set in $INSTALL_DIR/.env (or the shell
+# environment). Result is assigned to HELIX_COMPOSE_ARGS by the caller.
+helix_compose_args() {
+    HELIX_COMPOSE_ARGS=(-f docker-compose.yaml)
+    local mode=""
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        mode=$(grep -E '^[[:space:]]*HELIX_VHOST_TLS_MODE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
+            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+    fi
+    mode="${HELIX_VHOST_TLS_MODE:-$mode}"
+    if [ "$mode" = "auto" ] && [ -f "$INSTALL_DIR/docker-compose.tls.yaml" ]; then
+        HELIX_COMPOSE_ARGS+=(-f docker-compose.tls.yaml)
+        echo "🔒 HELIX_VHOST_TLS_MODE=auto detected — including docker-compose.tls.yaml"
+    fi
+}
+
 # --------------------------------------------------------------------------
 # do_upgrade: lightweight controlplane upgrade path.
 #
@@ -870,8 +918,9 @@ do_upgrade() {
     echo "Planned actions:"
     echo "  1. Back up $INSTALL_DIR/.env to $INSTALL_DIR/.env.bak.<timestamp>"
     echo "  2. Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
-    echo "  3. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
-    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
+    echo "  3. Fetch docker-compose.tls.yaml from release $target_version if missing"
+    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
+    echo "  5. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
     echo
 
     if [ "$DRY_RUN" = true ]; then
@@ -902,16 +951,35 @@ do_upgrade() {
     echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
 
     cd "$INSTALL_DIR" || exit 1
+
+    # If upgrading from a release that predates docker-compose.tls.yaml,
+    # fetch it so embedded-TLS upgrades work end-to-end. Only fetched
+    # when missing — never overwrites an existing file (operator may
+    # have local edits, however unlikely on a 4-line overlay).
+    if [ ! -f "$INSTALL_DIR/docker-compose.tls.yaml" ]; then
+        echo "Fetching docker-compose.tls.yaml from release $target_version..."
+        if [ "$ENVIRONMENT" = "gitbash" ]; then
+            curl -fLs "${PROXY}/helixml/helix/releases/download/${target_version}/docker-compose.tls.yaml" \
+                -o "$INSTALL_DIR/docker-compose.tls.yaml" \
+                || echo "Note: docker-compose.tls.yaml not present in release $target_version (pre-overlay release? skipping)."
+        else
+            sudo curl -fLs "${PROXY}/helixml/helix/releases/download/${target_version}/docker-compose.tls.yaml" \
+                -o "$INSTALL_DIR/docker-compose.tls.yaml" \
+                || echo "Note: docker-compose.tls.yaml not present in release $target_version (pre-overlay release? skipping)."
+        fi
+    fi
+
+    helix_compose_args
     echo
     echo "Pulling new images..."
-    $DOCKER_CMD compose pull
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" pull
     echo
     echo "Recreating containers..."
-    $DOCKER_CMD compose up -d --remove-orphans
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
 
     echo
     echo "Upgrade complete. Running containers:"
-    $DOCKER_CMD compose ps
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" ps
     exit 0
 }
 
@@ -1675,6 +1743,19 @@ if [ "$CONTROLPLANE" = true ]; then
     fi
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
+    # docker-compose.tls.yaml is an opt-in overlay that exposes :443 (and
+    # :80) on the api container. It's only applied when
+    # HELIX_VHOST_TLS_MODE=auto is set in .env (see helix_compose_args
+    # below). Download it unconditionally so it's available if the
+    # operator turns TLS on later.
+    echo -e "\nDownloading docker-compose.tls.yaml..."
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.tls.yaml" -o $INSTALL_DIR/docker-compose.tls.yaml
+    else
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.tls.yaml" -o $INSTALL_DIR/docker-compose.tls.yaml
+    fi
+    echo "docker-compose.tls.yaml has been downloaded to $INSTALL_DIR/docker-compose.tls.yaml"
+
     # Create database creation script
     cat << EOF > "$INSTALL_DIR/scripts/postgres/postgres-db.sh"
 #!/bin/bash
@@ -1770,6 +1851,24 @@ EOF
     # Default to localhost if it wasn't passed
     if [ -z "$API_HOST" ]; then
         API_HOST="http://localhost:8080"
+    fi
+
+    # Embedded TLS / ACME validation. A Cloudflare token implies DNS-01
+    # via Cloudflare, which only makes sense when TLS termination is on
+    # — so we auto-flip the mode rather than making the operator pass
+    # two flags. A missing email is a hard error in auto mode because
+    # certmagic rejects empty ACME registration contacts.
+    if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -z "$VHOST_TLS_MODE" ]; then
+        VHOST_TLS_MODE="auto"
+        echo "Note: --cloudflare-api-token implies --vhost-tls-mode=auto"
+    fi
+    if [ "$VHOST_TLS_MODE" = "auto" ] && [ -z "$LETSENCRYPT_EMAIL" ]; then
+        echo "Error: --vhost-tls-mode=auto requires --letsencrypt-email <email>." >&2
+        exit 1
+    fi
+    if [ -n "$VHOST_TLS_MODE" ] && [ "$VHOST_TLS_MODE" != "auto" ] && [ "$VHOST_TLS_MODE" != "off" ]; then
+        echo "Error: --vhost-tls-mode must be 'off' or 'auto' (got '$VHOST_TLS_MODE')." >&2
+        exit 1
     fi
 
     if [ -f "$ENV_FILE" ]; then
@@ -1934,6 +2033,26 @@ EOF
     if [ -n "$HF_TOKEN" ]; then
         cat << EOF >> "$ENV_TARGET"
 HF_TOKEN=$HF_TOKEN
+EOF
+    fi
+
+    # Embedded TLS / ACME settings (vhost_tls.go in the api server).
+    # The .tls.yaml compose overlay is auto-included when
+    # HELIX_VHOST_TLS_MODE=auto (see helix_compose_args above).
+    if [ -n "$VHOST_TLS_MODE" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_TLS_MODE=$VHOST_TLS_MODE
+EOF
+    fi
+    if [ -n "$LETSENCRYPT_EMAIL" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL
+EOF
+    fi
+    if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare
+HELIX_VHOST_CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN
 EOF
     fi
     # Add embeddings provider configuration (default provider for direct
@@ -2142,10 +2261,11 @@ CADDYEOF"
             fi
         fi
 
+        helix_compose_args
         if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose up -d --remove-orphans
+            sudo docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         else
-            docker compose up -d --remove-orphans
+            docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
         cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
@@ -2786,10 +2906,11 @@ EOF
             fi
         fi
 
+        helix_compose_args
         if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose up -d --remove-orphans
+            sudo docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         else
-            docker compose up -d --remove-orphans
+            docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
         cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
