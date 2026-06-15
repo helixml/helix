@@ -18,7 +18,7 @@
 
 ## macOS Wails app (for-mac/)
 
-- [ ] Add `for-mac/clipboard_darwin.go` with cgo + AppKit (mirror `cursor_darwin.go` pattern). Implement `(a *App) SetClipboardImagePNG(base64PNG string) error` writing `NSPasteboardTypePNG`, and `(a *App) GetClipboardImagePNG() (string, error)` reading the same type and returning base64 or `""`
+- [~] Add `for-mac/clipboard_darwin.go` with cgo + AppKit (mirror `cursor_darwin.go` pattern). Implement `(a *App) SetClipboardImagePNG(base64PNG string) error` writing `NSPasteboardTypePNG`, and `(a *App) GetClipboardImagePNG() (string, error)` reading the same type and returning base64 or `""`
 - [ ] Run `wails dev` (or `wails build`) to regenerate `for-mac/frontend/wailsjs/go/main/App.d.ts` and `.js`; include the regenerated files in the PR
 - [ ] Extend the `handleMessage` event handler in `for-mac/frontend/src/App.tsx`:
   - [ ] Accept `{ type: "helix-clipboard-write", mime: "image/png", base64: string }` and call `SetClipboardImagePNG`
