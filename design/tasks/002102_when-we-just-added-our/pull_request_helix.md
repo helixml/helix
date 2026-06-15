@@ -94,7 +94,14 @@ standard deployment. Fixed here:
   reinstall / upgrade paths. Also downloads `docker-compose.tls.yaml`
   alongside `docker-compose.yaml` from the release so the file is
   always available locally even if the operator only enables TLS
-  later.
+  later. Three new flags configure the .env at install time:
+  - `--vhost-tls-mode <off|auto>`
+  - `--letsencrypt-email <email>` (required when mode=auto)
+  - `--cloudflare-api-token <token>` (implies mode=auto; sets
+    `HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare`)
+  Existing values in `.env` are preserved when a flag is omitted
+  (via the existing `merge_env_files` logic), so re-running install.sh
+  without these flags is a no-op for the TLS config.
 - `.drone.yml` — uploads `docker-compose.tls.yaml` as a release asset
   alongside `docker-compose.yaml` so `install.sh` can pull it from
   the GitHub release.
