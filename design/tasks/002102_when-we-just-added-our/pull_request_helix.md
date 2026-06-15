@@ -78,12 +78,18 @@ deployment surfaces never mapped those host/Service ports through —
 meaning the auto-mode listener was operationally unreachable in every
 standard deployment. Fixed here:
 
-- `docker-compose.tls.yaml` (new) — opt-in compose overlay. Operators
-  add `-f docker-compose.tls.yaml` to their `docker compose up` command
-  to expose `:443`/`:80` on the API container. Host port numbers come
-  from `.env` (`VHOST_HTTPS_PORT`, `VHOST_HTTP_PORT`) with sensible
+- `docker-compose.tls.yaml` (new) — opt-in compose overlay. Exposes
+  `:443`/`:80` on the API container; host port numbers come from
+  `.env` (`VHOST_HTTPS_PORT`, `VHOST_HTTP_PORT`) with sensible
   defaults. Kept as a separate file rather than modifying the main
   compose files so operators don't hit merge conflicts on `git pull`.
+- `stack` — auto-detects `HELIX_VHOST_TLS_MODE=auto` in `.env` (or the
+  shell environment) and includes the overlay in every `docker compose`
+  call that mutates state (`up -d`, `down`, `build`, `rebuild`).
+  Operators just set `HELIX_VHOST_TLS_MODE=auto` in `.env` and run
+  `./stack start` as usual — no extra flags. A `🔒 ... including
+  docker-compose.tls.yaml` line is printed at script init so the
+  detection is visible.
 - `charts/helix-controlplane/values.yaml` — new
   `controlplane.vhostTLS` block (`enabled`, `httpsPort`, `httpEnabled`,
   `httpPort`). Default `enabled: false` so existing deployments are
