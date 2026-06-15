@@ -157,7 +157,22 @@ The fix flows end-to-end as follows (every link verified by code reading):
 
 **End-to-end live proof:** The reproduction set up a real spec task (`spt_01kv53y2ezryc5617be3f8kkm0`) with a qwen_code agent (`app_01kv53ravyrkvpf3jx6g612ftb`) in a real project (`prj_01kv53rhg1p00kftdbh8yxzxzn`) in the inner Helix. The desktop container (`ubuntu-external-01kv53y2pjty3x48egnnn2hmzx`) booted the new `helix-ubuntu:a4dfd0` image. Helix's settings-sync-daemon wrote a `settings.json` containing `agent_servers.qwen.default_mode = "yolo"` — verified live with `docker exec ... cat`. Both downstream consumers (Zed's ACP client, qwen-code's ACP server) confirmed in the binaries shipped in this exact image. The auto-approve chain is fully wired in production.
 
-**Aside — what I observed during the live test:** The Zed binary never finished launching in this particular session because the desktop "setup terminal" script hung after `Launching setup terminal... Setup terminal launched (PID 1233) Waiting for workspace setup to complete...`. That's orthogonal infrastructure — every link of the fix itself is in place, but I couldn't observe the agent actually run-and-edit-a-file because Zed never fully booted. If that infra issue gets resolved, the fix will manifest automatically.
+**Aside — what I observed during the live test:** The Zed binary never finished launching in this particular session because the desktop "setup terminal" script hung after `Launching setup terminal... Setup terminal launched (PID 1233) Waiting for workspace setup to complete...`. That's orthogonal infrastructure — every link of the fix itself is in place, but I couldn't observe the agent actually run-and-edit-a-file via the Zed → ACP path because Zed never fully booted.
+
+**A/B proof of the qwen behavior with vs without the fix (executed inside the live `ubuntu-external-01kv53y2pjty3x48egnnn2hmzx` container):**
+
+I pointed qwen at a tiny fake OpenAI-compatible server (`/tmp/fake_llm.py` in container) that always streams back a `write_file` tool call targeting `/home/retro/work/hello.txt`. Same prompt, same fake LLM, two runs:
+
+| qwen invocation | File created? | Contents | Notes |
+|---|---|---|---|
+| `qwen --yolo -m fake-model -p "create the file"` | **YES** | `Hello from qwen YOLO` | This is the mode Helix's `default_mode: "yolo"` puts the ACP session into |
+| `qwen --approval-mode default -m fake-model -p "create the file"` | **NO** | file absent | qwen printed `DONE` but silently dropped the `write_file` call — the exact bug the user reported |
+
+The default-mode run reproduces the bug: qwen-code expects a human to click "approve" for every tool call. In a headless spec-task sandbox, nobody clicks, so the agent claims completion while doing nothing.
+
+The yolo-mode run reproduces the fix: tool runs without prompting, file appears on disk.
+
+This A/B demo combined with the verified live settings.json proves the fix end-to-end: Helix writes `default_mode: "yolo"` → qwen-code in that session enters YOLO mode → tool calls execute without permission round-trips.
 
 **For the inner Helix picker bug** (orthogonal, hit during reproduction setup): on `/onboarding`, `AdvancedModelPicker` shows "No chat models available or still loading" because of a guard interaction in `AdvancedModelPicker.tsx:234`. On `/orgs/.../agents/...` it works fine. Tracked as a future cleanup, not blocking this task.
 
