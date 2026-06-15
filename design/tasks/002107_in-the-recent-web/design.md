@@ -180,3 +180,41 @@ volume, which is just in-place recreate with extra sandboxes.
   data untouched.
 - Integration: deploy an app that writes a row to Postgres/SQLite under `/data`,
   redeploy, confirm the row is still present and only one DB process ran.
+
+---
+
+## Implementation Notes (added during build)
+
+What landed, and learnings for anyone cloning this task:
+
+- **Data model.** `Sandbox.Purpose` + `CreateSandboxRequest.Purpose` (const
+  `types.SandboxPurposeWebService = "web-service"`); `ProjectWebServiceState.HostDeviceID`
+  (GORM AutoMigrate adds the column — no hand-written migration). Store gained
+  `SetWebServiceHostDeviceID` (+ regenerated gomock entry in `store_mocks.go`).
+- **Durable `/data`.** `buildMounts` adds the `/data` bind only when
+  `Purpose == web-service`, sourced from `webServiceDataDir(projectID) =
+  <workspaceDir>/webservice/<projectID>/data`. **Keyed by project, not sandbox
+  ID** — this is the crux of surviving redeploys. Confirmed nothing deletes it:
+  `DeleteDevContainer` only removes the container + `docker-data-<id>` volume,
+  and GC keys on sandbox/session id, which can never match the project path.
+- **In-place deploys.** Rewrote `webservice/controller.go`. `ensureSandbox`
+  get-or-creates ONE persistent web-service sandbox (handle = `state.ActiveSandboxID`)
+  and records the runner pin after first provision. `deployScript` (pure, unit-
+  tested) stops the previous app via a `/data/.helix-webservice.pid` pidfile —
+  app launched with `setsid` so `kill -- -PGID` stops the whole group — BEFORE
+  cloning/fetching/checking-out and relaunching. Single writer of `/data`
+  guaranteed by construction + asserted by `TestDeployScriptStopsBeforeStart`.
+- **Rollback replaces blue/green's safety net.** `lastLiveSHA` captures the
+  previous good commit; on readiness failure `rollback` redeploys it.
+- **Runner pinning is free.** Because the web-service sandbox is `Persistent=true`,
+  the existing scheduler guard (`pickHostForSandbox`, tested by
+  `TestPersistentRefusesToMoveWhenHostOffline`) already pins it and refuses to
+  relocate. No new placement code; `ensureSandbox` just fails loudly if the
+  recorded sandbox isn't running.
+- **Gotcha — env.** `swag` and `gcc` are not on PATH by default here. Run
+  `export PATH="$PATH:$HOME/go/bin"` before `./stack update_openapi`, and
+  `sudo apt-get install -y gcc libc6-dev` before `CGO_ENABLED=1 go test ./pkg/sandbox/...`.
+  `go build ./...` fails on the `go-gst` dep (missing `pkg-config`) — unrelated;
+  build the specific packages instead. `frontend yarn build` fails only at the
+  final dist-copy step (root-owned `dist/` from prod mode) — `tsc --noEmit`
+  passes, which is the real type check.
