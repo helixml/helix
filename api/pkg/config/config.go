@@ -186,10 +186,10 @@ type Compute struct {
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
 
-	// SandboxRegistry overrides the container registry that workers
-	// pull the helix-sandbox image from. Default empty means workers
-	// pull from `ghcr.io/helixml/helix-sandbox:<version>` (current
-	// behaviour, cross-cloud pull from GHCR over GitHub's CDN).
+	// SandboxRegistry overrides the container registry HOSTNAME that
+	// workers pull the helix-sandbox image from. Default empty means
+	// workers pull from `ghcr.io/helixml/helix-sandbox:<version>`
+	// (current behaviour, cross-cloud pull from GHCR over GitHub's CDN).
 	//
 	// Setting this to an operator-controlled registry lets workers
 	// pull from a same-region mirror — typically ECR in the same AWS
@@ -199,27 +199,38 @@ type Compute struct {
 	// is broken" for the D3 on-demand path where the user is waiting
 	// during scale-up.
 	//
-	// Value is the registry+org prefix; the `/helix-sandbox:<version>`
-	// suffix is always appended. Examples:
-	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml"
+	// Value is the registry HOSTNAME ONLY. The "helixml/helix-sandbox"
+	// org+image path is always appended. Examples:
+	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com"
 	//     -> "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17"
-	//   "registry.internal.corp/helixml"
-	//     -> "registry.internal.corp/helixml/helix-sandbox:2.11.17"
+	//   "internal-registry.corp.example.com"
+	//     -> "internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17"
+	//
+	// IMPORTANT: this env var is ALSO read by sandbox/04-start-dockerd.sh
+	// (the in-container hydra dockerd loader) and by composemgr's
+	// rewriteRegistry (Runner Profile compose-stack image rewriting),
+	// and both expect the same HOSTNAME ONLY semantic. The shared
+	// variable lets one operator setting (`HELIX_SANDBOX_REGISTRY=
+	// my-mirror.corp`) work consistently across all three consumers.
+	// Passing a host+org prefix here (e.g. "my-mirror.corp/helixml")
+	// produces a double-org path in the other consumers' output and
+	// docker-pull fails with manifest-not-found.
+	//
+	// URL-form values (with "://") are rejected at boot. So are
+	// values that trim to empty (e.g. "/" or whitespace-only) - those
+	// would silently fall back to ghcr.io, the wrong default for an
+	// air-gapped deployment that meant to set a value.
 	//
 	// The version tag is still auto-derived from data.GetHelixVersion()
-	// — operators override the registry, never the version. That
-	// preserves the "release-tag-is-the-truth" property the YD
+	// — operators override the registry hostname, never the version.
+	// That preserves the "release-tag-is-the-truth" property the YD
 	// provisioning loop relies on.
 	//
 	// Operator workflow: before bumping the Helix release on a
 	// deployment that uses an override, manually push the matching
 	// helix-sandbox tag to the override registry. Forgetting leaves
 	// workers in a docker-pull-retry loop; loud failure, easy
-	// diagnostic.
-	//
-	// The env var is HELIX_SANDBOX_REGISTRY (not HELIX_COMPUTE_*) so
-	// future non-compute consumers of the sandbox image (e.g. a
-	// docker-compose template) can reuse it without an alias.
+	// diagnostic (and the resolved image is logged at boot).
 	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
 }
 

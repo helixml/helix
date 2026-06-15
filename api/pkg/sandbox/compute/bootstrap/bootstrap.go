@@ -146,6 +146,13 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 		if err != nil {
 			return nil, err
 		}
+		// Log the resolved image at boot so operators can diagnose
+		// pull failures (typo'd hostname, mistyped account ID) by
+		// reading the api startup logs - matches the visibility of
+		// WorkerTag (resolveWorkerTag) and DeploymentTag (Bootstrap).
+		log.Info().
+			Str("sandbox_image", sandboxImage).
+			Msg("compute: resolved helix-sandbox image for YD task dispatch")
 		return yellowdog.NewProvider(yellowdog.Config{
 			APIKeyID:      cfg.Yellowdog.APIKeyID,
 			APISecret:     cfg.Yellowdog.APISecret,
@@ -261,31 +268,61 @@ func resolveWorkerTag(yd config.Yellowdog) (string, error) {
 	}
 }
 
-// defaultSandboxRegistry is the GHCR location helix-sandbox is published
+// defaultRegistryHost is the registry hostname helix-sandbox is published
 // to by Helix CI. Used when HELIX_SANDBOX_REGISTRY is unset.
-const defaultSandboxRegistry = "ghcr.io/helixml"
+//
+// sandboxImagePath is the org+image segment, always appended after the
+// hostname. The org segment is fixed because both Helix CI and ECR
+// mirrors of helix-sandbox use the same path; only the hostname varies.
+const (
+	defaultRegistryHost = "ghcr.io"
+	sandboxImagePath    = "helixml/helix-sandbox"
+)
 
 // helixSandboxImageFor is the testable inner. Tests inject specific
 // version strings and an optional registry override; the production
 // wrapper above reads version from data.
 //
-// `registry` is the registry+org prefix without a trailing slash
-// (e.g. "ghcr.io/helixml" or "<acct>.dkr.ecr.us-east-1.amazonaws.com/helixml").
-// Empty means "use the default GHCR location". A trailing slash on the
-// override is tolerated and stripped.
+// `registry` is the registry HOSTNAME ONLY (e.g. "ghcr.io" or
+// "<acct>.dkr.ecr.us-east-1.amazonaws.com"). Empty means "use the
+// default GHCR host". Whitespace and trailing slashes are stripped.
+// This semantic matches the pre-existing HELIX_SANDBOX_REGISTRY
+// consumers - sandbox/04-start-dockerd.sh and composemgr.rewriteRegistry -
+// which both expect a bare hostname and join the helixml/<image> path
+// themselves. Using the same shape avoids the cross-consumer
+// double-org footgun.
+//
+// URL-form values (containing "://") are rejected loudly: docker pull
+// would fail with "invalid reference format" deep inside the worker,
+// far from the env-var setting that caused it.
 func helixSandboxImageFor(version, registry string) (string, error) {
 	if sentinelVersions[version] {
 		return "", fmt.Errorf(
 			"compute: cannot derive helix-sandbox image tag - Helix build version %q is a placeholder, not a real version. "+
-				"YD compute requires a versioned Helix build so the sandbox image (ghcr.io/helixml/helix-sandbox:<version>) "+
-				"matches the control plane. Build with -ldflags=\"-X github.com/helixml/helix/api/pkg/data.Version=X.Y.Z\" "+
-				"or run a tagged release.",
+				"YD compute requires a versioned Helix build so the sandbox image tag matches the control plane. "+
+				"Build with -ldflags=\"-X github.com/helixml/helix/api/pkg/data.Version=X.Y.Z\" or run a tagged release.",
 			version,
 		)
 	}
-	prefix := strings.TrimRight(registry, "/")
-	if prefix == "" {
-		prefix = defaultSandboxRegistry
+	host := strings.TrimRight(strings.TrimSpace(registry), "/")
+	// Reject inputs that collapse to empty after trimming (e.g. "/", "  /  ").
+	// Silent fallback to GHCR is the wrong default for an air-gapped deployment
+	// where the operator probably tried to set the var and would prefer a loud
+	// failure over an egress to ghcr.io.
+	if registry != "" && host == "" {
+		return "", fmt.Errorf(
+			"compute: HELIX_SANDBOX_REGISTRY=%q is invalid (collapses to empty after trimming whitespace and slashes)",
+			registry,
+		)
 	}
-	return prefix + "/helix-sandbox:" + version, nil
+	if strings.Contains(host, "://") {
+		return "", fmt.Errorf(
+			"compute: HELIX_SANDBOX_REGISTRY=%q must be a registry HOSTNAME only (e.g. \"ghcr.io\" or \"<acct>.dkr.ecr.us-east-1.amazonaws.com\"), not a URL",
+			registry,
+		)
+	}
+	if host == "" {
+		host = defaultRegistryHost
+	}
+	return host + "/" + sandboxImagePath + ":" + version, nil
 }

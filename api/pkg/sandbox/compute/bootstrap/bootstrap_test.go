@@ -524,11 +524,12 @@ func TestHelixSandboxImageFor(t *testing.T) {
 		}
 	})
 
-	t.Run("registry override replaces the GHCR prefix", func(t *testing.T) {
-		// The operator-controllable HELIX_SANDBOX_REGISTRY swaps the
-		// registry+org prefix; the /helix-sandbox:<version> suffix is
-		// always appended verbatim. Version pinning stays with the
-		// build, not the operator (preserves "release-tag-is-the-truth").
+	t.Run("registry override swaps only the hostname", func(t *testing.T) {
+		// HELIX_SANDBOX_REGISTRY is HOSTNAME ONLY - the same semantic
+		// the pre-existing consumers (sandbox/04-start-dockerd.sh and
+		// composemgr.rewriteRegistry) already use. The "helixml/helix-
+		// sandbox" org+image path is always appended. Version pinning
+		// stays with the build (preserves "release-tag-is-the-truth").
 		cases := []struct {
 			version  string
 			registry string
@@ -537,20 +538,27 @@ func TestHelixSandboxImageFor(t *testing.T) {
 			// ECR (the demo case): same-region intra-AWS pull
 			{
 				"2.11.17",
-				"123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml",
+				"123456789012.dkr.ecr.us-east-1.amazonaws.com",
 				"123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17",
 			},
 			// Internal mirror with a corp-style hostname
 			{
 				"2.11.17",
-				"registry.internal.corp/helixml",
-				"registry.internal.corp/helixml/helix-sandbox:2.11.17",
+				"internal-registry.corp.example.com",
+				"internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17",
 			},
-			// Trailing slash on the override is tolerated and stripped
+			// Trailing slash tolerated and stripped
 			{
 				"2.11.17",
-				"registry.internal.corp/helixml/",
-				"registry.internal.corp/helixml/helix-sandbox:2.11.17",
+				"internal-registry.corp.example.com/",
+				"internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17",
+			},
+			// Surrounding whitespace tolerated and stripped (common
+			// when copied from a docs snippet or ConfigMap line)
+			{
+				"2.11.17",
+				"  ghcr.io  ",
+				"ghcr.io/helixml/helix-sandbox:2.11.17",
 			},
 		}
 		for _, tc := range cases {
@@ -566,16 +574,51 @@ func TestHelixSandboxImageFor(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid registry inputs rejected at boot", func(t *testing.T) {
+		// Loud failure beats silent fallback to GHCR - an air-gapped
+		// deployment that meant to set the var should NOT egress to
+		// ghcr.io just because their templating produced "/".
+		cases := []struct {
+			name     string
+			registry string
+			wantErr  string
+		}{
+			{"url form", "https://123.dkr.ecr.us-east-1.amazonaws.com", "must be a registry HOSTNAME only"},
+			{"single slash", "/", "collapses to empty"},
+			{"slashes only", "///", "collapses to empty"},
+			{"whitespace only", "   ", "collapses to empty"},
+			{"whitespace+slashes", "  /  ", "collapses to empty"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := helixSandboxImageFor("2.11.17", tc.registry)
+				if err == nil {
+					t.Fatalf("expected error for %q, got nil", tc.registry)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error %q should contain %q", err.Error(), tc.wantErr)
+				}
+			})
+		}
+	})
+
 	t.Run("sentinel values rejected even with registry override", func(t *testing.T) {
 		// The override doesn't bypass the version-pinning check; a
 		// placeholder version is still a placeholder regardless of
 		// where the image would have been pulled from.
-		_, err := helixSandboxImageFor("v0.0.0", "registry.internal.corp/helixml")
+		_, err := helixSandboxImageFor("v0.0.0", "internal-registry.corp")
 		if err == nil {
 			t.Fatal("expected error for sentinel version even with registry set")
 		}
 		if !strings.Contains(err.Error(), "Helix build version") {
 			t.Fatalf("error should explain why; got %q", err.Error())
+		}
+		// The error message should NOT hardcode a specific registry URL
+		// (since it's now configurable) - it should explain the build
+		// fix without misdirecting operators with override deployments
+		// to a registry they aren't even using.
+		if strings.Contains(err.Error(), "ghcr.io") {
+			t.Fatalf("error should not mention a hardcoded registry; got %q", err.Error())
 		}
 	})
 	_ = compute.Manager{} // keep the compute import used even if signature simplifies later
