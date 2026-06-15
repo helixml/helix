@@ -185,6 +185,42 @@ type Compute struct {
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
+
+	// SandboxRegistry overrides the container registry that workers
+	// pull the helix-sandbox image from. Default empty means workers
+	// pull from `ghcr.io/helixml/helix-sandbox:<version>` (current
+	// behaviour, cross-cloud pull from GHCR over GitHub's CDN).
+	//
+	// Setting this to an operator-controlled registry lets workers
+	// pull from a same-region mirror — typically ECR in the same AWS
+	// account as the YD worker pool. Cross-cloud (~120s for ~10GB on
+	// inf2.xlarge / g5.xlarge) becomes intra-region (~15-30s), which
+	// is the difference between "auto-scaling works" and "auto-scaling
+	// is broken" for the D3 on-demand path where the user is waiting
+	// during scale-up.
+	//
+	// Value is the registry+org prefix; the `/helix-sandbox:<version>`
+	// suffix is always appended. Examples:
+	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml"
+	//     -> "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17"
+	//   "registry.internal.corp/helixml"
+	//     -> "registry.internal.corp/helixml/helix-sandbox:2.11.17"
+	//
+	// The version tag is still auto-derived from data.GetHelixVersion()
+	// — operators override the registry, never the version. That
+	// preserves the "release-tag-is-the-truth" property the YD
+	// provisioning loop relies on.
+	//
+	// Operator workflow: before bumping the Helix release on a
+	// deployment that uses an override, manually push the matching
+	// helix-sandbox tag to the override registry. Forgetting leaves
+	// workers in a docker-pull-retry loop; loud failure, easy
+	// diagnostic.
+	//
+	// The env var is HELIX_SANDBOX_REGISTRY (not HELIX_COMPUTE_*) so
+	// future non-compute consumers of the sandbox image (e.g. a
+	// docker-compose template) can reuse it without an alias.
+	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.

@@ -466,7 +466,7 @@ func TestHelixSandboxImageFor(t *testing.T) {
 	// is sentinel/placeholder values that mean "Version wasn't
 	// actually baked in" - because there's no corresponding image
 	// for those.
-	t.Run("valid versions are passed through verbatim", func(t *testing.T) {
+	t.Run("valid versions are passed through verbatim (default registry)", func(t *testing.T) {
 		cases := []struct {
 			in   string
 			want string
@@ -485,12 +485,12 @@ func TestHelixSandboxImageFor(t *testing.T) {
 		}
 		for _, tc := range cases {
 			t.Run(tc.in, func(t *testing.T) {
-				got, err := helixSandboxImageFor(tc.in)
+				got, err := helixSandboxImageFor(tc.in, "")
 				if err != nil {
 					t.Fatalf("unexpected error for %q: %v", tc.in, err)
 				}
 				if got != tc.want {
-					t.Fatalf("helixSandboxImageFor(%q) = %q, want %q", tc.in, got, tc.want)
+					t.Fatalf("helixSandboxImageFor(%q, \"\") = %q, want %q", tc.in, got, tc.want)
 				}
 			})
 		}
@@ -510,7 +510,7 @@ func TestHelixSandboxImageFor(t *testing.T) {
 		}
 		for _, s := range sentinels {
 			t.Run(s, func(t *testing.T) {
-				_, err := helixSandboxImageFor(s)
+				_, err := helixSandboxImageFor(s, "")
 				if err == nil {
 					t.Fatalf("expected error for sentinel version %q, got nil", s)
 				}
@@ -521,6 +521,61 @@ func TestHelixSandboxImageFor(t *testing.T) {
 					t.Fatalf("error should tell operator how to fix; got %q", err.Error())
 				}
 			})
+		}
+	})
+
+	t.Run("registry override replaces the GHCR prefix", func(t *testing.T) {
+		// The operator-controllable HELIX_SANDBOX_REGISTRY swaps the
+		// registry+org prefix; the /helix-sandbox:<version> suffix is
+		// always appended verbatim. Version pinning stays with the
+		// build, not the operator (preserves "release-tag-is-the-truth").
+		cases := []struct {
+			version  string
+			registry string
+			want     string
+		}{
+			// ECR (the demo case): same-region intra-AWS pull
+			{
+				"2.11.17",
+				"123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml",
+				"123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17",
+			},
+			// Internal mirror with a corp-style hostname
+			{
+				"2.11.17",
+				"registry.internal.corp/helixml",
+				"registry.internal.corp/helixml/helix-sandbox:2.11.17",
+			},
+			// Trailing slash on the override is tolerated and stripped
+			{
+				"2.11.17",
+				"registry.internal.corp/helixml/",
+				"registry.internal.corp/helixml/helix-sandbox:2.11.17",
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.registry, func(t *testing.T) {
+				got, err := helixSandboxImageFor(tc.version, tc.registry)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got != tc.want {
+					t.Fatalf("got %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("sentinel values rejected even with registry override", func(t *testing.T) {
+		// The override doesn't bypass the version-pinning check; a
+		// placeholder version is still a placeholder regardless of
+		// where the image would have been pulled from.
+		_, err := helixSandboxImageFor("v0.0.0", "registry.internal.corp/helixml")
+		if err == nil {
+			t.Fatal("expected error for sentinel version even with registry set")
+		}
+		if !strings.Contains(err.Error(), "Helix build version") {
+			t.Fatalf("error should explain why; got %q", err.Error())
 		}
 	})
 	_ = compute.Manager{} // keep the compute import used even if signature simplifies later

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -141,7 +142,7 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 		if err != nil {
 			return nil, err
 		}
-		sandboxImage, err := helixSandboxImage()
+		sandboxImage, err := helixSandboxImage(cfg.SandboxRegistry)
 		if err != nil {
 			return nil, err
 		}
@@ -190,8 +191,8 @@ var sentinelVersions = map[string]bool{
 	"v0.0.0+dev": true,
 }
 
-func helixSandboxImage() (string, error) {
-	return helixSandboxImageFor(data.GetHelixVersion())
+func helixSandboxImage(registry string) (string, error) {
+	return helixSandboxImageFor(data.GetHelixVersion(), registry)
 }
 
 // resolveWorkerTag picks the YD WorkerTag for the Provider, preferring
@@ -260,9 +261,19 @@ func resolveWorkerTag(yd config.Yellowdog) (string, error) {
 	}
 }
 
+// defaultSandboxRegistry is the GHCR location helix-sandbox is published
+// to by Helix CI. Used when HELIX_SANDBOX_REGISTRY is unset.
+const defaultSandboxRegistry = "ghcr.io/helixml"
+
 // helixSandboxImageFor is the testable inner. Tests inject specific
-// version strings; the production wrapper above reads from data.
-func helixSandboxImageFor(version string) (string, error) {
+// version strings and an optional registry override; the production
+// wrapper above reads version from data.
+//
+// `registry` is the registry+org prefix without a trailing slash
+// (e.g. "ghcr.io/helixml" or "<acct>.dkr.ecr.us-east-1.amazonaws.com/helixml").
+// Empty means "use the default GHCR location". A trailing slash on the
+// override is tolerated and stripped.
+func helixSandboxImageFor(version, registry string) (string, error) {
 	if sentinelVersions[version] {
 		return "", fmt.Errorf(
 			"compute: cannot derive helix-sandbox image tag - Helix build version %q is a placeholder, not a real version. "+
@@ -272,5 +283,9 @@ func helixSandboxImageFor(version string) (string, error) {
 			version,
 		)
 	}
-	return "ghcr.io/helixml/helix-sandbox:" + version, nil
+	prefix := strings.TrimRight(registry, "/")
+	if prefix == "" {
+		prefix = defaultSandboxRegistry
+	}
+	return prefix + "/helix-sandbox:" + version, nil
 }
