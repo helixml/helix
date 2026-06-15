@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/githubwebhook"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -138,6 +139,12 @@ type Deps struct {
 	// dependency cycle; the wiring in api/pkg/server adapts the
 	// helix OAuth manager into this shape.
 	GitHubTokenResolver func(ctx context.Context, orgID string) (string, error)
+
+	// GitHubWebhook owns the install-webhook + webhook-status use cases
+	// (resolve payload URL, validate, ensure secret, call GitHub, persist
+	// the hook onto the stream). The handlers are thin adapters over it.
+	// nil → those two endpoints return 501.
+	GitHubWebhook *githubwebhook.Service
 
 	// GitHubIdentity is the richer resolver behind GitHubTokenResolver:
 	// it reports whether the org's GitHub access is the installed Helix

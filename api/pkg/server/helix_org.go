@@ -16,9 +16,11 @@ import (
 	"github.com/gorilla/mux"
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
+	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/application/githubwebhook"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
@@ -145,6 +147,38 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 		return "", err
 	}
 	return s.SessionID, nil
+}
+
+// githubWebhookClient adapts the concrete github client to the
+// githubwebhook.Client port, so the application service stays free of a
+// dependency on pkg/github. Each call builds a short-lived client for
+// the supplied token (the same per-request shape the inline handler
+// used). The hook HTML URL is the deterministic settings URL, matching
+// the previous behaviour.
+type githubWebhookClient struct{}
+
+func (githubWebhookClient) Upsert(ctx context.Context, token, owner, repo, payloadURL string, events []string, secret string) (githubwebhook.Hook, error) {
+	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
+	if err != nil {
+		return githubwebhook.Hook{}, fmt.Errorf("build github client: %w", err)
+	}
+	hook, err := client.UpsertWebhook(owner, repo, "web", payloadURL, events, secret)
+	if err != nil {
+		return githubwebhook.Hook{}, err
+	}
+	return githubwebhook.Hook{ID: hook.ID, HTMLURL: githubclient.WebhookSettingsURL(owner, repo, hook.ID), Active: hook.Active}, nil
+}
+
+func (githubWebhookClient) Find(ctx context.Context, token, owner, repo, payloadURL string) (githubwebhook.Hook, bool, error) {
+	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
+	if err != nil {
+		return githubwebhook.Hook{}, false, fmt.Errorf("build github client: %w", err)
+	}
+	hook, found, err := client.FindWebhook(owner, repo, payloadURL)
+	if err != nil || !found {
+		return githubwebhook.Hook{}, found, err
+	}
+	return githubwebhook.Hook{ID: hook.ID, HTMLURL: githubclient.WebhookSettingsURL(owner, repo, hook.ID), Active: hook.Active}, true, nil
 }
 
 // orgServices bundles the application services the REST adapter (and the
@@ -528,6 +562,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// PAT into transport.github. The resolver lives in
 		// helix_org_github.go.
 		GitHubTokenResolver: gitHubTokenResolver,
+		// GitHubWebhook owns the install-webhook + webhook-status use cases.
+		// The github API surface is behind the githubWebhookClient adapter so
+		// the application service doesn't import pkg/github.
+		GitHubWebhook: githubwebhook.New(githubwebhook.Deps{
+			Queries:         svc.Queries,
+			Streams:         svc.Streams,
+			Configs:         configReg,
+			Token:           githubwebhook.TokenResolver(gitHubTokenResolver),
+			Client:          githubWebhookClient{},
+			PublicServerURL: cfg.APIServer.Cfg.WebServer.URL,
+		}),
 		// GitHubIdentity lets the repo picker tell app mode from oauth mode
 		// so it lists the installation's repos (not /user/repos) when the
 		// bot is installed. Adapts the server-side resolver into the org

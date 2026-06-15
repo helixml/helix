@@ -1,22 +1,14 @@
 package api
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
-	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streams"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/application/githubwebhook"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // githubWebhook is the per-request dispatcher for POST /github/webhook.
@@ -314,7 +306,10 @@ type GitHubWebhookStatusResponse struct {
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/streams/{id}/github/install-webhook [post]
 func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	if a.deps.GitHubWebhook == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("github webhook integration is not wired in this deployment"))
+		return
+	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -325,129 +320,37 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	// SERVER_URL reachability is checked for a warning, but does
-	// NOT block the install — operators want to set the webhook up
-	// even on a local dev machine and fix the URL once their
-	// cloudflared/ngrok/reverse-proxy is wired. We collect the
-	// warning here and return it in the response so the UI can
-	// surface it next to the success.
-	// Resolve the public base URL for the webhook payload URL:
-	//   1. `streams.public_url` org config (UI-editable) wins, so
-	//      an admin can fix a loopback SERVER_URL via the
-	//      Settings page without touching .env.
-	//   2. Else fall back to PublicServerURL (SERVER_URL env on
-	//      the helix host).
-	// Empty result is a hard refusal — without a URL we'd register
-	// a relative path with GitHub which the API either rejects or
-	// silently fails on. A loopback URL is different: well-formed,
-	// just unreachable, so we install + warn so the operator can
-	// fix it later.
-	publicURL := strings.TrimSpace(a.deps.PublicServerURL)
-	if a.deps.Configs != nil {
-		if override, err := a.deps.Configs.GetString(ctx, orgID, "streams.public_url"); err == nil && strings.TrimSpace(override) != "" {
-			publicURL = strings.TrimSpace(override)
-		}
-	}
-	if publicURL == "" {
-		writeError(w, http.StatusPreconditionFailed, errors.New("no public URL configured for helix. Set `streams.public_url` on the helix-org Settings page (or SERVER_URL in helix's .env), then re-install the webhook."))
-		return
-	}
-	// GitHub's webhook API refuses to register hooks pointed at
-	// loopback addresses with `422 url is not supported because
-	// it isn't reachable over the public Internet`. There's no
-	// way to override that on GitHub's end, so we pre-flight
-	// the check here and return a clear, actionable 412 instead.
-	// Operators can fix it from the helix-org Settings page by
-	// setting `streams.public_url` (no .env edit needed).
-	if u, err := url.Parse(publicURL); err == nil {
-		host := strings.ToLower(u.Hostname())
-		if host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" {
-			writeError(w, http.StatusPreconditionFailed, fmt.Errorf("public URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set `streams.public_url` on the helix-org Settings page to a publicly reachable hostname (cloudflared / ngrok / reverse proxy), or update SERVER_URL in helix's .env and restart the api container", publicURL))
-			return
-		}
-	}
-	s, err := a.deps.Queries.GetStream(ctx, orgID, streamID)
+	res, err := a.deps.GitHubWebhook.Install(r.Context(), orgID, streamID)
 	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
-		return
-	}
-	if s.Transport.Kind != transport.KindGitHub {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("stream %s is not a github transport (kind=%s)", streamID, s.Transport.Kind))
-		return
-	}
-	cfg, err := s.Transport.GitHubConfig()
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("parse github config: %w", err))
-		return
-	}
-	if cfg.Repo == "" {
-		writeError(w, http.StatusBadRequest, errors.New("stream's github config has no repo set; edit the stream first"))
-		return
-	}
-	if len(cfg.Events) == 0 {
-		cfg.Events = []string{"*"}
-	}
-	if a.deps.GitHubTokenResolver == nil {
-		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHubTokenResolver wired"))
-		return
-	}
-	token, err := a.deps.GitHubTokenResolver(ctx, orgID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("resolve github token: %w", err))
-		return
-	}
-	if token == "" {
-		writeError(w, http.StatusPreconditionFailed, errors.New("no GitHub credentials for this org: install the Helix GitHub App (preferred) or connect GitHub OAuth on the Connected Services page"))
-		return
-	}
-	secret, err := ensureGitHubWebhookSecret(ctx, a.deps.Configs, orgID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure webhook secret: %w", err))
-		return
-	}
-	repoParts := strings.SplitN(cfg.Repo, "/", 2)
-	if len(repoParts) != 2 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("malformed repo %q", cfg.Repo))
-		return
-	}
-	owner, repoName := repoParts[0], repoParts[1]
-	payloadURL := strings.TrimRight(publicURL, "/") +
-		"/api/v1/orgs/" + url.PathEscape(orgID) +
-		"/streams/" + url.PathEscape(string(streamID)) + "/github/webhook"
-	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("build github client: %w", err))
-		return
-	}
-	hook, err := client.UpsertWebhook(owner, repoName, "web", payloadURL, cfg.Events, secret)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("create github webhook: %w", err))
-		return
-	}
-	htmlURL := githubclient.WebhookSettingsURL(owner, repoName, hook.ID)
-	cfg.WebhookID = hook.ID
-	cfg.WebhookHTMLURL = htmlURL
-	cfgRaw, err := json.Marshal(cfg)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("re-marshal config: %w", err))
-		return
-	}
-	// Persist the webhook id/url back onto the stream's transport config
-	// through the streams service (a transport-config patch that leaves
-	// name/description/kind untouched).
-	if _, err := a.deps.Streams.Update(ctx, orgID, streamID, streams.UpdateParams{
-		Name:        s.Name,
-		Description: s.Description,
-		Transport:   &streams.TransportPatch{Config: cfgRaw},
-	}); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("update stream after webhook install: %w", err))
+		writeError(w, githubWebhookStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, InstallGitHubWebhookResponse{
-		WebhookID:      hook.ID,
-		WebhookHTMLURL: htmlURL,
-		PayloadURL:     payloadURL,
+		WebhookID:      res.WebhookID,
+		WebhookHTMLURL: res.WebhookHTMLURL,
+		PayloadURL:     res.PayloadURL,
 	})
+}
+
+// githubWebhookStatus maps a githubwebhook.Failure to its HTTP code.
+// Non-Failure errors fall through to errStatus (500 / 404).
+func githubWebhookStatus(err error) int {
+	var f *githubwebhook.Failure
+	if errors.As(err, &f) {
+		switch f.Kind {
+		case githubwebhook.FailBadRequest:
+			return http.StatusBadRequest
+		case githubwebhook.FailPrecondition:
+			return http.StatusPreconditionFailed
+		case githubwebhook.FailUpstream:
+			return http.StatusBadGateway
+		case githubwebhook.FailNotFound:
+			return http.StatusNotFound
+		default:
+			return http.StatusInternalServerError
+		}
+	}
+	return errStatus(err)
 }
 
 // getGitHubWebhookStatus reports the LIVE state of a github stream's repo
@@ -466,7 +369,10 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/streams/{id}/github/webhook-status [get]
 func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	if a.deps.GitHubWebhook == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("github webhook integration is not wired in this deployment"))
+		return
+	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -477,122 +383,17 @@ func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	s, err := a.deps.Queries.GetStream(ctx, orgID, streamID)
+	res, err := a.deps.GitHubWebhook.Status(r.Context(), orgID, streamID)
 	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", streamID, err))
-		return
-	}
-	if s.Transport.Kind != transport.KindGitHub {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("stream %s is not a github transport (kind=%s)", streamID, s.Transport.Kind))
-		return
-	}
-	cfg, err := s.Transport.GitHubConfig()
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("parse github config: %w", err))
-		return
-	}
-
-	unknown := func(detail string) {
-		writeJSON(w, http.StatusOK, GitHubWebhookStatusResponse{State: "unknown", Detail: detail})
-	}
-	if cfg.Repo == "" {
-		unknown("stream has no repo set")
-		return
-	}
-	repoParts := strings.SplitN(cfg.Repo, "/", 2)
-	if len(repoParts) != 2 {
-		unknown(fmt.Sprintf("malformed repo %q", cfg.Repo))
-		return
-	}
-	owner, repoName := repoParts[0], repoParts[1]
-
-	// Same payload-URL resolution as install (streams.public_url override on top
-	// of SERVER_URL). Without a public URL we can't compute the URL GitHub would
-	// hold, so we can't match a hook — report unknown.
-	publicURL := strings.TrimSpace(a.deps.PublicServerURL)
-	if a.deps.Configs != nil {
-		if override, err := a.deps.Configs.GetString(ctx, orgID, "streams.public_url"); err == nil && strings.TrimSpace(override) != "" {
-			publicURL = strings.TrimSpace(override)
-		}
-	}
-	if publicURL == "" {
-		unknown("no public URL configured for helix")
-		return
-	}
-	payloadURL := strings.TrimRight(publicURL, "/") +
-		"/api/v1/orgs/" + url.PathEscape(orgID) +
-		"/streams/" + url.PathEscape(string(streamID)) + "/github/webhook"
-
-	if a.deps.GitHubTokenResolver == nil {
-		unknown("no GitHubTokenResolver wired")
-		return
-	}
-	token, err := a.deps.GitHubTokenResolver(ctx, orgID)
-	if err != nil {
-		unknown(fmt.Sprintf("resolve github token: %v", err))
-		return
-	}
-	if token == "" {
-		unknown("no GitHub credentials for this org (install the Helix GitHub App or connect GitHub OAuth)")
-		return
-	}
-	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
-	if err != nil {
-		unknown(fmt.Sprintf("build github client: %v", err))
-		return
-	}
-	hook, found, err := client.FindWebhook(owner, repoName, payloadURL)
-	if err != nil {
-		// GitHub reachable-but-errored (e.g. missing repository_hooks
-		// permission, 404 on a repo the bot can't see). Can't assert
-		// "missing", so report unknown with the reason.
-		unknown(fmt.Sprintf("list webhooks on %s: %v", cfg.Repo, err))
-		return
-	}
-	if !found {
-		writeJSON(w, http.StatusOK, GitHubWebhookStatusResponse{State: "missing", PayloadURL: payloadURL})
+		writeError(w, githubWebhookStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, GitHubWebhookStatusResponse{
-		State:          "installed",
-		WebhookID:      hook.ID,
-		WebhookHTMLURL: githubclient.WebhookSettingsURL(owner, repoName, hook.ID),
-		Active:         hook.Active,
-		PayloadURL:     payloadURL,
+		State:          res.State,
+		WebhookID:      res.WebhookID,
+		WebhookHTMLURL: res.WebhookHTMLURL,
+		Active:         res.Active,
+		PayloadURL:     res.PayloadURL,
+		Detail:         res.Detail,
 	})
-}
-
-// ensureGitHubWebhookSecret reads the org's transport.github
-// webhook_secret. If it's unset, generates a 32-byte random hex
-// secret and persists it so future webhook installs (and the
-// HMAC verifier on inbound deliveries) use the same value. This
-// removes the manual "go to Settings, paste a secret" step from
-// the operator's flow.
-func ensureGitHubWebhookSecret(ctx context.Context, reg *configregistry.Registry, orgID string) (string, error) {
-	if reg == nil {
-		return "", errors.New("config registry not wired")
-	}
-	var cfg struct {
-		Token         string `json:"token,omitempty"`
-		WebhookSecret string `json:"webhook_secret,omitempty"`
-	}
-	_ = reg.GetObject(ctx, orgID, "transport.github", &cfg)
-	if cfg.WebhookSecret != "" {
-		return cfg.WebhookSecret, nil
-	}
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate secret: %w", err)
-	}
-	cfg.WebhookSecret = hex.EncodeToString(buf)
-	out, err := json.Marshal(cfg)
-	if err != nil {
-		return "", fmt.Errorf("marshal config: %w", err)
-	}
-	// Persist as the system owner — webhook-secret bootstrap is
-	// helix self-care, not an operator-attributed change.
-	if err := reg.Set(ctx, orgID, "transport.github", string(out), orgchart.WorkerID("w-owner")); err != nil {
-		return "", fmt.Errorf("persist secret: %w", err)
-	}
-	return cfg.WebhookSecret, nil
 }
