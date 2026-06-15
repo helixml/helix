@@ -9,7 +9,7 @@
 - [x] Confirm edit/regenerate still puts the full original message into the textarea (no behavioural change expected — verified by reading code: `editedMessage` is initialised from `userMessage`, the full original)
 - [x] Add unit tests in `CollapsibleSystemPrefix.test.ts`: approval anchor at start triggers collapse with empty userText, anchor appearing mid-message does NOT trigger, existing user-request cases still pass (10/10 passing)
 - [x] `cd frontend && yarn tsc` clean (passed in helix-frontend-1 container)
-- [~] Test end-to-end in the inner Helix browser at `http://localhost:8080`: register if needed, find or create a spec task that has had its spec approved, confirm the implementation prompt renders as a collapsed disclosure (not a wall of text) and that expanding it shows the full prompt
-- [ ] Take before/after screenshots into `screenshots/` and reference them in `pull_request_helix.md`
-- [ ] Write `pull_request_helix.md` with summary, screenshots, and test plan; push helix-specs
+- [x] Test end-to-end in the inner Helix browser at `http://localhost:8080`: injected a chat session whose `prompt_message` matches the real approval template output (the full spec-task approval flow takes too long; the rendering is pure frontend and triggers on `prompt_message` content). Verified collapsed-by-default, expand-shows-full-content, no empty user bubble.
+- [x] Take before/after screenshots into `screenshots/` and reference them in `pull_request_helix.md`. Captured 3: `00-before-wall-of-text.png`, `01-after-collapsed.png`, `02-after-expanded.png`. Generated "before" by checking out `main` for the two files, reloading, and screenshotting; then restored via `git checkout HEAD --`.
+- [x] Write `pull_request_helix.md` with summary, screenshots, and test plan; push helix-specs
 - [ ] Push feature branch to `helix` repo
