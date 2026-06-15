@@ -1,9 +1,9 @@
 # Implementation Tasks: Durable Web Service State and Runner Pinning
 
 ## Data model
-- [ ] Add `Purpose string` to `Sandbox` and `CreateSandboxRequest` (`api/pkg/types/sandbox.go`).
-- [ ] Add `HostDeviceID string` to `ProjectWebServiceState` (`api/pkg/types/vhost.go`) for visibility/UI; GORM AutoMigrate column `host_device_id`.
-- [ ] Add a store setter to record the bound runner onto `project_web_service_state`.
+- [~] Add `Purpose string` to `Sandbox` and `CreateSandboxRequest` (`api/pkg/types/sandbox.go`).
+- [~] Add `HostDeviceID string` to `ProjectWebServiceState` (`api/pkg/types/vhost.go`) for visibility/UI; GORM AutoMigrate column `host_device_id`.
+- [~] Add a store setter to record the bound runner onto `project_web_service_state`.
 
 ## Sandbox provisioning
 - [ ] In `buildMounts` (`controller_provision.go`), when `sandbox.Purpose == "web-service"`, bind-mount `<workspaceDir>/webservice/<ProjectID>/data` at `/data` (read-write), keyed by project ID.
