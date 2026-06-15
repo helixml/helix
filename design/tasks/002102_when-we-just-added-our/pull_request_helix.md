@@ -90,6 +90,14 @@ standard deployment. Fixed here:
   `./stack start` as usual — no extra flags. A `🔒 ... including
   docker-compose.tls.yaml` line is printed at script init so the
   detection is visible.
+- `install.sh` — same auto-detection in the controlplane install /
+  reinstall / upgrade paths. Also downloads `docker-compose.tls.yaml`
+  alongside `docker-compose.yaml` from the release so the file is
+  always available locally even if the operator only enables TLS
+  later.
+- `.drone.yml` — uploads `docker-compose.tls.yaml` as a release asset
+  alongside `docker-compose.yaml` so `install.sh` can pull it from
+  the GitHub release.
 - `charts/helix-controlplane/values.yaml` — new
   `controlplane.vhostTLS` block (`enabled`, `httpsPort`, `httpEnabled`,
   `httpPort`). Default `enabled: false` so existing deployments are
