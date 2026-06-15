@@ -126,6 +126,11 @@ type Server struct {
 	// This allows the API gateway to reach the MCP server through the existing
 	// RevDial tunnel (which targets port 9876, this server's port).
 	mcpHandler http.Handler
+
+	// Synthetic 60Hz scheduler-jitter canary; its stats are surfaced in the
+	// Stats for Nerds panel via the Pong message so users can see whether
+	// this container's frame producers are being preempted by co-tenant work.
+	canary *SchedulerCanary
 }
 
 // SetMCPHandler mounts an MCP handler at /mcp on the desktop HTTP server.
@@ -181,7 +186,15 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		screenHeight:    screenHeight,
 		displayScale:    displayScale,
 		cursorName:      "default", // Start with default arrow cursor
+		canary:          NewSchedulerCanary(),
 	}
+}
+
+// SchedulerCanary returns the in-process scheduler-jitter canary, started
+// alongside the desktop server's HTTP listener. Nil-safe callers should check
+// before use — older code paths that don't construct a Server still work.
+func (s *Server) SchedulerCanary() *SchedulerCanary {
+	return s.canary
 }
 
 // UpdateCursorState updates the cursor position and shape for screenshot compositing.
@@ -217,6 +230,14 @@ func (s *Server) Run(ctx context.Context) error {
 		"port", s.config.HTTPPort,
 		"session_id", s.config.SessionID,
 	)
+
+	// Scheduler-jitter canary: tied to the server's lifecycle context so it
+	// exits when Run returns. Always-on (no env-var gate) — the cost is
+	// trivial (<0.1% CPU) and the metric pays for itself the first time
+	// "video is laggy" is reported.
+	if s.canary != nil {
+		s.canary.Start(ctx)
+	}
 
 	// Pre-initialize GStreamer to avoid 4-second delay on first video stream connection.
 	// GStreamer initialization includes scanning for plugins which is slow on first call.
@@ -462,6 +483,13 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
 	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
+	// Workspace git plumbing used by the fork-and-pause safety net.
+	// Kept as dedicated endpoints (not /exec) because /exec is
+	// allowlist-restricted by design — adding git status/add/commit/push
+	// to the allowlist would weaken that gate. These run trusted, fixed
+	// command sequences with no caller-controlled command strings.
+	mux.HandleFunc("/workspace/status", s.handleWorkspaceStatus)
+	mux.HandleFunc("/workspace/commit-and-push", s.handleWorkspaceCommitAndPush)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

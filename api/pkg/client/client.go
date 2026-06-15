@@ -42,7 +42,7 @@ type Client interface {
 	CompleteKnowledgePreparation(ctx context.Context, id string) error
 	SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error)
 
-	ListSecrets(ctx context.Context) ([]*types.Secret, error)
+	ListSecrets(ctx context.Context, f *SecretFilter) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
 	CreateProjectSecret(ctx context.Context, projectID string, secret *types.CreateSecretRequest) (*types.Secret, error)
 	UpdateSecret(ctx context.Context, id string, secret *types.Secret) (*types.Secret, error)
@@ -54,7 +54,7 @@ type Client interface {
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
 
-	ListProviderEndpoints(ctx context.Context) ([]*types.ProviderEndpoint, error)
+	ListProviderEndpoints(ctx context.Context, f *ProviderEndpointFilter) ([]*types.ProviderEndpoint, error)
 	GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error)
 	CreateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	UpdateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
@@ -68,7 +68,7 @@ type Client interface {
 
 	// Organization Members
 	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*types.OrganizationMembership, error)
-	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.AddOrganizationMemberResponse, error)
 	UpdateOrganizationMember(ctx context.Context, organizationID, userID string, req *types.UpdateOrganizationMemberRequest) (*types.OrganizationMembership, error)
 	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
 

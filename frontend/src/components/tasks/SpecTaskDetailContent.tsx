@@ -101,6 +101,8 @@ import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSession
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
+import ForkAgentControl from "../session/ForkAgentControl";
+import SharePreviewSection from "./SharePreviewSection";
 import {
   Panel,
   Group as PanelGroup,
@@ -1175,6 +1177,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       <Divider sx={{ my: 2 }} />
 
+      {/* Share preview URLs — only meaningful once a session exists */}
+      {activeSessionId && (
+        <>
+          <SharePreviewSection sessionId={activeSessionId} />
+          <Divider sx={{ my: 2 }} />
+        </>
+      )}
+
       {/* Priority */}
       <Box sx={{ mb: 4 }}>
         {isEditMode ? (
@@ -1947,6 +1957,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
+                  {/* Fork-to-different-agent dropdown. Picking a new agent
+                      forks the current session (preserves transcript) and
+                      switches the chat panel to the child session. See
+                      design/tasks/002081_kickoff-mid-session/. */}
+                  {activeSessionId && (
+                    <Box sx={{ ml: "auto", mr: 1, flexShrink: 0 }}>
+                      <ForkAgentControl
+                        sessionId={activeSessionId}
+                        onForked={(newSessionId) => {
+                          // Stay on the spec task page; route the chat panel
+                          // to the freshly-forked session. The session selector
+                          // below picks up the new id on next render.
+                          setSelectedThreadSessionId(newSessionId);
+                        }}
+                      />
+                    </Box>
+                  )}
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1985,7 +2012,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onHeightChange={() =>
                       sessionViewRef.current?.scrollToBottom()
                     }
-                    placeholder="Send message to agent..."
+                    placeholder={
+                      sessionData?.config?.paused
+                        ? "This session is paused — open the forked child to keep chatting"
+                        : "Send message to agent..."
+                    }
+                    disabled={!!sessionData?.config?.paused}
                   />
                 </Box>
               </Box>

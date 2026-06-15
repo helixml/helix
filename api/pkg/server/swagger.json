@@ -853,7 +853,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Adds credits to the wallet of the user's oldest owned org, or stashes the grant on the user for application at first org creation. Works regardless of subscription state, unlike adminActivateTrial.",
+                "description": "Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.",
                 "consumes": [
                     "application/json"
                 ],
@@ -873,7 +873,7 @@
                         "required": true
                     },
                     {
-                        "description": "Credits to grant (must be \u003e 0)",
+                        "description": "Credits to grant (must be \u003e 0) and the target org_id (required iff user owns ≥1 orgs)",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -887,6 +887,43 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.GrantCreditsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/users/{id}/owned-orgs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin \"Grant credits\" dialog to populate its org picker.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "List a user's owned organisations (Admin, cloud only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.OwnedOrgSummary"
+                            }
                         }
                     }
                 }
@@ -6843,11 +6880,42 @@
                 }
             }
         },
+        "/api/v1/invitations/{id}/info": {
+            "get": {
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up basic info for an invitation by id",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PublicInvitationInfo"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/knowledge": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge.",
+                        "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -7951,6 +8019,89 @@
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List pending invitations for users who haven't joined the org yet. Use the optional `app_id` query parameter to filter to invitations sent from a specific project/app's access management dialog.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List pending organization invitations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter invitations by the app/project they were sent from",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrganizationInvitation"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a pending invitation for a non-Helix user. When they register with this email they will automatically join the organization.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Invite a user to the organization by email",
+                "parameters": [
+                    {
+                        "description": "Request body with user_reference (email) and role.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AddOrganizationMemberRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrganizationInvitation"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a pending invitation by ID",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Revoke a pending organization invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -7958,7 +8109,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List members of an organization",
+                "description": "List members of an organization, including pending invitations as placeholder rows (user_id starts with \"inv_\").",
                 "tags": [
                     "organizations"
                 ],
@@ -7981,7 +8132,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Add a member to an organization",
+                "description": "Add a member to an organization. When the user_reference is an email that doesn't match any existing user, a pending invitation is created instead (and an invitation email sent if email is configured).",
                 "tags": [
                     "organizations"
                 ],
@@ -7998,10 +8149,10 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "201": {
+                        "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/types.OrganizationMembership"
+                            "$ref": "#/definitions/types.AddOrganizationMemberResponse"
                         }
                     }
                 }
@@ -8257,6 +8408,37 @@
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.TeamMembership"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/users/lookup": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether a user account exists for the given email, and whether they are already a member of this organization. Used by the invite UI to choose between \"send invitation\", \"add to org\", or \"add to project\" CTAs without revealing arbitrary user information.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Look up a user by email within the context of an organization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Email to look up",
+                        "name": "email",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgUserLookupResponse"
                         }
                     }
                 }
@@ -9074,6 +9256,1441 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/app-installation": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: GitHub App install status for the org",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubInstallationStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/app-manifest": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: start the GitHub App manifest (create) flow",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubManifestStartResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "manifest flow not wired",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/repos": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list GitHub repos accessible to the org's connected token",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubReposResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "no GitHub token configured",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/github/webhook": {
+            "post": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: inbound GitHub webhook",
+                "parameters": [
+                    {
+                        "description": "Raw GitHub webhook delivery",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Delivery accepted but no matching streams"
+                    },
+                    "204": {
+                        "description": "Delivery accepted and fanned out"
+                    },
+                    "401": {
+                        "description": "Bad or missing X-Hub-Signature-256",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "transport.github not configured",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/overview": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns roles + workers grouped by role for the helix-org React Overview page.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get org overview",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.OrgOverview"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/roles": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list roles",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.RoleDTO"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Role spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.RoleDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/roles/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.RoleDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Patch fields",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.RoleDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a role (cascade-fires its workers)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/settings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SettingsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/settings/{key}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: set a setting",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Setting key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting value (raw JSON per spec type)",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SetSettingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a setting",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Setting key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list streams",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.StreamsResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a stream",
+                "parameters": [
+                    {
+                        "description": "Stream spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateStreamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.StreamDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.StreamDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Stream patch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateStreamRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.StreamDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: SSE stream of events for one stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE: event: message / data: [EventCard,...]",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/github/install-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: auto-install the webhook for a github stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.InstallGitHubWebhookResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "pre-conditions not met",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "GitHub API call failed",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/github/webhook-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: live webhook status for a github stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitHubWebhookStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/streams/{id}/publish": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: publish a message to a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message body+optional subject/to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.PublishRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.PublishResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/tools": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list available MCP tools",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.ToolDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list workers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.WorkerDTO"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: hire worker",
+                "parameters": [
+                    {
+                        "description": "Hire request",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.HireWorkerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.HireWorkerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get worker detail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerDetailDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: fire worker",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/activate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: manually trigger a worker activation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: provision a per-worker chat app",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerChatDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/identity": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update worker identity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New identity content",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateWorkerIdentityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/parents": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: add a worker reporting line (manager)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Manager worker id",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AddWorkerParentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove a worker reporting line (manager)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Manager worker id",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/role": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update worker role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New role content",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateWorkerRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a worker's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSubscriptionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe a worker to a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "stream to subscribe to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SubscribeWorkerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSubscriptionDTO"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerSubscriptionDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe a worker from a stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "stream_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -10855,6 +12472,265 @@
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return enable/disable state, hostnames, and recent deploys for a project's web service.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project web service state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Toggle web service enable/disable and update container_port. Enabling pre-seeds the default subdomain.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project web service state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PutProjectWebServiceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/active-sandbox": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manual deploy primitive — set the sandbox that vhost requests route to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Point a project web service at a sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Active sandbox request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SetActiveSandboxRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectWebServiceState"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/deploy": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provisions a fresh sandbox, clones the primary repo at the requested SHA, runs .helix/startup.sh, and cuts routing over once it's up.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Trigger an auto-deploy of the project's web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Deploy request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.DeployWebServiceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebServiceDeploy"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Add a custom domain to a project web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Domain to add",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.AddDomainRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains/{domain_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Remove a custom domain from a project web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain row ID",
+                        "name": "domain_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
                         }
                     }
                 }
@@ -13113,11 +14989,19 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List secrets for the user.",
+                "description": "List secrets for the user, or for an organization when organization_id is set.",
                 "tags": [
                     "secrets"
                 ],
                 "summary": "List secrets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name. When set, lists org-owned secrets instead of personal secrets.",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -13917,48 +15801,14 @@
                 }
             }
         },
-        "/api/v1/sessions/{id}/expose": {
-            "get": {
-                "description": "Returns all ports currently exposed from the session's dev container",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "List exposed ports for a session",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.ListExposedPortsResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            },
+        "/api/v1/sessions/{id}/fork": {
             "post": {
-                "description": "Makes a port from the session's dev container accessible via a public URL",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.",
                 "consumes": [
                     "application/json"
                 ],
@@ -13968,22 +15818,22 @@
                 "tags": [
                     "sessions"
                 ],
-                "summary": "Expose a port from the session's dev container",
+                "summary": "Fork a session to a different agent (fork-and-pause)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Session ID",
+                        "description": "Source session ID to fork from",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Port to expose",
+                        "description": "Target runtime selection",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ExposePortRequest"
+                            "$ref": "#/definitions/server.ForkSessionRequest"
                         }
                     }
                 ],
@@ -13991,76 +15841,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.ExposePortResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sessions/{id}/expose/{port}": {
-            "delete": {
-                "description": "Removes public access to a previously exposed port",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Unexpose a port from the session's dev container",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Port number",
-                        "name": "port",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session or port not found",
-                        "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/server.ForkSessionResponse"
                         }
                     }
                 }
@@ -14331,6 +16112,169 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/preview-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session preview tokens",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.VHostRoute"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mints a share-\u003cadj\u003e-\u003cnoun\u003e-\u003c8hex\u003e hostname pointing at the session's container on the given port.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Mint a preview token for a session port",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Port to expose",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.MintPreviewTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Revoke a session preview token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}/rotate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Rotate a session preview token hostname",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/rdp-connection": {
             "get": {
                 "security": [
@@ -14370,14 +16314,14 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Clears the dead acp_thread_id on the session and resets crashed prompts\n(those marked by MarkPromptAsCrashed when the Claude Agent process exited)\nback to pending. The next dispatch sends with empty acp_thread_id, causing\nZed to create a fresh thread + Claude Agent process. Requires the session\nto be an external Zed agent. Returns the count of prompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the same resume path used by /sessions/{id}/resume. The session's\nZedThreadID is preserved, so Zed reloads the existing thread from the\npersistent threads.db in the workspace volume and the underlying agent\n(claude-code, qwen, etc.) reloads its session from disk — prior\nconversation context is restored. Crashed prompts are reset to pending\nand the queue is kicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Sessions"
                 ],
-                "summary": "Restart Zed thread after a Claude Agent crash",
+                "summary": "Restart the external agent after an in-container crash",
                 "parameters": [
                     {
                         "type": "string",
@@ -14788,6 +16732,40 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/workspace-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Used by the fork-confirm modal so we can show \"N files will be committed \u0026 pushed\" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as \"unknown\".",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Check uncommitted / unpushed git state in a session's desktop container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.WorkspaceStatusResponse"
                         }
                     }
                 }
@@ -18619,6 +20597,644 @@
         }
     },
     "definitions": {
+        "api.AddWorkerParentRequest": {
+            "type": "object",
+            "properties": {
+                "parent_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.CreateRoleRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "streams": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.CreateStreamRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "transport": {
+                    "$ref": "#/definitions/api.TransportRequestField"
+                }
+            }
+        },
+        "api.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.EventCard": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "has_message": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message_body": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "stream_id": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.GitHubInstallationStatus": {
+            "type": "object",
+            "properties": {
+                "app_exists": {
+                    "description": "AppExists is true when a Helix GitHub App has been created/registered\nfor this org (a github_app ServiceConnection exists), even if not yet\ninstalled on any repo. Drives the gate's create-vs-install branch.",
+                    "type": "boolean"
+                },
+                "install_url": {
+                    "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
+                    "type": "string"
+                },
+                "installed": {
+                    "description": "Installed is true when the Helix GitHub App has an installation for\nthis org (a github_app ServiceConnection with an installation id).",
+                    "type": "boolean"
+                },
+                "manage_url": {
+                    "description": "ManageURL is the app's developer-settings page on GitHub\n(github.com/organizations/\u003cowner\u003e/settings/apps/\u003cslug\u003e) — where you edit\npermissions, repos, and delete the app. Empty when the owner is unknown\n(e.g. a BYO app configured without it).",
+                    "type": "string"
+                }
+            }
+        },
+        "api.GitHubManifestStartResponse": {
+            "type": "object",
+            "properties": {
+                "manifest": {
+                    "type": "string"
+                },
+                "post_url": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.GitHubRepoDTO": {
+            "type": "object",
+            "properties": {
+                "full_name": {
+                    "type": "string"
+                },
+                "private": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "api.GitHubReposResponse": {
+            "type": "object",
+            "properties": {
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.GitHubRepoDTO"
+                    }
+                },
+                "source": {
+                    "description": "Source identifies which token paid for this list — useful\nwhen debugging \"I can't see repo X\" reports.",
+                    "type": "string"
+                }
+            }
+        },
+        "api.GitHubWebhookStatusResponse": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "detail": {
+                    "description": "Detail explains a \"unknown\" state (and is empty otherwise).",
+                    "type": "string"
+                },
+                "payload_url": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "State is one of:\n  \"installed\" — a webhook for this stream's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "api.HireWorkerRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "identity_content": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "parent_id": {
+                    "type": "string"
+                },
+                "role_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.HireWorkerResponse": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.InstallGitHubWebhookResponse": {
+            "type": "object",
+            "properties": {
+                "payload_url": {
+                    "type": "string"
+                },
+                "warning": {
+                    "description": "Warning is a non-fatal message about the just-installed\nwebhook — e.g. \"SERVER_URL is a loopback address so GitHub's\nservers can't actually deliver to this URL\". The webhook IS\ninstalled on GitHub; the warning just tells the operator\nwhat needs fixing on their side for deliveries to flow.",
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "api.OrgOverview": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.RoleGroup"
+                    }
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.RoleBadge"
+                    }
+                }
+            }
+        },
+        "api.PublishRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.PublishResponse": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.RoleBadge": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.RoleDTO": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "streams": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.RoleGroup": {
+            "type": "object",
+            "properties": {
+                "role_id": {
+                    "type": "string"
+                },
+                "workers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.WorkerBadge"
+                    }
+                }
+            }
+        },
+        "api.SetSettingRequest": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.SettingsResponse": {
+            "type": "object",
+            "properties": {
+                "db_path": {
+                    "type": "string"
+                },
+                "envs_dir": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "public_url": {
+                    "type": "string"
+                },
+                "specs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.SettingsSpecDTO"
+                    }
+                }
+            }
+        },
+        "api.SettingsSpecDTO": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.StreamDTO": {
+            "type": "object",
+            "properties": {
+                "can_publish": {
+                    "type": "boolean"
+                },
+                "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "disable_reason": {
+                    "type": "string"
+                },
+                "effective_public_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "recent_events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.EventCard"
+                    }
+                },
+                "subscribers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.StreamsResponse": {
+            "type": "object",
+            "properties": {
+                "recent": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.EventCard"
+                    }
+                },
+                "streams": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.StreamDTO"
+                    }
+                }
+            }
+        },
+        "api.SubscribeWorkerRequest": {
+            "type": "object",
+            "properties": {
+                "stream_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ToolDTO": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.TransportRequestField": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "kind": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UpdateRoleRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "streams": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.UpdateStreamRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "transport": {
+                    "$ref": "#/definitions/api.TransportRequestField"
+                }
+            }
+        },
+        "api.UpdateWorkerIdentityRequest": {
+            "type": "object",
+            "properties": {
+                "identity": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UpdateWorkerRoleRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.WorkerActivateDTO": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.WorkerBadge": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.WorkerChatDTO": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.WorkerDTO": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "identity_content": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "parent_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "role_id": {
+                    "type": "string"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.WorkerDetailDTO": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "description": "AgentAppID + ProjectID — see WorkerChatDTO comments.",
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "Role this Worker holds (nil if the role row is gone).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/api.RoleDTO"
+                        }
+                    ]
+                },
+                "worker": {
+                    "$ref": "#/definitions/api.WorkerDTO"
+                }
+            }
+        },
+        "api.WorkerSubscriptionDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "stream_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.WorkerSubscriptionsResponse": {
+            "type": "object",
+            "properties": {
+                "subscriptions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.WorkerSubscriptionDTO"
+                    }
+                },
+                "worker_id": {
+                    "type": "string"
+                }
+            }
+        },
         "filestore.Config": {
             "type": "object",
             "properties": {
@@ -19815,6 +22431,14 @@
                 }
             }
         },
+        "server.AddDomainRequest": {
+            "type": "object",
+            "properties": {
+                "hostname": {
+                    "type": "string"
+                }
+            }
+        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -20025,6 +22649,14 @@
                 }
             }
         },
+        "server.DeployWebServiceRequest": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                }
+            }
+        },
         "server.DevContainerWithClients": {
             "type": "object",
             "properties": {
@@ -20115,72 +22747,59 @@
                 }
             }
         },
-        "server.ExposePortRequest": {
+        "server.ForkSessionRequest": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string"
+                "auto_commit_uncommitted": {
+                    "description": "AutoCommitUncommitted, when true, runs `git add -A \u0026\u0026 git commit\n\u0026\u0026 git push` per dirty repo in the parent's container BEFORE the\nparent is paused. Without this, any uncommitted file edits or\nunpushed commits in the parent's container would be invisible to\nthe child (which boots a fresh clone). Defaults to true at the\nAPI level — pass false explicitly to opt out (loses changes).\nPush failures abort the fork; the parent is NOT paused.",
+                    "type": "boolean"
                 },
-                "port": {
-                    "type": "integer"
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
                 },
-                "protocol": {
-                    "description": "defaults to \"http\"",
+                "helix_app_id": {
                     "type": "string"
                 }
             }
         },
-        "server.ExposePortResponse": {
+        "server.ForkSessionResponse": {
             "type": "object",
             "properties": {
-                "allocated_port": {
-                    "description": "for random port mode",
-                    "type": "integer"
-                },
-                "name": {
+                "new_session_id": {
                     "type": "string"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "protocol": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "urls": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 }
             }
         },
-        "server.ExposedPort": {
+        "server.GPUInfoWithSandbox": {
             "type": "object",
             "properties": {
-                "created_at": {
-                    "type": "string"
+                "index": {
+                    "type": "integer"
+                },
+                "memory_free_bytes": {
+                    "type": "integer"
+                },
+                "memory_total_bytes": {
+                    "type": "integer"
+                },
+                "memory_used_bytes": {
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string"
                 },
-                "port": {
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "temperature_celsius": {
                     "type": "integer"
                 },
-                "protocol": {
-                    "description": "\"http\" or \"tcp\"",
-                    "type": "string"
+                "utilization_percent": {
+                    "description": "GPU core utilization",
+                    "type": "integer"
                 },
-                "status": {
-                    "description": "\"active\", \"inactive\"",
-                    "type": "string"
-                },
-                "url": {
+                "vendor": {
+                    "description": "\"nvidia\", \"amd\", \"intel\"",
                     "type": "string"
                 }
             }
@@ -20224,6 +22843,9 @@
             "properties": {
                 "credits": {
                     "type": "number"
+                },
+                "org_id": {
+                    "type": "string"
                 }
             }
         },
@@ -21189,17 +23811,11 @@
                 }
             }
         },
-        "server.ListExposedPortsResponse": {
+        "server.MintPreviewTokenRequest": {
             "type": "object",
             "properties": {
-                "exposed_ports": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.ExposedPort"
-                    }
-                },
-                "session_id": {
-                    "type": "string"
+                "port": {
+                    "type": "integer"
                 }
             }
         },
@@ -21236,6 +23852,20 @@
                     "type": "string"
                 },
                 "organization_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.OwnedOrgSummary": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -21298,6 +23928,30 @@
                 }
             }
         },
+        "server.ProjectWebServiceResponse": {
+            "type": "object",
+            "properties": {
+                "cname_target": {
+                    "description": "CNAMETarget is the hostname customers should add as the value of\ntheir CNAME record when registering a custom domain — i.e. the\ncanonical Helix hostname parsed from SERVER_URL. Empty when the\nvhost feature is not configured on this instance.",
+                    "type": "string"
+                },
+                "deploys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebServiceDeploy"
+                    }
+                },
+                "domains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.VHostRoute"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/types.ProjectWebServiceState"
+                }
+            }
+        },
         "server.PromptPinRequest": {
             "type": "object",
             "properties": {
@@ -21328,6 +23982,17 @@
                     "type": "string"
                 },
                 "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.PutProjectWebServiceRequest": {
+            "type": "object",
+            "properties": {
+                "container_port": {
+                    "type": "integer"
+                },
+                "enabled": {
                     "type": "boolean"
                 }
             }
@@ -21624,6 +24289,14 @@
                 }
             }
         },
+        "server.SetActiveSandboxRequest": {
+            "type": "object",
+            "properties": {
+                "sandbox_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SharePointSiteResolveRequest": {
             "type": "object",
             "properties": {
@@ -21806,6 +24479,66 @@
                     "type": "integer"
                 },
                 "gop_buffer_size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.WorkspaceRepoStatus": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error is set when we couldn't determine the status (container\nunreachable, path missing, git command failed). The repo is then\nexcluded from \"dirty\" totals — we don't refuse a fork because we\ncan't see one repo's state.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                },
+                "uncommitted_files": {
+                    "type": "integer"
+                },
+                "unpushed_commits": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.WorkspaceStatusResponse": {
+            "type": "object",
+            "properties": {
+                "can_save_changes": {
+                    "description": "CanSaveChanges is false when there ARE dirty changes but the\nfork's pre-commit safety net has nowhere viable to push them.\nConcretely: the session has no spec task, or the spec task has\nno branch name set, or the spec task's branch is a protected\nbranch (main / master) that the remote pre-receive hook will\nreject. In any of those cases the frontend should refuse to\noffer \"Fork with auto-commit\" — the user has to fix git state\nmanually (commit/push to a feature branch from the terminal)\nbefore forking, OR explicitly abandon the changes.",
+                    "type": "boolean"
+                },
+                "cannot_save_reason": {
+                    "description": "CannotSaveReason is a human-readable explanation surfaced in\nthe blocking modal. Empty when CanSaveChanges is true.",
+                    "type": "string"
+                },
+                "container_reachable": {
+                    "description": "ContainerReachable=false means we couldn't talk to the desktop\nat all (e.g. it's been reaped). The frontend should treat this\nas \"unknown\" and let the user decide whether to fork anyway.",
+                    "type": "boolean"
+                },
+                "expected_branch": {
+                    "description": "ExpectedBranch is the branch the pre-fork commit will target,\nresolved from the spec task. Empty for sessions without a\nspec task. Exposed so the frontend can say \"will commit to\n\u003cbranch\u003e\" instead of just \"will commit\" — helps the user\nunderstand what's about to happen.",
+                    "type": "string"
+                },
+                "is_dirty": {
+                    "type": "boolean"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WorkspaceRepoStatus"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "total_dirty": {
                     "type": "integer"
                 }
             }
@@ -22057,12 +24790,37 @@
         "types.AddOrganizationMemberRequest": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "AppID + GrantRoles are optional and only meaningful when the\nrequest creates an invitation (because the email doesn't match an\nexisting user). They tell the server which app to attach the\ninvitation to, so the access grant can be materialised when the\ninvitee accepts. When set, the invitation will also be filtered\nto this app in the access-management list.",
+                    "type": "string"
+                },
+                "grant_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "role": {
                     "$ref": "#/definitions/types.OrganizationRole"
                 },
                 "user_reference": {
                     "description": "Either user ID or user email",
                     "type": "string"
+                }
+            }
+        },
+        "types.AddOrganizationMemberResponse": {
+            "type": "object",
+            "properties": {
+                "invitation": {
+                    "$ref": "#/definitions/types.OrganizationInvitation"
+                },
+                "invited": {
+                    "description": "Invited is true when no user exists yet and an invitation row was\ncreated instead of a membership.",
+                    "type": "boolean"
+                },
+                "membership": {
+                    "$ref": "#/definitions/types.OrganizationMembership"
                 }
             }
         },
@@ -27276,6 +30034,35 @@
                 }
             }
         },
+        "types.OrgUserLookupResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "exists": {
+                    "description": "a Helix user account exists with this email",
+                    "type": "boolean"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "invitation_id": {
+                    "type": "string"
+                },
+                "is_invited": {
+                    "description": "IsInvited — a pending invitation exists for this email in the queried\norg. Used by the invite UI to disable the \"Send invitation\" button so\nadmins don't accidentally double-invite.",
+                    "type": "boolean"
+                },
+                "is_member": {
+                    "description": "user is also a member of the queried org",
+                    "type": "boolean"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Organization": {
             "type": "object",
             "properties": {
@@ -27346,6 +30133,44 @@
                     "items": {
                         "$ref": "#/definitions/types.Team"
                     }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.OrganizationInvitation": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "AppID + GrantRoles record the optional access-grant context. When an\ninvitation is sent from a project/app's access management dialog,\nwe store the resource id and the role names the inviter chose, so\nthat consuming the invitation at register time can also materialise\nthe access grant — the invitee then shows up in the project access\nlist immediately, exactly as if they had been added directly.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "description": "Normalised to lowercase",
+                    "type": "string"
+                },
+                "grant_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invited_by": {
+                    "description": "User ID of the inviter",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/types.OrganizationRole"
                 },
                 "updated_at": {
                     "type": "string"
@@ -27742,6 +30567,14 @@
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
                 },
                 "user_id": {
                     "type": "string"
@@ -28191,6 +31024,30 @@
                 }
             }
         },
+        "types.ProjectWebServiceState": {
+            "type": "object",
+            "properties": {
+                "active_sandbox_id": {
+                    "type": "string"
+                },
+                "container_port": {
+                    "description": "port the project's web app binds to inside its container",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PromptHistoryEntry": {
             "type": "object",
             "properties": {
@@ -28516,6 +31373,23 @@
                 "ProviderEndpointTypeOrg",
                 "ProviderEndpointTypeTeam"
             ]
+        },
+        "types.PublicInvitationInfo": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_display_name": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                }
+            }
         },
         "types.PullRequest": {
             "type": "object",
@@ -29461,6 +32335,10 @@
                     "description": "Sandbox capacity",
                     "type": "integer"
                 },
+                "compute_state": {
+                    "description": "ComputeState tracks the provider's view of the host's provisioning\nlifecycle. Distinct from Status (which is the heartbeat-derived\nonline/offline/degraded view). Values: \"provisioning\" | \"ready\" |\n\"terminating\" | \"terminated\" | \"failed\". See compute.State for\nthe canonical enum. Empty for self-registered hosts.",
+                    "type": "string"
+                },
                 "created": {
                     "type": "string"
                 },
@@ -29521,6 +32399,25 @@
                 },
                 "profile_status": {
                     "description": "ProfileStatus tracks the compose stack lifecycle:\n\"\" | \"assigning\" | \"pulling\" | \"starting\" | \"running\" | \"failed\".",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nE.g. \"yellowdog\", \"gcp\", \"lambda\". Empty for self-registered hosts.",
+                    "type": "string"
+                },
+                "provider_id": {
+                    "description": "ProviderID is the upstream system's opaque identifier for this\nhost (e.g. a YellowDog work-requirement YDID). Forms a composite\nindex with Provider so the reconciler can look hosts up cheaply.",
+                    "type": "string"
+                },
+                "provider_metadata": {
+                    "description": "ProviderMetadata is provider-specific opaque data for\nreconciliation, debugging, and admin display. Examples for YD:\nworker-pool ID, compute requirement ID, region, public IP.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "provisioned_at": {
+                    "description": "ProvisionedAt is when Helix asked the provider to bring this host\nup. Earlier than Created (which is the first heartbeat). Nil for\nself-registered hosts.",
                     "type": "string"
                 },
                 "render_node": {
@@ -29688,6 +32585,10 @@
                     "type": "string"
                 },
                 "sentry_dsn_frontend": {
+                    "type": "string"
+                },
+                "server_url": {
+                    "description": "ServerURL is the operator-configured public origin for this helix\ninstance (env SERVER_URL → WebServer.URL). Empty when not\nconfigured; the frontend then falls back to\n`window.location.origin`. The github-stream New Stream dialog\nuses this to surface a webhook URL that's actually reachable by\nGitHub — `window.location.origin` is wrong whenever the user is\nhitting the app via localhost / a dev port that GitHub can't\nreach.",
                     "type": "string"
                 },
                 "stripe_enabled": {
@@ -30232,6 +33133,12 @@
                     "description": "NEW: External agent status (running, stopped, terminated_idle)",
                     "type": "string"
                 },
+                "forked_at": {
+                    "type": "string"
+                },
+                "forked_at_interaction_id": {
+                    "type": "string"
+                },
                 "gpu_vendor": {
                     "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
                     "type": "string"
@@ -30245,6 +33152,20 @@
                 },
                 "manually_review_questions": {
                     "type": "boolean"
+                },
+                "parent_session_id": {
+                    "description": "Fork lineage — set on a session created by forking from a parent.\nSee design/tasks/002081_kickoff-mid-session/design.md.",
+                    "type": "string"
+                },
+                "paused": {
+                    "description": "Pause state — sessions cannot accept new messages while paused.\nPausedReason is the only producer in v1: \"forked_to:\u003cchild_id\u003e\".",
+                    "type": "boolean"
+                },
+                "paused_at": {
+                    "type": "string"
+                },
+                "paused_reason": {
+                    "type": "string"
                 },
                 "paused_screenshot_path": {
                     "description": "Path to saved screenshot when agent is paused",
@@ -33629,6 +36550,57 @@
                 }
             }
         },
+        "types.VHostRoute": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "hostname": {
+                    "description": "always lowercased",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_default": {
+                    "description": "IsDefault is true for project default subdomains (\u003cslug\u003e.\u003cbase\u003e).\nUser-added custom domains and preview tokens are false.",
+                    "type": "boolean"
+                },
+                "port": {
+                    "description": "destination port inside the container",
+                    "type": "integer"
+                },
+                "rotated_at": {
+                    "type": "string"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_kind": {
+                    "$ref": "#/definitions/types.VHostTargetKind"
+                },
+                "verification_token": {
+                    "description": "VerificationToken is only meaningful for custom domains awaiting\nDNS-based verification. Null for default and preview rows.",
+                    "type": "string"
+                },
+                "verified_at": {
+                    "description": "VerifiedAt is non-null once the route is usable. Auto-set for default\nsubdomains and preview tokens; set after DNS verification for custom\ndomains.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.VHostTargetKind": {
+            "type": "string",
+            "enum": [
+                "project_web_service",
+                "sandbox_preview"
+            ],
+            "x-enum-varnames": [
+                "VHostTargetProjectWebService",
+                "VHostTargetSandboxPreview"
+            ]
+        },
         "types.WIPLimits": {
             "type": "object",
             "properties": {
@@ -33687,6 +36659,55 @@
                     "type": "string"
                 }
             }
+        },
+        "types.WebServiceDeploy": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "log_path": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebServiceDeployStatus"
+                }
+            }
+        },
+        "types.WebServiceDeployStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "building",
+                "live",
+                "failed",
+                "superseded"
+            ],
+            "x-enum-varnames": [
+                "WebServiceDeployStatusPending",
+                "WebServiceDeployStatusBuilding",
+                "WebServiceDeployStatusLive",
+                "WebServiceDeployStatusFailed",
+                "WebServiceDeployStatusSuperseded"
+            ]
         },
         "types.WebsiteCrawler": {
             "type": "object",

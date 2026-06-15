@@ -55,6 +55,7 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 	}
 
 	s.populateActiveAgentSessions(projects)
+	s.populateProjectOwners(r.Context(), projects)
 
 	return projects, nil
 }
@@ -95,6 +96,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 
 	// Org owners see all projects
 	if orgMembership.Role == types.OrganizationRoleOwner {
+		s.populateProjectOwners(ctx, projects)
 		return projects, nil
 	}
 
@@ -107,7 +109,30 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		authorizedProjects = append(authorizedProjects, project)
 	}
 
+	s.populateProjectOwners(ctx, authorizedProjects)
 	return authorizedProjects, nil
+}
+
+func (s *HelixAPIServer) populateProjectOwners(ctx context.Context, projects []*types.Project) {
+	ownersByID := make(map[string]*types.User)
+	for _, project := range projects {
+		if project == nil || project.UserID == "" {
+			continue
+		}
+		owner, ok := ownersByID[project.UserID]
+		if !ok {
+			var err error
+			owner, err = s.Store.GetUser(ctx, &store.GetUserQuery{ID: project.UserID})
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", project.UserID).Str("project_id", project.ID).Msg("failed to populate project owner")
+				continue
+			}
+			ownersByID[project.UserID] = owner
+		}
+		if owner != nil {
+			project.User = *owner
+		}
+	}
 }
 
 // getProject godoc
@@ -264,6 +289,8 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 			project.StartupScriptFromYAML = true
 		}
 	}
+
+	s.populateProjectOwners(r.Context(), []*types.Project{project})
 
 	return project, nil
 }
@@ -1413,6 +1440,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			}
 
 			// Restart Zed agent with existing session
+			// (project secrets injected by HydraExecutor.StartDesktop)
 			zedAgent := &types.DesktopAgent{
 				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
@@ -1429,15 +1457,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				Resolution:          resolution,
 				ZoomLevel:           zoomLevel,
 				DesktopType:         desktopType,
-			}
-
-			// Inject project secrets as environment variables (matching spec task behavior)
-			projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-			if err != nil {
-				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory restart, continuing without them")
-			} else if len(projectSecrets) > 0 {
-				zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
 			}
 
 			// Add user's API token inside session lock via OnBeforeCreate hook
@@ -1578,6 +1597,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	// Create ZedAgent for team desktop
+	// (project secrets injected by HydraExecutor.StartDesktop)
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      project.OrganizationID,
 		SessionID:           createdSession.ID,
@@ -1594,15 +1614,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-	}
-
-	// Inject project secrets as environment variables (matching spec task behavior)
-	projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory session, continuing without them")
-	} else if len(projectSecrets) > 0 {
-		zedAgent.Env = append(zedAgent.Env, projectSecrets...)
-		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
 	}
 
 	// Add user's API token inside session lock via OnBeforeCreate hook

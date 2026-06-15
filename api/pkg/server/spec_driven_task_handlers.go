@@ -1017,7 +1017,6 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.TechnicalDesign = ""
 			task.ImplementationPlan = ""
 			task.DesignDocsPushedAt = nil
-			task.DesignDocPath = ""
 			task.SpecApprovedBy = ""
 			task.SpecApprovedAt = nil
 			task.SpecApproval = nil

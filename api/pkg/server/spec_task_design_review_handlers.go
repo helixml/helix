@@ -18,6 +18,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// CommentTimerNoResponseMessage is the AgentResponse stamped onto a comment
+// when the 2-minute response timer fires without the agent producing any
+// content. It must be a stable string because finalizeCommentResponse keys
+// off it to recognise a stale timer-stamp and overwrite it with a late
+// real response.
+const CommentTimerNoResponseMessage = "[Agent did not respond - try sending your comment again]"
+
 // Design Review Handlers - Simple versions
 
 // ResumeCommentQueueProcessing resumes processing of any queued comments after server restart.
@@ -815,31 +822,11 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		existingTimer.Stop()
 	}
 	commentID := comment.ID
+	// Use a fresh context for the timer body. The ctx passed into
+	// processNextCommentInQueue may be an HTTP request context that is
+	// already cancelled by the time the timer fires 2 minutes later.
 	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
-		log.Warn().
-			Str("session_id", sessionID).
-			Str("comment_id", commentID).
-			Msg("Comment response timeout - agent did not respond within 2 minutes")
-
-		// Re-fetch comment from database to check current state
-		currentComment, fetchErr := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
-		if fetchErr != nil {
-			log.Error().Err(fetchErr).Str("comment_id", commentID).Msg("Failed to fetch comment for timeout check")
-			return
-		}
-
-		// Only mark as timed out if still processing (RequestID set and no response)
-		if currentComment.RequestID != "" && currentComment.AgentResponse == "" {
-			currentComment.AgentResponse = "[Agent did not respond - try sending your comment again]"
-			currentComment.RequestID = ""
-			currentComment.QueuedAt = nil
-			if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, currentComment); updateErr != nil {
-				log.Error().Err(updateErr).Str("comment_id", commentID).Msg("Failed to update timed-out comment")
-			}
-
-			// Process next comment in queue
-			go s.processNextCommentInQueue(ctx, sessionID)
-		}
+		s.handleCommentTimeout(context.Background(), sessionID, commentID)
 	})
 	s.sessionCommentMutex.Unlock()
 
@@ -847,6 +834,84 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		Str("session_id", sessionID).
 		Str("comment_id", comment.ID).
 		Msg("Comment sent to agent, started 2-minute response timeout")
+}
+
+// handleCommentTimeout is the body of the per-comment 2-minute response timer.
+// It runs on the timer's goroutine when the timer fires. It is exposed as a
+// method (rather than living inline as a closure) so it can be unit-tested
+// without spinning a real time.AfterFunc.
+//
+// The decision tree is:
+//   - If the comment is no longer being processed (RequestID cleared) or
+//     already has a real response: nothing to do.
+//   - If the linked interaction has any streamed content OR is in a terminal
+//     state (complete / interrupted / error): the agent IS responding — skip
+//     the error stamp and let finalizeCommentResponse copy the content over
+//     when message_completed eventually arrives. This is the fix for the
+//     "agent is taking longer than 2 minutes to produce a long answer"
+//     false-positive that previously stamped the error onto the comment.
+//   - Otherwise the agent genuinely produced nothing: stamp the error so the
+//     user sees a clear "try again" signal, then process the next queued
+//     comment.
+func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, commentID string) {
+	log.Warn().
+		Str("session_id", sessionID).
+		Str("comment_id", commentID).
+		Msg("Comment response timeout - agent did not respond within 2 minutes")
+
+	currentComment, fetchErr := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
+	if fetchErr != nil {
+		log.Error().Err(fetchErr).Str("comment_id", commentID).Msg("Failed to fetch comment for timeout check")
+		return
+	}
+
+	// Already resolved (request done OR a real response landed): nothing to do.
+	if currentComment.RequestID == "" || currentComment.AgentResponse != "" {
+		return
+	}
+
+	// Check whether the agent is actively making progress on the linked
+	// interaction. During streaming the response content lives on the
+	// interaction row (ResponseMessage / ResponseEntries), not on the comment
+	// — comment.AgentResponse is only populated when message_completed fires.
+	// So an empty AgentResponse by itself does not prove the agent has been
+	// silent.
+	if currentComment.InteractionID != "" {
+		interaction, ierr := s.Store.GetInteraction(ctx, currentComment.InteractionID)
+		if ierr == nil && interaction != nil {
+			agentText := types.TextFromInteraction(interaction)
+			terminal := interaction.State == types.InteractionStateComplete ||
+				interaction.State == types.InteractionStateInterrupted ||
+				interaction.State == types.InteractionStateError
+			if agentText != "" || terminal {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("comment_id", commentID).
+					Str("interaction_id", interaction.ID).
+					Str("interaction_state", string(interaction.State)).
+					Int("interaction_response_len", len(agentText)).
+					Msg("⏭️  Comment timer: skipping error stamp — agent is streaming / interaction is terminal; finalizeCommentResponse will copy content")
+				return
+			}
+		} else if ierr != nil {
+			log.Warn().Err(ierr).
+				Str("comment_id", commentID).
+				Str("interaction_id", currentComment.InteractionID).
+				Msg("Comment timer: failed to load linked interaction, falling through to error stamp")
+		}
+	}
+
+	// Genuine no-response: agent produced nothing, interaction has no content
+	// and is still waiting. Surface the error so the user can retry.
+	currentComment.AgentResponse = CommentTimerNoResponseMessage
+	currentComment.RequestID = ""
+	currentComment.QueuedAt = nil
+	if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, currentComment); updateErr != nil {
+		log.Error().Err(updateErr).Str("comment_id", commentID).Msg("Failed to update timed-out comment")
+		return
+	}
+
+	go s.processNextCommentInQueue(ctx, sessionID)
 }
 
 // findConnectedSessionForSpecTask finds an active WebSocket connection for a spec task
@@ -964,22 +1029,8 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 	}
 
 	// Load project repositories.
-	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: agent.ProjectID,
-	})
-	if err == nil && len(projectRepos) > 0 {
-		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-		for _, repo := range projectRepos {
-			if repo.ID != "" {
-				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-			}
-		}
-		project, err := s.Store.GetProject(ctx, agent.ProjectID)
-		if err == nil && project != nil && project.DefaultRepoID != "" {
-			agent.PrimaryRepositoryID = project.DefaultRepoID
-		} else if len(projectRepos) > 0 {
-			agent.PrimaryRepositoryID = projectRepos[0].ID
-		}
+	if err := s.attachProjectContext(ctx, agent, agent.ProjectID); err != nil {
+		return fmt.Errorf("attach project context: %w", err)
 	}
 
 	// Get display settings from app config.
@@ -1227,10 +1278,19 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
-	// If the comment doesn't have an AgentResponse yet, try to populate it from the interaction.
-	// The message_added events update the interaction's ResponseMessage but not the comment's
-	// AgentResponse directly. We need to copy it over at finalization time.
-	if comment.AgentResponse == "" && comment.InteractionID != "" {
+	// If the comment doesn't have a real AgentResponse yet, try to populate it
+	// from the interaction. The message_added events update the interaction's
+	// ResponseMessage but not the comment's AgentResponse directly — we copy
+	// it over at finalization time.
+	//
+	// We also treat the literal timer-stamped error string as "no real
+	// response" so a late message_completed can repair a comment that the
+	// 2-minute timer had pessimistically marked as failed. Without this, the
+	// timer error sticks even when the agent later delivers a perfectly good
+	// answer.
+	needsPopulation := comment.AgentResponse == "" || comment.AgentResponse == CommentTimerNoResponseMessage
+	hadStaleTimerError := comment.AgentResponse == CommentTimerNoResponseMessage
+	if needsPopulation && comment.InteractionID != "" {
 		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
 		if interactionErr == nil {
 			text := types.TextFromInteraction(interaction)
@@ -1239,17 +1299,25 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 				comment.AgentResponseEntries = interaction.ResponseEntries
 				now := time.Now()
 				comment.AgentResponseAt = &now
-				log.Info().
-					Str("comment_id", comment.ID).
-					Str("interaction_id", comment.InteractionID).
-					Int("response_length", len(text)).
-					Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+				if hadStaleTimerError {
+					log.Warn().
+						Str("comment_id", comment.ID).
+						Str("interaction_id", comment.InteractionID).
+						Int("response_length", len(text)).
+						Msg("🔁 [HELIX] Overwriting stale 'agent did not respond' timer-stamp with real agent response from interaction")
+				} else {
+					log.Info().
+						Str("comment_id", comment.ID).
+						Str("interaction_id", comment.InteractionID).
+						Int("response_length", len(text)).
+						Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+				}
 			}
 		}
 	}
 
-	// If we still don't have a response AND we have a session, try the latest interaction
-	if comment.AgentResponse == "" {
+	// If we still don't have a real response AND we have a session, try the latest interaction
+	if comment.AgentResponse == "" || comment.AgentResponse == CommentTimerNoResponseMessage {
 		s.populateAgentResponseFromSession(ctx, comment)
 	}
 

@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Menu,
   MenuItem,
@@ -29,6 +30,7 @@ import { useUpdateSpecTask } from "../../services/specTaskService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import CIStatusIcon from "./CIStatusIcon";
 
 export interface RepoPR {
   repository_id?: string;
@@ -37,7 +39,67 @@ export interface RepoPR {
   pr_number?: number;
   pr_url?: string;
   pr_state?: string;
+  ci_status?: string;
+  ci_url?: string;
 }
+
+type PRStateKind = "open" | "merged" | "closed";
+
+function normalizePRState(state?: string): PRStateKind {
+  const s = (state || "").toLowerCase();
+  if (s === "merged" || s === "closed") return s;
+  return "open";
+}
+
+const PR_STATE_CHIP_COLOR: Record<PRStateKind, "info" | "success" | "default"> = {
+  open: "info",
+  merged: "success",
+  closed: "default",
+};
+
+const PRStateBadge: React.FC<{ state?: string }> = ({ state }) => {
+  const kind = normalizePRState(state);
+  return (
+    <Chip
+      label={kind}
+      size="small"
+      variant="outlined"
+      color={PR_STATE_CHIP_COLOR[kind]}
+      sx={{ height: 20, fontSize: "0.7rem", flexShrink: 0 }}
+    />
+  );
+};
+
+interface PRMenuItemProps {
+  pr: RepoPR;
+  idx: number;
+  onSelect: () => void;
+}
+
+const PRMenuItem: React.FC<PRMenuItemProps> = ({ pr, idx, onSelect }) => {
+  const isClosed = normalizePRState(pr.pr_state) === "closed";
+  return (
+    <MenuItem
+      key={pr.repository_id || idx}
+      component="a"
+      href={pr.pr_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={onSelect}
+      sx={{ opacity: isClosed ? 0.65 : 1 }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+        <ListItemText
+          primary={pr.repository_name || `Repository ${idx + 1}`}
+          secondary={pr.pr_number ? `#${pr.pr_number}` : undefined}
+          sx={{ mr: 1 }}
+        />
+        <PRStateBadge state={pr.pr_state} />
+        <CIStatusIcon prs={[pr]} />
+      </Box>
+    </MenuItem>
+  );
+};
 
 export interface SpecTaskForActions {
   id: string;
@@ -101,7 +163,13 @@ interface CompactActionButtonProps {
   fullWidth?: boolean;
   icon: React.ReactNode;
   label: string;
-  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  // When href is set, the button renders as a real anchor so that Safari's
+  // popup blocker treats it as a normal user-initiated navigation rather than
+  // blocking a window.open() call.
+  href?: string;
+  target?: string;
+  rel?: string;
   sx?: object;
 }
 
@@ -114,8 +182,14 @@ function CompactActionButton({
   icon,
   label,
   onClick,
+  href,
+  target,
+  rel,
   sx,
 }: CompactActionButtonProps) {
+  const anchorProps = href
+    ? { component: "a" as const, href, target, rel }
+    : {};
   return (
     <Tooltip title={tooltip} placement="top">
       <span style={{ width: fullWidth ? "100%" : "auto", display: "block" }}>
@@ -126,6 +200,7 @@ function CompactActionButton({
           disabled={disabled}
           fullWidth={fullWidth}
           onClick={onClick}
+          {...anchorProps}
           sx={{
             minWidth: 72,
             px: 1,
@@ -738,26 +813,31 @@ export default function SpecTaskActionButtons({
   if ((task.status === "pull_request" || task.status === "done") && hasAnyPR) {
     // Single PR case
     if (pullRequests.length === 1) {
-      const prUrl = pullRequests[0].pr_url;
-      const prLabel = pullRequests[0].repository_name
-        ? `PR: ${pullRequests[0].repository_name}`
+      const onlyPR = pullRequests[0];
+      const prUrl = onlyPR.pr_url;
+      const prState = normalizePRState(onlyPR.pr_state);
+      const prLabel = onlyPR.repository_name
+        ? `PR: ${onlyPR.repository_name}`
         : "Pull Request";
+      const buttonColor: "secondary" | "success" | "inherit" =
+        prState === "merged" ? "success" : prState === "closed" ? "inherit" : "secondary";
 
       if (isInline) {
         return (
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <CompactActionButton
               tooltip={isArchived ? "Task is archived" : ""}
               variant="contained"
-              color="secondary"
+              color={buttonColor}
               disabled={isArchived}
               icon={<LaunchIcon sx={{ fontSize: 18 }} />}
               label={prLabel}
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(prUrl, "_blank");
-              }}
+              href={prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
             />
+            <PRStateBadge state={onlyPR.pr_state} />
+            <CIStatusIcon prs={[onlyPR]} />
           </Box>
         );
       }
@@ -769,12 +849,12 @@ export default function SpecTaskActionButtons({
               <Button
                 size={buttonSize}
                 variant="contained"
-                color="secondary"
+                color={buttonColor}
                 startIcon={<LaunchIcon />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(prUrl, "_blank");
-                }}
+                component="a"
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 disabled={isArchived}
                 fullWidth={!isInline}
                 sx={buttonSx}
@@ -783,6 +863,10 @@ export default function SpecTaskActionButtons({
               </Button>
             </span>
           </Tooltip>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
+            <PRStateBadge state={onlyPR.pr_state} />
+            <CIStatusIcon prs={[onlyPR]} />
+          </Box>
         </Box>
       );
     }
@@ -811,18 +895,12 @@ export default function SpecTaskActionButtons({
               onClick={(e) => e.stopPropagation()}
             >
               {pullRequests.map((pr, idx) => (
-                <MenuItem
+                <PRMenuItem
                   key={pr.repository_id || idx}
-                  onClick={() => {
-                    window.open(pr.pr_url, "_blank");
-                    setPrMenuAnchor(null);
-                  }}
-                >
-                  <ListItemText
-                    primary={pr.repository_name || `Repository ${idx + 1}`}
-                    secondary={pr.pr_number ? `#${pr.pr_number}` : undefined}
-                  />
-                </MenuItem>
+                  pr={pr}
+                  idx={idx}
+                  onSelect={() => setPrMenuAnchor(null)}
+                />
               ))}
             </Menu>
           </Box>
@@ -857,18 +935,12 @@ export default function SpecTaskActionButtons({
             onClick={(e) => e.stopPropagation()}
           >
             {pullRequests.map((pr, idx) => (
-              <MenuItem
+              <PRMenuItem
                 key={pr.repository_id || idx}
-                onClick={() => {
-                  window.open(pr.pr_url, "_blank");
-                  setPrMenuAnchor(null);
-                }}
-              >
-                <ListItemText
-                  primary={pr.repository_name || `Repository ${idx + 1}`}
-                  secondary={pr.pr_number ? `#${pr.pr_number}` : undefined}
-                />
-              </MenuItem>
+                pr={pr}
+                idx={idx}
+                onSelect={() => setPrMenuAnchor(null)}
+              />
             ))}
           </Menu>
         </Box>

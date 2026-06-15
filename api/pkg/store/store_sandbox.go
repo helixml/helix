@@ -104,6 +104,63 @@ func (s *PostgresStore) UpdateSandboxInstanceStatus(ctx context.Context, id stri
 		Update("status", status).Error
 }
 
+// UpdateSandboxInstanceComputeState writes only the compute_state column
+// for the given row. Used by the compute.Manager reconciler to record
+// provider-driven lifecycle transitions (provisioning -> ready, etc.)
+// WITHOUT overwriting heartbeat-driven fields (status, last_seen,
+// active_sandboxes). Pairs with UpdateSandboxInstanceProviderID for
+// the post-Provision update flow.
+func (s *PostgresStore) UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Update("compute_state", computeState).Error
+}
+
+// UpdateSandboxInstanceProviderID writes only the provider_id column.
+// Called by compute.Manager.provisionOne after the upstream Provider
+// accepts a new request and returns its opaque ID. Doing it as a
+// targeted column update (rather than a full row save) avoids racing
+// the heartbeat path that may have written fresher status/last_seen
+// for this row in between.
+func (s *PostgresStore) UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Update("provider_id", providerID).Error
+}
+
+// UpdateSandboxInstanceNetwork writes only the columns that describe
+// where the sandbox host is reachable: its IP address, hostname, and
+// the LastSeen timestamp that marks "we just heard from this host".
+//
+// Used by the auto-register bridge in ensureSandboxRegistered to
+// transition a Manager-provisioned row to a registered state without
+// reusing the full-row gorm.Save path. Save would have replaced every
+// column with the in-memory value loaded a few statements earlier,
+// stamping out any heartbeat columns (gpus, service_health,
+// profile_status, profile_progress, helix_version, desktop_versions)
+// the heartbeat goroutine may have updated in between.
+//
+// The bridge calls this alongside UpdateSandboxInstanceComputeState
+// and UpdateSandboxInstanceStatus; doing it as three targeted updates
+// is verbose but each is race-safe in isolation.
+func (s *PostgresStore) UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error {
+	updates := map[string]interface{}{
+		"last_seen": lastSeen,
+	}
+	if ipAddress != "" {
+		updates["ip_address"] = ipAddress
+	}
+	if hostname != "" {
+		updates["hostname"] = hostname
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
 // MarkSandboxInstanceOfflineIfStale flips a sandbox row to status="offline"
 // only when its current last_seen is older than `staleBefore`. This is a
 // compare-and-swap variant of UpdateSandboxInstanceStatus used by the

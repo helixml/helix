@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
+import { render, fireEvent, waitFor } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
 
@@ -117,4 +117,45 @@ describe('RobustPromptInput empty-Enter promotes most-recent queued to interrupt
     expect(saveToHistory).not.toHaveBeenCalled()
   })
 
+})
+
+// Regression for 53b336e01: the client-side queue pump was deleted, so any
+// composer without a spec_task_id (project Human Desktop, org-worker chat)
+// silently parked messages as "saved locally" and never dispatched them. The
+// pump must run when backend queue processing is NOT enabled, and must stay
+// out of the way when it is (spec tasks).
+describe('RobustPromptInput client-side queue pump', () => {
+  beforeEach(() => {
+    saveToHistory.mockClear()
+    pendingPrompts = []
+  })
+
+  it('dispatches a pending message via onSend when there is no spec task', async () => {
+    pendingPrompts = [mkEntry('a', 1000, { content: 'hello worker' })]
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    render(
+      <RobustPromptInput sessionId="ses_test" projectId="prj_1" onSend={onSend} />
+    )
+    await waitFor(
+      () => expect(onSend).toHaveBeenCalledWith('hello worker', false),
+      { timeout: 2000 },
+    )
+  })
+
+  it('does NOT pump the queue when the backend queue is enabled (spec task)', async () => {
+    pendingPrompts = [mkEntry('a', 1000)]
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        specTaskId="task_1"
+        projectId="prj_1"
+        apiClient={{} as any}
+        onSend={onSend}
+      />
+    )
+    // Give the pump's 500ms/300ms timers room to (not) fire.
+    await new Promise((r) => setTimeout(r, 800))
+    expect(onSend).not.toHaveBeenCalled()
+  })
 })

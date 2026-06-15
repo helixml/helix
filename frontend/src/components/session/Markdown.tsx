@@ -1163,6 +1163,38 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
             </code>
           );
         },
+        a(props: any) {
+          const { node, href, target, children, ...rest } = props;
+          // Internal action links (filter mentions, doc-group links) use
+          // href="#" and have JS click handlers — leave them alone. Same
+          // for in-page anchors like [Top](#section).
+          if (!href || href === "#" || href.startsWith("#")) {
+            return (
+              <a href={href} {...rest}>
+                {children}
+              </a>
+            );
+          }
+          // Respect an explicit target already set on the source HTML
+          // (e.g. doc-citation links from processDocumentIds).
+          if (target) {
+            return (
+              <a href={href} target={target} {...rest}>
+                {children}
+              </a>
+            );
+          }
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              {...rest}
+            >
+              {children}
+            </a>
+          );
+        },
       }),
       [],
     );

@@ -26,7 +26,10 @@ coverage.html
 
 # Notes
 TODO.md
-design/
+# design/ used to be ignored when it held throwaway notes; the
+# redesign work (design/2026-05-21-redesign/) and the ADR directory
+# (design/adr/) are checked-in artefacts, so design/ is tracked now.
+# Add narrower ignores below if a sub-directory needs to stay local.
 
 # Data
 *.db

@@ -2,6 +2,7 @@ import React, { FC, useMemo, useCallback, useState } from 'react'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import PersonIcon from '@mui/icons-material/Person'
+import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
@@ -62,6 +63,14 @@ const MembersTable: FC<MembersTableProps> = ({
     }
   }
   
+  // Pending invitations are returned as placeholder OrganizationMembership
+  // rows by the API: user_id is the invitation id (oin_…) and user.email is
+  // the invitee's email. We show them with a "Pending invitation" chip and a
+  // mail icon so they're visually distinct from real members.
+  const isInvitationMember = (member: Membership): boolean => {
+    return !!member.user_id && member.user_id.startsWith('oin_')
+  }
+
   // Transform member data for the table display
   const tableData = useMemo(() => {
     return data.map(member => {
@@ -69,23 +78,33 @@ const MembersTable: FC<MembersTableProps> = ({
       // For team memberships, default to 'member' since they don't have roles
       const isOrgMembership = 'role' in member
       const roleDisplay = getRoleDisplay(isOrgMembership ? member.role : 'member')
-    
+      const pending = isInvitationMember(member)
+
       return {
         id: member.user_id,
         _data: member, // Store original data for actions
         user: (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PersonIcon color="action" />
-            <span>{member.user?.full_name || 'Unnamed User'}</span>
+            {pending ? <MailOutlineIcon color="action" /> : <PersonIcon color="action" />}
+            <span>{pending ? (member.user?.email || 'Invited user') : (member.user?.full_name || 'Unnamed User')}</span>
+            {pending && (
+              <Chip
+                label="Pending invitation"
+                size="small"
+                color="default"
+                variant="outlined"
+                sx={{ ml: 1 }}
+              />
+            )}
           </Box>
         ),
         email: member.user?.email || '',
         role: (
-          <Chip 
-            label={roleDisplay.label} 
-            color={roleDisplay.color as any} 
-            size="small" 
-            variant="outlined" 
+          <Chip
+            label={roleDisplay.label}
+            color={roleDisplay.color as any}
+            size="small"
+            variant="outlined"
           />
         )
       }
@@ -201,7 +220,7 @@ const MembersTable: FC<MembersTableProps> = ({
           horizontal: 'right',
         }}
       >
-        {showRoles && selectedMember && 'role' in selectedMember && (
+        {showRoles && selectedMember && 'role' in selectedMember && !isInvitationMember(selectedMember) && (
           <MenuItem onClick={handleEditFromMenu}>
             <ListItemIcon>
               <EditIcon fontSize="small" />
@@ -213,7 +232,7 @@ const MembersTable: FC<MembersTableProps> = ({
           <ListItemIcon>
             <DeleteIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Delete</ListItemText>
+          <ListItemText>{selectedMember && isInvitationMember(selectedMember) ? 'Revoke invitation' : 'Delete'}</ListItemText>
         </MenuItem>
       </Menu>
 

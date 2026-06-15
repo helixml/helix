@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -40,7 +40,7 @@ import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import useDebounce from '../../hooks/useDebounce'
 import { extractErrorMessage } from '../../hooks/useErrorCallback'
-import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationRole, TypesUser } from '../../api/api'
+import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesCreateAccessGrantResponse, TypesOrganizationInvitation, TypesOrganizationRole, TypesOrgUserLookupResponse, TypesUser } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
 import useTheme from '@mui/material/styles/useTheme'
@@ -53,6 +53,7 @@ interface AccessManagementProps {
   organizationId?: string;
   currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
   projectOwnerId?: string;
+  projectOwner?: { full_name?: string; email?: string; id?: string };
   onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesCreateAccessGrantResponse | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
@@ -65,6 +66,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   organizationId,
   currentUser,
   projectOwnerId,
+  projectOwner,
   onCreateGrant,
   onDeleteGrant
 }) => {
@@ -91,6 +93,17 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const [orgAddSnackbarSeverity, setOrgAddSnackbarSeverity] = useState<'info' | 'error'>('info');
   const [userSearchResults, setUserSearchResults] = useState<TypesUser[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+  // emailLookup is populated once the user has typed a full email AND the
+  // in-org search returned no results. It drives the button label so the
+  // user knows whether confirming will send an invitation, add an existing
+  // Helix user to the org, or just grant project access.
+  const [emailLookup, setEmailLookup] = useState<TypesOrgUserLookupResponse | null>(null);
+  const [lookingUpEmail, setLookingUpEmail] = useState(false);
+  // Pending org invitations rendered as placeholder rows in the Users
+  // with access table so org admins can see who they've invited but who
+  // hasn't joined yet. Refreshed after creating or revoking invitations.
+  const [invitations, setInvitations] = useState<TypesOrganizationInvitation[]>([]);
+  const [revokingInvitationId, setRevokingInvitationId] = useState<string | null>(null);
 
   // Extract roles from the organization
   const availableRoles = useMemo(() => {
@@ -99,8 +112,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Filter grants into users and teams
   const userGrants = useMemo(() => {
-    return accessGrants.filter(grant => grant.user_id && grant.user_id !== currentUser?.id);
-  }, [accessGrants, currentUser?.id]);
+    return accessGrants.filter(grant => grant.user_id && (!projectOwnerId || grant.user_id !== projectOwnerId));
+  }, [accessGrants, projectOwnerId]);
 
   const teamGrants = useMemo(() => {
     return accessGrants.filter(grant => grant.team_id);
@@ -111,14 +124,42 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     return organization?.teams || [];
   }, [organization]);
 
-  const ownerDisplayName = currentUser?.full_name || currentUser?.email || 'You';
-  const ownerDisplayEmail = currentUser?.email || '-';
-  const hasOwnerRow = !!currentUser?.id;
+  const isCurrentUserProjectOwner = !!projectOwnerId && currentUser?.id === projectOwnerId;
+  const ownerUser = projectOwner || (isCurrentUserProjectOwner ? currentUser : undefined);
+  const ownerDisplayName = ownerUser?.full_name || ownerUser?.email || 'Project owner';
+  const ownerDisplayEmail = ownerUser?.email || '-';
+  const hasOwnerRow = !!projectOwnerId;
   const effectiveOrganizationId = organizationId || organization?.id || orgTools.orgID;
 
   const existingGrantUserIds = useMemo(() => {
     return new Set(accessGrants.map(g => g.user_id).filter(Boolean));
   }, [accessGrants]);
+
+  // Fetch pending invitations scoped to THIS app. Org-wide invitations
+  // (sent from /orgs/{id}/people) are not surfaced here — they belong to
+  // the org members page, not a project's access list. The backend
+  // filters via the app_id query param.
+  const loadInvitations = useCallback(async () => {
+    if (!effectiveOrganizationId) {
+      setInvitations([]);
+      return;
+    }
+    try {
+      const response = await api.getApiClient().v1OrganizationsInvitationsDetail(effectiveOrganizationId, {
+        app_id: appId,
+      } as any);
+      setInvitations(response.data || []);
+    } catch (error) {
+      // Non-owners get 403 here, which is fine — they just don't see the
+      // pending-invitations section.
+      console.error('Failed to load invitations:', error);
+      setInvitations([]);
+    }
+  }, [api.getApiClient, effectiveOrganizationId, appId]);
+
+  useEffect(() => {
+    loadInvitations();
+  }, [loadInvitations]);
 
   useEffect(() => {
     if (!openUserDialog) return;
@@ -167,24 +208,72 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
+  // When the typed input is a full email and the in-org search didn't find
+  // it, hit the org-scoped lookup to learn whether a Helix account exists
+  // for this address (and is just outside the org), or whether we'll need
+  // to send an invitation. The org-membership search above won't tell us
+  // either of those because it's filtered to org members.
+  useEffect(() => {
+    if (!openUserDialog || !effectiveOrganizationId) {
+      setEmailLookup(null);
+      setLookingUpEmail(false);
+      return;
+    }
+    const trimmed = debouncedUserInputValue.trim();
+    if (!isValidEmail(trimmed)) {
+      setEmailLookup(null);
+      setLookingUpEmail(false);
+      return;
+    }
+    // If the in-org search already returned a hit for this email we don't
+    // need the lookup — the user is in the org. Save the round trip.
+    const lower = trimmed.toLowerCase();
+    if (userSearchResults.some(u => (u.email || '').toLowerCase() === lower)) {
+      setEmailLookup({ email: lower, exists: true, is_member: true });
+      setLookingUpEmail(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLookingUpEmail(true);
+    api.getApiClient().v1OrganizationsUsersLookupDetail(effectiveOrganizationId, { email: trimmed })
+      .then((response) => {
+        if (cancelled) return;
+        setEmailLookup(response.data || { email: lower, exists: false, is_member: false });
+      })
+      .catch((error) => {
+        console.error('Failed to look up user by email:', error);
+        if (!cancelled) {
+          // Soft-fail: assume the user doesn't exist so we offer "Send
+          // invitation"; the server will validate again on submit.
+          setEmailLookup({ email: lower, exists: false, is_member: false });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLookingUpEmail(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [api.getApiClient, debouncedUserInputValue, effectiveOrganizationId, openUserDialog, userSearchResults]);
+
   const getUserSearchMessage = () => {
     const query = userInputValue.trim();
     if (!effectiveOrganizationId) {
       return 'Select an organization before adding access.';
     }
     if (query.length < 2) {
-      return 'Enter at least 2 characters to search organization members.';
+      return 'Search for an organization member by name or email — or enter a full email to invite someone outside the org.';
     }
     if (searchingUsers) {
-      return 'Searching organization members...';
+      return 'Searching organization members…';
     }
     if (userSearchResults.length > 0) {
-      return `Only showing users in this organization. Found ${userSearchResults.length} member${userSearchResults.length === 1 ? '' : 's'}.`;
+      return `Showing users in this organization. Found ${userSearchResults.length} member${userSearchResults.length === 1 ? '' : 's'}.`;
     }
     if (isValidEmail(query)) {
-      return 'No organization member found for this email.';
+      return 'No organization member matches this email. See the prompt below for what will happen.';
     }
-    return 'No organization members found. Try a different search term.';
+    return 'No organization members found. Try a different search term or enter a full email address.';
   };
 
   // Filter teams that don't already have access grants
@@ -210,6 +299,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     setUserInputValue('');
     setUserSearchResults([]);
     setSearchingUsers(false);
+    setEmailLookup(null);
+    setLookingUpEmail(false);
     setSelectedRole('app_user');
   };
 
@@ -236,6 +327,42 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     return isValidEmail(input) && userSearchResults.length === 0;
   }, [debouncedUserInputValue, effectiveOrganizationId, searchingUsers, selectedUserReference, userInputValue, userSearchResults.length]);
 
+  // States for the typed-email branch — derived from the lookup result so
+  // the button label tells the user exactly what will happen. The
+  // `already_invited` case takes precedence: if there's a pending
+  // invitation we disable the button so admins can't double-send.
+  //  - "already_invited" : pending invitation exists; button disabled
+  //  - "not_helix"  : no Helix account → submitting sends an invitation
+  //  - "not_in_org" : Helix account exists, not in this org → submit adds
+  //                   them to the org AND grants project access
+  //  - "in_org"     : Helix account exists and is already in this org →
+  //                   submit just grants project access
+  //  - "loading"    : lookup in flight; button is disabled
+  type EmailState = 'not_helix' | 'not_in_org' | 'in_org' | 'loading' | 'already_invited';
+  const typedEmailState: EmailState | null = useMemo(() => {
+    if (!isTypedEmail) return null;
+    if (lookingUpEmail) return 'loading';
+    if (!emailLookup) return 'loading';
+    if (emailLookup.is_invited) return 'already_invited';
+    if (!emailLookup.exists) return 'not_helix';
+    if (emailLookup.is_member) return 'in_org';
+    return 'not_in_org';
+  }, [isTypedEmail, lookingUpEmail, emailLookup]);
+
+  // Button label varies by state. For a search-list selection (not a typed
+  // email) we keep the simple "Add" since they're already an org member.
+  const submitButtonLabel = useMemo(() => {
+    if (!isTypedEmail) return 'Add to project';
+    switch (typedEmailState) {
+      case 'loading': return 'Checking…';
+      case 'already_invited': return 'Invitation already sent';
+      case 'not_helix': return 'Send invitation';
+      case 'not_in_org': return 'Add to org and project';
+      case 'in_org': return 'Add to project';
+      default: return 'Add';
+    }
+  }, [isTypedEmail, typedEmailState]);
+
   // Handle create user grant
   const handleCreateUserGrant = async () => {
     let userReference = '';
@@ -253,12 +380,40 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       if (!effectiveOrganizationId) return;
 
       try {
+        // Pass app_id + grant_roles so that — if the backend creates an
+        // invitation (the email doesn't belong to an existing user) —
+        // accepting that invitation will also materialise the AccessGrant
+        // for this app with the same role the owner picked here. Without
+        // this, the invitee would join the org but show up nowhere on
+        // the project until someone manually granted access.
         const response = await api.getApiClient().v1OrganizationsMembersCreate(effectiveOrganizationId, {
           user_reference: userReference,
           role: TypesOrganizationRole.OrganizationRoleMember,
+          app_id: appId,
+          grant_roles: [selectedRole],
         });
+        // Two outcomes:
+        //  - Membership: the email matched an existing user, we can proceed
+        //    to grant access as before.
+        //  - Invitation: no Helix account exists for this email yet. We
+        //    cannot create an access grant against a non-existent user, so
+        //    we stop here — the access grant will be created when they
+        //    accept the invitation and we later promote them to whatever
+        //    role the inviter chose. The pending invitation is now
+        //    visible in the org members list.
+        if (response.data?.invited) {
+          setOrgAddSnackbarSeverity('info');
+          setOrgAddSnackbar(`${userReference} has been invited. They will gain access once they create their account.`);
+          await Promise.all([
+            orgTools.loadOrganization(effectiveOrganizationId),
+            loadInvitations(),
+          ]);
+          handleCloseUserDialog();
+          return;
+        }
         addedToOrganization = true;
-        setSelectedUserId(response.data?.user_id || userReference);
+        const newUserId = response.data?.membership?.user_id || userReference;
+        setSelectedUserId(newUserId);
         setSelectedUserReference(userReference);
         await orgTools.loadOrganization(effectiveOrganizationId);
       } catch (error) {
@@ -293,6 +448,26 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   // Handle delete confirmation
   const handleDeleteClick = (grantId: string) => {
     setDeleteGrantId(grantId);
+  };
+
+  // Revoke a pending invitation. Skips the standard delete-confirm dialog
+  // because revoking is low-stakes (we can always re-invite) and the
+  // "Pending invitation" label already makes the row's meaning clear.
+  const handleRevokeInvitation = async (invitation: TypesOrganizationInvitation) => {
+    if (!effectiveOrganizationId || !invitation.id) return;
+    try {
+      setRevokingInvitationId(invitation.id);
+      await api.getApiClient().v1OrganizationsInvitationsDelete(effectiveOrganizationId, invitation.id);
+      await loadInvitations();
+      setOrgAddSnackbarSeverity('info');
+      setOrgAddSnackbar(`Invitation for ${invitation.email || 'user'} revoked.`);
+    } catch (error) {
+      console.error('Failed to revoke invitation:', error);
+      setOrgAddSnackbarSeverity('error');
+      setOrgAddSnackbar(extractErrorMessage(error) || 'Failed to revoke invitation.');
+    } finally {
+      setRevokingInvitationId(null);
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -370,7 +545,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             )}
           </Box>
           
-          {!hasOwnerRow && userGrants.length === 0 ? (
+          {!hasOwnerRow && userGrants.length === 0 && invitations.length === 0 ? (
             <Box sx={{ 
               border: '1px solid #353945', 
               borderRadius: 2, 
@@ -448,7 +623,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                         component="tr"
                         sx={{
                           bgcolor: '#1E2028',
-                          borderBottom: userGrants.length > 0 ? '1px solid #353945' : 'none'
+                          borderBottom: (userGrants.length > 0 || invitations.length > 0) ? '1px solid #353945' : 'none'
                         }}
                       >
                         <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
@@ -474,7 +649,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                         </Box>
                         <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
                           <Chip
-                            label={projectOwnerId && currentUser?.id === projectOwnerId ? 'Owner' : 'You'}
+                            label={isCurrentUserProjectOwner ? 'You' : 'Owner'}
                             size="small"
                             sx={{
                               mr: 0.5,
@@ -490,9 +665,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                     {userGrants.map((grant, index) => {
                       const user = (grant.user || {}) as any
                       return (
-                        <Box component="tr" key={grant.id} sx={{ 
+                        <Box component="tr" key={grant.id} sx={{
                           '&:hover': { bgcolor: lightTheme.highlightColor },
-                          borderBottom: index < userGrants.length - 1 ? '1px solid #353945' : 'none'
+                          borderBottom: (index < userGrants.length - 1 || invitations.length > 0) ? '1px solid #353945' : 'none'
                         }}>
                           <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
                             <Typography sx={{ 
@@ -552,6 +727,86 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                         </Box>
                       )
                     })}
+                    {invitations.map((invitation, index) => (
+                      <Box
+                        component="tr"
+                        key={invitation.id}
+                        sx={{
+                          '&:hover': { bgcolor: lightTheme.highlightColor },
+                          borderBottom: index < invitations.length - 1 ? '1px solid #353945' : 'none'
+                        }}
+                      >
+                        <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Typography sx={{
+                            color: '#A0AEC0',
+                            fontWeight: 500,
+                            fontSize: '0.875rem',
+                            fontStyle: 'italic'
+                          }}>
+                            (pending)
+                          </Typography>
+                        </Box>
+                        <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Typography sx={{
+                            color: '#A0AEC0',
+                            fontSize: '0.875rem'
+                          }}>
+                            {invitation.email}
+                          </Typography>
+                        </Box>
+                        <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Chip
+                            label="Invite sent"
+                            size="small"
+                            sx={{
+                              mr: 0.5,
+                              mb: 0.5,
+                              backgroundColor: '#374151',
+                              color: '#D1D5DB',
+                              border: '1px dashed #6B7280'
+                            }}
+                          />
+                          {(invitation.grant_roles || []).map((roleName) => (
+                            <Chip
+                              key={roleName}
+                              label={getRoleDisplayName(roleName)}
+                              icon={getRoleIcon(roleName)}
+                              size="small"
+                              sx={{
+                                mr: 0.5,
+                                mb: 0.5,
+                                backgroundColor: roleName.toLowerCase() === 'admin' ? '#EF4444' : '#6366F1',
+                                color: 'white',
+                                opacity: 0.7,
+                                '& .MuiChip-icon': { color: 'white' }
+                              }}
+                            />
+                          ))}
+                        </Box>
+                        {!isReadOnly && (
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                            <Tooltip title="Revoke invitation">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleRevokeInvitation(invitation)}
+                                  disabled={revokingInvitationId === invitation.id}
+                                  sx={{
+                                    color: '#F87171',
+                                    '&:hover': {
+                                      color: '#EF4444',
+                                      backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                                    }
+                                  }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </Box>
+                        )}
+                      </Box>
+                    ))}
                   </Box>
                 </Box>
               </Box>
@@ -821,6 +1076,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               setUserInputValue(event.target.value);
               setSelectedUserId('');
               setSelectedUserReference('');
+              setEmailLookup(null);
             }}
             InputProps={{
               startAdornment: (
@@ -853,7 +1109,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               const isDisabled = !userReference || isCurrentUser || alreadyHasAccess;
               const isSelected = !!userReference && selectedUserReference === userReference;
               const disabledLabel = isCurrentUser ? 'You' : alreadyHasAccess ? 'Already has access' : '';
-
+              
               return (
                 <ListItem
                   key={userId || user.email}
@@ -894,10 +1150,29 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             })}
           </List>
 
-          {isTypedEmail && (
+          {isTypedEmail && typedEmailState === 'loading' && (
+            <Alert severity="info" sx={{ mb: 2 }} icon={<CircularProgress size={16} />}>
+              Checking whether this email already has a Helix account…
+            </Alert>
+          )}
+          {isTypedEmail && typedEmailState === 'already_invited' && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              This email is not a member of your organization. Confirming will add
-              them to the organization as a member first, then grant access.
+              An invitation has already been sent to this email. They will join the organization automatically when they register — no need to resend.
+            </Alert>
+          )}
+          {isTypedEmail && typedEmailState === 'not_helix' && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              No Helix account exists for this email yet. Confirming will email them an invitation — they will join the organization automatically when they register.
+            </Alert>
+          )}
+          {isTypedEmail && typedEmailState === 'not_in_org' && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              This user has a Helix account but isn't in your organization yet. Confirming will add them to the organization and grant project access.
+            </Alert>
+          )}
+          {isTypedEmail && typedEmailState === 'in_org' && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              This user is already a member of the organization. Confirming will grant them project access.
             </Alert>
           )}
 
@@ -943,7 +1218,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             </RadioGroup>
           </FormControl>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Search only shows members of this organization. Enter a full email address to add someone to the organization first.
+            Search lists members of this organization. Enter a full email to invite someone who isn't in Helix yet, or to add an existing Helix user to your org.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -952,9 +1227,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             onClick={handleCreateUserGrant}
             variant="contained"
             color="primary"
-            disabled={(!selectedUserReference && !isTypedEmail) || !selectedRole}
+            disabled={(!selectedUserReference && !isTypedEmail) || !selectedRole || typedEmailState === 'loading' || typedEmailState === 'already_invited'}
           >
-            {isTypedEmail ? 'Add to org and grant access' : 'Add'}
+            {submitButtonLabel}
           </Button>
         </DialogActions>
       </Dialog>

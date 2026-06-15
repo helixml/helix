@@ -84,6 +84,13 @@ func NewHTTPError404(message string) *HTTPError {
 	}
 }
 
+func NewHTTPError409(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusConflict,
+		Message:    message,
+	}
+}
+
 func NewHTTPError422(message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusUnprocessableEntity,

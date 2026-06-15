@@ -49,7 +49,7 @@ export const defaultStreamSettings = (): StreamSettings => ({
   videoSampleQueueSize: 50,  // Increased for 4K60 (was 5, too small for high bitrate)
   audioSampleQueueSize: 10,
   playAudioLocal: false,
-  mouseScrollMode: 'normal',
+  mouseScrollMode: 'highres', // pixel-perfect float32 deltas; 'normal' rounds sub-10px (trackpad) scrolls to 0 in Chrome
   controllerConfig: {},
   streamingMode: 'websocket',  // Default to WebSocket-only (works through L7 ingress)
 });

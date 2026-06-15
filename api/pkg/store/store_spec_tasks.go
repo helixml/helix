@@ -231,6 +231,38 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 	return true, nil
 }
 
+// SetPlanningSessionIDIfEmpty atomically writes planning_session_id only when the
+// existing column is empty (NULL or ''). Returns true if this caller claimed the
+// slot, false if another caller had already populated it.
+//
+// This is the single source of truth for "who owns the planning session?" — every
+// caller in StartSpecGeneration must use it instead of the read-check-write pattern
+// at line 414-423 of spec_driven_task_service.go (which lets two concurrent goroutines
+// each see an empty value and each go on to create a session and spawn a dev
+// container against the shared workspace, corrupting the git clone).
+func (s *PostgresStore) SetPlanningSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error) {
+	if taskID == "" {
+		return false, fmt.Errorf("task ID is required")
+	}
+	if sessionID == "" {
+		return false, fmt.Errorf("session ID is required")
+	}
+
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ? AND (planning_session_id IS NULL OR planning_session_id = '')", taskID).
+		Updates(map[string]any{
+			"planning_session_id": sessionID,
+			"updated_at":          now,
+		})
+
+	if result.Error != nil {
+		return false, fmt.Errorf("failed to claim planning_session_id: %w", result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func syncSpecTaskDependsOn(ctx context.Context, tx *gorm.DB, task *types.SpecTask) error {
 	if task.DependsOn == nil {
 		return nil

@@ -15,7 +15,7 @@ import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import { useGetConfig } from '../services/userService'
-import { TypesAuthProvider, TypesLoginRequest, TypesRegisterRequest } from '../api/api'
+import { TypesAuthProvider, TypesLoginRequest, TypesPublicInvitationInfo, TypesRegisterRequest } from '../api/api'
 
 const LOGIN_REDIRECT_KEY = 'login_redirect_url'
 const ACCENT = '#00E5FF'
@@ -86,6 +86,15 @@ export default function Login() {
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // When the user arrives via an org invitation link the page switches to
+  // register mode, pre-fills (and locks) the email so they register the
+  // exact address the invitation was sent to, and shows "Join {orgName}"
+  // framing. The invitation ID is the URL param — the backend's public
+  // info endpoint resolves it to email + org name without auth (the ID is
+  // the secret, same as password-reset tokens).
+  const [invitation, setInvitation] = useState<TypesPublicInvitationInfo | null>(null)
+  const [invitationError, setInvitationError] = useState<string | null>(null)
+  const [invitationLoading, setInvitationLoading] = useState(false)
 
   const formRef = useRef<HTMLFormElement>(null)
   const apiClient = api.getApiClient()
@@ -100,6 +109,35 @@ export default function Login() {
     if (!account.user) return
     performPostLoginRedirect()
   }, [account.initialized, account.user])
+
+  // Pick up ?invitation=oin_… from the URL: switch to register mode,
+  // prefill+lock email, and surface the org name. Soft-fails if the
+  // invitation is missing/revoked — user can still register manually.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const invitationId = params.get('invitation')
+    if (!invitationId) return
+
+    setMode('register')
+    setInvitationLoading(true)
+    apiClient.v1InvitationsInfoDetail(invitationId)
+      .then((resp) => {
+        const info = resp.data
+        if (info?.email) {
+          setEmail(info.email)
+        }
+        setInvitation(info)
+        setInvitationError(null)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load invitation info:', err)
+        setInvitationError(extractErrorMessage(err, 'This invitation link is invalid or has expired.'))
+      })
+      .finally(() => setInvitationLoading(false))
+    // We deliberately read the URL once on mount; intentionally omit
+    // dependencies so we don't re-fetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleLogin = useCallback(async () => {
     if (loading) return
@@ -249,7 +287,9 @@ export default function Login() {
                 letterSpacing: '0.02em',
               }}
             >
-              Sign in to continue
+              {invitation
+                ? `Create your account to join ${invitation.organization_display_name || invitation.organization_name || 'the organization'}`
+                : 'Sign in to continue'}
             </Typography>
           </Box>
 
@@ -270,8 +310,26 @@ export default function Login() {
                   </Alert>
                 )}
 
+                {invitationLoading && (
+                  <Alert severity="info" sx={{ mb: 2 }} icon={<CircularProgress size={16} sx={{ color: ACCENT }} />}>
+                    Loading invitation…
+                  </Alert>
+                )}
+                {invitationError && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {invitationError}
+                  </Alert>
+                )}
+                {invitation && !invitationError && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    You've been invited to join{' '}
+                    <strong>{invitation.organization_display_name || invitation.organization_name}</strong>.
+                    Finish creating your account to accept.
+                  </Alert>
+                )}
+
                 <TextField
-                  autoFocus
+                  autoFocus={!invitation}
                   margin="dense"
                   label="Email"
                   type="text"
@@ -279,7 +337,8 @@ export default function Login() {
                   variant="outlined"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  disabled={isRegistrationDisabled}
+                  disabled={isRegistrationDisabled || !!invitation}
+                  helperText={invitation ? 'Email is locked to the address the invitation was sent to.' : undefined}
                   inputProps={{
                     id: 'login-email',
                     name: 'username',
@@ -292,6 +351,7 @@ export default function Login() {
 
                 {mode === 'register' && (
                   <TextField
+                    autoFocus={!!invitation}
                     margin="dense"
                     name="name"
                     label="Full Name"

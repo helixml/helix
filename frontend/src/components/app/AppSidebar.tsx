@@ -72,7 +72,7 @@ const AppSidebar: FC = () => {
         },
         {
           id: 'skills',
-          label: 'Skills',
+          label: 'MCPs & APIs',
           icon: <Lightbulb size={20} />,
           isActive: currentTab === 'skills',
           onClick: () => handleNavigationClick('skills')
