@@ -1073,7 +1073,34 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 		if err := d.syncFromHelix(); err != nil {
 			log.Printf("re-sync after config_changed failed: %v", err)
 		}
+		// An in-place agent switch (field="agent") requires a clean Zed
+		// restart so the new agent's MCP context_servers come up correctly —
+		// Zed's context servers are per-project/shared and can't be hot-swapped
+		// per-thread. settings.json has just been rewritten by syncFromHelix
+		// above; restartZed kills the editor and the desktop's
+		// run_zed_restart_loop respawns it against the new config.
+		if evt.Field == "agent" {
+			d.restartZed()
+		}
 	}
+}
+
+// restartZed kills the running Zed editor process. The desktop's
+// run_zed_restart_loop (start-zed-core.sh) respawns it after a 2s sleep, so the
+// new process reads the freshly-written settings.json — picking up the switched
+// agent's agent_servers and MCP context_servers. Best-effort: if no Zed process
+// is running (e.g. still booting), pkill is a no-op and the first launch already
+// reads the new config.
+func (d *SettingsDaemon) restartZed() {
+	// pkill -x matches the exact process name "zed" (the editor binary), not
+	// the bash restart-loop script, so we only restart the editor.
+	out, err := exec.Command("pkill", "-x", "zed").CombinedOutput()
+	if err != nil {
+		// Exit code 1 just means "no process matched" — fine, nothing to do.
+		log.Printf("restartZed: pkill zed returned: %v (%s) — likely no running Zed yet", err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Printf("restartZed: signalled Zed to restart for agent switch; run_zed_restart_loop will respawn with new config")
 }
 
 // applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty
