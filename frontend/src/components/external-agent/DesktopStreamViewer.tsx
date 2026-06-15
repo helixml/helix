@@ -164,10 +164,11 @@ function clipboardReadAny(): Promise<ClipboardReadResult> {
     if (navigator.clipboard?.readText) {
       return navigator.clipboard
         .readText()
-        .then((text) =>
-          text ? { mime: "text/plain", text } : { mime: "empty" },
+        .then(
+          (text): ClipboardReadResult =>
+            text ? { mime: "text/plain", text } : { mime: "empty" },
         )
-        .catch(() => ({ mime: "empty" }) as ClipboardReadResult);
+        .catch((): ClipboardReadResult => ({ mime: "empty" }));
     }
     return Promise.resolve({ mime: "empty" });
   }
@@ -192,9 +193,15 @@ function clipboardReadAny(): Promise<ClipboardReadResult> {
     .catch(() => ({ mime: "empty" }) as ClipboardReadResult);
 }
 
-function base64ToBytes(base64: string): Uint8Array {
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
+  // Allocate the ArrayBuffer explicitly so the resulting Uint8Array is
+  // typed as Uint8Array<ArrayBuffer>, which the Blob constructor accepts.
+  // (The default `new Uint8Array(length)` overload also returns this type,
+  // but pinning the return annotation prevents it from widening to the
+  // generic Uint8Array<ArrayBufferLike>, which Blob rejects in TS 5.7+.)
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
