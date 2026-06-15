@@ -73,6 +73,22 @@ thread on the new agent + repopulates context).
 The rest of the design works for **either** strategy; only the "make target
 agent available" step differs.
 
+### Spike result (measured — see `spike/RESULTS.md`)
+
+Ran the real Zed binary headless under Xvfb with crafted `settings.json`:
+
+- **100 `agent_servers`: essentially free.** Zero subprocesses spawned, RSS flat
+  (328→329 MB), CPU within noise. They spawn lazily on first use.
+- **100 MCP `context_servers`: the real cost.** 100 processes at startup, ~3.9 GB
+  RSS (≈13× baseline) — and those were do-nothing stubs; real MCPs cost more.
+
+**Implication / recommended hybrid:** pre-configure **all agents' `agent_servers`**
+(cheap → no per-switch reconfiguration needed, and users can pick any agent from
+Zed's own UI), but keep **MCP `context_servers` scoped to the selected agent**
+(rewritten on switch). The MCP discipline is required regardless because Zed
+shares context servers per-project (no per-agent isolation). **Paused here for
+the reviewer's interactive go/no-go on this hybrid before building.**
+
 ## Flow: in-place switch
 
 ```
