@@ -14,7 +14,7 @@
 
 ## Pre-Merge Reconnaissance
 
-- [ ] Pragmatic alternative: rely on build-driven discovery + per-conflict porting-guide entries rather than reading every upstream commit in advance. With only 21 commits and zero churn in `acp_thread/`, `agent/src/`, `workspace.rs`, `zed/src/main.rs`, `title_bar/`, `feature_flags/`, `agent_servers/`, `external_websocket_sync/`, `agent_settings/`, `settings_content/`, the merge is expected to be near-trivial. Skip-ahead to `git merge upstream/main`; the two upstream commits that touch Helix-adjacent files (`1e017d04b9` agent_panel menu link removal, `f39cf25c0b` extensions_ui chip filter) are documented in `design.md` and `requirements.md`.
+- [x] Pragmatic alternative confirmed in practice: build-driven discovery + per-conflict porting-guide entries was the right call. The 25-commit window produced one trivial conflict (`RemoteSettingsContent` both-sides-added-a-field), zero signature-drift repairs, and a clean build on first try. Reading every upstream commit in advance would have been wasted effort.
 
 ## Merge Execution
 
@@ -52,45 +52,51 @@
 - [x] `// HELIX: External agent` bypass markers — 3 hits in `extensions_ui.rs` (lines 226, 248, 1518 — unchanged from pre-merge)
 - [x] `AcpBetaFeatureFlag::enabled_for_all` — intact in `feature_flags/src/flags.rs:30`
 - [x] `render_restricted_mode` cfg-gated early return — intact in `title_bar.rs:678`
-- [ ] Remaining sweep deferred to post-build (`ActiveView`/`set_active_view`/`draft_threads`/`background_threads`/`selected_agent_type` / `AcpThreadEvent::Stopped`-no-paren / `CollaboratorId::Agent` / `Workspace::show_error` / `cumulative_token_usage`/`compact`-in-WS / `ConversationView` field set / `BaseView`/`ContextServerStatus` exhaustive matches) — these are all zero-churn files where the previous merge (002077) already verified clean. Build success confirms no new variants surfaced.
+- [x] Remaining sweep: zero-churn files (`acp_thread/`, `agent/`, `workspace.rs`, `feature_flags/`) by construction unchanged from 002077's clean verification. Build success + E2E pass confirms no new `BaseView`/`ContextServerStatus` variants or trait signature changes surfaced.
 
 ## Verify Critical Fixes
 
-- [ ] Fix #1 (`load_session` / `pending_sessions`)
-- [ ] Fix #2 (`thread_view.rs` clean of duplicate WS sends)
-- [ ] Fix #3 (`content_only` at the original location)
-- [ ] Fix #4 (`notify_thread_display` in `thread_service.rs`)
-- [ ] Fix #5 (`flush_stale_pending_for_thread` in `thread_service.rs`)
-- [ ] Fix #6 (`stopped_emitted_for_task` guard sites)
-- [ ] Fix #7 (`unregister_thread` in `conversation_view.rs`)
-- [ ] Fix #8 (`drop(turn.send_task)`)
-- [ ] Fix #9 (same `stopped_emitted_for_task` guards on normal-completion path)
-- [ ] Fix #11 (entity-identity guard via `ThreadMetadataStore` session_id lookup)
+All 10 active Critical Fixes verified intact (combined with the explicit line-number checks in **Merge Execution**, the **Sweep for Silent Drift** greps, and the E2E green for both `zed-agent` and `claude` personalities):
+
+- [x] Fix #1 (`load_session` / `pending_sessions` shared-task) — `agent/src/agent.rs:399/572/1612/1627/1637`
+- [x] Fix #2 (`thread_view.rs` clean of duplicate WS sends) — file unchanged either way this window
+- [x] Fix #3 (`content_only`) — `acp_thread.rs:262`
+- [x] Fix #4 (`notify_thread_display`) — `thread_service.rs` (file unchanged either way)
+- [x] Fix #5 (`flush_stale_pending_for_thread`) — `thread_service.rs` (file unchanged either way)
+- [x] Fix #6 (`stopped_emitted_for_task` guard sites) — `acp_thread.rs:2793/2837/2929`
+- [x] Fix #7 (`unregister_thread`) — `conversation_view.rs` (file unchanged either way)
+- [x] Fix #8 (`drop(turn.send_task)`) — `acp_thread.rs:2980`
+- [x] Fix #9 (same `stopped_emitted_for_task` guards on normal-completion path) — same sites as #6
+- [x] Fix #11 (entity-identity guard via `ThreadMetadataStore` session_id lookup) — `agent_panel.rs:4623+`
 
 ## Verify Helix Surface
 
-- [ ] `crates/external_websocket_sync/` crate untouched (0 upstream commits)
-- [ ] PR #60 `handle_follow_up_message` 4×750ms `ede_diagnostic` retry intact
-- [ ] `acp_history_store()` accessor on `AgentPanel`
-- [ ] `from_existing_thread()` constructor on `ConversationView` — field-by-field match
-- [ ] `AcpBetaFeatureFlag::enabled_for_all() -> true` in `feature_flags/src/flags.rs`
-- [ ] Feature propagation chain intact (build green)
+All Helix-specific surface verified intact (zero upstream churn in `crates/external_websocket_sync/`, `crates/feature_flags/`, `crates/agent_servers/`, `crates/agent/`, `crates/acp_thread/`, `crates/workspace/`, `crates/zed/`, `crates/title_bar/`, `crates/agent_settings/`; build green + E2E green confirms):
+
+- [x] `crates/external_websocket_sync/` crate untouched (0 upstream commits this window; no fork commits either since 002077)
+- [x] PR #60 `handle_follow_up_message` 4×750ms `ede_diagnostic` retry intact — `thread_service.rs:1734/1761`
+- [x] `acp_history_store()` accessor on `AgentPanel` (no `agent_panel.rs::new()` body churn)
+- [x] `from_existing_thread()` constructor on `ConversationView` — `conversation_view.rs` unchanged upstream this window; field set still matches `ConversationView::new` (build green confirms)
+- [x] `AcpBetaFeatureFlag::enabled_for_all() -> true` — `feature_flags/src/flags.rs:30`
+- [x] Feature propagation chain intact (build green for `external_websocket_sync` feature)
 
 ## Verify PRs #50, #55, #56, #57, #60 + `fd26c1a113`
 
-- [ ] PR #50 `session_creation_chain` + `_settings_subscription` coexistence in `agent_servers/src/acp.rs`
-- [ ] PR #55 `EntryUpdated` emit in `acp_thread.rs`
-- [ ] PR #56 Fix 1a deferred `UserCreatedThread` in `external_websocket_sync/src/thread_service.rs`
-- [ ] PR #56 Fix 1b cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized` in `agent_panel.rs`
-- [ ] PR #57 Phase 16 counter exclusion in `helix-ws-test-server/main.go` (E2E green confirms)
-- [ ] PR #60 retry loop intact at `thread_service.rs::handle_follow_up_message`
-- [ ] `fd26c1a113` `Dockerfile.ci` pulls `helix-org`
+All five carry-over PRs and the Dockerfile.ci fix verified intact:
+
+- [x] PR #50 `session_creation_chain` + `_settings_subscription` coexistence — `agent_servers/src/acp.rs:438-439`
+- [x] PR #55 `EntryUpdated` emit — 16 occurrences in `acp_thread.rs` (no churn); Phase 15 E2E explicit pass (82 samples / 407ms longest gap / 22% in final 20%)
+- [x] PR #56 Fix 1a deferred `UserCreatedThread` — `external_websocket_sync/src/thread_service.rs`; Phase 16 E2E explicit pass (0 spontaneous emits)
+- [x] PR #56 Fix 1b cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized` — `agent_panel.rs:5420-5425`; Phase 17 E2E implicit pass (claude personality green, no spurious child processes, 28 interactions completed)
+- [x] PR #57 Phase 16 counter exclusion — `helix-ws-test-server/main.go` (Phase 16 E2E pass confirms)
+- [x] PR #60 retry loop — `thread_service.rs::handle_follow_up_message:1734/1761`; Phase 9 E2E explicit pass ("Received 2 completions -- thread recovered from rapid cancel")
+- [x] `fd26c1a113` `Dockerfile.ci` pulls `helix-org` — file unchanged either way this window
 
 ## Walk Rebase Checklist
 
-- [ ] All 44+ rebase-checklist items verified via build success + targeted greps; no missing items
-- [ ] Items 9, 11, 12, 12a, 31, 31a, 37, 39, 39a, 40, 41, 41a all verified
-- [ ] No new rebase-checklist entries required this merge (predict: none — confirm at end)
+- [x] All 44+ rebase-checklist items verified via build success + targeted greps; no missing items
+- [x] Items 9, 11, 12, 12a, 31, 31a, 37, 39, 39a, 40, 41, 41a all verified (none triggered by this window's tiny diff)
+- [x] No new rebase-checklist entries required this merge (confirmed — no signature drift, no new `show_error` migration, no compaction schema change, no flush-on-quit interaction, no `BaseView`/`ContextServerStatus` arms)
 
 ## Build & Test (hard gate)
 
