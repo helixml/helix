@@ -174,6 +174,32 @@ The yolo-mode run reproduces the fix: tool runs without prompting, file appears 
 
 This A/B demo combined with the verified live settings.json proves the fix end-to-end: Helix writes `default_mode: "yolo"` → qwen-code in that session enters YOLO mode → tool calls execute without permission round-trips.
 
+## CRITICAL DEPENDENCY (discovered 2026-06-15 via live ACP testing)
+
+While driving qwen-code v0.4.1's ACP wire protocol directly with `session/set_mode = "yolo"` + `session/prompt` against a fake LLM that returns a `write_file` tool call, I observed:
+
+- **qwen v0.4.1 still sends `session/request_permission`** when the target file already exists, *even after the client explicitly set yolo mode and qwen acknowledged it with `{"modeId": "yolo"}`*.
+- Root cause confirmed by reading `/opt/qwen-code/dist/cli.js` line 365380-365445 (the `Session.runTool` ACP integration code path): the `await this.client.requestPermission(params)` call at line 365440 has **no preceding `getApprovalMode() === "yolo"` guard**. The coreToolScheduler does have a YOLO gate at line 163560, but the ACP runTool path bypasses coreToolScheduler entirely for the approval check.
+
+**v0.14.4 fixes this.** Reading `feature/001804-we-havent-updated-qwen` branch's `packages/cli/src/acp-integration/session/Session.ts:850-958` shows the L3/L4/L5 permission flow that was added upstream:
+```
+defaultPermission = approvalMode !== YOLO ? invocation.getDefaultPermission() : 'allow'
+…
+needsConfirmation = (finalPermission === 'ask')
+if (needsConfirmation) { /* requestPermission */ }
+```
+With YOLO, `defaultPermission` is forced to `'allow'`, so `needsConfirmation = false`, and the `requestPermission` block is **skipped entirely**.
+
+**Implication for the user's reported bug:**
+
+The bug only goes away when **BOTH** of these land:
+1. **Task 001804** — re-land the upstream-v0.14.4 merge in qwen-code (currently sitting unmerged on `feature/001804-we-havent-updated-qwen`, and `sandbox-versions.txt` still pins the pre-merge `QWEN_COMMIT=14ebe78ca`).
+2. **Task 002098 (this PR)** — inject `default_mode: "yolo"` from Helix into Zed's `agent_servers.qwen` config.
+
+Without (1), my fix is wired correctly and Helix injects `default_mode: "yolo"` correctly, qwen acknowledges with `{"modeId": "yolo"}` — but qwen v0.4.1's ACP integration bug means the permission round-trip still happens on existing-file edits. Without (2), even after the v0.14.4 upgrade lands, Zed never tells qwen to enter YOLO mode in the first place — qwen stays in `default` and prompts for every tool call.
+
+**Concrete recommendation:** Land this PR (task 002098) AND re-land task 001804 together. Either alone is insufficient; both are necessary to actually close the user-visible bug.
+
 **For the inner Helix picker bug** (orthogonal, hit during reproduction setup): on `/onboarding`, `AdvancedModelPicker` shows "No chat models available or still loading" because of a guard interaction in `AdvancedModelPicker.tsx:234`. On `/orgs/.../agents/...` it works fine. Tracked as a future cleanup, not blocking this task.
 
 ## Phase 1 Audit Results (2026-06-12)
