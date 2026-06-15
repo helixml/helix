@@ -6,10 +6,10 @@
 - [x] Add a store setter `SetWebServiceHostDeviceID` (+ mock) to record the bound runner onto `project_web_service_state`.
 
 ## Sandbox provisioning
-- [~] In `buildMounts` (`controller_provision.go`), when `sandbox.Purpose == "web-service"`, bind-mount `<workspaceDir>/webservice/<ProjectID>/data` at `/data` (read-write), keyed by project ID.
-- [~] In `Create` (`controller.go`), copy `Purpose` from the request onto the sandbox row.
-- [~] Ensure `Delete`/cleanup never removes `<workspaceDir>/webservice/<projectID>/data`.
-- [~] Confirm the existing persistent-sandbox sticky guard in `pickHostForSandbox` already pins the single web-service sandbox to its runner and fails loudly when that runner is offline (no code change expected; add a regression test).
+- [x] In `buildMounts` (`controller_provision.go`), when `sandbox.Purpose == "web-service"`, bind-mount `<workspaceDir>/webservice/<ProjectID>/data` at `/data` (read-write), keyed by project ID. Added `webServiceDataDir` helper.
+- [x] In `Create` (`controller.go`), copy `Purpose` from the request onto the sandbox row.
+- [x] Ensure `Delete`/cleanup never removes `<workspaceDir>/webservice/<projectID>/data`. Confirmed safe by construction: `DeleteDevContainer` only removes the container + `docker-data-<id>` volume; GC is keyed by sandbox/session ID and can never match the project-keyed `webservice/<projectID>/data` path. No code change needed.
+- [x] Confirm the existing persistent-sandbox sticky guard in `pickHostForSandbox` already pins the single web-service sandbox to its runner and fails loudly when that runner is offline. Confirmed (`controller_provision.go:336+`): a `Persistent` sandbox with a recorded `HostDeviceID` re-binds to that host and returns an error if it is offline. Regression test added in Tests section.
 
 ## Web service controller (in-place recreate, single writer)
 - [ ] Replace new-sandbox-per-deploy: `Redeploy`/`runDeploy` get-or-create the project's single `Persistent=true, Purpose=web-service, TimeoutSeconds=-1` sandbox and reuse it across deploys.
