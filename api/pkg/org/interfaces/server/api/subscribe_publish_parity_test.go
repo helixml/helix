@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
@@ -49,7 +49,7 @@ func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 	mcpStore := orggorm.GetOrgTestDB(t)
 	seedStreamAndOwner(t, mcpStore, clock)
 	reg := mcpRegistry(t, mcpStore, clock, newID)
-	subscribe, _ := reg.Get(tools.SubscribeName)
+	subscribe, _ := reg.Get(mcptools.SubscribeName)
 	args, _ := json.Marshal(map[string]any{"streamId": "s-1"})
 	if _, err := subscribe.Invoke(ctx, tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP subscribe: %v", err)
@@ -89,7 +89,7 @@ func TestPublishParity_RESTvsMCP(t *testing.T) {
 	mcpStore := orggorm.GetOrgTestDB(t)
 	seedStreamAndOwner(t, mcpStore, clock)
 	reg := mcpRegistry(t, mcpStore, clock, newID)
-	publish, _ := reg.Get(tools.PublishName)
+	publish, _ := reg.Get(mcptools.PublishName)
 	args, _ := json.Marshal(map[string]any{"streamId": "s-1", "body": "hello world", "subject": "hi"})
 	if _, err := publish.Invoke(ctx, tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP publish: %v", err)

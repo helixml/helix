@@ -27,7 +27,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
@@ -37,6 +36,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 
@@ -154,9 +154,9 @@ type orgServices struct {
 // store + collaborators. One place owns the wiring so the apiDeps
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
-// seams (a tools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps tools.Deps, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher) orgServices {
-	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: tools.BaseReadTools})
+// seams (a mcptools.Deps is already assembled by the caller).
+func buildOrgServices(st *helixorgstore.Store, deps mcptools.Deps, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher) orgServices {
+	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
 		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
@@ -217,7 +217,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// streaming.StreamID API the helix-org call sites used when this was the
 	// in-process broadcast.Hub.
 	bc := streamhub.New(cfg.APIServer.pubsub)
-	deps := tools.DefaultDeps(st)
+	deps := mcptools.DefaultDeps(st)
 	deps.Hub = bc
 	deps.EnvsDir = envsDir
 
@@ -412,8 +412,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
 	}
 
-	reg := tools.NewRegistry()
-	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+	reg := mcptools.NewRegistry()
+	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
 	}
 

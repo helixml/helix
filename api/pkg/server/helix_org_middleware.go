@@ -15,10 +15,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
@@ -106,7 +106,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		switch result, err := bootstrap.Run(ctx, s.orgStore, bootstrap.Params{
 			EnvironmentPath: ownerEnvPath,
 			OrganizationID:  orgID,
-			OwnerRoleTools:  tools.OwnerRoleTools(),
+			OwnerRoleTools:  mcptools.OwnerRoleTools(),
 		}); {
 		case err == nil:
 			log.Info().
@@ -144,7 +144,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// `reports` (issue #2546). Best-effort like the topology
 		// reconcile above: a failure logs and continues so a transient
 		// DB error doesn't lock users out of the org.
-		roleRec := &tools.RoleReconciler{Store: s.orgStore}
+		roleRec := &mcptools.RoleReconciler{Store: s.orgStore}
 		if err := roleRec.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}

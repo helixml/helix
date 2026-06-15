@@ -7,23 +7,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
 // mcpRegistry builds a tools registry over a fresh store with the given
 // deterministic clock/id, for driving MCP tools in parity tests.
-func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID func() string) *tools.Registry {
+func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID func() string) *mcptools.Registry {
 	t.Helper()
-	deps := tools.DefaultDeps(st)
+	deps := mcptools.DefaultDeps(st)
 	deps.Now = clock
 	deps.NewID = newID
-	reg := tools.NewRegistry()
-	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+	reg := mcptools.NewRegistry()
+	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	return reg
@@ -60,7 +60,7 @@ func TestCreateRoleParity_RESTvsMCP(t *testing.T) {
 
 	mcpStore := orggorm.GetOrgTestDB(t)
 	reg := mcpRegistry(t, mcpStore, clock, newID)
-	createRole, _ := reg.Get(tools.CreateRoleName)
+	createRole, _ := reg.Get(mcptools.CreateRoleName)
 	args, _ := json.Marshal(map[string]any{
 		"id":      "r-qa",
 		"content": "# QA",
@@ -120,7 +120,7 @@ func TestUpdateIdentityParity_RESTvsMCP(t *testing.T) {
 	mcpStore := orggorm.GetOrgTestDB(t)
 	seed(mcpStore)
 	reg := mcpRegistry(t, mcpStore, clock, newID)
-	updateIdentity, _ := reg.Get(tools.UpdateIdentityName)
+	updateIdentity, _ := reg.Get(mcptools.UpdateIdentityName)
 	args, _ := json.Marshal(map[string]any{"workerId": "w-mark", "content": "rewritten persona"})
 	if _, err := updateIdentity.Invoke(ctx, tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP update_identity: %v", err)

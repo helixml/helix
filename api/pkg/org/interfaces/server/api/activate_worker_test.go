@@ -228,7 +228,7 @@ func TestActivateWorker_404OnUnknownWorker(t *testing.T) {
 // returns 501 instead of nil-derefing.
 func TestActivateWorker_NotImplementedWithoutDeps(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name  string
 		setup func(d *orgapi.Deps)
 	}{
 		{"no ProjectEnsurer", func(d *orgapi.Deps) { d.Dispatcher = &fakeDispatcher{} }},

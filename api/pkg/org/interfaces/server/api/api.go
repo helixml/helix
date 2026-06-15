@@ -16,12 +16,12 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
@@ -110,7 +110,7 @@ type Deps struct {
 	// render the catalogue of available tools. nil = endpoint
 	// returns an empty list (degrade gracefully on test wirings that
 	// don't bother building a registry).
-	Tools *tools.Registry
+	Tools *mcptools.Registry
 
 	// ProjectEnsurer provisions (or fast-paths) a per-Worker Helix
 	// project + agent app so the worker detail page's "Start new

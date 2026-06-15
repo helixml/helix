@@ -19,15 +19,15 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 
 // Server wires the MCP + webhook handlers over the application services.
 type Server struct {
 	queries    *queries.Queries
 	publishing *publishing.Publishing
-	registry   *tools.Registry
+	registry   *mcptools.Registry
 	prompts    *prompts.Registry
 	logger     *slog.Logger
 }
@@ -36,7 +36,7 @@ type Server struct {
 // the tool registry and a logger. If logger is nil, a discard logger is
 // used. publishing may be nil in tests that don't exercise the inbound
 // webhook route.
-func New(q *queries.Queries, pub *publishing.Publishing, registry *tools.Registry, logger *slog.Logger) *Server {
+func New(q *queries.Queries, pub *publishing.Publishing, registry *mcptools.Registry, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
@@ -49,7 +49,7 @@ func New(q *queries.Queries, pub *publishing.Publishing, registry *tools.Registr
 // itself never holds the store — this just keeps the wiring (and tests)
 // terse. broadcaster/dispatcher may be nil (the publish trio then skips
 // the corresponding step).
-func NewFromStore(s *store.Store, registry *tools.Registry, broadcaster *streamhub.Hub, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
+func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *streamhub.Hub, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
 	q := queries.New(queries.Deps{
 		Roles:          s.Roles,
 		Workers:        s.Workers,

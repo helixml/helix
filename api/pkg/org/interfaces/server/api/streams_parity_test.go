@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
@@ -43,14 +43,14 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 
 	// --- MCP path (via the public registry) ---
 	mcpStore := orggorm.GetOrgTestDB(t)
-	mcpDeps := tools.DefaultDeps(mcpStore)
+	mcpDeps := mcptools.DefaultDeps(mcpStore)
 	mcpDeps.Now = clock
 	mcpDeps.NewID = newID
-	reg := tools.NewRegistry()
-	if err := tools.RegisterBuiltins(reg, mcpDeps); err != nil {
+	reg := mcptools.NewRegistry()
+	if err := mcptools.RegisterBuiltins(reg, mcpDeps); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	createStream, err := reg.Get(tools.CreateStreamName)
+	createStream, err := reg.Get(mcptools.CreateStreamName)
 	if err != nil {
 		t.Fatalf("get create_stream tool: %v", err)
 	}
