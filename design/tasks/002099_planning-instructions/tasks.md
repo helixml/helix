@@ -1,6 +1,6 @@
 # Implementation Tasks: Collapse Spec-Approved Implementation Prompt in Chat
 
-- [ ] In `frontend/src/components/session/CollapsibleSystemPrefix.tsx`, add an `APPROVAL_PROMPT_ANCHOR` regex (`/^## CURRENT PHASE: IMPLEMENTATION\b/`) and a `kind` field to `SplitResult`
+- [~] In `frontend/src/components/session/CollapsibleSystemPrefix.tsx`, add an `APPROVAL_PROMPT_ANCHOR` regex (`/^## CURRENT PHASE: IMPLEMENTATION\b/`) and a `kind` field to `SplitResult`
 - [ ] Extend `splitSystemPrefix` to return `{ prefix: message.trim(), userText: "", label: null, kind: "approval" }` when the approval anchor matches at the start of the message
 - [ ] Tag the existing user-request branch with `kind: "user-request"` so call sites can disambiguate without re-matching
 - [ ] In `frontend/src/components/session/Interaction.tsx`, plumb the new `kind` field through the `useMemo` displayData destructure
