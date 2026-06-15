@@ -126,8 +126,17 @@ func (cfg ManagerConfig) validate() error {
 	if cfg.Max < 0 {
 		return fmt.Errorf("compute.ManagerConfig.Max must be >= 0, got %d", cfg.Max)
 	}
-	if cfg.Max != 0 && cfg.Max < cfg.Floor {
-		return fmt.Errorf("compute.ManagerConfig.Max=%d must be >= Floor=%d (Max=0 disables scale-up)",
+	if cfg.Max != 0 && cfg.Max <= cfg.Floor {
+		// Max == Floor is a configuration mistake: it claims to enable
+		// scale-up (Max != 0) but pins the ceiling at the warm-baseline,
+		// so the demand branch (gated on Max > Floor) never fires. The
+		// ultrareview flagged this as silent-broken: validation accepted
+		// it, runtime gate refused to fire, no log explained why.
+		// Operators who genuinely want "fixed warm-baseline, no scale-up"
+		// set Max=0 (which preserves the original D1/D2 behaviour
+		// exactly). Anyone setting Max means they want scale-up, so
+		// Max == Floor is rejected with a clear hint.
+		return fmt.Errorf("compute.ManagerConfig.Max=%d must be > Floor=%d (use Max=0 to disable scale-up while keeping the warm baseline)",
 			cfg.Max, cfg.Floor)
 	}
 	if cfg.ScaleUpHeadroomMin < 0 {
@@ -282,9 +291,8 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 //   - Floor: keep at least Floor (Ready + Provisioning) hosts at all
 //     times. The original D1/D2 behaviour.
 //   - Demand (D3): when Max > Floor AND free sandbox slots across
-//     Ready hosts fall below ScaleUpHeadroomMin, provision one more
-//     host so the next sandbox request doesn't block. Bounded by Max
-//     and by MaxConcurrentProvisions.
+//     Ready hosts fall below ScaleUpHeadroomMin, provision more hosts
+//     to close the gap. Bounded by Max and by MaxConcurrentProvisions.
 //
 // Returns the smaller of (sum of pressures, MaxConcurrentProvisions,
 // Max - available). Zero or negative means "no provisioning this cycle".
@@ -294,6 +302,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 // and a row that timed out is no longer counted.
 func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	available := 0
+	readyCount := 0
 	readyCapacity := 0
 	readyDemand := 0
 	for _, r := range rows {
@@ -301,6 +310,7 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 			available++
 		}
 		if isReady(r) {
+			readyCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
 		}
@@ -312,31 +322,42 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		floorNeed = 0
 	}
 
-	// Demand pressure (D3): only active when Max > Floor AND we've
-	// already reached Floor. While still filling Floor, the floor
-	// provisions ARE the response to demand-pressure (there's nothing
-	// to scale UP from yet); stacking a D3 provision on top would
-	// over-provision the cold-boot case. Once Floor is met, D3 takes
-	// over above-floor decisions.
+	// Demand pressure (D3): only fires when Max > Floor AND at least
+	// Floor hosts are READY (not just Provisioning). Gating on
+	// readyCount instead of available is the ultrareview fix for the
+	// cold-boot over-provisioning bug: during cold boot, available
+	// reaches Floor as soon as Floor stubs are inserted (still
+	// Provisioning), and readyCapacity stays 0 until ~90s boot - so
+	// headroom (0) was less than ScaleUpHeadroomMin every cycle and
+	// D3 fired all the way to Max with zero actual demand. Gating on
+	// readyCount means D3 only fires once Floor has come ONLINE.
 	//
 	// Headroom is computed over Ready hosts only - a Provisioning
-	// host contributes no sandbox slots until it comes online, so
-	// counting its planned capacity here would defeat the purpose
-	// (scale up to relieve immediate pressure, not to anticipate
-	// pressure that's already being addressed). The Provisioning
-	// count IS reflected in `available` below, which caps total
-	// in-flight Provision calls via Max.
+	// host contributes no sandbox slots until it comes online.
+	//
+	// demandNeed is the count of hosts needed to bring headroom up to
+	// ScaleUpHeadroomMin assuming each new host contributes the
+	// SpecTemplate's MaxSandboxes worth of slots. Was hard-coded to 1
+	// in the original D3 commit - the ultrareview pointed out that
+	// "one per cycle" leaves MaxConcurrentProvisions ineffective for
+	// real spike response. Now scales with the deficit. The outer cap
+	// (MaxConcurrentProvisions + Max-room) still bounds total Provision
+	// calls per cycle, so this is safe even when the deficit is large.
 	demandNeed := 0
-	if m.cfg.Max > m.cfg.Floor && available >= m.cfg.Floor {
+	if m.cfg.Max > m.cfg.Floor && readyCount >= m.cfg.Floor {
 		headroom := readyCapacity - readyDemand
 		if headroom < m.cfg.ScaleUpHeadroomMin {
-			// One additional host per cycle is enough: each cycle
-			// re-evaluates, so sustained demand will trigger
-			// repeated scale-ups until headroom is restored or Max
-			// is reached. Provisioning one-at-a-time also gives the
-			// operator a chance to observe the scale-up before the
-			// fleet doubles.
-			demandNeed = 1
+			slotsShort := m.cfg.ScaleUpHeadroomMin - headroom
+			capPerHost := defaultMaxSandboxes(m.cfg.SpecTemplate)
+			if capPerHost <= 0 {
+				capPerHost = 1 // defensive; defaultMaxSandboxes already returns 20
+			}
+			// Ceil-div: each new host brings capPerHost slots, but we
+			// need at LEAST one host per cycle of demand pressure.
+			demandNeed = (slotsShort + capPerHost - 1) / capPerHost
+			if demandNeed < 1 {
+				demandNeed = 1
+			}
 		}
 	}
 
@@ -629,13 +650,19 @@ func isAvailable(r *types.SandboxInstance) bool {
 }
 
 // isReady reports whether the row represents a host that is up,
-// registered, and currently accepting sandbox-session traffic.
-// Distinguished from isAvailable: provisioning hosts are "available"
-// (counted toward the Floor target so we don't double-provision) but
-// not "ready" (no live sandbox slots yet, so they don't contribute to
-// demand-headroom calculations).
+// registered, AND currently reachable for sandbox-session traffic.
+// Distinguished from isAvailable on two axes:
+//
+//   - Provisioning hosts are "available" (counted toward the Floor
+//     target so we don't double-provision) but not "ready" (no live
+//     sandbox slots yet).
+//   - Ready+offline rows (heartbeat went stale; reaper or
+//     refreshProvisioning flipped Status to "offline" but ComputeState
+//     remains Ready) are not reachable and must not contribute to
+//     headroom calculations - otherwise D3 sees fake capacity and
+//     refuses to scale up exactly when scale-up is most needed.
 func isReady(r *types.SandboxInstance) bool {
-	return State(r.ComputeState) == StateReady
+	return State(r.ComputeState) == StateReady && r.Status == "online"
 }
 
 // newSandboxID returns a new globally-unique sandbox ID. Used as both

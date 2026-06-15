@@ -606,7 +606,18 @@ func TestNewManagerValidatesD3Inputs(t *testing.T) {
 				Floor: 5, Max: 3,
 				ReconcileInterval: time.Second, HealthCheckTimeout: time.Second,
 			},
-			wantErr: "must be >= Floor",
+			wantErr: "must be > Floor",
+		},
+		{
+			// Max == Floor was previously accepted but silently
+			// disabled D3 (runtime gate requires Max > Floor).
+			// Now rejected at validation with an actionable hint.
+			name: "max equal to floor",
+			cfg: ManagerConfig{
+				Floor: 3, Max: 3,
+				ReconcileInterval: time.Second, HealthCheckTimeout: time.Second,
+			},
+			wantErr: "must be > Floor",
 		},
 		{
 			name: "negative headroom min",
@@ -766,6 +777,127 @@ func TestD3DefaultHeadroomMinWhenScaleUpEnabled(t *testing.T) {
 	// Use ID-by-ref to peek at the resolved default.
 	if m.cfg.ScaleUpHeadroomMin != 1 {
 		t.Fatalf("expected ScaleUpHeadroomMin to default to 1 when Max>Floor; got %d", m.cfg.ScaleUpHeadroomMin)
+	}
+}
+
+// --- D3 ultrareview regression tests ------------------------------------
+
+func TestD3DoesNotOverProvisionOnColdBoot(t *testing.T) {
+	// Regression: original D3 gated demand-pressure on `available >=
+	// Floor`, which became true the moment Floor stubs were inserted
+	// in Provisioning state. readyCapacity stayed 0 until ~90s boot,
+	// so headroom (0) < HeadroomMin every cycle and D3 fired all the
+	// way to Max with ZERO actual demand. Fix: gate on readyCount
+	// (Ready-only) instead of available.
+	//
+	// Scenario: Floor=1, Max=5, HeadroomMin=2, cold boot (no rows yet).
+	// Cycle 1 should provision exactly 1 (for Floor). Cycle 2 should
+	// see the Floor host still Provisioning and refuse to fire D3.
+	m, _, store := newD3Manager(t, 1, 5, 2)
+
+	// Cycle 1: Floor provision
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("cycle 1: expected exactly 1 row (Floor), got %d", len(rows))
+	}
+
+	// Cycle 2: Floor host is still Provisioning (the stub provider
+	// transitions it on HealthCheck after one full cycle - but
+	// either way, isReady requires Status=online which the stub
+	// hasn't set yet). D3 must NOT fire.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	rows, _ = store.ListSandboxInstances(context.Background())
+	// Count Ready vs Provisioning to confirm none were added beyond
+	// what Floor reconciliation does naturally.
+	if len(rows) > 1 {
+		// The stub may transition the row to Ready - that's fine for
+		// Floor, but D3 demand-pressure should still not fire because
+		// the (newly Ready) host has zero demand and provides headroom.
+		// What we're guarding against is D3 firing while NOTHING is
+		// Ready yet. If len > 1 here, that fire happened.
+		readyCount := 0
+		for _, r := range rows {
+			if r.ComputeState == string(StateReady) && r.Status == "online" {
+				readyCount++
+			}
+		}
+		if readyCount == 0 {
+			t.Fatalf("D3 fired demand-scale while NO host was Ready yet: %d rows but 0 Ready", len(rows))
+		}
+	}
+}
+
+func TestD3IsReadyRejectsOfflineRows(t *testing.T) {
+	// Regression: original isReady checked only ComputeState. A Ready
+	// host whose Status flipped to offline (heartbeat stale) would
+	// still contribute its MaxSandboxes to readyCapacity, hiding real
+	// demand pressure and preventing D3 from scaling up when it
+	// should. Fix: isReady requires ComputeState=Ready AND Status=online.
+	//
+	// Scenario: Floor=1, Max=3, HeadroomMin=2. One Ready+ONLINE host
+	// fully busy + one Ready+OFFLINE host that LOOKS like it provides
+	// headroom (idle, big capacity) but is unreachable. D3 should
+	// recognise this and scale up.
+	m, _, store := newD3Manager(t, 1, 3, 2)
+	seedReadyRow(t, store, "sbx_busy_online", 10, 10) // 0 free, real
+	// Manually insert offline-but-Ready row: looks like 10 free slots
+	// but is actually unreachable.
+	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID:              "sbx_stale_offline",
+		Provider:        "stub",
+		ComputeState:    string(StateReady),
+		Status:          "offline", // stale heartbeat
+		ActiveSandboxes: 0,
+		MaxSandboxes:    10,
+	})
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	// Expect 3 rows: 2 seeded + 1 newly provisioned by D3 because the
+	// offline row was correctly excluded from the headroom calculation.
+	if len(rows) != 3 {
+		t.Fatalf("D3 must see only the online host's headroom (0 free) and scale up; got %d rows", len(rows))
+	}
+}
+
+func TestD3BatchesDemandNeedUpToMaxConcurrentProvisions(t *testing.T) {
+	// Regression: original demandNeed was hard-coded to 1 per cycle,
+	// making MaxConcurrentProvisions ineffective for spike response.
+	// Fix: scale demandNeed with the slot deficit, ceil-divided by
+	// per-host capacity, capped by MaxConcurrentProvisions and Max.
+	//
+	// Scenario: Floor=1, Max=10, HeadroomMin=20 (huge buffer demand),
+	// MaxConcurrentProvisions=4, one Ready+online host with MaxSandboxes=10
+	// fully utilized. Deficit = 20 - 0 = 20 slots. At 10 slots/host =
+	// 2 hosts needed by ceil-div. MaxConcurrentProvisions=4 allows 4.
+	// totalNeed = min(2, 4, Max-available=9) = 2.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     10,
+		ScaleUpHeadroomMin:      20,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 4,
+		SpecTemplate:            Spec{MaxSandboxes: 10},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	seedReadyRow(t, store, "sbx_busy", 10, 10)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 3 { // 1 seed + 2 new (ceil(20/10) = 2)
+		t.Fatalf("expected demandNeed to batch up to 2 (slots short / capPerHost); got %d rows", len(rows))
 	}
 }
 
