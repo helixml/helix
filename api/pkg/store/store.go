@@ -901,6 +901,7 @@ type Store interface {
 	UpsertProjectWebServiceState(ctx context.Context, state *types.ProjectWebServiceState) error
 	GetProjectWebServiceState(ctx context.Context, projectID string) (*types.ProjectWebServiceState, error)
 	SetActiveWebServiceSandbox(ctx context.Context, projectID, sandboxID string) error
+	SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error
 	CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error
 	UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]interface{}) error
 	ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error)
