@@ -8,4 +8,4 @@
 - [x] Verify internal consistency — same `image:tag` resolves to one identical digest string everywhere (grep/sort/uniq across all Dockerfiles). *(All 11 image:tag → exactly 1 digest.)*
 - [x] Run `docker buildx build --platform linux/amd64,linux/arm64 --check -f Dockerfile .` as a multi-arch dry-run on the main `Dockerfile`. *(Result: "Check complete, no warnings found." — all 3 new digests resolved on registry.)*
 - [x] Confirm no toolchain version ARGs were touched, no tag names were changed, no `.dockerignore` or CI files were edited. *(Diff: only digest swaps + date-comment edits across 6 files.)*
-- [~] Merge latest `origin/main`, commit, push the feature branch, and write per-repo PR description (`pull_request_helix.md`).
+- [x] Merge latest `origin/main`, commit, push the feature branch, and write per-repo PR description (`pull_request_helix.md`). *(Conflict in `Dockerfile.sandbox:14` resolved by keeping the new digest AND main's new `ARG APP_VERSION` block. Feature branch pushed; PR description in `pull_request_helix.md`.)*

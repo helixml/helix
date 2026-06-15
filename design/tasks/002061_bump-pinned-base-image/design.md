@@ -62,5 +62,11 @@ If an image genuinely has no multi-arch manifest published, do NOT silently pin 
 ## Notes for future digest-bump tasks
 
 - This same procedure works unchanged on the next bump — only the resolution date and the digest values differ. Keep the inventory table up to date when files are added or removed.
-- The pin-date comments are the easiest thing to forget; grep for `Pinned for stable layer caching` and `Pin to specific digest` to find them all.
+- The pin-date comments live in TWO forms: a banner block (`# BASE IMAGE DIGESTS: Pinned for stable layer caching (YYYY-MM-DD).`) and per-FROM trailers (`# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of YYYY-MM-DD)`). Use `grep -E '\(20[0-9]{2}-[0-9]{2}-[0-9]{2}\)|as of 20[0-9]{2}-[0-9]{2}-[0-9]{2}'` to find them all. Some Dockerfiles (`Dockerfile`, `Dockerfile.sandbox`) carry the pin-comment WITHOUT a date — leave those alone.
+- The head-of-file documentary digest lines in `Dockerfile.sway-helix` and `Dockerfile.ubuntu-helix` (e.g. `# - golang:1.25-bookworm -> sha256:...`) must be kept in sync with the actual `FROM` digests; grep them out and update alongside the FROMs.
 - `docker buildx imagetools inspect` is preferred over `docker pull` + `docker inspect` because it returns the manifest list digest directly without pulling layers and without resolving to the local platform's child digest.
+- **Implementation outcome (2026-06-01 run):** Of 11 unique `image:tag` references, only 4 actually needed a digest swap (`golang:1.25-bookworm`, `debian:bookworm-slim`, `golang:1.25-alpine3.22`, `gcr.io/distroless/static:nonroot`). The other 7 were already at the latest published digest. This is normal — published images for stable tags only republish when upstream rolls a security or bugfix update.
+- **All 11 images publish proper multi-arch manifest lists** (`linux/amd64` + `linux/arm64`); none required the single-arch fallback. No flagging to a human was needed.
+- **Open question 1 (single-arch images?)** — resolved: no, all 11 are multi-arch.
+- **Open question 2 (also review linter tags?)** — left as digest-only per the original default; `golangci/golangci-lint:v1.62-alpine` tag was not touched.
+- **Merge gotcha:** `Dockerfile.sandbox:14` had a near-collision with main's new `ARG APP_VERSION` block immediately after the bumped `FROM`. Whenever a digest-bump PR sits open for more than a day or two, expect to rebase/merge and re-resolve. The fix is mechanical (keep both sides).
