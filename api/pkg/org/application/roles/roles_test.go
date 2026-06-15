@@ -3,9 +3,11 @@ package roles
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -201,5 +203,112 @@ func TestRolesUpdate_OrgScoping(t *testing.T) {
 	_, err := svc.Update(ctx, "org-b", "r-1", UpdateParams{Content: &c})
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("cross-org update err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestRolesReconcile_BackfillsMissingBaseline pins the upgrade story
+// (helixml/helix#2546): a Role missing baseline reads is backfilled with
+// the injected baseline, caller order preserved, dups dropped, and
+// UpdatedAt bumped to the reconcile clock.
+func TestRolesReconcile_BackfillsMissingBaseline(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st) // baseline = managers, reports
+	ctx := context.Background()
+	created := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
+	role, err := orgchart.NewRole("r-qa", "# QA", []tool.Name{"publish", "managers"}, nil, created, "org-test")
+	if err != nil {
+		t.Fatalf("new role: %v", err)
+	}
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+
+	if err := svc.Reconcile(ctx, "org-test"); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	got, err := st.Roles.Get(ctx, "org-test", "r-qa")
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	// Caller order (publish, managers) preserved; baseline appended minus
+	// the already-present `managers`.
+	want := []tool.Name{"publish", "managers", "reports"}
+	if !reflect.DeepEqual(got.Tools, want) {
+		t.Fatalf("reconciled tools drifted.\n got: %v\nwant: %v", got.Tools, want)
+	}
+	if !got.UpdatedAt.Equal(fixedClock()) {
+		t.Fatalf("UpdatedAt should bump to reconcile clock; got %v", got.UpdatedAt)
+	}
+}
+
+// TestRolesReconcile_Idempotent: a Role already at the baseline is left
+// untouched — no write, no UpdatedAt bump.
+func TestRolesReconcile_Idempotent(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+	created := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
+	// Pre-baselined: tools already contain the full baseline in order.
+	role, err := orgchart.NewRole("r-ok", "# Role", []tool.Name{"managers", "reports"}, nil, created, "org-test")
+	if err != nil {
+		t.Fatalf("new role: %v", err)
+	}
+	if err := st.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := svc.Reconcile(ctx, "org-test"); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	got, err := st.Roles.Get(ctx, "org-test", "r-ok")
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	if !got.UpdatedAt.Equal(created) {
+		t.Fatalf("idempotent reconcile rewrote a baselined role; UpdatedAt = %v, want %v", got.UpdatedAt, created)
+	}
+}
+
+// TestRolesReconcile_ScopedToOrg: reconcile must touch only the requested
+// org's roles.
+func TestRolesReconcile_ScopedToOrg(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+	created := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
+	for _, spec := range []struct {
+		orgID string
+		id    orgchart.RoleID
+	}{{"org-a", "r-a"}, {"org-b", "r-b"}} {
+		role, err := orgchart.NewRole(spec.id, "#", []tool.Name{"publish"}, nil, created, spec.orgID)
+		if err != nil {
+			t.Fatalf("new %s: %v", spec.id, err)
+		}
+		if err := st.Roles.Create(ctx, role); err != nil {
+			t.Fatalf("create %s: %v", spec.id, err)
+		}
+	}
+	if err := svc.Reconcile(ctx, "org-a"); err != nil {
+		t.Fatalf("reconcile org-a: %v", err)
+	}
+	gotA, _ := st.Roles.Get(ctx, "org-a", "r-a")
+	if len(gotA.Tools) != 1+len(baseline) {
+		t.Fatalf("r-a should be backfilled; got %v", gotA.Tools)
+	}
+	gotB, _ := st.Roles.Get(ctx, "org-b", "r-b")
+	if len(gotB.Tools) != 1 || gotB.UpdatedAt != created {
+		t.Fatalf("r-b should be untouched; got tools=%v updated=%v", gotB.Tools, gotB.UpdatedAt)
+	}
+}
+
+// TestRolesReconcile_NilSafe: a nil service is a harmless no-op (mirrors
+// the topology reconciler's wiring tolerance).
+func TestRolesReconcile_NilSafe(t *testing.T) {
+	t.Parallel()
+	var svc *Roles
+	if err := svc.Reconcile(context.Background(), "org-test"); err != nil {
+		t.Fatalf("nil receiver should be a no-op, got: %v", err)
 	}
 }

@@ -16,6 +16,7 @@ package roles
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -114,6 +115,57 @@ func (r *Roles) Update(ctx context.Context, orgID string, id orgchart.RoleID, p 
 		return orgchart.Role{}, err
 	}
 	return updated, nil
+}
+
+// Reconcile backfills the universal read baseline (the injected
+// BaseTools) onto every Role in the org. It is the upgrade story for
+// helixml/helix#2546 — Roles created before the baseline existed (or via
+// create_role calls that omitted reads like `managers` / `reports`)
+// would otherwise leave their Workers permanently unable to introspect
+// the reporting graph or read subscribed streams.
+//
+// Idempotent: a Role already at the baseline is left untouched (no write,
+// no UpdatedAt bump), so a second run with no drift performs no updates.
+// Order is stable — caller tools first, baseline appended in BaseTools
+// order — because it reuses the same MergeTools the create path does.
+//
+// Mirrors topology.Reconciler: a per-org converge run at bootstrap.
+func (r *Roles) Reconcile(ctx context.Context, orgID string) error {
+	if r == nil {
+		return nil
+	}
+	roles, err := r.roles.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("list roles: %w", err)
+	}
+	now := r.now()
+	for _, role := range roles {
+		merged := MergeTools(role.Tools, r.baseTools)
+		if sameToolList(role.Tools, merged) {
+			continue
+		}
+		updated := role.WithTools(merged).WithUpdatedAt(now)
+		if err := r.roles.Update(ctx, updated); err != nil {
+			return fmt.Errorf("update role %q: %w", role.ID, err)
+		}
+	}
+	return nil
+}
+
+// sameToolList reports element-wise equality. MergeTools is order-stable
+// when the input already contains the baseline, so an in-order compare
+// detects "no drift" — avoiding a write (and UpdatedAt bump) on Roles
+// already at the baseline.
+func sameToolList(a, b []tool.Name) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // MergeTools returns the union of `existing` and `base`: the order of
