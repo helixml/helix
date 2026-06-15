@@ -9,12 +9,6 @@ services:
     # connect to Helix
     ports:
       - ${API_PORT:-8080}:8080
-      # Uncomment when HELIX_VHOST_TLS_MODE=auto. :443 is the public
-      # TLS listener; :80 is only needed for the HTTP-01 ACME challenge
-      # and HTTP→HTTPS redirects — leave it commented when using DNS-01
-      # (e.g. HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare).
-      # - ${VHOST_HTTPS_PORT:-443}:443
-      # - ${VHOST_HTTP_PORT:-80}:80
     restart: always
     env_file:
       - .env
