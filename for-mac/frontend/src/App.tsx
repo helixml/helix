@@ -18,6 +18,8 @@ import {
   CheckForUpdate,
   StartVM,
   SetCursor,
+  SetClipboardImagePNG,
+  GetClipboardImagePNG,
   DownloadVMUpdate,
   StartCombinedUpdate,
   ApplyCombinedUpdate,
@@ -268,8 +270,21 @@ export function App() {
       // Clipboard bridge: WKWebView blocks navigator.clipboard in iframes,
       // so the iframe sends postMessage and we use the Wails runtime clipboard
       // which accesses NSPasteboard directly.
-      if (event.data?.type === 'helix-clipboard-write' && typeof event.data.text === 'string') {
-        ClipboardSetText(event.data.text);
+      //
+      // New protocol (carries mime discriminator + base64 for images):
+      //   { type: 'helix-clipboard-write', mime: 'text/plain', text: string }
+      //   { type: 'helix-clipboard-write', mime: 'image/png',  base64: string }
+      // Old protocol (still accepted, treated as mime: 'text/plain'):
+      //   { type: 'helix-clipboard-write', text: string }
+      if (event.data?.type === 'helix-clipboard-write') {
+        const mime = event.data.mime as string | undefined;
+        if (mime === 'image/png' && typeof event.data.base64 === 'string') {
+          SetClipboardImagePNG(event.data.base64).catch(err => {
+            console.error('[Clipboard] SetClipboardImagePNG failed:', err);
+          });
+        } else if (typeof event.data.text === 'string') {
+          ClipboardSetText(event.data.text);
+        }
       }
       // Cursor bridge: WKWebView doesn't render CSS resize cursors from
       // cross-origin iframes. The iframe detects cursor changes and we
@@ -277,16 +292,39 @@ export function App() {
       if (event.data?.type === 'helix:cursor' && typeof event.data.cursor === 'string') {
         SetCursor(event.data.cursor);
       }
+      // Clipboard read: prefer image over text (matches what NSPasteboard's
+      // "best representation" semantics would produce). Response carries a
+      // mime discriminator so the iframe knows whether to expect text or base64.
       if (event.data?.type === 'helix-clipboard-read' && event.data.id) {
-        ClipboardGetText().then(text => {
+        const replyId = event.data.id as string;
+        const sendReply = (payload: Record<string, unknown>) => {
           const iframe = document.querySelector('.home-view iframe') as HTMLIFrameElement;
           if (iframe?.contentWindow) {
             iframe.contentWindow.postMessage(
-              { type: 'helix-clipboard-response', id: event.data.id, text },
+              { type: 'helix-clipboard-response', id: replyId, ...payload },
               '*'
             );
           }
-        });
+        };
+        GetClipboardImagePNG()
+          .then(base64 => {
+            if (base64 && base64.length > 0) {
+              sendReply({ mime: 'image/png', base64 });
+              return;
+            }
+            ClipboardGetText().then(text => {
+              if (text && text.length > 0) {
+                // Keep `text` field for old-iframe back-compat alongside `mime`.
+                sendReply({ mime: 'text/plain', text });
+              } else {
+                sendReply({ mime: 'empty' });
+              }
+            });
+          })
+          .catch(err => {
+            console.warn('[Clipboard] GetClipboardImagePNG failed, falling back to text:', err);
+            ClipboardGetText().then(text => sendReply({ mime: 'text/plain', text: text || '' }));
+          });
       }
     };
     window.addEventListener('message', handleMessage);

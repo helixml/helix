@@ -67,20 +67,69 @@ import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
  * postMessage to the parent frame which has access to the Wails runtime
  * clipboard (backed by NSPasteboard). Falls back to navigator.clipboard
  * for regular browser usage.
+ *
+ * The postMessage protocol carries a `mime` discriminator so we can
+ * round-trip both text and image clipboard data through the macOS app:
+ *   { type: 'helix-clipboard-write', mime: 'text/plain', text: string }
+ *   { type: 'helix-clipboard-write', mime: 'image/png',  base64: string }
+ *   { type: 'helix-clipboard-read',  id: string }
+ *   { type: 'helix-clipboard-response', id, mime, text? | base64? }
+ *
+ * Old text-only iframe message shape is still accepted by the Wails parent
+ * (no `mime` field → treated as text/plain) for back-compat during deploys.
  */
 const isInIframe = typeof window !== "undefined" && window.parent !== window;
 
-async function clipboardWriteText(text: string): Promise<void> {
+export type ClipboardReadResult =
+  | { mime: "text/plain"; text: string }
+  | { mime: "image/png"; base64: string }
+  | { mime: "empty" };
+
+export type ClipboardWritePayload =
+  | { mime: "text/plain"; text: string }
+  | { mime: "image/png"; base64: string };
+
+async function clipboardWrite(payload: ClipboardWritePayload): Promise<void> {
   if (isInIframe) {
-    window.parent.postMessage({ type: "helix-clipboard-write", text }, "*");
+    if (payload.mime === "image/png") {
+      window.parent.postMessage(
+        {
+          type: "helix-clipboard-write",
+          mime: "image/png",
+          base64: payload.base64,
+        },
+        "*",
+      );
+    } else {
+      // Include `mime` for new parents and `text` for old ones.
+      window.parent.postMessage(
+        {
+          type: "helix-clipboard-write",
+          mime: "text/plain",
+          text: payload.text,
+        },
+        "*",
+      );
+    }
     return;
   }
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(text);
+  if (!navigator.clipboard) return;
+  if (payload.mime === "image/png") {
+    if (!navigator.clipboard.write || typeof ClipboardItem === "undefined") {
+      throw new Error("Browser does not support image clipboard write");
+    }
+    const blob = new Blob([base64ToBytes(payload.base64)], {
+      type: "image/png",
+    });
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": blob }),
+    ]);
+  } else {
+    await navigator.clipboard.writeText(payload.text);
   }
 }
 
-function clipboardReadText(): Promise<string> {
+function clipboardReadAny(): Promise<ClipboardReadResult> {
   if (isInIframe) {
     return new Promise((resolve) => {
       const id = Math.random().toString(36).slice(2);
@@ -90,7 +139,15 @@ function clipboardReadText(): Promise<string> {
           event.data.id === id
         ) {
           window.removeEventListener("message", handler);
-          resolve(event.data.text || "");
+          const mime = event.data.mime as string | undefined;
+          if (mime === "image/png" && typeof event.data.base64 === "string") {
+            resolve({ mime: "image/png", base64: event.data.base64 });
+          } else if (typeof event.data.text === "string" && event.data.text) {
+            // Includes old-parent responses that lacked `mime` entirely.
+            resolve({ mime: "text/plain", text: event.data.text });
+          } else {
+            resolve({ mime: "empty" });
+          }
         }
       };
       window.addEventListener("message", handler);
@@ -98,14 +155,57 @@ function clipboardReadText(): Promise<string> {
       // Timeout after 2s to avoid hanging
       setTimeout(() => {
         window.removeEventListener("message", handler);
-        resolve("");
+        resolve({ mime: "empty" });
       }, 2000);
     });
   }
-  if (navigator.clipboard) {
-    return navigator.clipboard.readText();
+  if (!navigator.clipboard?.read) {
+    // No read() — try text fallback.
+    if (navigator.clipboard?.readText) {
+      return navigator.clipboard
+        .readText()
+        .then((text) =>
+          text ? { mime: "text/plain", text } : { mime: "empty" },
+        )
+        .catch(() => ({ mime: "empty" }) as ClipboardReadResult);
+    }
+    return Promise.resolve({ mime: "empty" });
   }
-  return Promise.resolve("");
+  return navigator.clipboard
+    .read()
+    .then(async (items): Promise<ClipboardReadResult> => {
+      if (items.length === 0) return { mime: "empty" };
+      const item = items[0];
+      if (item.types.includes("image/png")) {
+        const blob = await item.getType("image/png");
+        const buf = await blob.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        return { mime: "image/png", base64 };
+      }
+      if (item.types.includes("text/plain")) {
+        const blob = await item.getType("text/plain");
+        const text = await blob.text();
+        return { mime: "text/plain", text };
+      }
+      return { mime: "empty" };
+    })
+    .catch(() => ({ mime: "empty" }) as ClipboardReadResult);
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function hashClipboardData(d: TypesClipboardData | null | undefined): string {
+  if (!d || !d.type || !d.data) return "";
+  // type + length + first 64 chars is unique enough for "did the clipboard
+  // change since I last polled it" purposes without copying megabytes.
+  return `${d.type}:${d.data.length}:${d.data.substring(0, 64)}`;
 }
 
 // Returns a stable UUID for a given sessionId in this browser tab.
@@ -401,9 +501,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
   const screenshotQualityRef = useRef(70); // Ref for use in async callback
 
-  // Clipboard sync state
-  const lastRemoteClipboardHash = useRef<string>(""); // Track changes to avoid unnecessary writes
-  const lastAutoSyncedText = useRef<string>(""); // Track what remote→local auto-sync last wrote
   const [stats, setStats] = useState<StreamStats | null>(null);
 
   // Chart history for visualizing adaptive bitrate behavior (60 seconds of data)
@@ -2710,85 +2807,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     return () => clearInterval(interval);
   }, [containerSize, isConnected]);
 
-  // Auto-sync clipboard from remote → local every 2 seconds
-  useEffect(() => {
-    if (!isConnected || !sessionId) return;
-
-    const syncClipboard = async () => {
-      // Skip if tab is hidden (save bandwidth and CPU)
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      // Skip if clipboard API is not available (e.g., Safari without HTTPS) and not in iframe
-      if (!navigator.clipboard && !isInIframe) {
-        return;
-      }
-
-      try {
-        const apiClient = helixApi.getApiClient();
-        const response =
-          await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
-        const clipboardData: TypesClipboardData = response.data;
-
-        // Skip if clipboard is empty or malformed
-        if (!clipboardData || !clipboardData.type || !clipboardData.data) {
-          return;
-        }
-
-        // Hash the clipboard data to detect changes
-        const hash = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
-        if (hash === lastRemoteClipboardHash.current) {
-          return; // No change, skip update
-        }
-
-        if (clipboardData.type === "image" && navigator.clipboard) {
-          // Image clipboard requires navigator.clipboard.write (no postMessage bridge for images)
-          const base64Data = clipboardData.data;
-          const byteCharacters = atob(base64Data);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: "image/png" });
-
-          await navigator.clipboard.write([
-            new ClipboardItem({ "image/png": blob }),
-          ]);
-
-          console.log(
-            `[Clipboard] Auto-synced image from remote (${byteArray.length} bytes)`,
-          );
-        } else if (clipboardData.type === "text") {
-          // Write text to browser/system clipboard
-          await clipboardWriteText(clipboardData.data);
-          lastAutoSyncedText.current = clipboardData.data;
-          console.log(
-            `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars): "${clipboardData.data.substring(0, 40)}"`,
-          );
-        }
-
-        lastRemoteClipboardHash.current = hash;
-      } catch (err) {
-        // Silent failure - don't spam console with clipboard sync errors
-        // Only log if not a 404 (container might not be ready yet)
-        if (err && !String(err).includes("404")) {
-          console.warn("[Clipboard] Auto-sync failed:", err);
-        }
-      }
-    };
-
-    // Initial sync
-    syncClipboard();
-
-    // Poll every 2.7 seconds (prime to avoid sync with other polling)
-    const syncInterval = setInterval(syncClipboard, 2700);
-
-    return () => clearInterval(syncInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, sessionId]); // Don't include helixApi - it's not reactive
-
   // Forward wheel events to remote desktop via WebSocketStream.
   // No preventDefault needed — the container has overflow:hidden so there's nothing
   // for the browser to scroll, and leaving the event unhandled lets Chrome's native
@@ -3982,14 +4000,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       if (isCopyKeystroke && sessionIdRef.current) {
-        // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
+        event.preventDefault();
+        event.stopPropagation();
+        const sessionId = sessionIdRef.current;
+        const apiClient = helixApi.getApiClient();
+
+        // Snapshot the pre-copy clipboard hash in parallel with forwarding
+        // the keystroke. Used by the poll loop below to detect "the
+        // clipboard just changed". If the snapshot fetch itself fails we
+        // fall back to "first non-empty response wins".
+        const beforeHashPromise: Promise<string> = apiClient
+          .v1ExternalAgentsClipboardDetail(sessionId)
+          .then((r) => hashClipboardData(r.data))
+          .catch(() => "");
+
+        // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd).
+        // Send the full sequence: LeftCtrl down → C down → C up → LeftCtrl up.
         const input = getInput();
         if (input) {
           console.log(
             "[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote",
           );
-          // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
-          // Send full sequence: LeftCtrl down → C down → C up → LeftCtrl up
           const ctrlDownForCopy = new KeyboardEvent("keydown", {
             code: "ControlLeft",
             key: "Control",
@@ -4044,63 +4075,132 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           );
         }
 
-        // Wait briefly for remote clipboard to update, then sync back to local
-        setTimeout(async () => {
-          try {
-            const apiClient = helixApi.getApiClient();
-            const response =
-              await apiClient.v1ExternalAgentsClipboardDetail(sessionIdRef.current);
-            const clipboardData: TypesClipboardData = response.data;
-
-            if (!clipboardData || !clipboardData.type || !clipboardData.data) {
-              console.log("[Clipboard] Remote clipboard empty after copy");
-              showClipboardToast("Copied", "success");
-              return;
-            }
-
-            // Skip local clipboard sync if API not available and not in iframe
-            if (!navigator.clipboard && !isInIframe) {
-              showClipboardToast("Copied", "success");
-              return;
-            }
-
-            if (clipboardData.type === "image" && navigator.clipboard) {
-              const base64Data = clipboardData.data;
-              const byteCharacters = atob(base64Data);
-              const byteNumbers = new Array(byteCharacters.length);
-              for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
+        // Bounded poll: ask the API every ~30ms for up to ~500ms, resolve
+        // as soon as the clipboard hash differs from the pre-copy snapshot.
+        // Replaces the previous unconditional setTimeout(300ms). The result
+        // is consumed by the deferred-resolution ClipboardItem promises
+        // below, which keeps the local write anchored to the user gesture
+        // (required by Safari's stricter Async Clipboard API enforcement —
+        // see https://webkit.org/blog/10855/async-clipboard-api/).
+        const POLL_INTERVAL_MS = 30;
+        const POLL_DEADLINE_MS = 500;
+        const fetchPromise: Promise<TypesClipboardData> = (async () => {
+          const beforeHash = await beforeHashPromise;
+          const pollStart = performance.now();
+          const deadline = pollStart + POLL_DEADLINE_MS;
+          let lastData: TypesClipboardData = { type: "text", data: "" };
+          while (performance.now() < deadline) {
+            try {
+              const r =
+                await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+              lastData = r.data;
+              if (hashClipboardData(lastData) !== beforeHash) {
+                console.log(
+                  `[Clipboard] poll resolved in ${Math.round(performance.now() - pollStart)}ms (type=${lastData?.type})`,
+                );
+                return lastData;
               }
-              const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: "image/png" });
-
-              await navigator.clipboard.write([
-                new ClipboardItem({ "image/png": blob }),
-              ]);
-              console.log(
-                `[Clipboard] Synced image from remote (${byteArray.length} bytes)`,
-              );
-            } else if (clipboardData.type === "text") {
-              await clipboardWriteText(clipboardData.data);
-              console.log(
-                `[Clipboard] Synced text from remote (${clipboardData.data.length} chars)`,
-              );
+            } catch {
+              // Transient — keep polling until deadline.
             }
-
-            lastRemoteClipboardHash.current = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
-            showClipboardToast("Copied", "success");
-          } catch (err) {
-            console.error(
-              "[Clipboard] Failed to sync clipboard after copy:",
-              err,
-            );
-            // Still show success - the remote copy likely worked even if sync failed
-            showClipboardToast("Copied", "success");
+            await new Promise((res) => setTimeout(res, POLL_INTERVAL_MS));
           }
-        }, 300); // Wait 300ms for remote clipboard to update
+          console.log(
+            `[Clipboard] poll hit ${POLL_DEADLINE_MS}ms deadline without change (type=${lastData?.type})`,
+          );
+          return lastData;
+        })();
 
-        event.preventDefault();
-        event.stopPropagation();
+        // Build per-MIME Blob promises. Each resolves with the real Blob
+        // if the fetched type matches, or an empty Blob of that type if
+        // not — paste destinations naturally read whichever MIME they
+        // prefer (text/plain for editors, image/png for image apps).
+        const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+          if (d?.type === "text" && d.data) {
+            return new Blob([d.data], { type: "text/plain" });
+          }
+          return new Blob([], { type: "text/plain" });
+        });
+        const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+          if (d?.type === "image" && d.data) {
+            return new Blob([base64ToBytes(d.data)], { type: "image/png" });
+          }
+          return new Blob([], { type: "image/png" });
+        });
+
+        // Plain browser (not iframe) with modern ClipboardItem support:
+        // synchronously start the gesture-anchored write. Both Safari and
+        // Chrome accept this — the promise is resolved later but the call
+        // itself happens inside the user gesture task, satisfying WebKit's
+        // strict "must be triggered during a user gesture" rule.
+        if (
+          !isInIframe &&
+          typeof ClipboardItem !== "undefined" &&
+          navigator.clipboard?.write
+        ) {
+          const supportsImage =
+            typeof (
+              ClipboardItem as unknown as {
+                supports?: (mime: string) => boolean;
+              }
+            ).supports === "function"
+              ? (
+                  ClipboardItem as unknown as {
+                    supports: (mime: string) => boolean;
+                  }
+                ).supports("image/png")
+              : true;
+
+          const clipboardItem = supportsImage
+            ? new ClipboardItem({
+                "text/plain": textBlobPromise,
+                "image/png": imageBlobPromise,
+              })
+            : new ClipboardItem({ "text/plain": textBlobPromise });
+
+          navigator.clipboard
+            .write([clipboardItem])
+            .then(() =>
+              fetchPromise.then((d) => {
+                const kind = d?.type === "image" ? "image" : "text";
+                showClipboardToast(`Copied ${kind}`, "success");
+              }),
+            )
+            .catch((err) => {
+              console.warn("[Clipboard] local write blocked:", err);
+              showClipboardToast(
+                "Copied on remote — local clipboard blocked",
+                "error",
+              );
+            });
+        } else {
+          // Fallback: iframe (postMessage bridge) or browsers without
+          // ClipboardItem. Resolve the fetch first, then dispatch on type.
+          // The iframe path routes through the parent's NSPasteboard
+          // bridge for both text and image (App.tsx handles the mime
+          // discriminator).
+          fetchPromise
+            .then(async (d) => {
+              if (d?.type === "text" && d.data) {
+                await clipboardWrite({ mime: "text/plain", text: d.data });
+                showClipboardToast("Copied text", "success");
+              } else if (d?.type === "image" && d.data) {
+                await clipboardWrite({ mime: "image/png", base64: d.data });
+                showClipboardToast("Copied image", "success");
+              } else {
+                showClipboardToast("Clipboard empty", "error");
+              }
+            })
+            .catch((err) => {
+              console.error("[Clipboard] local write failed:", err);
+              const msg = err instanceof Error ? err.message : String(err);
+              showClipboardToast(
+                `Copied on remote — local sync failed: ${msg}`,
+                "error",
+              );
+            });
+        }
+
         return;
       }
 
@@ -4120,113 +4220,51 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
         console.log(
-          `[Paste DEBUG] Paste keystroke detected: shift=${userPressedShift} isInIframe=${isInIframe} lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
+          `[Paste DEBUG] Paste keystroke detected: shift=${userPressedShift} isInIframe=${isInIframe}`,
         );
 
-        // Skip if clipboard API is not available and not in iframe
+        // Skip if clipboard API is not available and not in iframe.
+        // (Iframe path routes through the parent's NSPasteboard bridge,
+        // which works even when navigator.clipboard is blocked.)
         if (!navigator.clipboard && !isInIframe) {
           console.warn("[Clipboard] Clipboard API not available");
           showClipboardToast("Clipboard not available", "error");
           return;
         }
 
-        // When in iframe (macOS app), use postMessage bridge for text.
-        // navigator.clipboard.read() is blocked in WKWebView iframes.
-        if (isInIframe) {
-          clipboardReadText().then((text) => {
+        clipboardReadAny()
+          .then((result) => {
             console.log(
-              `[Paste DEBUG] clipboardReadText returned: "${text?.substring(0, 60)}" (length=${text?.length}) lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
+              `[Paste DEBUG] clipboardReadAny returned mime=${result.mime}`,
             );
-            if (!text) {
-              console.warn(
-                "[Clipboard] Empty clipboard from parent, ignoring paste",
-              );
+            if (result.mime === "empty") {
+              console.warn("[Clipboard] Empty clipboard, ignoring paste");
               showClipboardToast("Clipboard is empty", "error");
               return;
             }
-            if (text === lastAutoSyncedText.current) {
-              // Auto-sync overwrote local clipboard with remote content.
-              // Remote already has this text — skip the re-upload, just send Ctrl+V.
+            if (result.mime === "image/png") {
               console.log(
-                "[Paste DEBUG] Local clipboard matches auto-sync content — skipping upload, sending Ctrl+V directly",
+                `[Clipboard] Pasting image (${result.base64.length} base64 chars)`,
               );
-              syncAndPaste({ type: "text", data: text }, userPressedShift);
+              syncAndPaste(
+                { type: "image", data: result.base64 },
+                userPressedShift,
+              );
               return;
             }
-            syncAndPaste({ type: "text", data: text }, userPressedShift);
+            console.log(
+              `[Paste DEBUG] text "${result.text?.substring(0, 60)}" (length=${result.text?.length})`,
+            );
+            syncAndPaste(
+              { type: "text", data: result.text },
+              userPressedShift,
+            );
+          })
+          .catch((err) => {
+            console.error("[Clipboard] Failed to read clipboard:", err);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            showClipboardToast(`Paste failed: ${errMsg}`, "error");
           });
-        } else {
-          // Handle clipboard sync asynchronously (don't block keystroke processing)
-          navigator.clipboard
-            .read()
-            .then((clipboardItems) => {
-              if (clipboardItems.length === 0) {
-                console.warn("[Clipboard] Empty clipboard, ignoring paste");
-                showClipboardToast("Clipboard is empty", "error");
-                return;
-              }
-
-              const item = clipboardItems[0];
-              let clipboardPayload: TypesClipboardData;
-
-              // Read clipboard data
-              // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
-              console.log(
-                `[Clipboard] Available types: ${item.types.join(", ")}`,
-              );
-              if (item.types.includes("image/png")) {
-                console.log(`[Clipboard] Reading image/png from clipboard`);
-                item
-                  .getType("image/png")
-                  .then((blob) => {
-                    console.log(
-                      `[Clipboard] Got PNG blob, size: ${blob.size} bytes`,
-                    );
-                    blob.arrayBuffer().then((arrayBuffer) => {
-                      const base64 = btoa(
-                        String.fromCharCode(...new Uint8Array(arrayBuffer)),
-                      );
-                      console.log(
-                        `[Clipboard] Encoded to base64, length: ${base64.length}`,
-                      );
-                      clipboardPayload = { type: "image", data: base64 };
-                      syncAndPaste(clipboardPayload, userPressedShift);
-                    });
-                  })
-                  .catch((err) => {
-                    console.error("[Clipboard] Failed to get image/png:", err);
-                    showClipboardToast(
-                      "Failed to read image from clipboard",
-                      "error",
-                    );
-                  });
-              } else if (item.types.includes("text/plain")) {
-                item.getType("text/plain").then((blob) => {
-                  blob.text().then((text) => {
-                    console.log(
-                      `[Paste DEBUG] navigator.clipboard.read text: "${text?.substring(0, 60)}" (length=${text?.length}) lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
-                    );
-                    clipboardPayload = { type: "text", data: text };
-                    syncAndPaste(clipboardPayload, userPressedShift);
-                  });
-                });
-              } else {
-                console.warn(
-                  "[Clipboard] Unsupported clipboard type:",
-                  item.types,
-                );
-                showClipboardToast(
-                  `Unsupported clipboard type: ${item.types.join(", ")}`,
-                  "error",
-                );
-              }
-            })
-            .catch((err) => {
-              console.error("[Clipboard] Failed to read clipboard:", err);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              showClipboardToast(`Paste failed: ${errMsg}`, "error");
-            });
-        }
 
         return; // Don't fall through to default handler
       }
@@ -4361,20 +4399,40 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         "[Clipboard] Native paste event intercepted, syncing local → remote",
       );
 
-      // event.clipboardData is available synchronously for trusted paste events
+      // event.clipboardData is available synchronously for trusted paste events.
+      // Prefer image when present (matches paste behaviour in image-aware apps);
+      // fall back to text; final fallback is an async read through our bridge.
+      const imageFile = Array.from(event.clipboardData?.files || []).find(
+        (f) => f.type === "image/png" || f.type === "image/jpeg",
+      );
+      if (imageFile) {
+        imageFile.arrayBuffer().then((buf) => {
+          const base64 = btoa(
+            String.fromCharCode(...new Uint8Array(buf)),
+          );
+          syncAndPaste({ type: "image", data: base64 }, false);
+        });
+        return;
+      }
+
       const text = event.clipboardData?.getData("text/plain");
       if (text) {
         syncAndPaste({ type: "text", data: text }, false);
         return;
       }
 
-      // No text in clipboardData — fall back to async read (image or empty)
-      clipboardReadText().then((clipText) => {
-        if (!clipText) {
+      // No data in clipboardData — fall back to async read (handles iframe
+      // case where the parent's NSPasteboard has data we can pull over).
+      clipboardReadAny().then((result) => {
+        if (result.mime === "empty") {
           showClipboardToast("Clipboard is empty", "error");
           return;
         }
-        syncAndPaste({ type: "text", data: clipText }, false);
+        if (result.mime === "image/png") {
+          syncAndPaste({ type: "image", data: result.base64 }, false);
+          return;
+        }
+        syncAndPaste({ type: "text", data: result.text }, false);
       });
     };
 
