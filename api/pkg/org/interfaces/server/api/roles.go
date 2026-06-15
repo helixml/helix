@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
@@ -203,4 +204,69 @@ func toStreamIDs(in []string) []streaming.StreamID {
 		}
 	}
 	return out
+}
+
+// listTools returns the catalogue of available MCP tools that can be
+// listed on a Role. Powers the role editor's multi-select.
+//
+// @Summary Helix-org: list available MCP tools
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {array} api.ToolDTO
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/tools [get]
+func (a *apiHandler) listTools(w http.ResponseWriter, r *http.Request) {
+	out := make([]ToolDTO, 0)
+	if a.deps.Tools != nil {
+		for _, t := range a.deps.Tools.List() {
+			out = append(out, ToolDTO{
+				Name:        string(t.Name()),
+				Description: t.Description(),
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// listRoles returns every Role row.
+//
+// @Summary Helix-org: list roles
+// @Tags HelixOrg
+// @Produce json
+// @Success 200 {array} api.RoleDTO
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/roles [get]
+func (a *apiHandler) listRoles(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	roles, err := a.deps.Queries.ListRoles(r.Context(), orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("list roles: %w", err))
+		return
+	}
+	out := make([]RoleDTO, 0, len(roles))
+	for _, ro := range roles {
+		out = append(out, roleDTO(ro))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func roleDTO(r orgchart.Role) RoleDTO {
+	dto := RoleDTO{ID: string(r.ID), Content: r.Content}
+	if !r.CreatedAt.IsZero() {
+		dto.CreatedAt = r.CreatedAt.Format(time.RFC3339)
+	}
+	if !r.UpdatedAt.IsZero() {
+		dto.UpdatedAt = r.UpdatedAt.Format(time.RFC3339)
+	}
+	for _, t := range r.Tools {
+		dto.Tools = append(dto.Tools, string(t))
+	}
+	for _, s := range r.Streams {
+		dto.Streams = append(dto.Streams, string(s))
+	}
+	return dto
 }
