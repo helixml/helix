@@ -64,10 +64,37 @@ by visitors anyway (CF handles HTTP→HTTPS at the edge).
   full validation matrix: empty/cloudflare/unsupported provider,
   with/without token, case-insensitivity, whitespace handling.
 - `charts/helix-controlplane/values-example.yaml` — commented
-  examples of all four env vars in the `extraEnv` block.
+  examples of all four env vars in the `extraEnv` block, plus the
+  `vhostTLS` block (see "Deployment-port exposure" below).
 - `go.mod` / `go.sum` — adds `github.com/libdns/cloudflare v0.2.2`
   as a direct dependency. `libdns/libdns` was already pulled in
   indirectly by the existing certmagic auto-mode code.
+
+### Deployment-port exposure (gap fix from 002096)
+
+Setting `HELIX_VHOST_TLS_MODE=auto` makes the API server bind `:443`
+(and `:80` for HTTP-01) inside its container, but the existing
+deployment surfaces never mapped those host/Service ports through —
+meaning the auto-mode listener was operationally unreachable in every
+standard deployment. Fixed here:
+
+- `docker-compose.yaml` / `docker-compose.dev.yaml` — commented-out
+  `${VHOST_HTTPS_PORT:-443}:443` and `${VHOST_HTTP_PORT:-80}:80` lines
+  on the API service, with a header pointing operators at the right
+  one to uncomment per challenge type.
+- `charts/helix-controlplane/values.yaml` — new
+  `controlplane.vhostTLS` block (`enabled`, `httpsPort`, `httpEnabled`,
+  `httpPort`). Default `enabled: false` so existing deployments are
+  unaffected.
+- `charts/helix-controlplane/templates/service.yaml` — when
+  `vhostTLS.enabled`, adds `https` and (conditional on `httpEnabled`)
+  `http-acme` ports to the Service.
+- `charts/helix-controlplane/templates/deployment.yaml` — declares
+  matching `containerPort: 443` (and 80) on the controlplane container.
+
+The split between `vhostTLS.enabled` and `httpEnabled` lets DNS-01
+operators avoid exposing :80 entirely (the API doesn't bind it in
+DNS-01 mode — see "What ports Helix binds" above).
 
 ## Validation matrix (enforced at startup)
 
