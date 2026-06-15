@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { ServerForkSessionRequest, TypesSession } from '../api/api';
+import { ServerForkSessionRequest, ServerSwitchAgentRequest, TypesSession } from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -121,6 +121,28 @@ export function useForkSession(sessionId: string) {
       // Parent transitioned to paused; refresh its session row.
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       // Refresh any session lists so the new child appears.
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+// useSwitchAgent switches the agent framework on the given session IN PLACE —
+// same session, same desktop container. The backend rewrites Zed's config to
+// the new agent, restarts Zed, and repopulates a fresh thread with the prior
+// transcript. Unlike useForkSession, no new session id is created; the session
+// id is unchanged, so callers just refresh the existing session's data.
+//
+// See design/tasks/002111_so-we-recently-added-a/design.md.
+export function useSwitchAgent(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerSwitchAgentRequest) =>
+      apiClient.v1SessionsSwitchAgentCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // The session's agent changed in place; refresh its row + any lists.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },
   })

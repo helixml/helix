@@ -2620,6 +2620,22 @@ definitions:
           type: string
         type: array
     type: object
+  server.SwitchAgentRequest:
+    properties:
+      code_agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      helix_app_id:
+        type: string
+    type: object
+  server.SwitchAgentResponse:
+    properties:
+      agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      helix_app_id:
+        type: string
+      session_id:
+        type: string
+    type: object
   server.TaskProgressResponse:
     properties:
       checklist:
@@ -8799,6 +8815,15 @@ definitions:
         items:
           type: string
         type: array
+      agent_switched_at:
+        description: |-
+          AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+          this same session (no fork / new container) — see
+          design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+          fork_seed interaction carrying the prior thread's transcript exists on
+          THIS session, so maybePrependTranscript seeds the new Zed thread even
+          though ParentSessionID is empty (the session continues from itself).
+        type: string
       agent_type:
         description: 'Agent type: "helix" or "zed_external"'
         type: string
@@ -22222,6 +22247,38 @@ paths:
       summary: Stop external Zed agent session
       tags:
       - Sessions
+  /api/v1/sessions/{id}/switch-agent:
+    post:
+      consumes:
+      - application/json
+      description: Switches the agentic framework on the SAME session without forking
+        or restarting the container. Rewrites Zed's config to the new agent, restarts
+        Zed to load the new MCP surface, and repopulates a fresh thread with the prior
+        transcript.
+      parameters:
+      - description: Session ID to switch the agent on
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Target agent selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SwitchAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SwitchAgentResponse'
+      security:
+      - BearerAuth: []
+      summary: Switch the agent framework on a running session in place
+      tags:
+      - sessions
   /api/v1/sessions/{id}/toc:
     get:
       consumes:
