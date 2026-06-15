@@ -1,6 +1,6 @@
 # Implementation Tasks: Cloudflare DNS-01 ACME Challenge for Let's Encrypt
 
-- [ ] Add `github.com/libdns/cloudflare` to `go.mod` (`cd api && go get github.com/libdns/cloudflare@latest && go mod tidy`).
+- [~] Add `github.com/libdns/cloudflare` to `go.mod` (`cd api && go get github.com/libdns/cloudflare@latest && go mod tidy`).
 - [ ] Add the two new env-var fields to `config.WebServer` in `api/pkg/config/config.go`: `VHostACMEDNSProvider` (envconfig `HELIX_VHOST_ACME_DNS_PROVIDER`) and `VHostCloudflareAPIToken` (envconfig `HELIX_VHOST_CLOUDFLARE_API_TOKEN`), both with `description:` strings matching design §1.
 - [ ] Create `api/pkg/server/vhost_tls_dns.go` with `buildACMEChallengeSolver(ws config.WebServer) (acmez.Solver, string, error)` per design §2 — handles `""`, `"cloudflare"`, and unsupported provider values; emits the "token-set-but-provider-missing" warning.
 - [ ] Update `startCertMagicListener` in `api/pkg/server/vhost_tls.go` to call `buildACMEChallengeSolver`, set `issuerTmpl.DNS01Solver` when non-nil, and include the challenge description in the existing "vhost TLS auto mode enabled" log line.
