@@ -1502,6 +1502,208 @@ func TestD4StableShedOrderOnSimultaneousIdle(t *testing.T) {
 	}
 }
 
+func TestD4BoundedDeprovisionRetryEventuallyGivesUp(t *testing.T) {
+	// Regression: ultrareview-1 fixup added "leave row in place on
+	// Deprovision failure" to prevent upstream orphan. ultrareview-2
+	// pointed out the indefinite retry: if upstream is permanently
+	// broken (404, IAM revoked, region offline), the row never goes
+	// away. Phantom Ready rows block legitimate scale-up through the
+	// readyOnlineCount > 0 gate in computeNeeded.
+	//
+	// Fix: maxDeprovisionRetryAge (15m) caps the retry budget. After
+	// the budget is exhausted, the Manager Deregisters the row and
+	// logs the upstream provider_id at error level for manual cleanup.
+	store := newFakeStore()
+	provider := &failingDeprovisionProvider{
+		StubProvider:   NewStubProvider("stub"),
+		deprovisionErr: errors.New("permanent upstream gone"),
+	}
+	clk := &fakeClock{now: time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)}
+	m, err := NewManager(provider, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     0,
+		IdleTimeout:             1 * time.Minute,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.now = clk.Now
+
+	// Two Ready rows so D4's Floor guard allows shedding one.
+	seedReadyRow(t, store, "sbx_busy", 5, 10)
+	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID: "sbx_idle", Provider: "stub", ComputeState: string(StateReady), Status: "online",
+		ProviderID:      "stub-handle-broken",
+		ActiveSandboxes: 0, MaxSandboxes: 10,
+	})
+	m.idleSince["sbx_idle"] = clk.now.Add(-5 * time.Minute)
+
+	// Within retry budget: row should remain in place across cycles.
+	for cycle := 0; cycle < 3; cycle++ {
+		_ = m.Reconcile(context.Background())
+		rows, _ := store.ListSandboxInstances(context.Background())
+		if len(rows) != 2 {
+			t.Fatalf("cycle %d within retry budget: expected row to remain; got %d rows", cycle, len(rows))
+		}
+		clk.Advance(2 * time.Minute)
+	}
+
+	// Push past maxDeprovisionRetryAge (15m). Tracker armed at first
+	// failure (clk.now at cycle 0). Now jump well past the budget.
+	clk.Advance(20 * time.Minute)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile after budget exhaustion should NOT surface err (give-up path): %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("after retry budget exhausted, phantom row should be Deregistered; got %d rows", len(rows))
+	}
+	for _, r := range rows {
+		if r.ID == "sbx_idle" {
+			t.Fatalf("expected sbx_idle to be gone after budget exhaustion")
+		}
+	}
+}
+
+func TestD4ShedsReadyOfflineOrphans(t *testing.T) {
+	// Regression: the predicate split (isReadyState vs isReadyAndOnline)
+	// lets D4 reclaim Ready+offline rows. Without this, a crashed host
+	// row (heartbeat lost, ComputeState still Ready) would sit forever:
+	// excluded from D3 capacity math (via isReadyAndOnline), excluded
+	// from D4 candidates (under the previous "tighten isReady" attempt),
+	// no other reclaim path.
+	//
+	// Scenario: Floor=1, IdleTimeout=1m. Two rows: one Ready+online
+	// (Floor anchor), one Ready+offline+idle (orphan candidate).
+	// readyState count = 2 > Floor=1, so D4 may shed the offline one.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	clk := &fakeClock{now: time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)}
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     0,
+		IdleTimeout:             1 * time.Minute,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.now = clk.Now
+
+	seedReadyRow(t, store, "sbx_alive", 0, 10)
+	seedReadyRowOffline(t, store, "sbx_orphan", 10, 0)
+	// Pre-arm orphan as past-idle-threshold so the first reconcile sheds.
+	m.idleSince["sbx_alive"] = clk.now.Add(-5 * time.Minute)
+	m.idleSince["sbx_orphan"] = clk.now.Add(-10 * time.Minute) // sheds first (older)
+
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("expected one shed (the offline orphan); got %d rows", len(rows))
+	}
+	if rows[0].ID != "sbx_alive" {
+		t.Fatalf("expected sbx_alive to remain (online anchor), shed offline orphan; got %s", rows[0].ID)
+	}
+}
+
+func TestD4IdleTimerSurvivesHeartbeatFlap(t *testing.T) {
+	// Regression: the previous "tighten isReady to require online"
+	// fixup caused the prune loop to drop idleSince entries when a
+	// host flapped offline briefly. Next cycle (back online) re-armed
+	// idleSince at NOW, restarting the timer. A noisy network could
+	// prevent any host from ever crossing IdleTimeout.
+	//
+	// Fix: prune loop uses isReadyState (broad). Flap preserves
+	// accumulated idle time.
+	//
+	// Scenario: Floor=1. Three Ready hosts (1 online floor anchor, 2
+	// candidates). Candidate 1 stays online throughout; candidate 2
+	// flaps offline mid-window. Both should be eligible to shed once
+	// IdleTimeout elapses.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	clk := &fakeClock{now: time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)}
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     0,
+		IdleTimeout:             10 * time.Minute,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.now = clk.Now
+
+	seedReadyRow(t, store, "sbx_anchor", 5, 10)
+	seedReadyRow(t, store, "sbx_steady", 0, 10) // online throughout
+	seedReadyRow(t, store, "sbx_flap", 0, 10)   // will flap mid-window
+
+	// First reconcile: idleSince entries armed at t=0.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile 1: %v", err)
+	}
+	armedSteady, ok1 := m.idleSince["sbx_steady"]
+	armedFlap, ok2 := m.idleSince["sbx_flap"]
+	if !ok1 || !ok2 {
+		t.Fatalf("expected both candidates to be tracked after first reconcile")
+	}
+
+	// Flap sbx_flap to offline mid-window. Advance partway through
+	// IdleTimeout (5m, still well below 10m).
+	clk.Advance(5 * time.Minute)
+	rows, _ := store.ListSandboxInstances(context.Background())
+	for _, r := range rows {
+		if r.ID == "sbx_flap" {
+			_ = store.UpdateSandboxInstanceStatus(context.Background(), r.ID, "offline")
+		}
+	}
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile during flap: %v", err)
+	}
+	// Tracker for sbx_flap must NOT have been wiped or re-armed.
+	if got, ok := m.idleSince["sbx_flap"]; !ok {
+		t.Fatalf("idleSince entry for sbx_flap dropped during offline flap (regression)")
+	} else if !got.Equal(armedFlap) {
+		t.Fatalf("idleSince entry for sbx_flap re-armed (got %v, want %v) - timer reset by flap", got, armedFlap)
+	}
+	if got := m.idleSince["sbx_steady"]; !got.Equal(armedSteady) {
+		t.Fatalf("sbx_steady tracker should not have moved")
+	}
+
+	// Bring sbx_flap back online and advance past IdleTimeout.
+	for _, r := range rows {
+		if r.ID == "sbx_flap" {
+			_ = store.UpdateSandboxInstanceStatus(context.Background(), r.ID, "online")
+		}
+	}
+	clk.Advance(7 * time.Minute) // total elapsed now > IdleTimeout
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile after window: %v", err)
+	}
+	// At this point one host should be shed per cycle. Run twice to
+	// drain both candidates down to the Floor=1 anchor.
+	clk.Advance(1 * time.Minute)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile drain 2: %v", err)
+	}
+	rowsAfter, _ := store.ListSandboxInstances(context.Background())
+	if len(rowsAfter) != 1 {
+		t.Fatalf("after IdleTimeout elapsed past both candidates, expected only Floor anchor; got %d", len(rowsAfter))
+	}
+	if rowsAfter[0].ID != "sbx_anchor" {
+		t.Fatalf("expected anchor to remain; got %s", rowsAfter[0].ID)
+	}
+}
+
 // --- end D4 tests --------------------------------------------------------
 
 
