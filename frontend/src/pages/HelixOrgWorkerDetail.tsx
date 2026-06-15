@@ -71,8 +71,6 @@ import {
   fetchExistingWorkerSession,
 } from '../services/workerChatSession'
 
-const OWNER_WORKER = 'w-owner'
-
 const HelixOrgWorkerDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -94,7 +92,6 @@ const HelixOrgWorkerDetail: FC = () => {
   const activate = useActivateWorker()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
-  const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
@@ -224,7 +221,6 @@ const HelixOrgWorkerDetail: FC = () => {
                       {worker.id}
                     </Typography>
                     <Chip size="small" label={worker.kind} />
-                    {isOwner && <Chip size="small" label="owner — protected" />}
                   </Stack>
                 </Box>
 
@@ -426,10 +422,10 @@ const HelixOrgWorkerDetail: FC = () => {
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
                     onClick={() => setConfirmingFire(true)}
-                    disabled={isOwner || fire.isPending}
+                    disabled={fire.isPending}
                     fullWidth
                   >
-                    {isOwner ? 'Owner — protected' : 'Fire worker'}
+                    Fire worker
                   </Button>
                   <Typography variant="caption" color="text.secondary">
                     Tears down the worker's per-Worker Helix project and deletes the

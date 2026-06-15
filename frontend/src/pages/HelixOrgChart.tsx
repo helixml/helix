@@ -81,9 +81,6 @@ import {
 // reporting lines) to get global (x, y) for each Role. Workers sit in a
 // horizontal row inside their Role's frame.
 
-const OWNER_ROLE = 'r-owner'
-const OWNER_WORKER = 'w-owner'
-
 const WORKER_W = 220
 const WORKER_H = 96
 const WORKER_GAP_X = 32
@@ -121,11 +118,7 @@ const groupByRole = (workers: FlatWorker[], knownRoles: string[]): RoleGroup[] =
       workers: ws.slice().sort((a, b) => a.id.localeCompare(b.id)),
     })
   })
-  out.sort((a, b) => {
-    if (a.roleId === OWNER_ROLE) return -1
-    if (b.roleId === OWNER_ROLE) return 1
-    return a.roleId.localeCompare(b.roleId)
-  })
+  out.sort((a, b) => a.roleId.localeCompare(b.roleId))
   return out
 }
 
@@ -134,7 +127,6 @@ const groupByRole = (workers: FlatWorker[], knownRoles: string[]): RoleGroup[] =
 type RoleNodeData = {
   roleId: string
   workerCount: number
-  isOwner: boolean
   onSelectRole: (roleId: string) => void
   onHire: (roleId: string) => void
   onDeleteRole: (roleId: string) => void
@@ -143,7 +135,6 @@ type RoleNodeData = {
 type WorkerNodeData = {
   workerId: string
   kind: string
-  isOwner: boolean
   onSelectWorker: (workerId: string) => void
   onFireWorker: (workerId: string) => void
 }
@@ -227,7 +218,7 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
               <PersonAddOutlinedIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
-          {!data.isOwner && (
+          {(
             <Tooltip title="Delete role (fires every Worker holding it)">
               <IconButton
                 className={NO_DRAG_NO_PAN}
@@ -315,7 +306,7 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
             {data.workerId}
           </Typography>
         </Stack>
-        {!data.isOwner && (
+        {(
           <Tooltip title="Fire worker">
             <IconButton
               className={NO_DRAG_NO_PAN}
@@ -583,7 +574,6 @@ const buildGraph = (
       data: {
         roleId: group.roleId,
         workerCount: group.workers.length,
-        isOwner: group.roleId === OWNER_ROLE,
         onSelectRole: handlers.onSelectRole,
         onHire: handlers.onHire,
         onDeleteRole: handlers.onDeleteRole,
@@ -609,7 +599,6 @@ const buildGraph = (
         data: {
           workerId: wk.id,
           kind: wk.kind,
-          isOwner: wk.id === OWNER_WORKER,
           onSelectWorker: handlers.onSelectWorker,
           onFireWorker: handlers.onFireWorker,
         } as WorkerNodeData,
