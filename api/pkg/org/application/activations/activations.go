@@ -43,9 +43,9 @@ type SessionResolver interface {
 // ensurer or dispatcher isn't wired. Adapters map it to 501.
 var ErrActivateUnavailable = errors.New("activate is not wired in this deployment")
 
-// Activations owns the host-driven activation use cases: pre-allocating
-// the audit row (PrepareManual) and the full manual-activate command
-// (Activate).
+// Activations owns the host-driven activation use case: the full
+// manual-activate command (Activate), which ensures the project,
+// pre-allocates the audit row, and enqueues the manual trigger.
 type Activations struct {
 	repo       activation.Repository
 	now        func() time.Time
@@ -57,10 +57,10 @@ type Activations struct {
 }
 
 // Deps are the constructor-injected collaborators for New. Repo may be
-// nil (Activate/PrepareManual then skip the audit pre-create, as the old
-// inline code did when Activations was unwired). Ensurer + Dispatcher are
-// required for Activate (nil → ErrActivateUnavailable); Sessions is
-// optional (nil → empty session id in the result).
+// nil (Activate then skips the audit pre-create, as the old inline code
+// did when Activations was unwired). Ensurer + Dispatcher are required
+// for Activate (nil → ErrActivateUnavailable); Sessions is optional
+// (nil → empty session id in the result).
 type Deps struct {
 	Repo       activation.Repository
 	Now        func() time.Time
@@ -127,7 +127,7 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 	if a.sessions != nil {
 		sessionID, _ = a.sessions.SessionID(ctx, orgID, workerID)
 	}
-	activationID, err := a.PrepareManual(ctx, orgID, workerID)
+	activationID, err := a.prepareManual(ctx, orgID, workerID)
 	if err != nil {
 		return ActivateResult{}, err
 	}
@@ -144,12 +144,12 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 	}, nil
 }
 
-// PrepareManual pre-allocates a TriggerManual activation audit row for
+// prepareManual pre-allocates a TriggerManual activation audit row for
 // the Worker and returns its id. Returns an empty id (and nil error)
-// when the repository or id-generator is unwired — callers treat that as
-// "no pre-allocation; the Spawner mints its own", matching the previous
-// inline behaviour.
-func (a *Activations) PrepareManual(ctx context.Context, orgID string, workerID orgchart.WorkerID) (activation.ID, error) {
+// when the repository or id-generator is unwired — Activate then treats
+// that as "no pre-allocation; the Spawner mints its own", matching the
+// previous inline behaviour.
+func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID orgchart.WorkerID) (activation.ID, error) {
 	if a.repo == nil || a.newID == nil {
 		return "", nil
 	}
