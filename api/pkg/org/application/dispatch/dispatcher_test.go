@@ -16,7 +16,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -114,7 +113,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -166,13 +165,6 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	}
 	if err := s.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("create worker: %v", err)
-	}
-	env, err := environment.New(workerID, t.TempDir(), now, "org-test")
-	if err != nil {
-		t.Fatalf("new env: %v", err)
-	}
-	if err := s.Environments.Create(ctx, env); err != nil {
-		t.Fatalf("create env: %v", err)
 	}
 }
 
@@ -605,7 +597,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)

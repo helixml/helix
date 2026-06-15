@@ -51,7 +51,6 @@ func TestHireWorkerSchemaSurfacesKindEnum(t *testing.T) {
 func TestHireWorkerInvokeRejectsUnknownKindWithValidList(t *testing.T) {
 	t.Parallel()
 	deps := DefaultDeps(orggorm.GetOrgTestDB(t))
-	deps.EnvsDir = t.TempDir()
 	tl := &HireWorker{deps: deps.Build()}
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	args, _ := json.Marshal(map[string]any{

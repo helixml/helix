@@ -97,7 +97,7 @@ func TestDispatchHireEnqueuesSpawn(t *testing.T) {
 
 	seedAIWorker(t, s, "w-fresh-hire")
 
-	d.DispatchHire(context.Background(), "org-test", "w-fresh-hire", "/tmp/env-fresh-hire", activation.ID("a-hire-1"))
+	d.DispatchHire(context.Background(), "org-test", "w-fresh-hire", activation.ID("a-hire-1"))
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {
@@ -126,7 +126,7 @@ func TestDispatchManualEnqueuesSpawn(t *testing.T) {
 	d, s, rec := newDispatcherWithSpawner(t)
 	seedAIWorker(t, s, "w-manual")
 
-	d.DispatchManual(context.Background(), "org-test", "w-manual", "/tmp/env-manual", activation.ID("a-manual-1"))
+	d.DispatchManual(context.Background(), "org-test", "w-manual", activation.ID("a-manual-1"))
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {

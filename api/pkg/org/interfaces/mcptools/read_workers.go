@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
@@ -111,55 +110,4 @@ func (t *GetWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		}
 	}
 	return json.Marshal(workerViewOf(w, managers))
-}
-
-// GetWorkerEnvironment returns the on-disk Environment record for a Worker.
-type GetWorkerEnvironment struct {
-	deps Deps
-}
-
-const GetWorkerEnvironmentName tool.Name = "get_worker_environment"
-
-var getWorkerEnvironmentSchema = mustSchema[getWorkerEnvironmentArgs]()
-
-type getWorkerEnvironmentArgs struct {
-	WorkerID string `json:"workerId"`
-}
-
-type environmentView struct {
-	WorkerID  orgchart.WorkerID `json:"workerId"`
-	Path      string            `json:"path"`
-	CreatedAt time.Time         `json:"createdAt"`
-}
-
-func (t *GetWorkerEnvironment) Name() tool.Name { return GetWorkerEnvironmentName }
-func (t *GetWorkerEnvironment) InputSchema() *jsonschema.Schema {
-	return getWorkerEnvironmentSchema
-}
-func (t *GetWorkerEnvironment) Description() string {
-	return "Fetch a Worker's Environment record: the path on disk where their role.md, " +
-		"identity.md, and agent.md live."
-}
-
-func (t *GetWorkerEnvironment) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	var args getWorkerEnvironmentArgs
-	if err := json.Unmarshal(inv.Args, &args); err != nil {
-		return nil, fmt.Errorf("parse args: %w", err)
-	}
-	if args.WorkerID == "" {
-		return nil, fmt.Errorf("workerId is required")
-	}
-	orgID := inv.Caller.OrganizationID()
-	if orgID == "" {
-		return nil, fmt.Errorf("get_worker_environment: caller has no OrgID")
-	}
-	env, err := t.deps.Queries.GetEnvironment(ctx, orgID, orgchart.WorkerID(args.WorkerID))
-	if err != nil {
-		return nil, fmt.Errorf("get environment for %q: %w", args.WorkerID, err)
-	}
-	return json.Marshal(environmentView{
-		WorkerID:  env.WorkerID,
-		Path:      env.Path,
-		CreatedAt: env.CreatedAt,
-	})
 }

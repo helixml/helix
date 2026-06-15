@@ -1,12 +1,11 @@
 // Package lifecycle owns the cross-cutting orchestration that
-// composes store + runtime + on-disk state when a Worker is created
-// or destroyed.
+// composes store + runtime when a Worker is created or destroyed.
 //
 // This package owns the two halves of the Worker lifecycle: Hire (the
-// create cascade — Worker row, env dir, reporting line, topology
-// reconcile, hire-activation dispatch) and Fire (the destroy cascade —
-// Helix project/app teardown, store cleanup, env-dir removal, topology
-// reconcile), plus the DeleteRole cascade. Both REST and the MCP
+// create cascade — Worker row, reporting line, topology reconcile,
+// hire-activation dispatch) and Fire (the destroy cascade — Helix
+// project/app teardown, store cleanup, topology reconcile), plus the
+// DeleteRole cascade. Both REST and the MCP
 // hire_worker tool drive Hire here, so the hire semantics cannot drift
 // between callers. Fire has no MCP counterpart by design (the LLM
 // should not be able to delete workers from chat), so it is a plain Go
@@ -18,13 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -35,7 +31,7 @@ import (
 // narrow interface so the lifecycle service doesn't import the tools
 // package. The composition root's dispatcher satisfies it.
 type HireDispatcher interface {
-	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
@@ -52,10 +48,9 @@ type HelixRuntime interface {
 // drives. All fields are required; pass nil HelixRuntime only in
 // tests that don't need the Helix-side teardown.
 type Service struct {
-	Store   *store.Store
-	Helix   HelixRuntime
-	Logger  *slog.Logger
-	EnvsDir string
+	Store  *store.Store
+	Helix  HelixRuntime
+	Logger *slog.Logger
 
 	// Reconciler reconciles the activation/team Streams after the Worker
 	// row is gone — it tears down the fired Worker's own Streams and
@@ -102,17 +97,17 @@ type HireResult struct {
 }
 
 // Hire brings a Worker into existence: a Worker row carrying the
-// per-hire IdentityContent, an Environment row pointing at
-// <EnvsDir>/<workerID>/, the initial reporting line, a topology
+// per-hire IdentityContent, the initial reporting line, a topology
 // reconcile, the hiring-user bookkeeping, and — for AI Workers — a
 // pre-allocated hire activation dispatched through the Spawner. This is
 // the single implementation the MCP hire_worker tool and the REST POST
 // /workers handler both call (no synthetic Invocation).
 //
-// State lives in the domain (DB), not on disk: role.md / identity.md /
-// agent.md are projected into the Environment by the Spawner at
-// activation time. A Worker's MCP tool surface is derived live from
-// Role.Tools — there is no per-Worker tool record and no tools param.
+// State lives in the domain (DB) + the per-Worker repo's helix-specs
+// git branch (role.md / identity.md / agent.md), which the agent pulls
+// inside its sandbox — there is no API-host workspace directory. A
+// Worker's MCP tool surface is derived live from Role.Tools — there is
+// no per-Worker tool record and no tools param.
 func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireResult, error) {
 	if err := p.Kind.Validate(); err != nil {
 		return HireResult{}, err
@@ -122,9 +117,6 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 	}
 	if p.IdentityContent == "" {
 		return HireResult{}, fmt.Errorf("identityContent is required")
-	}
-	if s.EnvsDir == "" {
-		return HireResult{}, fmt.Errorf("server is not configured with an envs directory")
 	}
 	if s.NewID == nil || s.Now == nil {
 		return HireResult{}, fmt.Errorf("lifecycle: clock/id-generator not wired")
@@ -149,12 +141,12 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 	if id == "" {
 		id = orgchart.WorkerID("w-" + s.NewID())
 	}
-	// The id becomes a path segment under EnvsDir below — reject any
-	// traversal ("../…") or separator before it reaches the filesystem.
+	// The id becomes a path segment in the helix-specs git layout
+	// (workers/<id>/.context/…) and in stream ids — reject any traversal
+	// or separator before it propagates.
 	if err := orgchart.ValidID(string(id)); err != nil {
 		return HireResult{}, fmt.Errorf("worker id: %w", err)
 	}
-	envPath := filepath.Join(s.EnvsDir, string(id))
 
 	var wkr orgchart.Worker
 	switch p.Kind {
@@ -174,9 +166,6 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		return HireResult{}, p.Kind.Validate() // unreachable; Validate above rejected it
 	}
 
-	if err := os.MkdirAll(envPath, 0o750); err != nil {
-		return HireResult{}, fmt.Errorf("create env dir %q: %w", envPath, err)
-	}
 	if err := s.Store.Workers.Create(ctx, wkr); err != nil {
 		return HireResult{}, err
 	}
@@ -189,16 +178,6 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		}
 		if err := s.Store.ReportingLines.Add(ctx, line); err != nil {
 			return HireResult{}, fmt.Errorf("add reporting line: %w", err)
-		}
-	}
-
-	env, err := environment.New(string(id), envPath, s.Now(), orgID)
-	if err != nil {
-		return HireResult{}, err
-	}
-	if s.Store.Environments != nil {
-		if err := s.Store.Environments.Create(ctx, env); err != nil {
-			return HireResult{}, fmt.Errorf("create environment: %w", err)
 		}
 	}
 
@@ -233,7 +212,7 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		}
 	}
 	if p.Kind == orgchart.WorkerKindAI && s.Dispatcher != nil {
-		s.Dispatcher.DispatchHire(ctx, orgID, id, envPath, hireActID)
+		s.Dispatcher.DispatchHire(ctx, orgID, id, hireActID)
 	}
 
 	return HireResult{WorkerID: id, ActivationID: hireActID}, nil
@@ -316,17 +295,6 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// deleted below (Workers.Delete drops the subs; the
 	// org_reporting_lines ON DELETE CASCADE foreign keys drop the
 	// lines). Nothing to drop explicitly here.
-
-	if env, err := s.Store.Environments.Get(ctx, orgID, id); err == nil {
-		if env.Path != "" {
-			if rmErr := os.RemoveAll(env.Path); rmErr != nil {
-				s.logger().Warn("fire: remove env dir", "worker", id, "path", env.Path, "err", rmErr)
-			}
-		}
-	}
-	if err := s.Store.Environments.Delete(ctx, orgID, id); err != nil {
-		s.logger().Warn("fire: delete environment row", "worker", id, "err", err)
-	}
 
 	if err := s.Store.Workers.Delete(ctx, orgID, id); err != nil {
 		return fmt.Errorf("delete worker row %q: %w", id, err)

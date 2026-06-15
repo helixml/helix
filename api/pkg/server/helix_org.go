@@ -103,15 +103,10 @@ const alphaFeatureHelixOrg = "helix-org"
 // *gorm.DB accessor (helix's PostgresStore does); otherwise this
 // returns an error.
 //
-// Working directories: each Worker still has an envsDir entry for
-// the Spawner's cwd, but the directory's contents are placeholder
-// only — real per-Worker state lives in the Worker's Helix project
-// (a git repo + agent app). When LocalFSPath is empty the envsDir
-// goes under os.TempDir() so gcs/s3 deployments work too.
+// Per-Worker state lives in the Worker's Helix project (a git repo +
+// agent app) and on the repo's helix-specs branch — there is no
+// API-host workspace directory.
 //
-// Every gated user currently shares one owner Worker — see the design
-// doc (design/2026-05-17-helix-org-saas-alpha.md) for the multi-tenant
-// follow-up.
 // Returns nil (and logs) if the embedded org cannot be initialised for
 // this deployment — callers must treat that as "don't mount".
 //
@@ -178,7 +173,7 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 		}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
-		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events, Environments: st.Environments, Activations: st.Activations}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
 		// Activations is built at the composition root (not here) because
 		// the Activate use case needs the project ensurer + dispatcher +
 		// session resolver, which aren't available in this builder.
@@ -203,13 +198,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	orgRoot := filepath.Join(root, "helix-org")
 	if err := os.MkdirAll(orgRoot, 0o750); err != nil {
 		return nil, fmt.Errorf("create helix-org dir %q: %w", orgRoot, err)
-	}
-	// Per-Worker env directories are created on hire (lifecycle.Hire);
-	// the org starts empty, so nothing is provisioned here beyond the
-	// shared envs root.
-	envsDir := filepath.Join(orgRoot, "envs")
-	if err := os.MkdirAll(envsDir, 0o750); err != nil {
-		return nil, fmt.Errorf("create envs dir %q: %w", envsDir, err)
 	}
 
 	// Open the org store against helix's Postgres connection. The
@@ -236,7 +224,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	bc := wakebus.New(cfg.APIServer.pubsub)
 	deps := mcptools.DefaultDeps(st)
 	deps.Hub = bc
-	deps.EnvsDir = envsDir
 
 	// Operational config registry — chat backend creds, model
 	// selection, etc. Backed by the same Postgres rows so settings
@@ -462,10 +449,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// runtime port is satisfied by the same in-process adapter every
 	// other Helix call goes through.
 	lifecycleSvc := &lifecycle.Service{
-		Store:   st,
-		Helix:   inProcClient,
-		Logger:  logger,
-		EnvsDir: envsDir,
+		Store:  st,
+		Helix:  inProcClient,
+		Logger: logger,
 		// Single topology reconciler shared with the tools registry and
 		// the REST handlers — one owner of activation/team Stream
 		// lifecycle across hire, reparent, and fire.
@@ -512,7 +498,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Ensurer:    projectApplier,
 		Dispatcher: dispatcher,
 		Sessions:   orgWorkerRuntime{st: st},
-		EnvsDir:    envsDir,
 	})
 	apiDeps := helixorgapi.Deps{
 		Streams:       svc.Streams,
@@ -537,7 +522,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Hub:            bc,
 		Dispatcher:     dispatcher,
 		DBPath:         orgRoot,
-		EnvsDir:        envsDir,
 		Lifecycle:      lifecycleSvc,
 		Tools:          reg,
 		ProjectEnsurer: projectApplier,
@@ -585,10 +569,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	log.Info().
 		Str("root", orgRoot).
-		Str("envs", envsDir).
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
-	scope := newHelixOrgScope(configReg, st, envsDir, helixStore, mirror)
+	scope := newHelixOrgScope(configReg, st, helixStore, mirror)
 
 	// Public github webhook handler — mounted on the insecure router
 	// because GitHub deliveries authenticate via HMAC, not the helix
@@ -970,7 +953,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 	// One inflight cap shared across every per-org spawner config.
 	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error {
+	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating.
 		if d.Applier != nil {
@@ -994,7 +977,7 @@ func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 			Str("runtime", cfgVal.Runtime).
 			Str("credentials", cfgVal.Credentials).
 			Msg("helix-org spawner: per-org activation")
-		return runtimehelix.Spawner(cfgVal)(ctx, orgID, workerID, envPath, triggers)
+		return runtimehelix.Spawner(cfgVal)(ctx, orgID, workerID, triggers)
 	}
 }
 

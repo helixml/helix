@@ -25,7 +25,6 @@ func TestBaseReadToolsGolden(t *testing.T) {
 		ListStreamEventsName,
 		ReadEventsName,
 		WorkerLogName,
-		GetWorkerEnvironmentName,
 		MintCredentialName,
 	}
 	if !reflect.DeepEqual(BaseReadTools, want) {
@@ -58,7 +57,6 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 		ListStreamEventsName:     &ListStreamEvents{deps: deps},
 		ReadEventsName:           &ReadEvents{deps: deps},
 		WorkerLogName:            &WorkerLog{deps: deps},
-		GetWorkerEnvironmentName: &GetWorkerEnvironment{deps: deps},
 		MintCredentialName:       &MintCredential{deps: deps},
 	}
 	for _, name := range BaseReadTools {
@@ -108,7 +106,6 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 		ListStreamEventsName,
 		ReadEventsName,
 		WorkerLogName,
-		GetWorkerEnvironmentName,
 		MintCredentialName,
 	}
 	if !reflect.DeepEqual(got, want) {

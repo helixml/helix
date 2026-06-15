@@ -20,17 +20,14 @@ import (
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
-// helixOrgScope bundles the per-org state the middleware needs to
-// pass into bootstrap and into the handlers. EnvsDir is the per-org
-// working-directory root (envs land under <root>/<orgID>/) so two
-// orgs can both have a `w-owner` Worker without clashing on disk.
+// helixOrgScope bundles the per-org state the middleware needs to pass
+// into the per-org setup and into the handlers.
 type helixOrgScope struct {
 	configs    *configregistry.Registry
 	orgStore   *helixorgstore.Store
-	envsRoot   string
 	helixStore helixstore.Store
 
-	// mirror's EnsureAll runs after bootstrap so pre-existing /
+	// mirror's EnsureAll runs on first request so pre-existing /
 	// inline-chat-only workers are mirrored without an activation first.
 	mirror *runtimehelix.Mirror
 
@@ -38,38 +35,28 @@ type helixOrgScope struct {
 	bootstrapped map[string]bool
 	// bootstrapFlight dedupes concurrent first-load races on the same
 	// org. The HelixOrgChart page fires several React Query hooks in
-	// parallel (/chart, /workers, /roles, /streams, …) and every one
-	// of those handlers funnels through ensureBootstrap. Without
-	// singleflight the per-org mutex only guarded the `bootstrapped`
-	// map flag, so multiple goroutines could enter bootstrap.Run at
-	// once — the winner created r-owner / w-owner, every loser
-	// returned "create owner role: already exists" (HTTP 500). The
-	// browser then served the 500 on the first paint and only worked
-	// after a refresh (when `bootstrapped[orgID]` was already true).
+	// parallel (/chart, /workers, /roles, /streams, …) and every one of
+	// those handlers funnels through ensureBootstrap; the singleflight
+	// collapses them into a single per-org setup run.
 	bootstrapFlight singleflight.Group
 }
 
 // newHelixOrgScope wires the data the middleware needs. configs and
-// orgStore are the same instances handed to the helix-org handler;
-// envsRoot is the parent directory under which `<orgID>/w-owner/`
-// will land at bootstrap time.
-func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, envsRoot string, hs helixstore.Store, mirror *runtimehelix.Mirror) *helixOrgScope {
+// orgStore are the same instances handed to the helix-org handler.
+func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, hs helixstore.Store, mirror *runtimehelix.Mirror) *helixOrgScope {
 	return &helixOrgScope{
 		configs:      configs,
 		orgStore:     orgStore,
-		envsRoot:     envsRoot,
 		helixStore:   hs,
 		mirror:       mirror,
 		bootstrapped: map[string]bool{},
 	}
 }
 
-// ensureBootstrap materialises the per-org owner Worker + structural
-// grants on first request for an org. Subsequent calls fast-path on
-// ErrAlreadyInitialised. Also provisions the helix.api_key into the
-// org's config registry so the spawner can use it.
-//
-// The envsDir under <envsRoot>/<orgID>/ is created on demand.
+// ensureBootstrap runs the per-org first-request setup: provision the
+// helix.api_key into the org's config registry, converge any existing
+// graph, and start the transcript mirror. No owner is seeded — orgs
+// start empty. Runs once per org per process (guarded by bootstrapped).
 func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error {
 	s.mu.Lock()
 	if s.bootstrapped[orgID] {

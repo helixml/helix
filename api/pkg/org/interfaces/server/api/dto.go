@@ -151,7 +151,6 @@ type SettingsSpecDTO struct {
 type SettingsResponse struct {
 	PublicURL string            `json:"public_url,omitempty"`
 	DBPath    string            `json:"db_path,omitempty"`
-	EnvsDir   string            `json:"envs_dir,omitempty"`
 	Specs     []SettingsSpecDTO `json:"specs"`
 }
 

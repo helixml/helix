@@ -46,7 +46,6 @@ type fakeDispatcher struct {
 	manualCalls     int
 	lastOrgID       string
 	lastWorkerID    orgchart.WorkerID
-	lastEnvPath     string
 	lastActivation  activation.ID
 	dispatchedEvent *streaming.Event
 }
@@ -57,26 +56,24 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, ev streaming.Event) {
 	f.dispatchedEvent = &ev
 }
 
-func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, wid orgchart.WorkerID, envPath string, actID activation.ID) {
+func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, wid orgchart.WorkerID, actID activation.ID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.manualCalls++
 	f.lastOrgID = orgID
 	f.lastWorkerID = wid
-	f.lastEnvPath = envPath
 	f.lastActivation = actID
 }
 
 // wireActivate rebuilds deps.Activations with the test ensurer +
 // dispatcher so the activate use case (which lives in the activations
 // service now, not the handler) exercises the fakes.
-func wireActivate(deps orgapi.Deps, st *store.Store, ensurer activations.ProjectEnsurer, disp activations.ManualDispatcher, envsDir string) orgapi.Deps {
+func wireActivate(deps orgapi.Deps, st *store.Store, ensurer activations.ProjectEnsurer, disp activations.ManualDispatcher) orgapi.Deps {
 	deps.Activations = activations.New(activations.Deps{
 		Repo:       st.Activations,
 		NewID:      func() string { return "act-1" },
 		Ensurer:    ensurer,
 		Dispatcher: disp,
-		EnvsDir:    envsDir,
 	})
 	return deps
 }
@@ -97,7 +94,7 @@ func TestActivateWorker_HappyPath(t *testing.T) {
 
 	ensurer := &fakeEnsurer{projectID: "prj_alice", agentApp: "app_alice", repoID: "repo_alice"}
 	disp := &fakeDispatcher{}
-	deps = wireActivate(deps, st, ensurer, disp, "/tmp/helix-org-envs")
+	deps = wireActivate(deps, st, ensurer, disp)
 
 	h := orgapi.Handler(deps)
 	rec := do(t, h, "POST", "/workers/w-alice/activate", nil)
@@ -129,9 +126,6 @@ func TestActivateWorker_HappyPath(t *testing.T) {
 	}
 	if string(disp.lastActivation) != resp.ActivationID {
 		t.Errorf("DispatchManual activation id (%q) does not match response (%q)", disp.lastActivation, resp.ActivationID)
-	}
-	if disp.lastEnvPath != "/tmp/helix-org-envs/w-alice" {
-		t.Errorf("envPath = %q, want /tmp/helix-org-envs/w-alice", disp.lastEnvPath)
 	}
 
 	// Audit row must be persisted with the same ID so the Spawner
@@ -168,7 +162,7 @@ func TestActivateWorker_AllowsHumanWorker(t *testing.T) {
 
 	ensurer := &fakeEnsurer{projectID: "prj_human", agentApp: "app_human"}
 	disp := &fakeDispatcher{}
-	deps = wireActivate(deps, st, ensurer, disp, "")
+	deps = wireActivate(deps, st, ensurer, disp)
 	h := orgapi.Handler(deps)
 
 	rec := do(t, h, "POST", "/workers/w-human/activate", nil)
@@ -196,7 +190,7 @@ func TestActivateWorker_EnsureFailureDoesNotEnqueue(t *testing.T) {
 
 	ensurer := &fakeEnsurer{err: errors.New("apply project failed")}
 	disp := &fakeDispatcher{}
-	deps = wireActivate(deps, st, ensurer, disp, "")
+	deps = wireActivate(deps, st, ensurer, disp)
 	h := orgapi.Handler(deps)
 
 	rec := do(t, h, "POST", "/workers/w-alice/activate", nil)

@@ -99,7 +99,6 @@ func TestCreateRoleUnionWithCallerTools(t *testing.T) {
 		ListStreamEventsName,
 		ReadEventsName,
 		WorkerLogName,
-		GetWorkerEnvironmentName,
 		MintCredentialName,
 	}
 	if !reflect.DeepEqual(role.Tools, want) {

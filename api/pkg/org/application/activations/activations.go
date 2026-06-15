@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -29,7 +28,7 @@ type ProjectEnsurer interface {
 // per-Worker queue. activationID is the pre-allocated audit-row id;
 // empty means the Spawner mints its own.
 type ManualDispatcher interface {
-	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
 }
 
 // SessionResolver returns a Worker's current desktop session id (empty
@@ -53,7 +52,6 @@ type Activations struct {
 	ensurer    ProjectEnsurer
 	dispatcher ManualDispatcher
 	sessions   SessionResolver
-	envsDir    string
 }
 
 // Deps are the constructor-injected collaborators for New. Repo may be
@@ -68,7 +66,6 @@ type Deps struct {
 	Ensurer    ProjectEnsurer
 	Dispatcher ManualDispatcher
 	Sessions   SessionResolver
-	EnvsDir    string
 }
 
 // New constructs the Activations service.
@@ -84,7 +81,6 @@ func New(deps Deps) *Activations {
 		ensurer:    deps.Ensurer,
 		dispatcher: deps.Dispatcher,
 		sessions:   deps.Sessions,
-		envsDir:    deps.EnvsDir,
 	}
 }
 
@@ -108,10 +104,11 @@ type ActivateResult struct {
 //  4. Enqueue on the dispatcher's per-Worker queue (coalesces with any
 //     in-flight activation, so a double-click folds into one follow-up).
 //
-// The worker-id is validated up front because it becomes a path segment
-// under EnvsDir (path-injection guard). Callers should still confirm the
-// Worker exists (404) before calling — Activate's Ensure will also error
-// on a missing Worker, but a pre-check gives the cleaner status.
+// The worker-id is validated up front (it propagates into the
+// helix-specs git layout and stream ids — a defensive format check).
+// Callers should still confirm the Worker exists (404) before calling —
+// Activate's Ensure will also error on a missing Worker, but a pre-check
+// gives the cleaner status.
 func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.WorkerID) (ActivateResult, error) {
 	if a.ensurer == nil || a.dispatcher == nil {
 		return ActivateResult{}, ErrActivateUnavailable
@@ -131,11 +128,7 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 	if err != nil {
 		return ActivateResult{}, err
 	}
-	envPath := ""
-	if a.envsDir != "" {
-		envPath = filepath.Join(a.envsDir, string(workerID))
-	}
-	a.dispatcher.DispatchManual(ctx, orgID, workerID, envPath, activationID)
+	a.dispatcher.DispatchManual(ctx, orgID, workerID, activationID)
 	return ActivateResult{
 		ActivationID: activationID,
 		ProjectID:    projectID,

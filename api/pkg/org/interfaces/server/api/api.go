@@ -46,7 +46,7 @@ type Dispatcher interface {
 	// given Worker. Called by activateWorker after the synchronous
 	// ensureProject step. activationID is the pre-allocated audit-row
 	// ID; empty means the Spawner mints its own.
-	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
 }
 
 // ProjectEnsurer provisions (or fast-paths) the per-Worker Helix
@@ -99,7 +99,6 @@ type Deps struct {
 
 	PublicURL string
 	DBPath    string
-	EnvsDir   string
 
 	// Tools is the same tools registry the MCP server exposes — used
 	// by GET /tools so the chart UI's role-editor multi-select can

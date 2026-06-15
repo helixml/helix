@@ -44,7 +44,7 @@ type EventDispatcher interface {
 	// reuses the existing row instead of writing a sibling. Empty
 	// activationID is allowed for callers that don't pre-allocate
 	// (legacy code paths, tests that don't wire activation.Repository).
-	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
 }
 
 // Deps is the MCP tool surface — the pre-built application services and
@@ -94,7 +94,6 @@ type Config struct {
 	Queries             *queries.Queries
 	Now                 Clock
 	NewID               IDGen
-	EnvsDir             string
 	Hub                 *wakebus.Bus
 	Dispatcher          EventDispatcher
 	Workspace           runtime.WorkspaceSync
@@ -174,7 +173,6 @@ func (c Config) lifecycleService() *lifecycle.Service {
 		Store:      c.Store,
 		Reconciler: c.Reconciler,
 		HireHook:   c.HireHook,
-		EnvsDir:    c.EnvsDir,
 		Now:        c.Now,
 		NewID:      c.NewID,
 	}
@@ -232,7 +230,7 @@ func DefaultDeps(s *store.Store) Config {
 	c.Queries = queries.New(queries.Deps{
 		Roles: s.Roles, Workers: s.Workers, ReportingLines: s.ReportingLines,
 		Streams: s.Streams, Subscriptions: s.Subscriptions, Events: s.Events,
-		Environments: s.Environments, Activations: s.Activations,
+		Activations: s.Activations,
 	})
 	return c
 }
@@ -267,7 +265,6 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&GetWorker{deps: deps},
 		&Managers{deps: deps},
 		&Reports{deps: deps},
-		&GetWorkerEnvironment{deps: deps},
 		&GetWorkerProject{deps: deps},
 		&ListStreams{deps: deps},
 		&GetStream{deps: deps},

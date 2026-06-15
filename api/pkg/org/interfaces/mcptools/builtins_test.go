@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -39,11 +36,9 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -75,12 +70,6 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	owner, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	ownerEnvPath := filepath.Join(envsDir, "w-owner")
-	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
-		t.Fatalf("mkdir owner env: %v", err)
-	}
-	ownerEnv, _ := environment.New("w-owner", ownerEnvPath, now, "org-test")
-	mustCreate(t, s.Environments.Create(ctx, ownerEnv))
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
@@ -104,16 +93,6 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		"identityContent": "# Meina Gladstone\nCEO. Decisive, warm, direct.",
 	})
 
-	// hire_worker creates the env directory but does not write files —
-	// the spawner projects role.md / identity.md / agent.md at
-	// activation time. So we should see the directory exist but be
-	// empty after a hire.
-	ceoEnvPath := filepath.Join(envsDir, "w-ceo")
-	if entries, err := os.ReadDir(ceoEnvPath); err != nil {
-		t.Fatalf("expected env dir to exist: %v", err)
-	} else if len(entries) != 0 {
-		t.Fatalf("expected empty env dir, got %d entries", len(entries))
-	}
 	// IdentityContent lives in the domain.
 	ceoWorker, err := s.Workers.Get(ctx, "org-test", "w-ceo")
 	if err != nil {
@@ -181,11 +160,9 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -227,17 +204,6 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 		"identityContent": "# Bob",
 	})
 
-	// hire_worker does not write env files; the dirs exist but are empty.
-	for _, id := range []string{"w-a", "w-b"} {
-		entries, err := os.ReadDir(filepath.Join(envsDir, id))
-		if err != nil {
-			t.Fatalf("read %s env dir: %v", id, err)
-		}
-		if len(entries) != 0 {
-			t.Fatalf("%s env should be empty after hire, got %d entries", id, len(entries))
-		}
-	}
-
 	invokeExpectID(t, ownerSession, mcptools.UpdateRoleName, map[string]any{
 		"roleId":  "r-eng",
 		"content": "# Engineer v2\nBuild better stuff.",
@@ -251,12 +217,6 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	}
 	if got.Content != "# Engineer v2\nBuild better stuff." {
 		t.Fatalf("r-eng content = %q", got.Content)
-	}
-	for _, id := range []string{"w-a", "w-b"} {
-		entries, _ := os.ReadDir(filepath.Join(envsDir, id))
-		if len(entries) != 0 {
-			t.Fatalf("%s env should still be empty after update_role, got %d entries", id, len(entries))
-		}
 	}
 
 	// update_identity rewrites Worker.IdentityContent on the DB row.
@@ -290,11 +250,9 @@ func TestStreamMembers(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -360,11 +318,9 @@ func TestInviteWorkers(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -454,11 +410,9 @@ func TestDM(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -581,11 +535,9 @@ func TestReadsOverMCP(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -700,11 +652,9 @@ func TestWorkerLog(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -814,10 +764,8 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -994,12 +942,10 @@ func TestWorkerRoleBaselineReadsOverMCP(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 	seedActingWorker(t, s, "org-test", "w-boss", "r-boss", mcptools.OwnerRoleTools())
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -1031,14 +977,12 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	envsDir := t.TempDir()
 	// Seed a manager worker to act as (the chart's New-Role → Add-Worker
 	// entry point, now that there is no auto-seeded owner).
 	seedActingWorker(t, s, "org-test", "w-owner", "r-owner", mcptools.OwnerRoleTools())
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
-	deps.EnvsDir = envsDir
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}

@@ -88,8 +88,8 @@ func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streaming.Outbound)
 // case.
 //
 // No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID) {
-	d.queue.Enqueue(orgID, workerID, envPath, activation.Trigger{
+func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID) {
+	d.queue.Enqueue(orgID, workerID, activation.Trigger{
 		Kind:         activation.TriggerHire,
 		ActivationID: activationID,
 	})
@@ -108,8 +108,8 @@ func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgc
 // goroutine. activationID semantics match DispatchHire — callers that
 // pre-allocate the audit row pass its ID through; empty means the
 // Spawner mints its own. No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID) {
-	d.queue.Enqueue(orgID, workerID, envPath, activation.Trigger{
+func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID) {
+	d.queue.Enqueue(orgID, workerID, activation.Trigger{
 		Kind:         activation.TriggerManual,
 		ActivationID: activationID,
 	})
@@ -172,11 +172,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 		if w.Kind() != orgchart.WorkerKindAI {
 			continue // human Workers are not activated by the runtime
 		}
-		env, err := d.store.Environments.Get(ctx, orgID, w.ID())
-		if err != nil {
-			d.logger.Warn("dispatch: get environment", "worker", w.ID(), "err", err)
-			continue
-		}
 		trigger := activation.Trigger{
 			Kind:       activation.TriggerEvent,
 			EventID:    e.ID,
@@ -186,7 +181,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
 			CreatedAt:  e.CreatedAt,
 		}
-		d.queue.Enqueue(orgID, w.ID(), env.Path, trigger)
+		d.queue.Enqueue(orgID, w.ID(), trigger)
 	}
 }
 

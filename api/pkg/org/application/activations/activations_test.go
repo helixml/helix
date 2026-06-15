@@ -21,7 +21,7 @@ func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.WorkerID) (str
 
 type fakeDispatcher struct{ gotID activation.ID }
 
-func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.WorkerID, _ string, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.WorkerID, activationID activation.ID) {
 	f.gotID = activationID
 }
 

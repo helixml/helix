@@ -160,7 +160,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if sem == nil {
 		sem = make(chan struct{}, cfg.MaxInflight)
 	}
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) (retErr error) {
+	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}

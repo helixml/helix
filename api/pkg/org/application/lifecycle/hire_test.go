@@ -19,11 +19,10 @@ func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC
 // newHireService builds a lifecycle.Service wired only for Hire (the
 // create half) against the in-memory store. Fire-only collaborators
 // (Helix / Mirror / Owner) stay nil — these tests never fire.
-func newHireService(st *store.Store, envsDir string) *lifecycle.Service {
+func newHireService(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
 		Store:      st,
 		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: hireClock}),
-		EnvsDir:    envsDir,
 		Now:        hireClock,
 		NewID:      func() string { return "id" },
 	}
@@ -36,7 +35,7 @@ func newHireService(st *store.Store, envsDir string) *lifecycle.Service {
 func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	svc := newHireService(st, t.TempDir())
+	svc := newHireService(st)
 	ctx := context.Background()
 
 	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, hireClock(), "org-test")
@@ -61,9 +60,6 @@ func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 	if _, err := st.Workers.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("worker not persisted: %v", err)
 	}
-	if _, err := st.Environments.Get(ctx, "org-test", "w-new"); err != nil {
-		t.Fatalf("environment not created: %v", err)
-	}
 	managers, _ := st.ReportingLines.ListManagers(ctx, "org-test", "w-new")
 	if len(managers) != 1 || managers[0] != "w-boss" {
 		t.Fatalf("reporting line not wired: %v", managers)
@@ -77,7 +73,7 @@ func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 func TestHire_RejectsUnknownKind(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	svc := newHireService(st, t.TempDir())
+	svc := newHireService(st)
 	_, err := svc.Hire(context.Background(), "org-test", lifecycle.HireParams{
 		RoleID: "r-eng", Kind: "claude", IdentityContent: "x",
 	})
@@ -92,7 +88,7 @@ func TestHire_RejectsUnknownKind(t *testing.T) {
 func TestHire_RejectsPathTraversalID(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	svc := newHireService(st, t.TempDir())
+	svc := newHireService(st)
 	ctx := context.Background()
 	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, hireClock(), "org-test")
 	if err := st.Roles.Create(ctx, role); err != nil {
@@ -113,7 +109,7 @@ func TestHire_RejectsPathTraversalID(t *testing.T) {
 func TestHire_UnknownRole(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	svc := newHireService(st, t.TempDir())
+	svc := newHireService(st)
 	_, err := svc.Hire(context.Background(), "org-test", lifecycle.HireParams{
 		RoleID: "r-missing", Kind: orgchart.WorkerKindAI, IdentityContent: "x",
 	})

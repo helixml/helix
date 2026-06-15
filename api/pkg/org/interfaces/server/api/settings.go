@@ -29,7 +29,6 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 	resp := SettingsResponse{
 		PublicURL: a.deps.PublicURL,
 		DBPath:    a.deps.DBPath,
-		EnvsDir:   a.deps.EnvsDir,
 	}
 	if a.deps.Configs != nil {
 		specs := a.deps.Configs.Specs()

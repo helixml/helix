@@ -25,7 +25,6 @@ var orgRowTypes = []any{
 	&streamRow{},
 	&subscriptionRow{},
 	&eventRow{},
-	&environmentRow{},
 	&configRow{},
 	&activationRow{},
 }
@@ -44,7 +43,6 @@ var orgTableNames = []string{
 	"org_streams",
 	"org_subscriptions",
 	"org_events",
-	"org_environments",
 	"org_configs",
 	"org_activations",
 }
@@ -95,7 +93,6 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Streams:            newStreamsRepo(db),
 		Subscriptions:      newSubscriptionsRepo(db),
 		Events:             newEventsRepo(db, workers),
-		Environments:       newEnvironmentsRepo(db),
 		Configs:            newConfigsRepo(db),
 		Activations:        newActivationsRepo(db),
 	}, nil

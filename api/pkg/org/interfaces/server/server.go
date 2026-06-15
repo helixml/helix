@@ -57,7 +57,6 @@ func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wake
 		Streams:        s.Streams,
 		Subscriptions:  s.Subscriptions,
 		Events:         s.Events,
-		Environments:   s.Environments,
 		Activations:    s.Activations,
 	})
 	pd := publishing.Deps{

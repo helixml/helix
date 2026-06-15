@@ -36,7 +36,6 @@ var BaseReadTools = []tool.Name{
 	ListStreamEventsName,
 	ReadEventsName,
 	WorkerLogName,
-	GetWorkerEnvironmentName,
 	MintCredentialName,
 }
 

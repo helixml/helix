@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -33,7 +31,6 @@ type fakeDispatcher struct {
 type dispatchHireCall struct {
 	orgID        string
 	workerID     orgchart.WorkerID
-	envPath      string
 	activationID activation.ID
 }
 
@@ -43,9 +40,9 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
 	f.mu.Unlock()
 }
 
-func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID) {
 	f.mu.Lock()
-	f.hires = append(f.hires, dispatchHireCall{orgID: orgID, workerID: workerID, envPath: envPath, activationID: activationID})
+	f.hires = append(f.hires, dispatchHireCall{orgID: orgID, workerID: workerID, activationID: activationID})
 	f.mu.Unlock()
 }
 
@@ -55,7 +52,7 @@ func (f *fakeDispatcher) hireCount() int {
 	return len(f.hires)
 }
 
-func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, string, orgchart.Worker) {
+func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, orgchart.Worker) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
@@ -74,10 +71,8 @@ func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, string, orgchart.Wor
 		t.Fatalf("create owner worker: %v", err)
 	}
 
-	envsDir := t.TempDir()
 	dispatcher := &fakeDispatcher{}
 	deps := DefaultDeps(st)
-	deps.EnvsDir = envsDir
 	deps.Dispatcher = dispatcher
 	deps.Now = func() time.Time { return now }
 	// Deterministic IDs make assertions on stream IDs feasible.
@@ -86,7 +81,7 @@ func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, string, orgchart.Wor
 		counter++
 		return "id" + strings.Repeat("0", 1) + string(rune('a'+counter-1))
 	}
-	return deps, dispatcher, envsDir, caller
+	return deps, dispatcher, caller
 }
 
 // TestHireWorkerHumanCreatesRowsAndSkipsActivation verifies that a
@@ -95,7 +90,7 @@ func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, string, orgchart.Wor
 // behaviour we MUST preserve through the B4 refactor.
 func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	t.Parallel()
-	deps, dispatcher, envsDir, caller := newHireTestEnv(t)
+	deps, dispatcher, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
 
 	// Hire under a manager — the canonical case (only the owner is
@@ -129,15 +124,6 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	if _, err := deps.Store.Workers.Get(ctx, "org-test", "w-renee"); err != nil {
 		t.Fatalf("worker row missing: %v", err)
 	}
-	// Environment row exists with expected envPath.
-	env, err := deps.Store.Environments.Get(ctx, "org-test", "w-renee")
-	if err != nil {
-		t.Fatalf("environment row missing: %v", err)
-	}
-	wantPath := filepath.Join(envsDir, "w-renee")
-	if env.Path != wantPath {
-		t.Errorf("env path = %q, want %q", env.Path, wantPath)
-	}
 	// Human hires do NOT get an transcript.
 	if _, err := deps.Store.Streams.Get(ctx, "org-test", streaming.StreamID("s-transcript-w-renee")); err == nil {
 		t.Fatalf("human hire must NOT create transcript")
@@ -159,7 +145,7 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 // the returned activation_id without racing the Spawner.
 func TestHireWorkerReturnsActivationID(t *testing.T) {
 	t.Parallel()
-	deps, dispatcher, _, caller := newHireTestEnv(t)
+	deps, dispatcher, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -214,7 +200,7 @@ func TestHireWorkerReturnsActivationID(t *testing.T) {
 
 func TestHireWorkerAICreatesTranscriptAndDispatches(t *testing.T) {
 	t.Parallel()
-	deps, dispatcher, _, caller := newHireTestEnv(t)
+	deps, dispatcher, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
 
 	// Hire under w-owner (the canonical case): the manager observes the
@@ -253,35 +239,11 @@ func TestHireWorkerAICreatesTranscriptAndDispatches(t *testing.T) {
 
 // TestHireWorkerEnvDirCreated checks the on-disk Environment dir is
 // created at the configured path.
-func TestHireWorkerEnvDirCreated(t *testing.T) {
-	t.Parallel()
-	deps, _, envsDir, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps.Build()}
-
-	args, _ := json.Marshal(hireWorkerArgs{
-		ID:              "w-alice",
-		RoleID:          "r-owner",
-		Kind:            orgchart.WorkerKindAI,
-		IdentityContent: "# Alice",
-	})
-	if _, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: args}); err != nil {
-		t.Fatalf("Invoke: %v", err)
-	}
-	wantPath := filepath.Join(envsDir, "w-alice")
-	info, err := os.Stat(wantPath)
-	if err != nil {
-		t.Fatalf("stat %s: %v", wantPath, err)
-	}
-	if !info.IsDir() {
-		t.Fatalf("%s is not a directory", wantPath)
-	}
-}
-
 // TestHireWorkerMissingIdentityRejected checks the hire fails fast
 // before any DB row is written when identityContent is empty.
 func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -327,7 +289,7 @@ func (h *captureHireHandler) OnHire(_ context.Context, orgID string, w orgchart.
 // HireHook port, not via a direct SaveHiringUser call.
 func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{}
 	deps.HireHook = hook
 	tl := &HireWorker{deps: deps.Build()}
@@ -356,7 +318,7 @@ func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
 // any hiring-user state.
 func TestHireWorkerSkipsHireHandlerWithoutUserID(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{}
 	deps.HireHook = hook
 	tl := &HireWorker{deps: deps.Build()}
@@ -381,7 +343,7 @@ func TestHireWorkerSkipsHireHandlerWithoutUserID(t *testing.T) {
 // said non-fatal but the code returned the error).
 func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{failErr: errors.New("boom")}
 	deps.HireHook = hook
 	tl := &HireWorker{deps: deps.Build()}
@@ -409,7 +371,7 @@ func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 // must preserve via the HireHook port.
 func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	// Wire the real Hire so the persistence side-effect runs
 	// end-to-end. NoopHireHook is the default and would skip the
 	// SaveHiringUser side-effect.
@@ -442,7 +404,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 // preserve.
 func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -494,7 +456,7 @@ func propNames(m map[string]*jsonschema.Schema) []string {
 // OrganizationID from the hiring caller's OrgID.
 func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
 	t.Parallel()
-	deps, _, _, caller := newHireTestEnv(t)
+	deps, _, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
