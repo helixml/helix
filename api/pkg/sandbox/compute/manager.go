@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"sync"
 	"time"
 
@@ -109,6 +110,26 @@ type ManagerConfig struct {
 	//
 	// Ignored when Max == 0 (D3 disabled).
 	ScaleUpHeadroomMin int
+
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it to
+	// converge back toward Floor. Zero (the default in this struct;
+	// envconfig sets a 10m default at the boundary) disables idle
+	// deprovision (D4) entirely; in that mode the Manager only scales
+	// UP from Floor, never DOWN.
+	//
+	// The idle timer is tracked in-memory and resets on Manager
+	// restart. An operator restarting Helix while a fleet is in
+	// scale-down may see one extra IdleTimeout window of grace before
+	// the converge-back resumes. Acceptable trade-off for v1; if
+	// the timer needs to survive restarts (multi-instance HA), the
+	// "idle_since" timestamp moves to the sandbox_instance row.
+	//
+	// Hosts are never deprovisioned below Floor: the converge target
+	// is Floor, not zero. An operator running Floor=0 and Max>0
+	// (pure on-demand, no warm baseline) gets full scale-down to
+	// zero hosts once all sandboxes drain.
+	IdleTimeout time.Duration
 }
 
 // validate returns an error if cfg is missing required fields or has
@@ -143,6 +164,10 @@ func (cfg ManagerConfig) validate() error {
 		return fmt.Errorf("compute.ManagerConfig.ScaleUpHeadroomMin must be >= 0, got %d",
 			cfg.ScaleUpHeadroomMin)
 	}
+	if cfg.IdleTimeout < 0 {
+		return fmt.Errorf("compute.ManagerConfig.IdleTimeout must be >= 0, got %s",
+			cfg.IdleTimeout)
+	}
 	return nil
 }
 
@@ -169,7 +194,41 @@ type Manager struct {
 	// at a time; an external trigger that arrives while a cycle is
 	// running will block on this mutex.
 	mu sync.Mutex
+
+	// idleSince maps a sandbox ID to the time it was first observed
+	// with zero active sandbox sessions. Populated and cleared inside
+	// Reconcile (under mu). Used by the D4 idle-deprovision arm to
+	// enforce a hysteresis window: a host must be continuously idle
+	// for IdleTimeout before it becomes a deprovision candidate.
+	// On Manager restart the map starts empty; one IdleTimeout window
+	// of grace before scale-down resumes is acceptable for v1.
+	idleSince map[string]time.Time
+
+	// deprovisionFailingSince maps a sandbox ID to the time its first
+	// Deprovision call started failing. Caps the retry storm when the
+	// upstream is permanently broken (instance already gone, IAM
+	// revoked, region offline). After maxDeprovisionRetryAge of
+	// continuous failure, the Manager gives up: logs error, removes
+	// the Helix row, leaves the (possibly-orphaned) upstream for an
+	// operator to investigate. Better than an indefinite
+	// phantom-Ready row that blocks legitimate scale-up forever.
+	deprovisionFailingSince map[string]time.Time
+
+	// now is the clock source. Defaults to time.Now; tests inject a
+	// fake clock to drive the idle-window logic without sleeping.
+	now func() time.Time
 }
+
+// maxDeprovisionRetryAge bounds the D4 retry storm when Provider.Deprovision
+// keeps failing for the same candidate (e.g. upstream 404 because the
+// instance was deleted out-of-band; IAM revoked; region offline). After
+// this duration of continuous failure, the Manager removes the Helix row
+// even though the upstream Deprovision didn't succeed - the alternative
+// is an indefinite phantom-Ready row that suppresses legitimate scale-up.
+// 15m matches the existing MaxProvisioningAge default's order of magnitude
+// (provisioning gives up after 30m; deprovisioning gives up after 15m so
+// the cluster's bad-state windows are bounded similarly).
+const maxDeprovisionRetryAge = 15 * time.Minute
 
 // NewManager validates cfg and constructs a Manager. Returns an error
 // if provider or store is nil, or cfg is invalid. Defaults are applied
@@ -198,10 +257,21 @@ func NewManager(provider Provider, store SandboxStore, cfg ManagerConfig) (*Mana
 		// disabling scale-up despite the operator setting Max.
 		cfg.ScaleUpHeadroomMin = 1
 	}
+	// IdleTimeout is NOT defaulted here. The envconfig binding on
+	// config.Compute.IdleTimeout sets the operator-facing 10m default
+	// at the env-loading boundary, so production deployments get
+	// HELIX_COMPUTE_IDLE_TIMEOUT=10m unless overridden. Honouring 0
+	// here as "disabled" matches the docstring (the original commit's
+	// silent rewrite to 10m was a defect caught by ultrareview - an
+	// operator setting HELIX_COMPUTE_IDLE_TIMEOUT=0 during an incident
+	// to freeze the fleet was getting D4 silently re-enabled).
 	return &Manager{
-		provider: provider,
-		store:    store,
-		cfg:      cfg,
+		provider:                provider,
+		store:                   store,
+		cfg:                     cfg,
+		idleSince:               make(map[string]time.Time),
+		deprovisionFailingSince: make(map[string]time.Time),
+		now:                     time.Now,
 	}, nil
 }
 
@@ -270,19 +340,275 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	}
 
 	needed := m.computeNeeded(rows)
-	if needed <= 0 {
-		return nil
-	}
+	var firstErr error
+	provisionedThisCycle := 0
 	// Each Provision is independent; we surface the first error but
 	// keep going so a transient upstream blip doesn't permanently
 	// stall the cluster at a partial fill.
-	var firstErr error
 	for i := 0; i < needed; i++ {
-		if err := m.provisionOne(ctx); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("provision: %w", err)
+		if err := m.provisionOne(ctx); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("provision: %w", err)
+			}
+		} else {
+			provisionedThisCycle++
+		}
+	}
+
+	// D4: idle deprovision. Skipped under two conditions, both
+	// fixes from the ultrareview:
+	//
+	//   1. A Provision actually succeeded this cycle - racing the
+	//      new host into Terminating before it reaches Ready would
+	//      waste work. Original "needed == 0" skipped on attempts;
+	//      we now skip only on actual successes.
+	//   2. Demand pressure exists (headroom below threshold) even
+	//      if the Max ceiling clamped needed to 0. Otherwise D4
+	//      sheds an idle host while D3 wanted to ADD one,
+	//      oscillating the cluster between Floor and Max forever
+	//      (the original commit's "churn loop" footgun).
+	if provisionedThisCycle == 0 && !m.demandPressureExists(rows) {
+		if err := m.tryDeprovisionIdle(ctx, rows); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("deprovision idle: %w", err)
 		}
 	}
 	return firstErr
+}
+
+// demandPressureExists reports whether free sandbox slots across Ready
+// hosts have fallen below ScaleUpHeadroomMin. Used by Reconcile to
+// gate D4 - even when D3 was blocked from acting (e.g. Max ceiling
+// reached, Provision failed), shedding an idle host under demand
+// pressure creates an unproductive scale-down/scale-up oscillation.
+//
+// Returns false when D3 is disabled (Max == 0) or no Ready hosts exist.
+func (m *Manager) demandPressureExists(rows []*types.SandboxInstance) bool {
+	if m.cfg.Max <= m.cfg.Floor {
+		return false // D3 disabled; no concept of demand pressure
+	}
+	readyCapacity := 0
+	readyDemand := 0
+	readyAny := false
+	for _, r := range rows {
+		// Capacity math uses only REACHABLE hosts. A Ready+offline
+		// row contributes no live sandbox slots, so counting it would
+		// hide real demand pressure.
+		if !isReadyAndOnline(r) {
+			continue
+		}
+		readyAny = true
+		readyCapacity += int(r.MaxSandboxes)
+		readyDemand += int(r.ActiveSandboxes)
+	}
+	if !readyAny {
+		return false
+	}
+	return (readyCapacity - readyDemand) < m.cfg.ScaleUpHeadroomMin
+}
+
+// tryDeprovisionIdle is the D4 scale-down arm. Updates the idle-since
+// tracker against the current Ready rows, then deprovisions one host
+// per cycle if a Ready host has been continuously idle for >= IdleTimeout
+// AND deprovisioning won't drop ready_count below Floor.
+//
+// One host per cycle (mirrors D3's single-step) so a fleet doesn't
+// drain abruptly; sustained low demand walks the cluster down toward
+// Floor over multiple cycles.
+//
+// Uses isReadyState (ComputeState only, not Status) for both the
+// candidate set and the idleSince tracker. This is intentional:
+//
+//   - Heartbeat-flap tolerance: a host that briefly flickers offline
+//     and back should NOT lose its accumulated idle time. If the
+//     prune loop used isReadyAndOnline, the flap-offline cycle would
+//     drop the idleSince entry, then the next cycle (back online)
+//     would re-insert at NOW, restarting the timer. A noisy network
+//     would prevent any host from ever crossing the IdleTimeout
+//     window.
+//
+//   - Orphan-rot prevention: Ready+offline rows that genuinely died
+//     (host crashed, network gone) accumulate forever without a
+//     reclaim path otherwise. Letting D4 shed them (when they're
+//     also idle) is the simplest cleanup.
+//
+// The map is still pruned of rows that have left the Ready state
+// entirely (Failed/Terminated by another path).
+func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxInstance) error {
+	if m.cfg.IdleTimeout <= 0 {
+		// Disabled by config.
+		return nil
+	}
+
+	now := m.now()
+	readyByID := make(map[string]*types.SandboxInstance)
+	readyCount := 0
+	for _, r := range rows {
+		if !isReadyState(r) {
+			continue
+		}
+		readyByID[r.ID] = r
+		readyCount++
+	}
+
+	// Update tracker: mark currently-idle Ready rows; clear busy ones;
+	// prune entries whose row is no longer in Ready state (Failed,
+	// Terminated, or removed by another code path - heartbeat-flap
+	// to offline does NOT count as "no longer Ready").
+	for _, r := range rows {
+		if !isReadyState(r) {
+			continue
+		}
+		if r.ActiveSandboxes == 0 {
+			if _, tracked := m.idleSince[r.ID]; !tracked {
+				m.idleSince[r.ID] = now
+			}
+		} else {
+			delete(m.idleSince, r.ID)
+			// Host picked up work mid-shed-retry: clear the
+			// deprovision-failing tracker too. If it later goes idle
+			// again, retry budget resets from zero.
+			delete(m.deprovisionFailingSince, r.ID)
+		}
+	}
+	for id := range m.idleSince {
+		if _, stillReady := readyByID[id]; !stillReady {
+			delete(m.idleSince, id)
+			delete(m.deprovisionFailingSince, id)
+		}
+	}
+	// Also prune deprovisionFailingSince of any entries whose host has
+	// stopped being a shed candidate entirely (e.g. row went to Failed
+	// state before D4 finished its retry budget).
+	for id := range m.deprovisionFailingSince {
+		if _, stillReady := readyByID[id]; !stillReady {
+			delete(m.deprovisionFailingSince, id)
+		}
+	}
+
+	// Can we shed any? Only above Floor.
+	if readyCount <= m.cfg.Floor {
+		return nil
+	}
+
+	// Pick the longest-idle candidate that has crossed the IdleTimeout
+	// window. Single deprovision per cycle.
+	//
+	// Stable tie-break by sandbox_id: when multiple hosts went idle
+	// in the same Reconcile cycle (e.g. a batch job finished and
+	// released all sandboxes in one tick), their idleSince entries
+	// share the same timestamp. Without a tie-break the Go map's
+	// randomized iteration order would shed them non-deterministically.
+	// Iterate over a sorted ID slice instead.
+	ids := make([]string, 0, len(m.idleSince))
+	for id := range m.idleSince {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	var candidate *types.SandboxInstance
+	var candidateIdleSince time.Time
+	for _, id := range ids {
+		idleAt := m.idleSince[id]
+		if now.Sub(idleAt) < m.cfg.IdleTimeout {
+			continue
+		}
+		r := readyByID[id]
+		if r == nil {
+			continue
+		}
+		// `<` is strict, so equal timestamps keep the candidate
+		// already chosen - which is the first match in sorted-ID
+		// order. Stable across runs.
+		if candidate == nil || idleAt.Before(candidateIdleSince) {
+			candidate = r
+			candidateIdleSince = idleAt
+		}
+	}
+	if candidate == nil {
+		return nil
+	}
+
+	idleFor := now.Sub(candidateIdleSince)
+	log.Info().
+		Str("sandbox_id", candidate.ID).
+		Str("provider_id", candidate.ProviderID).
+		Dur("idle_for", idleFor).
+		Int("ready_count_before", readyCount).
+		Int("floor", m.cfg.Floor).
+		Msg("compute manager deprovisioning idle host (D4)")
+
+	if candidate.ProviderID != "" {
+		handle := &Handle{
+			ProviderName: candidate.Provider,
+			ProviderID:   candidate.ProviderID,
+			SandboxID:    candidate.ID,
+		}
+		// Force=false: this is a graceful scale-down, not a stuck-row
+		// rollback. The Provider's Deprovision is expected to drain
+		// any in-flight workload (per its own semantics) before the
+		// host is reaped upstream.
+		if err := m.provider.Deprovision(ctx, handle, DeprovisionOpts{
+			Force:  false,
+			Reason: "idle deprovision (D4)",
+		}); err != nil {
+			// Provider.Deprovision failed. The earlier ultrareview-1
+			// fixup left the row in place + propagated the error so a
+			// transient could be retried. The ultrareview-2 follow-up
+			// pointed out that an INDEFINITE retry on a permanent
+			// failure (upstream already 404-gone, IAM revoked, region
+			// offline) creates a stuck phantom Ready row forever -
+			// blocking legitimate scale-up via the readyOnlineCount > 0
+			// gate in computeNeeded.
+			//
+			// Bounded retry: track when failure started for this
+			// candidate. Within maxDeprovisionRetryAge, retry next
+			// cycle. After that, give up - log loudly, fall through
+			// to Deregister (the row goes away; upstream may be an
+			// orphan, but it's logged explicitly with the retry
+			// duration so an operator can investigate).
+			if _, tracked := m.deprovisionFailingSince[candidate.ID]; !tracked {
+				m.deprovisionFailingSince[candidate.ID] = now
+			}
+			failingFor := now.Sub(m.deprovisionFailingSince[candidate.ID])
+			if failingFor < maxDeprovisionRetryAge {
+				log.Warn().
+					Err(err).
+					Str("sandbox_id", candidate.ID).
+					Str("provider_id", candidate.ProviderID).
+					Dur("failing_for", failingFor).
+					Dur("retry_budget", maxDeprovisionRetryAge).
+					Msg("compute manager Deprovision during idle-shed failed; retrying next cycle")
+				return fmt.Errorf("provider Deprovision for %s (failing for %s): %w", candidate.ID, failingFor, err)
+			}
+			// Retry budget exhausted. Give up on the upstream and
+			// reclaim the Helix-side row. Log at error level so the
+			// orphan-leak (if upstream is genuinely still alive) is
+			// visible to operators - they can manually reap the
+			// upstream resource by ID from the log.
+			log.Error().
+				Err(err).
+				Str("sandbox_id", candidate.ID).
+				Str("provider_id", candidate.ProviderID).
+				Dur("failing_for", failingFor).
+				Dur("retry_budget", maxDeprovisionRetryAge).
+				Msg("compute manager giving up on Deprovision retry; removing row (upstream may be orphaned - investigate provider_id manually)")
+			// Fall through to Deregister.
+		}
+	}
+
+	// Provider.Deprovision succeeded, OR we gave up retrying after
+	// maxDeprovisionRetryAge. Either way, remove the Helix row.
+	//
+	// Do NOT delete idleSince before DeregisterSandboxInstance: if
+	// Deregister fails AND we already deleted the tracker, the next
+	// cycle would re-arm idle-since to NOW, restarting the IdleTimeout
+	// window from scratch (caught by ultrareview-1).
+	if err := m.store.DeregisterSandboxInstance(ctx, candidate.ID); err != nil {
+		return fmt.Errorf("deregister %s after Deprovision: %w", candidate.ID, err)
+	}
+	delete(m.idleSince, candidate.ID)
+	delete(m.deprovisionFailingSince, candidate.ID)
+	return nil
 }
 
 // computeNeeded returns how many additional Provision calls this cycle
@@ -309,7 +635,7 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		if isAvailable(r) {
 			available++
 		}
-		if isReady(r) {
+		if isReadyAndOnline(r) {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
@@ -651,19 +977,28 @@ func isAvailable(r *types.SandboxInstance) bool {
 	}
 }
 
-// isReady reports whether the row represents a host that is up,
-// registered, AND currently reachable for sandbox-session traffic.
-// Distinguished from isAvailable on two axes:
+// isReadyState reports whether the row's ComputeState is Ready, ignoring
+// Status. Used by D4 to identify shed candidates (Ready+offline rows
+// should also be shed - they're a form of orphan) and to prune the
+// idleSince tracker (a host that flaps offline briefly should NOT lose
+// its accumulated idle time when Status flickers back online).
+func isReadyState(r *types.SandboxInstance) bool {
+	return State(r.ComputeState) == StateReady
+}
+
+// isReadyAndOnline reports whether the row represents a host that is
+// REACHABLE for sandbox-session traffic - both Ready (registered) and
+// online (heartbeat fresh). Used by D3 for capacity and demand math:
+// Ready+offline rows must NOT contribute to readyCapacity or
+// readyDemand (they can't accept new sessions), but they MAY still be
+// owned by us and waiting for D4 to shed them.
 //
-//   - Provisioning hosts are "available" (counted toward the Floor
-//     target so we don't double-provision) but not "ready" (no live
-//     sandbox slots yet).
-//   - Ready+offline rows (heartbeat went stale; reaper or
-//     refreshProvisioning flipped Status to "offline" but ComputeState
-//     remains Ready) are not reachable and must not contribute to
-//     headroom calculations - otherwise D3 sees fake capacity and
-//     refuses to scale up exactly when scale-up is most needed.
-func isReady(r *types.SandboxInstance) bool {
+// The split between isReadyState (broad) and isReadyAndOnline (narrow)
+// is the ultrareview-fixup-of-the-fixup: an earlier attempt collapsed
+// both into a single tightened isReady, which broke D4's idle-tracker
+// prune on heartbeat flap (entry deleted -> next cycle re-armed at
+// NOW -> chronic-idle host never crossed IdleTimeout).
+func isReadyAndOnline(r *types.SandboxInstance) bool {
 	return State(r.ComputeState) == StateReady && r.Status == "online"
 }
 
