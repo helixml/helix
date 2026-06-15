@@ -2,13 +2,15 @@
 // composes store + runtime + on-disk state when a Worker is created
 // or destroyed.
 //
-// Today this package owns Fire (and the DeleteRole cascade). Hire
-// currently lives in the workers application service
-// (workers.Workers.Hire) — its mirror-image, the create half of the
-// same lifecycle. Consolidating Hire here alongside Fire is a
-// follow-up. Fire has no MCP counterpart by design (the LLM should not
-// be able to delete workers from chat), so it is a plain Go service
-// callable from REST handlers only.
+// This package owns the two halves of the Worker lifecycle: Hire (the
+// create cascade — Worker row, env dir, reporting line, topology
+// reconcile, hire-activation dispatch) and Fire (the destroy cascade —
+// Helix project/app teardown, store cleanup, env-dir removal, topology
+// reconcile), plus the DeleteRole cascade. Both REST and the MCP
+// hire_worker tool drive Hire here, so the hire semantics cannot drift
+// between callers. Fire has no MCP counterpart by design (the LLM
+// should not be able to delete workers from chat), so it is a plain Go
+// service callable from REST handlers only.
 package lifecycle
 
 import (
@@ -17,12 +19,24 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 )
+
+// HireDispatcher fires the per-hire activation for a new AI Worker. A
+// narrow interface so the lifecycle service doesn't import the tools
+// package. The composition root's dispatcher satisfies it.
+type HireDispatcher interface {
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
+}
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
 // Fire cascade needs to tear down a Worker's Helix-side project and
@@ -56,6 +70,177 @@ type Service struct {
 	// Mirror is the transcript mirror; Fire stops the fired Worker's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
+
+	// --- Hire collaborators (the create half of the lifecycle) ---
+
+	// Dispatcher fires the per-hire activation for a new AI Worker.
+	// nil → no hire activation is dispatched (tests / runtimes without
+	// a dispatcher).
+	Dispatcher HireDispatcher
+	// HireHook runs runtime bookkeeping after the Worker row exists —
+	// the helix runtime persists the hiring user. nil is a no-op.
+	HireHook runtime.HireHook
+	// Now / NewID seam the clock and id-generator. Both are required
+	// for Hire; Fire does not use them.
+	Now   func() time.Time
+	NewID func() string
+}
+
+// HireParams describes a new Worker. ID is optional — when empty a
+// fresh `w-<id>` is minted (discouraged; callers should pass a readable
+// handle). ParentID is the manager this hire reports to (empty only for
+// the org owner).
+type HireParams struct {
+	ID              string
+	RoleID          orgchart.RoleID
+	ParentID        orgchart.WorkerID
+	Kind            orgchart.WorkerKind
+	IdentityContent string
+}
+
+// HireResult carries the new Worker id and, for AI hires, the
+// pre-allocated hire-activation id.
+type HireResult struct {
+	WorkerID     orgchart.WorkerID
+	ActivationID activation.ID
+}
+
+// Hire brings a Worker into existence: a Worker row carrying the
+// per-hire IdentityContent, an Environment row pointing at
+// <EnvsDir>/<workerID>/, the initial reporting line, a topology
+// reconcile, the hiring-user bookkeeping, and — for AI Workers — a
+// pre-allocated hire activation dispatched through the Spawner. This is
+// the single implementation the MCP hire_worker tool and the REST POST
+// /workers handler both call (no synthetic Invocation).
+//
+// State lives in the domain (DB), not on disk: role.md / identity.md /
+// agent.md are projected into the Environment by the Spawner at
+// activation time. A Worker's MCP tool surface is derived live from
+// Role.Tools — there is no per-Worker tool record and no tools param.
+func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireResult, error) {
+	if err := p.Kind.Validate(); err != nil {
+		return HireResult{}, err
+	}
+	if p.RoleID == "" {
+		return HireResult{}, fmt.Errorf("roleId is required")
+	}
+	if p.IdentityContent == "" {
+		return HireResult{}, fmt.Errorf("identityContent is required")
+	}
+	if s.EnvsDir == "" {
+		return HireResult{}, fmt.Errorf("server is not configured with an envs directory")
+	}
+	if s.NewID == nil || s.Now == nil {
+		return HireResult{}, fmt.Errorf("lifecycle: clock/id-generator not wired")
+	}
+	if s.Store == nil {
+		return HireResult{}, errors.New("lifecycle: store is nil")
+	}
+
+	if _, err := s.Store.Roles.Get(ctx, orgID, p.RoleID); err != nil {
+		return HireResult{}, fmt.Errorf("role %q: %w", p.RoleID, err)
+	}
+
+	var parent *orgchart.WorkerID
+	if p.ParentID != "" {
+		if _, err := s.Store.Workers.Get(ctx, orgID, p.ParentID); err != nil {
+			return HireResult{}, fmt.Errorf("parent worker %q: %w", p.ParentID, err)
+		}
+		parent = &p.ParentID
+	}
+
+	id := orgchart.WorkerID(p.ID)
+	if id == "" {
+		id = orgchart.WorkerID("w-" + s.NewID())
+	}
+	// The id becomes a path segment under EnvsDir below — reject any
+	// traversal ("../…") or separator before it reaches the filesystem.
+	if err := orgchart.ValidID(string(id)); err != nil {
+		return HireResult{}, fmt.Errorf("worker id: %w", err)
+	}
+	envPath := filepath.Join(s.EnvsDir, string(id))
+
+	var wkr orgchart.Worker
+	switch p.Kind {
+	case orgchart.WorkerKindHuman:
+		w, err := orgchart.NewHumanWorker(id, p.RoleID, p.IdentityContent, orgID)
+		if err != nil {
+			return HireResult{}, err
+		}
+		wkr = w
+	case orgchart.WorkerKindAI:
+		w, err := orgchart.NewAIWorker(id, p.RoleID, p.IdentityContent, orgID)
+		if err != nil {
+			return HireResult{}, err
+		}
+		wkr = w
+	default:
+		return HireResult{}, p.Kind.Validate() // unreachable; Validate above rejected it
+	}
+
+	if err := os.MkdirAll(envPath, 0o750); err != nil {
+		return HireResult{}, fmt.Errorf("create env dir %q: %w", envPath, err)
+	}
+	if err := s.Store.Workers.Create(ctx, wkr); err != nil {
+		return HireResult{}, err
+	}
+
+	// Wire the initial reporting line now that both Worker rows exist.
+	if parent != nil && s.Store.ReportingLines != nil {
+		line, err := orgchart.NewReportingLine(orgID, *parent, id)
+		if err != nil {
+			return HireResult{}, err
+		}
+		if err := s.Store.ReportingLines.Add(ctx, line); err != nil {
+			return HireResult{}, fmt.Errorf("add reporting line: %w", err)
+		}
+	}
+
+	env, err := environment.New(string(id), envPath, s.Now(), orgID)
+	if err != nil {
+		return HireResult{}, err
+	}
+	if s.Store.Environments != nil {
+		if err := s.Store.Environments.Create(ctx, env); err != nil {
+			return HireResult{}, fmt.Errorf("create environment: %w", err)
+		}
+	}
+
+	// Reconcile the activation/team Streams implied by the new Worker and
+	// its reporting line (mints the hire's activation Stream + the
+	// manager's team Stream from one declarative pass). A nil Topology is
+	// a no-op (the Reconciler guards its own nil receiver).
+	if err := s.Topology.Reconcile(ctx, orgID, id); err != nil {
+		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
+	}
+
+	// Persist the hiring user's identity (if the request carried one)
+	// BEFORE dispatch so the Spawner picks it up on its first call.
+	if uid := helix.UserIDFromContext(ctx); uid != "" && s.HireHook != nil {
+		if err := s.HireHook.OnHire(ctx, orgID, id, uid); err != nil {
+			return HireResult{}, fmt.Errorf("hire handler: %w", err)
+		}
+	}
+
+	// Pre-create the hire-Activation audit row so Hire can return the id
+	// synchronously; the Spawner Completes it (matched by
+	// Trigger.ActivationID) rather than minting a sibling.
+	var hireActID activation.ID
+	if p.Kind == orgchart.WorkerKindAI && s.Store.Activations != nil {
+		hireActID = activation.ID("a-" + s.NewID())
+		hireAct, err := activation.New(hireActID, id, []activation.Trigger{{Kind: activation.TriggerHire}}, s.Now(), orgID)
+		if err != nil {
+			return HireResult{}, fmt.Errorf("build hire activation: %w", err)
+		}
+		if err := s.Store.Activations.Create(ctx, hireAct); err != nil {
+			return HireResult{}, fmt.Errorf("persist hire activation: %w", err)
+		}
+	}
+	if p.Kind == orgchart.WorkerKindAI && s.Dispatcher != nil {
+		s.Dispatcher.DispatchHire(ctx, orgID, id, envPath, hireActID)
+	}
+
+	return HireResult{WorkerID: id, ActivationID: hireActID}, nil
 }
 
 // ErrOwnerProtected is returned by Fire when the caller targets the

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
@@ -146,24 +147,36 @@ func (d Deps) publishingService() *publishing.Publishing {
 // the tool deps. UpdateRole delegates to the roles service so the
 // held-Role content rewrite preserves tools/streams.
 func (d Deps) workersService() *workers.Workers {
-	wd := workers.Deps{
-		Workers:      d.Store.Workers,
-		Roles:        d.rolesService(),
-		Lines:        d.Store.ReportingLines,
-		Topology:     d.Topology,
-		Environments: d.Store.Environments,
-		Activations:  d.Store.Activations,
-		HireHook:     d.HireHook,
-		EnvsDir:      d.EnvsDir,
-		Now:          d.Now,
-		NewID:        d.NewID,
+	return workers.New(workers.Deps{
+		Workers:  d.Store.Workers,
+		Roles:    d.rolesService(),
+		Lines:    d.Store.ReportingLines,
+		Topology: d.Topology,
+	})
+}
+
+// lifecycleService builds the worker-lifecycle service (Hire/Fire) from
+// the tool deps. The MCP hire_worker tool is a thin adapter over its
+// Hire, so the hire semantics (env dir, reporting line, topology
+// reconcile, hire dispatch) live in exactly one place — shared with the
+// REST POST /workers handler. Only the Hire-relevant fields are wired
+// here (the MCP surface never fires Workers, so Helix/Mirror/Owner stay
+// nil).
+func (d Deps) lifecycleService() *lifecycle.Service {
+	svc := &lifecycle.Service{
+		Store:    d.Store,
+		Topology: d.Topology,
+		HireHook: d.HireHook,
+		EnvsDir:  d.EnvsDir,
+		Now:      d.Now,
+		NewID:    d.NewID,
 	}
-	// d.Dispatcher (EventDispatcher) satisfies workers.HireDispatcher
+	// d.Dispatcher (EventDispatcher) satisfies lifecycle.HireDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.
 	if d.Dispatcher != nil {
-		wd.Dispatcher = d.Dispatcher
+		svc.Dispatcher = d.Dispatcher
 	}
-	return workers.New(wd)
+	return svc
 }
 
 // rolesService builds the role-mutation application service from the

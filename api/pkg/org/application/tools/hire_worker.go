@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/application/workers"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -92,7 +92,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("hire_worker: caller has no OrgID")
 	}
-	res, err := t.deps.workersService().Hire(ctx, orgID, workers.HireParams{
+	res, err := t.deps.lifecycleService().Hire(ctx, orgID, lifecycle.HireParams{
 		ID:              args.ID,
 		RoleID:          orgchart.RoleID(args.RoleID),
 		ParentID:        orgchart.WorkerID(args.ParentID),

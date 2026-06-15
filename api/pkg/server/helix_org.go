@@ -155,15 +155,13 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a tools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps tools.Deps, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher, envsDir string) orgServices {
+func buildOrgServices(st *helixorgstore.Store, deps tools.Deps, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher) orgServices {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: tools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
 		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
 		Workers: workers.New(workers.Deps{
 			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: deps.Topology,
-			Environments: st.Environments, Activations: st.Activations, Dispatcher: dispatcher,
-			HireHook: deps.HireHook, EnvsDir: envsDir, Now: deps.Now, NewID: deps.NewID,
 		}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
@@ -453,6 +451,13 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// lifecycle across hire, reparent, and fire.
 		Topology: deps.Topology,
 		Mirror:   mirror, // Fire stops the fired worker's subscription
+		// Hire collaborators (the create half of the lifecycle). REST POST
+		// /workers and the MCP hire_worker tool both drive Hire through
+		// this service, so the hire semantics live in one place.
+		Dispatcher: dispatcher,
+		HireHook:   deps.HireHook,
+		Now:        deps.Now,
+		NewID:      deps.NewID,
 	}
 
 	// GitHub-App integration (install-status gate + repo picker) — owned
@@ -462,7 +467,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
-	svc := buildOrgServices(st, deps, bc, dispatcher, envsDir)
+	svc := buildOrgServices(st, deps, bc, dispatcher)
 	apiDeps := helixorgapi.Deps{
 		Streams:       svc.Streams,
 		Roles:         svc.Roles,

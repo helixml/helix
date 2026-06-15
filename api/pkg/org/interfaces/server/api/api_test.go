@@ -17,6 +17,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
@@ -65,13 +66,18 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: clock, NewID: newID, BaseTools: tools.BaseReadTools})
 
 	deps := orgapi.Deps{
-		Streams:       streams.New(streams.Deps{Streams: st.Streams, Now: clock, NewID: newID}),
-		Roles:         rolesSvc,
+		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: clock, NewID: newID}),
+		Roles:   rolesSvc,
 		Workers: workers.New(workers.Deps{
 			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: topo,
-			Environments: st.Environments, Activations: st.Activations,
-			EnvsDir: t.TempDir(), Now: clock, NewID: newID,
 		}),
+		// Hire + Fire live on the lifecycle service. EnvsDir/Now/NewID
+		// power Hire; Owner guards Fire. Helix/Mirror stay nil — the REST
+		// tests don't exercise the Helix-side teardown.
+		Lifecycle: &lifecycle.Service{
+			Store: st, Topology: topo, Owner: "w-owner",
+			EnvsDir: t.TempDir(), Now: clock, NewID: newID,
+		},
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
 		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),

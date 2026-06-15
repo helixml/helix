@@ -88,7 +88,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/workers [post]
 func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
-	if a.deps.Workers == nil {
+	if a.deps.Lifecycle == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("hire is not wired in this deployment"))
 		return
 	}
@@ -116,11 +116,11 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// REST and chat-driven hires share workers.Hire — one implementation,
-	// no synthetic Invocation, no owner lookup. Worker mutations run as
-	// the org service identity; the picking user's id (when present) is
-	// read off ctx by Hire's hire-hook.
-	res, err := a.deps.Workers.Hire(ctx, orgID, workers.HireParams{
+	// REST and chat-driven hires share lifecycle.Hire — one
+	// implementation, no synthetic Invocation, no owner lookup. Worker
+	// mutations run as the org service identity; the picking user's id
+	// (when present) is read off ctx by Hire's hire-hook.
+	res, err := a.deps.Lifecycle.Hire(ctx, orgID, lifecycle.HireParams{
 		ID:              strings.TrimSpace(req.ID),
 		RoleID:          orgchart.RoleID(strings.TrimSpace(req.RoleID)),
 		ParentID:        orgchart.WorkerID(strings.TrimSpace(req.ParentID)),
