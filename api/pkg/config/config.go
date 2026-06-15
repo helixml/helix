@@ -680,6 +680,19 @@ type WebServer struct {
 	// VHostLetsEncryptEmail is the ACME registration email used by
 	// certmagic when VHostTLSMode=auto. Required in that mode.
 	VHostLetsEncryptEmail string `envconfig:"HELIX_VHOST_LETSENCRYPT_EMAIL" description:"ACME registration email used by certmagic when HELIX_VHOST_TLS_MODE=auto."`
+
+	// VHostACMEDNSProvider selects a DNS-01 challenge provider for
+	// certmagic when VHostTLSMode=auto. Empty (the default) uses the
+	// network challenges (HTTP-01 + TLS-ALPN-01). Set to "cloudflare"
+	// when running behind a Cloudflare proxy (orange-cloud DNS), where
+	// the network challenges cannot reach Helix.
+	VHostACMEDNSProvider string `envconfig:"HELIX_VHOST_ACME_DNS_PROVIDER" description:"DNS-01 challenge provider for certmagic when HELIX_VHOST_TLS_MODE=auto. Empty=use HTTP-01+TLS-ALPN-01. Supported: cloudflare."`
+
+	// VHostCloudflareAPIToken is the Cloudflare API token used when
+	// VHostACMEDNSProvider=cloudflare. Must be an API token (not a
+	// legacy global API key) with Zone:Zone:Read + Zone:DNS:Edit
+	// permissions on the zones Helix issues certs for.
+	VHostCloudflareAPIToken string `envconfig:"HELIX_VHOST_CLOUDFLARE_API_TOKEN" description:"Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit) used when HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins

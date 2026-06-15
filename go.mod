@@ -14,6 +14,7 @@ require (
 	github.com/bnema/wayland-virtual-input-go v0.2.0
 	github.com/bradleyfalzon/ghinstallation/v2 v2.17.0
 	github.com/bwmarrin/discordgo v0.28.1
+	github.com/caddyserver/certmagic v0.25.3
 	github.com/coreos/go-oidc/v3 v3.13.0
 	github.com/crisp-im/go-crisp-api/crisp/v3 v3.0.0-20251002125107-1bc4bdbcc749
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -49,6 +50,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/libdns/cloudflare v0.2.2
 	github.com/mark3labs/mcp-go v0.47.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
@@ -118,7 +120,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.34.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.2 // indirect
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf // indirect
-	github.com/caddyserver/certmagic v0.25.3 // indirect
 	github.com/caddyserver/zerossl v0.1.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect

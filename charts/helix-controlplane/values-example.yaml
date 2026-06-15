@@ -157,6 +157,23 @@ controlplane:
     #   value: "true"
     # - name: EXTERNAL_API_URL
     #   value: "https://api.external-service.com"
+    #
+    # Embedded Let's Encrypt termination (project web services + sandbox previews).
+    # Defaults to off — a reverse proxy in front of Helix terminates TLS instead.
+    # - name: HELIX_VHOST_TLS_MODE
+    #   value: "auto"
+    # - name: HELIX_VHOST_LETSENCRYPT_EMAIL
+    #   value: "ops@example.com"
+    #
+    # DNS-01 ACME challenge via Cloudflare. Use this when Helix is behind a
+    # Cloudflare proxy (orange-cloud DNS) — the default HTTP-01 / TLS-ALPN-01
+    # challenges hit Cloudflare's edge, not Helix, and will always fail.
+    # Token must be an API token (not a legacy global API key) with
+    # Zone:Zone:Read + Zone:DNS:Edit on the zones Helix issues certs for.
+    # - name: HELIX_VHOST_ACME_DNS_PROVIDER
+    #   value: "cloudflare"
+    # - name: HELIX_VHOST_CLOUDFLARE_API_TOKEN
+    #   value: "your-cloudflare-api-token"
 
   # Extra volume mounts for controlplane
   # extraVolumeMounts:
