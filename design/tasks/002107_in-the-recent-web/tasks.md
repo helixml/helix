@@ -22,9 +22,9 @@
 - [x] Expose the pinned runner and `/data` location on the web-service GET endpoint (via the new `host_device_id` field on `ProjectWebServiceState`, already returned by GET) and in `WebServiceTab.tsx` (new "Storage & runner" section). Regenerated swagger + TS client via `./stack update_openapi`.
 
 ## Docs
-- [ ] Document the `HELIX_WEB_SERVICE_DATA_DIR=/data` convention (apps must write durable state there).
-- [ ] Document the single-writer constraint: exactly one app/DB instance runs at a time; deploys cause a brief restart-window of downtime.
-- [ ] Document that pinning protects against reschedule/reboot but NOT permanent runner-disk loss; note backups/replication as out of scope.
+- [~] Document the `HELIX_WEB_SERVICE_DATA_DIR=/data` convention (apps must write durable state there).
+- [~] Document the single-writer constraint: exactly one app/DB instance runs at a time; deploys cause a brief restart-window of downtime.
+- [~] Document that pinning protects against reschedule/reboot but NOT permanent runner-disk loss; note backups/replication as out of scope.
 
 ## Tests
 - [ ] Unit: `buildMounts` adds the `/data` bind only for `Purpose=web-service`, keyed by project ID.
