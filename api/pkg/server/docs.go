@@ -6908,6 +6908,20 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge.",
+                        "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -14720,11 +14734,19 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List secrets for the user.",
+                "description": "List secrets for the user, or for an organization when organization_id is set.",
                 "tags": [
                     "secrets"
                 ],
                 "summary": "List secrets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name. When set, lists org-owned secrets instead of personal secrets.",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -20260,6 +20282,10 @@ const docTemplate = `{
         "api.CreateStreamRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Worker that creates the stream — the worker whose chat\nthe human is in. Empty leaves the stream unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -20472,6 +20498,10 @@ const docTemplate = `{
         "api.PublishRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Worker the message is sent as — the worker whose chat the\nhuman is in. Empty means human/system-origin (the dispatcher treats\nit as such). There is no global \"owner\" sender any more.",
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
                 },
@@ -20560,9 +20590,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "envs_dir": {
-                    "type": "string"
-                },
-                "owner": {
                     "type": "string"
                 },
                 "public_url": {

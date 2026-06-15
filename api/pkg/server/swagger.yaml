@@ -21,6 +21,12 @@ definitions:
     type: object
   api.CreateStreamRequest:
     properties:
+      as:
+        description: |-
+          As is the Worker that creates the stream — the worker whose chat
+          the human is in. Empty leaves the stream unattributed (CreatedBy is
+          cosmetic: it only anchors the node on the chart).
+        type: string
       description:
         type: string
       id:
@@ -185,6 +191,12 @@ definitions:
     type: object
   api.PublishRequest:
     properties:
+      as:
+        description: |-
+          As is the Worker the message is sent as — the worker whose chat the
+          human is in. Empty means human/system-origin (the dispatcher treats
+          it as such). There is no global "owner" sender any more.
+        type: string
       body:
         type: string
       subject:
@@ -242,8 +254,6 @@ definitions:
       db_path:
         type: string
       envs_dir:
-        type: string
-      owner:
         type: string
       public_url:
         type: string
@@ -15845,6 +15855,16 @@ paths:
       - organizations
   /api/v1/knowledge:
     get:
+      parameters:
+      - description: Organization ID or name. When set, lists org-owned knowledge
+          instead of personal knowledge.
+        in: query
+        name: organization_id
+        type: string
+      - description: Filter by app ID
+        in: query
+        name: app_id
+        type: string
       responses:
         "200":
           description: OK
@@ -17887,8 +17907,7 @@ paths:
       consumes:
       - application/json
       description: Create a Worker in the given Position. Wraps the hire_worker MCP
-        tool so REST + chat hires share semantics (env dir, transcript, hire
-        dispatch).
+        tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
       parameters:
       - description: Hire request
         in: body
@@ -17919,8 +17938,8 @@ paths:
   /api/v1/orgs/{org}/workers/{id}:
     delete:
       description: 'Delete a Worker. Cascades: stops sessions, deletes the Helix project
-        + agent app, clears runtime state, deletes subscriptions + env dir
-        + env row, then the worker row. Activations are preserved as audit.'
+        + agent app, clears runtime state, deletes subscriptions + env dir + env row,
+        then the worker row. Activations are preserved as audit.'
       parameters:
       - description: Worker ID
         in: path
@@ -20812,7 +20831,14 @@ paths:
       - Search
   /api/v1/secrets:
     get:
-      description: List secrets for the user.
+      description: List secrets for the user, or for an organization when organization_id
+        is set.
+      parameters:
+      - description: Organization ID or name. When set, lists org-owned secrets instead
+          of personal secrets.
+        in: query
+        name: organization_id
+        type: string
       responses:
         "200":
           description: OK

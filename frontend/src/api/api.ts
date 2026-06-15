@@ -21,6 +21,12 @@ export interface ApiCreateRoleRequest {
 }
 
 export interface ApiCreateStreamRequest {
+  /**
+   * As is the Worker that creates the stream — the worker whose chat
+   * the human is in. Empty leaves the stream unattributed (CreatedBy is
+   * cosmetic: it only anchors the node on the chart).
+   */
+  as?: string;
   description?: string;
   id?: string;
   name?: string;
@@ -141,6 +147,12 @@ export interface ApiOrgOverview {
 }
 
 export interface ApiPublishRequest {
+  /**
+   * As is the Worker the message is sent as — the worker whose chat the
+   * human is in. Empty means human/system-origin (the dispatcher treats
+   * it as such). There is no global "owner" sender any more.
+   */
+  as?: string;
   body?: string;
   subject?: string;
   to?: string[];
@@ -175,7 +187,6 @@ export interface ApiSetSettingRequest {
 export interface ApiSettingsResponse {
   db_path?: string;
   envs_dir?: string;
-  owner?: string;
   public_url?: string;
   specs?: ApiSettingsSpecDTO[];
 }
@@ -10280,10 +10291,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/knowledge
      * @secure
      */
-    v1KnowledgeList: (params: RequestParams = {}) =>
+    v1KnowledgeList: (
+      query?: {
+        /** Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge. */
+        organization_id?: string;
+        /** Filter by app ID */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesKnowledge[], any>({
         path: `/api/v1/knowledge`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -12078,7 +12098,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + grants + env dir + env row, then the worker row. Activations are preserved as audit.
+     * @description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersDelete
@@ -13995,7 +14015,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List secrets for the user.
+     * @description List secrets for the user, or for an organization when organization_id is set.
      *
      * @tags secrets
      * @name V1SecretsList
@@ -14003,10 +14023,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/secrets
      * @secure
      */
-    v1SecretsList: (params: RequestParams = {}) =>
+    v1SecretsList: (
+      query?: {
+        /** Organization ID or name. When set, lists org-owned secrets instead of personal secrets. */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSecret[], any>({
         path: `/api/v1/secrets`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
