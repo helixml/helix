@@ -822,6 +822,38 @@ func (s *ProvisionSuite) TestBuildMountsDesktopIncludesPipewireDockerAndCrashDum
 	s.Require().Contains(dest, "/tmp/cores")
 }
 
+// TestBuildMountsWebServiceAddsDataDir locks in the durable web-service data
+// mount: a Purpose=web-service sandbox gets /data bind-mounted from a
+// PROJECT-keyed host path (so it survives across deploys/sandboxes), and
+// nothing else does.
+func (s *ProvisionSuite) TestBuildMountsWebServiceAddsDataDir() {
+	mounts := s.controller.buildMounts(
+		&types.Sandbox{ID: "sbx_ws", ProjectID: "prj_123", Persistent: true, Purpose: types.SandboxPurposeWebService},
+		&RuntimeSpec{Name: "headless-ubuntu", ContainerType: hydra.DevContainerTypeHeadless},
+	)
+	dest := map[string]hydra.MountConfig{}
+	for _, m := range mounts {
+		dest[m.Destination] = m
+	}
+	s.Require().Contains(dest, "/data")
+	// Keyed by PROJECT, not sandbox ID — that is what makes it survive redeploys.
+	s.Require().Equal("/sandbox-host/webservice/prj_123/data", dest["/data"].Source)
+	s.Require().False(dest["/data"].ReadOnly)
+	s.Require().Contains(dest, "/home/retro/work")
+}
+
+// TestBuildMountsNonWebServiceOmitsDataDir — ordinary sandboxes never get the
+// /data mount, even when persistent.
+func (s *ProvisionSuite) TestBuildMountsNonWebServiceOmitsDataDir() {
+	mounts := s.controller.buildMounts(
+		&types.Sandbox{ID: "sbx_plain", ProjectID: "prj_123", Persistent: true},
+		&RuntimeSpec{Name: "headless-ubuntu", ContainerType: hydra.DevContainerTypeHeadless},
+	)
+	for _, m := range mounts {
+		s.Require().NotEqual("/data", m.Destination, "non-web-service sandbox must not get /data")
+	}
+}
+
 // Sanity: round-trip an envMap through json so the test helpers used above
 // don't drift silently from the JSON representation the controller persists.
 func (s *ProvisionSuite) TestEnvMapJSONRoundTrip() {
