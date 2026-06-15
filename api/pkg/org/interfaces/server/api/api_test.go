@@ -21,7 +21,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
@@ -32,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
@@ -59,7 +59,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	if err != nil {
 		t.Fatalf("new in-memory nats: %v", err)
 	}
-	hub := streamhub.New(ps)
+	hub := wakebus.New(ps)
 	reg := configregistry.New(st.Configs)
 	topo := &topology.Reconciler{Store: st, Now: clock}
 

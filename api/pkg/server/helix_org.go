@@ -26,7 +26,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
@@ -38,6 +37,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
@@ -200,7 +200,7 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher) orgServices {
+func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher) orgServices {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
@@ -260,10 +260,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	// Wake-only stream notifier. Backed by the host API server's
 	// pubsub.PubSub (the canonical Helix NATS instance) — the
-	// streamhub package is a thin facade preserving the typed
+	// wakebus package is a thin facade preserving the typed
 	// streaming.StreamID API the helix-org call sites used when this was the
 	// in-process broadcast.Hub.
-	bc := streamhub.New(cfg.APIServer.pubsub)
+	bc := wakebus.New(cfg.APIServer.pubsub)
 	deps := mcptools.DefaultDeps(st)
 	deps.Hub = bc
 	deps.EnvsDir = envsDir
@@ -909,7 +909,7 @@ type spawnerDeps struct {
 	// verify the Helix project exists without a nil-deref. Required.
 	ProjectSvc runtimehelix.ProjectService
 	OrgStore   *helixorgstore.Store
-	Hub        *streamhub.Hub
+	Hub        *wakebus.Bus
 	// PubSub is the host API's NATS pubsub; the per-activation bridge
 	// calls SubscribeSessionUpdates on it. Required.
 	PubSub  pubsub.PubSub

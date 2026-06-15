@@ -16,11 +16,11 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -53,7 +53,7 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 // the supplied dispatcher (may be nil) into a Server. Returns the
 // running httptest.Server plus the store + broadcaster so tests can
 // seed streams and observe wakeups.
-func newWebhookServer(t *testing.T, dispatcher publishing.Dispatcher) (*httptest.Server, *store.Store, *streamhub.Hub) {
+func newWebhookServer(t *testing.T, dispatcher publishing.Dispatcher) (*httptest.Server, *store.Store, *wakebus.Bus) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	bc := newStreamhub(t)
@@ -62,17 +62,17 @@ func newWebhookServer(t *testing.T, dispatcher publishing.Dispatcher) (*httptest
 	return srv, s, bc
 }
 
-// newStreamhub spins up an in-memory NATS-backed streamhub. The
+// newStreamhub spins up an in-memory NATS-backed wakebus. The
 // embedded NATS server is cleaned up at test exit via the test's
 // natural goroutine teardown — the in-memory provider doesn't expose
 // an explicit Close hook.
-func newStreamhub(t *testing.T) *streamhub.Hub {
+func newStreamhub(t *testing.T) *wakebus.Bus {
 	t.Helper()
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("NewInMemoryNats: %v", err)
 	}
-	return streamhub.New(ps)
+	return wakebus.New(ps)
 }
 
 // seedStream creates a Stream with the given transport kind. The
@@ -102,7 +102,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 
 	wake := bc.Subscribe("org-test", []streaming.StreamID{"s-inbox"})
 	t.Cleanup(func() { bc.Unsubscribe([]streaming.StreamID{"s-inbox"}, wake) })
-	// streamhub is pubsub-backed (NATS); the SUB has to round-trip to
+	// wakebus is pubsub-backed (NATS); the SUB has to round-trip to
 	// the embedded server before Publish can route to us. Give it a
 	// short window — the wake check at the bottom of the test then
 	// waits up to a second for the asynchronous delivery to land.

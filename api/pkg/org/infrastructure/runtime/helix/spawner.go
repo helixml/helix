@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -119,7 +119,7 @@ type SpawnerConfig struct {
 	PollMax     time.Duration // default 30s
 	Logger      *slog.Logger
 	Store       *store.Store
-	Hub         *streamhub.Hub
+	Hub         *wakebus.Bus
 	Now         func() time.Time
 	NewID       func() string
 }

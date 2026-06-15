@@ -7,7 +7,7 @@
 //
 // Hub and Dispatcher are optional collaborators behind narrow
 // interfaces (a Notifier and a Dispatcher) so the service does not
-// depend on the concrete streamhub.Hub / tools.EventDispatcher and the
+// depend on the concrete wakebus.Bus / tools.EventDispatcher and the
 // import edge stays one-way. CLAUDE.md §5.0.
 package publishing
 
@@ -28,7 +28,7 @@ import (
 // returns it verbatim, the REST handler maps it to 409 Conflict.
 var ErrPublishToGitHub = errors.New("publish is not supported on github transport streams; use `gh` from your environment to act on the repo")
 
-// Notifier wakes long-poll observers blocked on a stream. *streamhub.Hub
+// Notifier wakes long-poll observers blocked on a stream. *wakebus.Bus
 // satisfies it.
 type Notifier interface {
 	Notify(orgID string, streamID streaming.StreamID)

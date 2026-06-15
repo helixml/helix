@@ -40,13 +40,13 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -74,14 +74,14 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 	return out
 }
 
-func newTestTransport(t *testing.T) (*githubtransport.Transport, *store.Store, *recordingDispatcher, *streamhub.Hub, *configregistry.Registry) {
+func newTestTransport(t *testing.T) (*githubtransport.Transport, *store.Store, *recordingDispatcher, *wakebus.Bus, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("NewInMemoryNats: %v", err)
 	}
-	bc := streamhub.New(ps)
+	bc := wakebus.New(ps)
 	rd := &recordingDispatcher{}
 	reg := configregistry.New(st.Configs)
 	reg.Register(configregistry.Spec{
@@ -747,9 +747,9 @@ func TestInboundWildcardEvents(t *testing.T) {
 	seedGitHubStream(t, st, streaming.StreamID("s-everything"), "helixml/helix", []string{"*"})
 
 	cases := []struct {
-		name      string
-		event     string
-		payload   map[string]any
+		name    string
+		event   string
+		payload map[string]any
 	}{
 		{"issues opened", "issues", issuesOpenedPayload("helixml/helix")},
 		{"pull_request labeled", "pull_request", pullRequestLabeledPayload("helixml/helix", "ready-for-review")},

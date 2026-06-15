@@ -18,8 +18,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 
@@ -49,7 +49,7 @@ func New(q *queries.Queries, pub *publishing.Publishing, registry *mcptools.Regi
 // itself never holds the store — this just keeps the wiring (and tests)
 // terse. broadcaster/dispatcher may be nil (the publish trio then skips
 // the corresponding step).
-func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *streamhub.Hub, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
+func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wakebus.Bus, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
 	q := queries.New(queries.Deps{
 		Roles:          s.Roles,
 		Workers:        s.Workers,

@@ -14,7 +14,7 @@ package dispatch_test
 //   - the per-Worker spawner config (frozen to the first org)
 //   - the activation Queue's serialisation lanes (keyed by workerID)
 //   - the transcript Mirror's tracker map (keyed by workerID)
-//   - the streamhub wake topics (keyed by streamID)
+//   - the wakebus wake topics (keyed by streamID)
 //
 // Every org's owner is "w-owner"; user-named streams like "s-general"
 // collide trivially. So the canonical trigger for this whole bug class
@@ -31,7 +31,7 @@ package dispatch_test
 //   - helix:       TestMirrorIsolatesSameWorkerIDAcrossOrgs,
 //                  TestSpawnerHonorsSharedSemaphore,
 //                  TestEnsureScopesProjectToParamOrg_NotStructOrgID
-//   - streamhub:   TestNotify_IsolatedAcrossOrgs,
+//   - wakebus:   TestNotify_IsolatedAcrossOrgs,
 //                  TestSubscribeAll_IsolatedAcrossOrgs
 
 import (

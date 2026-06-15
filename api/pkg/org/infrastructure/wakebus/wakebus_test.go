@@ -1,4 +1,4 @@
-// Package streamhub_test characterises the public behaviour of the
+// Package wakebus_test characterises the public behaviour of the
 // pubsub-backed stream wake facade.
 //
 // The cases mirror the deleted api/pkg/org/broadcast/hub_test.go suite
@@ -12,15 +12,15 @@
 // sleep to give NATS time to install the subscription before the first
 // Publish fires. The 1 s wake timeout already absorbs the delivery
 // latency on the wake-path itself.
-package streamhub_test
+package wakebus_test
 
 import (
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -45,16 +45,16 @@ const (
 	subInstall = 100 * time.Millisecond
 )
 
-// newHub creates an in-memory NATS-backed Hub for one test. Cleanup
+// newHub creates an in-memory NATS-backed Bus for one test. Cleanup
 // is registered via t.Cleanup so the embedded server is shut down at
 // test exit.
-func newHub(t *testing.T) *streamhub.Hub {
+func newHub(t *testing.T) *wakebus.Bus {
 	t.Helper()
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("NewInMemoryNats: %v", err)
 	}
-	return streamhub.New(ps)
+	return wakebus.New(ps)
 }
 
 // --- B1..B5: legacy coverage, preserved verbatim ------------------------

@@ -11,7 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topology"
@@ -23,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
 // Clock returns the current time. Tests override it.
@@ -77,7 +77,7 @@ type Deps struct {
 	CredentialProviders map[string]credential.Provider
 	// Hub lets the long-poll read tools (read_events, worker_log) block
 	// on new events. It is a broadcaster, not a store.
-	Hub *streamhub.Hub
+	Hub *wakebus.Bus
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -95,7 +95,7 @@ type Config struct {
 	Now                 Clock
 	NewID               IDGen
 	EnvsDir             string
-	Hub                 *streamhub.Hub
+	Hub                 *wakebus.Bus
 	Dispatcher          EventDispatcher
 	Workspace           runtime.WorkspaceSync
 	HireHook            runtime.HireHook

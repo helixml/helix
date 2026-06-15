@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -28,7 +28,7 @@ type MirrorConfig struct {
 	// track the worker as its session churns. "" means no session yet.
 	ExploratorySession func(ctx context.Context, projectID string) (string, error)
 	Store              *store.Store
-	Hub                *streamhub.Hub
+	Hub                *wakebus.Bus
 	NewID              func() string
 	Now                func() time.Time
 	Logger             *slog.Logger

@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	helixorgconfig "github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -44,7 +44,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
 
 	_, _, projectSvc, _ := newInProcTestSetup(t)
-	hub := streamhub.New(pubsub.NewNoop())
+	hub := wakebus.New(pubsub.NewNoop())
 	logger := slog.Default()
 
 	cfg, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
@@ -82,10 +82,10 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
 
 	_, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
-		Cfg:      reg,
+		Cfg: reg,
 		// ProjectSvc explicitly nil — the case under test.
 		OrgStore: orgStore,
-		Hub:      streamhub.New(pubsub.NewNoop()),
+		Hub:      wakebus.New(pubsub.NewNoop()),
 		PubSub:   pubsub.NewNoop(),
 		Logger:   slog.Default(),
 		NewID:    func() string { return "id" },

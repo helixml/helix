@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
 // PublishActivationEvent appends one event to s-activations-<workerID>
@@ -33,7 +33,7 @@ import (
 func PublishActivationEvent(
 	ctx context.Context,
 	st *store.Store,
-	bc *streamhub.Hub,
+	bc *wakebus.Bus,
 	newID func() string,
 	now func() time.Time,
 	logger *slog.Logger,

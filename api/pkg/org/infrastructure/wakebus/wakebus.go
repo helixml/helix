@@ -1,4 +1,4 @@
-// Package streamhub is a small wake-only facade over api/pkg/pubsub
+// Package wakebus is a small wake-only facade over api/pkg/pubsub
 // that preserves the typed streaming.StreamID API the helix-org call sites used
 // when they spoke to api/pkg/org/broadcast.
 //
@@ -22,7 +22,7 @@
 //     subscriber channel never blocks the publisher.
 //   - Subscribers are expected to re-query the store after waking; no
 //     payload semantics. The pubsub payload is always nil.
-package streamhub
+package wakebus
 
 import (
 	"context"
@@ -61,9 +61,9 @@ func wildcardTopicFor(orgID string) string {
 	return topicPrefix + "." + orgID + ".>"
 }
 
-// Hub is safe for concurrent use. The zero value is not usable; use
+// Bus is safe for concurrent use. The zero value is not usable; use
 // New.
-type Hub struct {
+type Bus struct {
 	ps pubsub.PubSub
 
 	mu sync.Mutex
@@ -73,15 +73,15 @@ type Hub struct {
 	subs map[chan struct{}][]pubsub.Subscription
 }
 
-// New returns a ready-to-use Hub backed by the supplied pubsub.PubSub.
-// The PubSub must outlive the Hub. Panics if ps is nil — there is no
+// New returns a ready-to-use Bus backed by the supplied pubsub.PubSub.
+// The PubSub must outlive the Bus. Panics if ps is nil — there is no
 // safe fallback (the broadcast nil-check at call sites is preserved
 // at the call site, not here).
-func New(ps pubsub.PubSub) *Hub {
+func New(ps pubsub.PubSub) *Bus {
 	if ps == nil {
-		panic("streamhub.New: pubsub.PubSub is nil")
+		panic("wakebus.New: pubsub.PubSub is nil")
 	}
-	return &Hub{
+	return &Bus{
 		ps:   ps,
 		subs: make(map[chan struct{}][]pubsub.Subscription),
 	}
@@ -106,7 +106,7 @@ func signal(ch chan struct{}) {
 // they are done, typically via defer. Subscribing with an empty list
 // returns a never-woken channel — equivalent to the broadcast
 // behaviour.
-func (h *Hub) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struct{} {
+func (h *Bus) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struct{} {
 	ch := make(chan struct{}, 1)
 	if len(streamIDs) == 0 {
 		// Track the channel so Unsubscribe is still a no-op (rather
@@ -147,7 +147,7 @@ func (h *Hub) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struc
 // Unsubscribe tears down the wake-channel's underlying pubsub
 // subscriptions.
 //
-// Semantics-preserving notes vs the old broadcast.Hub.Unsubscribe:
+// Semantics-preserving notes vs the old broadcast.Bus.Unsubscribe:
 //
 //   - An empty or nil streamIDs list is a no-op (matches broadcast).
 //     This is the contract the /ui live-view callers and the worker_log
@@ -159,7 +159,7 @@ func (h *Hub) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struc
 //     behaviour is unchanged. (Tracking per-stream pubsub subs would
 //     add bookkeeping with no observable benefit; revisit if a caller
 //     ever wants partial-unsubscribe.)
-func (h *Hub) Unsubscribe(streamIDs []streaming.StreamID, ch chan struct{}) {
+func (h *Bus) Unsubscribe(streamIDs []streaming.StreamID, ch chan struct{}) {
 	if len(streamIDs) == 0 {
 		return
 	}
@@ -184,7 +184,7 @@ func (h *Hub) Unsubscribe(streamIDs []streaming.StreamID, ch chan struct{}) {
 // topic published via Notify within that org — and ONLY that org. Both
 // the real NATS provider and the in-memory test provider honour
 // wildcard subscriptions.
-func (h *Hub) SubscribeAll(orgID string) chan struct{} {
+func (h *Bus) SubscribeAll(orgID string) chan struct{} {
 	ch := make(chan struct{}, 1)
 	sub, err := h.ps.Subscribe(context.Background(), wildcardTopicFor(orgID), func(_ []byte) error {
 		signal(ch)
@@ -205,7 +205,7 @@ func (h *Hub) SubscribeAll(orgID string) chan struct{} {
 // UnsubscribeAll removes a SubscribeAll listener. Safe to call on a
 // channel returned by SubscribeAll or Subscribe — both are tracked the
 // same way internally.
-func (h *Hub) UnsubscribeAll(ch chan struct{}) {
+func (h *Bus) UnsubscribeAll(ch chan struct{}) {
 	h.mu.Lock()
 	pubsubSubs, ok := h.subs[ch]
 	if ok {
@@ -222,7 +222,7 @@ func (h *Hub) UnsubscribeAll(ch chan struct{}) {
 // the wake handler uses select/default, so a subscriber whose channel
 // buffer is full simply drops the signal (coalesced — the subscriber
 // is expected to re-query after waking).
-func (h *Hub) Notify(orgID string, streamID streaming.StreamID) {
+func (h *Bus) Notify(orgID string, streamID streaming.StreamID) {
 	// Publish payload is nil — this is a pure wake signal. Ignoring
 	// publish errors matches broadcast's contract: Notify was a
 	// best-effort wake-only call with no return value.
