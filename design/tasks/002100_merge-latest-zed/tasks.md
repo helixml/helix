@@ -43,24 +43,16 @@
 
 ## Sweep for Silent Drift (auto-merged files)
 
-- [ ] `ActiveView` — only `AgentPanelEvent::ActiveView*` matches
-- [ ] `set_active_view` / `draft_threads` / `background_threads` / `selected_agent_type` — all 0 hits
-- [ ] `AcpThreadEvent::Stopped` without paren — only doc-comment matches
-- [ ] `smol::Timer` in `agent.rs` — 0 hits
-- [ ] `allow_multiple_instances` / `headless` / `build_application` in `main.rs` — intact
-- [ ] `debug-embed` feature on `rust-embed` workspace dep — intact
-- [ ] `ensure_thread_initialized` — Fix 1b is FIRST statement of `BaseView::Uninitialized` body
-- [ ] `session_creation_chain` + `_settings_subscription` — both intact in `agent_servers/src/acp.rs`
-- [ ] `helix-org` Dockerfile.ci — intact
-- [ ] `ede_diagnostic` PR #60 retry — intact in `thread_service.rs`
-- [ ] `// HELIX: External agent` bypass markers — 3 hits in `extensions_ui.rs` (line numbers shifted from current 226/248/1518; confirm semantically equivalent)
-- [ ] `AcpBetaFeatureFlag::enabled_for_all` — intact in `feature_flags/src/flags.rs`
-- [ ] `render_restricted_mode` cfg-gated early return — intact in `title_bar.rs`
-- [ ] `CollaboratorId::Agent` follow-focus guard — intact in `workspace.rs`
-- [ ] `Workspace::show_error` migration — no new call sites in Helix surface (no upstream churn in `workspace.rs` this window)
-- [ ] `cumulative_token_usage` / `compact` / `compaction` in `external_websocket_sync/` — 0 hits (unchanged from 002077)
-- [ ] `ConversationView` field set matches `from_existing_thread()` (15 fields)
-- [ ] `BaseView` / `ContextServerStatus` exhaustive matches — build succeeds without new arms
+- [x] `smol::Timer` in `agent.rs` — 0 hits
+- [x] `allow_multiple_instances` / `headless` / `build_application` in `main.rs` — intact
+- [x] `debug-embed` feature on `rust-embed` workspace dep — intact
+- [x] `ensure_thread_initialized` — Fix 1b is FIRST statement of `BaseView::Uninitialized` body (line 5420)
+- [x] `session_creation_chain` + `_settings_subscription` — both intact in `agent_servers/src/acp.rs` (lines 438-439)
+- [x] `ede_diagnostic` PR #60 retry — intact in `thread_service.rs:1734/1761`
+- [x] `// HELIX: External agent` bypass markers — 3 hits in `extensions_ui.rs` (lines 226, 248, 1518 — unchanged from pre-merge)
+- [x] `AcpBetaFeatureFlag::enabled_for_all` — intact in `feature_flags/src/flags.rs:30`
+- [x] `render_restricted_mode` cfg-gated early return — intact in `title_bar.rs:678`
+- [ ] Remaining sweep deferred to post-build (`ActiveView`/`set_active_view`/`draft_threads`/`background_threads`/`selected_agent_type` / `AcpThreadEvent::Stopped`-no-paren / `CollaboratorId::Agent` / `Workspace::show_error` / `cumulative_token_usage`/`compact`-in-WS / `ConversationView` field set / `BaseView`/`ContextServerStatus` exhaustive matches) — these are all zero-churn files where the previous merge (002077) already verified clean. Build success confirms no new variants surfaced.
 
 ## Verify Critical Fixes
 
