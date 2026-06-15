@@ -27,6 +27,11 @@
 
 ## Manual testing
 
+**Deferred to PR reviewer** — these need a Safari install, a macOS Wails
+build, and a running Helix instance. None are available on the spec-task
+machine. Pre-flight (TypeScript compile / no stale refs / cgo file uses
+only documented NSPasteboard APIs) is done.
+
 - [ ] Safari on macOS — text copy lands in macOS clipboard, pastes into Notes / TextEdit
 - [ ] Safari on macOS — image copy lands in macOS clipboard, pastes into Preview via File → New from Clipboard
 - [ ] Safari on macOS — accepted UX trade-off: text copy → paste into Preview (image-only) gets nothing; retry into text destination works
@@ -34,7 +39,7 @@
 - [ ] Chrome on macOS — text and image copy still work identically
 - [ ] macOS Wails app — text copy and paste still work via postMessage bridge
 - [ ] macOS Wails app — **image copy** (new): Cmd+C on a remote image, paste into Preview / Messages outside the Wails app
-- [ ] macOS Wails app — **image paste** (new): copy an image on the Mac (`Cmd+Shift+Ctrl+4`), focus the desktop stream inside the Wails window, Cmd+V, verify image lands on remote clipboard and pastes into a remote image app
+- [ ] macOS Wails app — **image paste** (new): copy an image on the Mac (`Cmd+Shift+Ctrl+4`, which lands on the clipboard as TIFF — the cgo binding transcodes to PNG), focus the desktop stream inside the Wails window, Cmd+V, verify image lands on remote
 - [ ] Paste flows on Safari (paste button, native `paste` DOM event, keyboard fallback) — none should regress
 - [ ] Auto-sync removal does NOT regress Cmd+C → ⌘V
 - [ ] Poll loop typically resolves in 30–90 ms on a healthy local desktop (console logs)
