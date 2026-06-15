@@ -14,7 +14,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -114,7 +114,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	// so the rule gives it a self-observed activation Stream (its chat
 	// turns surface on the Streams page) and no team Stream yet (no
 	// reports until it hires).
-	rec := topology.NewReconciler(topology.Deps{
+	rec := reconcile.New(reconcile.Deps{
 		Workers:        s.Workers,
 		ReportingLines: s.ReportingLines,
 		Streams:        s.Streams,

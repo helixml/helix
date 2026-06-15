@@ -129,7 +129,7 @@ func (r *Roles) Update(ctx context.Context, orgID string, id orgchart.RoleID, p 
 // Order is stable — caller tools first, baseline appended in BaseTools
 // order — because it reuses the same MergeTools the create path does.
 //
-// Mirrors topology.Reconciler: a per-org converge run at bootstrap.
+// Mirrors reconcile.Reconciler: a per-org converge run at bootstrap.
 func (r *Roles) Reconcile(ctx context.Context, orgID string) error {
 	if r == nil {
 		return nil

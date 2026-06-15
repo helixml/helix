@@ -1,4 +1,4 @@
-package topology
+package reconcile
 
 import (
 	"context"
@@ -66,7 +66,7 @@ func eq(a, b []orgchart.WorkerID) bool {
 func newRec(t *testing.T) (*Reconciler, *store.Store) {
 	t.Helper()
 	st := memorystore.New()
-	return NewReconciler(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedNow}), st
+	return New(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedNow}), st
 }
 
 func seedWorker(t *testing.T, st *store.Store, w orgchart.Worker) {
@@ -335,7 +335,7 @@ func TestReconcile_Idempotent(t *testing.T) {
 // must be exactly one stream with exactly one subscription.
 func TestEnsureStreamWithMembers_ConcurrentCreateRace(t *testing.T) {
 	st := memorystore.New()
-	rec := NewReconciler(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedNow})
+	rec := New(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedNow})
 	ctx := context.Background()
 	const sid = streaming.StreamID("s-team-w-race")
 	stream, err := streaming.NewStream(sid, "Team: race", "", "w-race", fixedNow(), transport.Transport{}, orgID)

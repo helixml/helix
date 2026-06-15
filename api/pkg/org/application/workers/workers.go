@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
@@ -43,7 +43,7 @@ type Workers struct {
 	workers  store.Workers
 	roles    *roles.Roles
 	lines    store.ReportingLines
-	topology *topology.Reconciler
+	topology *reconcile.Reconciler
 }
 
 // Deps are the constructor-injected collaborators for New.
@@ -58,7 +58,7 @@ type Deps struct {
 	// Topology may be nil (no-op reconcile, handled by the Reconciler
 	// itself).
 	Lines    store.ReportingLines
-	Topology *topology.Reconciler
+	Topology *reconcile.Reconciler
 }
 
 // New constructs the Workers service.

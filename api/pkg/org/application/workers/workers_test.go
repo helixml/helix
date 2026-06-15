@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -23,7 +23,7 @@ func newService(st *store.Store) *Workers {
 		Workers:  st.Workers,
 		Roles:    rolesSvc,
 		Lines:    st.ReportingLines,
-		Topology: topology.NewReconciler(topology.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedClock}),
+		Topology: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedClock}),
 	})
 }
 

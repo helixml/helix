@@ -15,8 +15,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -134,7 +134,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// Workers hired before the topology reconciler was wired
 		// (e.g. orgs upgraded from an older server version that
 		// lacked team-stream auto-creation).
-		rec := topology.NewReconciler(topology.Deps{
+		rec := reconcile.New(reconcile.Deps{
 			Workers:        s.orgStore.Workers,
 			ReportingLines: s.orgStore.ReportingLines,
 			Streams:        s.orgStore.Streams,

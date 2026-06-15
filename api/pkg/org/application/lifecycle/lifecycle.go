@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -65,7 +65,7 @@ type Service struct {
 	// row is gone — it tears down the fired Worker's own Streams and
 	// collapses an ex-manager's team Stream when its last report just
 	// left. nil is a no-op (tests without topology wiring).
-	Topology *topology.Reconciler
+	Topology *reconcile.Reconciler
 
 	// Mirror is the transcript mirror; Fire stops the fired Worker's
 	// subscription so it doesn't leak. nil is a no-op.

@@ -8,7 +8,7 @@
 // Everything here is a PURE function over the reporting graph — no I/O,
 // fully table-tested. It answers "what Streams and Subscriptions does
 // this graph require?" and nothing else. The application-layer
-// Reconciler (application/topology) loads the graph from the store,
+// Reconciler (application/reconcile) loads the graph from the store,
 // calls Required, diffs the required set against what's persisted, and
 // applies create/subscribe/unsubscribe/delete idempotently.
 package channels

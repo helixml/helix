@@ -10,10 +10,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
@@ -100,7 +100,7 @@ type Config struct {
 	Workspace           runtime.WorkspaceSync
 	HireHook            runtime.HireHook
 	ProjectConfig       runtime.ProjectConfig
-	Topology            *topology.Reconciler
+	Topology            *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
 }
 
@@ -222,7 +222,7 @@ func DefaultDeps(s *store.Store) Config {
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
-	c.Topology = topology.NewReconciler(topology.Deps{
+	c.Topology = reconcile.New(reconcile.Deps{
 		Workers:        s.Workers,
 		ReportingLines: s.ReportingLines,
 		Streams:        s.Streams,

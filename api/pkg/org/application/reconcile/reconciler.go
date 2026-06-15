@@ -1,4 +1,17 @@
-package topology
+// Package reconcile is the application-layer reconciler that converges
+// the persisted Streams/Subscriptions onto the channels the reporting
+// graph requires. The pure derivation — "what Streams and Subscriptions
+// does this graph require?" — lives in domain/channels; this package
+// loads the graph from the store, calls channels.Required, diffs the
+// required set against what's persisted, and applies create/subscribe/
+// unsubscribe/delete idempotently.
+//
+// The Reconciler is the single owner of activation/team/DM Stream
+// lifecycle. Every structural mutation (hire, add/remove reporting line,
+// fire) announces *what changed* by calling Reconcile; the reconciler
+// decides the stream consequences. Event-specific deltas drift; a
+// declarative diff can't.
+package reconcile
 
 import (
 	"context"
@@ -12,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 // Reconciler converges the persisted Streams/Subscriptions onto the
@@ -29,7 +43,7 @@ type Reconciler struct {
 	now     func() time.Time
 }
 
-// Deps are the constructor-injected collaborators for NewReconciler.
+// Deps are the constructor-injected collaborators for New.
 // ReportingLines is optional: a store that doesn't wire it yields a graph
 // with no reporting edges (activation streams only).
 type Deps struct {
@@ -41,10 +55,10 @@ type Deps struct {
 	Now func() time.Time
 }
 
-// NewReconciler builds a Reconciler from its narrow repositories. A nil
-// Workers repo (the "not wired" case) yields a Reconciler whose methods
-// no-op, so runtimes/tests that don't wire topology degrade gracefully.
-func NewReconciler(deps Deps) *Reconciler {
+// New builds a Reconciler from its narrow repositories. A nil Workers
+// repo (the "not wired" case) yields a Reconciler whose methods no-op, so
+// runtimes/tests that don't wire topology degrade gracefully.
+func New(deps Deps) *Reconciler {
 	now := deps.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
@@ -88,19 +102,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 
 	workers, err := r.workers.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("topology: list workers: %w", err)
+		return fmt.Errorf("reconcile: list workers: %w", err)
 	}
 	var lines []orgchart.ReportingLine
 	if r.lines != nil {
 		lines, err = r.lines.List(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("topology: list reporting lines: %w", err)
+			return fmt.Errorf("reconcile: list reporting lines: %w", err)
 		}
 	}
 
 	required := channels.Required(workers, lines)
 
-	// Bucket required members by stream so each ensure is O(members).
+	// Bucket required members by stream so each converge is O(members).
 	requiredMembers := map[streaming.StreamID][]orgchart.WorkerID{}
 	for k := range required.Members {
 		requiredMembers[k.StreamID] = append(requiredMembers[k.StreamID], k.WorkerID)
@@ -162,11 +176,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 			// The Stream should not exist. Delete it (subscriptions
 			// cascade with the row). Absent already → fine.
 			if err := r.streams.Delete(ctx, orgID, sid); err != nil && !errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("topology: delete stream %q: %w", sid, err)
+				return fmt.Errorf("reconcile: delete stream %q: %w", sid, err)
 			}
 			continue
 		}
-		if err := r.ensureStream(ctx, orgID, ch, requiredMembers[sid], now); err != nil {
+		if err := r.convergeStream(ctx, orgID, ch, requiredMembers[sid], now); err != nil {
 			return err
 		}
 	}
@@ -185,7 +199,7 @@ func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
 	}
 	workers, err := r.workers.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("topology: ReconcileAll list workers: %w", err)
+		return fmt.Errorf("reconcile: ReconcileAll list workers: %w", err)
 	}
 	if len(workers) == 0 {
 		return nil
@@ -204,17 +218,20 @@ func (r *Reconciler) clock() time.Time {
 	return time.Now().UTC()
 }
 
-// ensureStream converges one managed Stream: create it if missing,
-// subscribe every required member, and unsubscribe anyone the required
-// set no longer includes (the load-bearing half — this is what fixes
-// the reparent desync where an old manager stayed subscribed).
-func (r *Reconciler) ensureStream(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.WorkerID, now time.Time) error {
+// convergeStream brings one managed Stream to exactly its required state:
+// get-or-create the Stream, subscribe every required member, AND
+// unsubscribe anyone the required set no longer includes. The removal is
+// the load-bearing half — it's what fixes the reparent desync where an
+// old manager stayed subscribed. (The additive half is
+// ensureStreamWithMembers; convergeStream adds the diff-and-remove pass
+// on top.)
+func (r *Reconciler) convergeStream(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.WorkerID, now time.Time) error {
 	stream, err := streamForChannel(ch, now, orgID)
 	if err != nil {
-		return fmt.Errorf("topology: build stream %q: %w", ch.ID, err)
+		return fmt.Errorf("reconcile: build stream %q: %w", ch.ID, err)
 	}
 	if err := r.ensureStreamWithMembers(ctx, stream, now, members...); err != nil {
-		return fmt.Errorf("topology: ensure stream %q: %w", ch.ID, err)
+		return fmt.Errorf("reconcile: ensure stream %q: %w", ch.ID, err)
 	}
 
 	requiredSet := make(map[orgchart.WorkerID]struct{}, len(members))
@@ -223,15 +240,79 @@ func (r *Reconciler) ensureStream(ctx context.Context, orgID string, ch channels
 	}
 	actual, err := r.subs.ListForStream(ctx, orgID, ch.ID)
 	if err != nil {
-		return fmt.Errorf("topology: list subscribers of %q: %w", ch.ID, err)
+		return fmt.Errorf("reconcile: list subscribers of %q: %w", ch.ID, err)
 	}
 	for _, sub := range actual {
 		if _, ok := requiredSet[orgchart.WorkerID(sub.WorkerID)]; ok {
 			continue
 		}
 		if err := r.subs.Delete(ctx, orgID, orgchart.WorkerID(sub.WorkerID), ch.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("topology: unsubscribe %q from %q: %w", sub.WorkerID, ch.ID, err)
+			return fmt.Errorf("reconcile: unsubscribe %q from %q: %w", sub.WorkerID, ch.ID, err)
 		}
 	}
 	return nil
+}
+
+// ensureStreamWithMembers is the additive get-or-create-and-subscribe
+// primitive convergeStream builds on. It get-or-creates the Stream
+// (immutable once it exists, so a present row is left untouched) and
+// idempotently subscribes each member. It never *removes* a subscriber —
+// that's convergeStream's job — so it is safe to call standalone to
+// attach members without disturbing existing ones.
+//
+// Subscriptions are worker-anchored; members must be existing Workers.
+//
+// Concurrency-safe by design. The Stream id is deterministic
+// (s-dm-<pair>, s-team-<id>, s-activations-<id>), so two callers can
+// race on the same id — two simultaneous DMs between the same pair, two
+// reconciles touching one manager's team stream. A plain check-then-act
+// would let the loser of the race hit the row's unique constraint and
+// return a spurious error. Instead, on a Create failure we re-read the
+// store: if the row is now present, another caller won the race and the
+// outcome we wanted holds — proceed. Only a still-absent row is a
+// genuine failure worth surfacing. This keeps Streams.Create /
+// Subscriptions.Create strict for every other caller (createStream,
+// hire_worker) while making *this* get-or-create boundary idempotent.
+func (r *Reconciler) ensureStreamWithMembers(ctx context.Context, stream streaming.Stream, now time.Time, members ...orgchart.WorkerID) error {
+	if _, err := r.streams.Get(ctx, stream.OrganizationID, stream.ID); err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("lookup stream %q: %w", stream.ID, err)
+		}
+		if createErr := r.streams.Create(ctx, stream); createErr != nil {
+			// Lost the create race? A concurrent caller inserted the same
+			// deterministic id between our Get and Create. Benign for a
+			// get-or-create — re-check, and only surface the error if the
+			// row still isn't there.
+			if _, getErr := r.streams.Get(ctx, stream.OrganizationID, stream.ID); getErr != nil {
+				return fmt.Errorf("create stream %q: %w", stream.ID, createErr)
+			}
+		}
+	}
+	for _, m := range members {
+		if _, err := r.subs.Find(ctx, stream.OrganizationID, m, stream.ID); err == nil {
+			continue
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("find subscription %q→%q: %w", m, stream.ID, err)
+		}
+		sub, err := streaming.NewSubscription(string(m), stream.ID, now, stream.OrganizationID)
+		if err != nil {
+			return fmt.Errorf("build subscription %q→%q: %w", m, stream.ID, err)
+		}
+		if createErr := r.subs.Create(ctx, sub); createErr != nil {
+			// Same race on the (worker, stream) subscription key: a
+			// concurrent caller subscribed this member first. A
+			// now-present row means success.
+			if _, findErr := r.subs.Find(ctx, stream.OrganizationID, m, stream.ID); findErr != nil {
+				return fmt.Errorf("subscribe %q→%q: %w", m, stream.ID, createErr)
+			}
+		}
+	}
+	return nil
+}
+
+// streamForChannel builds the streaming.Stream the reconciler persists
+// for a required Channel. Activation/team Streams are always local
+// transport (the default).
+func streamForChannel(ch channels.Channel, now time.Time, orgID string) (streaming.Stream, error) {
+	return streaming.NewStream(ch.ID, ch.Name, ch.Description, string(ch.CreatedBy), now, transport.Transport{}, orgID)
 }
