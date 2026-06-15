@@ -172,6 +172,19 @@ page; grep for `--controlplane` or `--hf-token` to find it):
 - Existing values in `.env` are preserved when an `install.sh` flag is
   omitted (via `merge_env_files`), so the flags are safe to omit on
   re-run.
+- **Upgrade paths** (worth documenting explicitly):
+  - **Full re-run** (`./install.sh --controlplane ...`): re-downloads
+    both compose files, merges `.env`, supports adding the new TLS
+    flags on an existing install. This is the recommended path for
+    enabling TLS on a pre-existing install.
+  - **Lightweight upgrade** (`./install.sh --upgrade`): only bumps
+    `HELIX_VERSION` and pulls images. Now also fetches
+    `docker-compose.tls.yaml` if missing — needed when upgrading
+    from a pre-overlay release. Does NOT accept the new TLS flags
+    (they only configure `.env` during a full install); operators
+    enabling TLS for the first time should use the full re-run path
+    or edit `.env` manually then re-run `--upgrade` (the auto-detect
+    in `helix_compose_args` will then include the overlay).
 
 **Manual docker-compose flow** (for operators not using install.sh):
 document that the overlay is opt-in with
