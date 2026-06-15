@@ -134,13 +134,56 @@ DNS-01 mode — see "What ports Helix binds" above).
 
 End-user docs in the `docs` repo aren't touched in this PR — a separate
 agent will pick up the changes. The information they need to surface is
-in the "Configuration" and "What ports Helix binds" sections above,
-plus the validation matrix.
+in the "Configuration", "What ports Helix binds", and "Validation
+matrix" sections above.
 
-Suggested doc placement: extend whatever page documents
-`HELIX_VHOST_TLS_MODE` today with a "Behind Cloudflare" subsection
-covering token permissions and the env vars, and update the "ports
-to open" diagram if there is one.
+**Server-side config page** (whatever currently documents
+`HELIX_VHOST_TLS_MODE` — grep `docs/` for it; if it doesn't exist yet,
+add a new page under `docs/learn/` covering the whole vhost TLS flow):
+
+- Add a "Behind Cloudflare" subsection covering Cloudflare token
+  permissions (`Zone:Zone:Read` + `Zone:DNS:Edit`, API token NOT
+  legacy global API key) and the two new env vars
+  (`HELIX_VHOST_ACME_DNS_PROVIDER`, `HELIX_VHOST_CLOUDFLARE_API_TOKEN`).
+- Update the "ports to open" diagram/table if one exists — see the
+  port table above; `:80` is not needed in DNS-01 mode.
+
+**install.sh docs** (wherever the install-script flag reference lives
+— likely `docs/learn/quickstart-*` or a dedicated install reference
+page; grep for `--controlplane` or `--hf-token` to find it):
+
+- Document the three new flags:
+  - `--vhost-tls-mode <off|auto>`
+  - `--letsencrypt-email <email>` (required when mode=auto)
+  - `--cloudflare-api-token <token>` (implies mode=auto; sets
+    `HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare` in `.env`)
+- Add a recommended one-shot example for the behind-Cloudflare case:
+  ```
+  ./install.sh --controlplane \
+    --api-host https://helix.example.com \
+    --letsencrypt-email ops@example.com \
+    --cloudflare-api-token <CF_API_TOKEN>
+  ```
+- Mention that `install.sh` now also downloads `docker-compose.tls.yaml`
+  alongside `docker-compose.yaml`, and that subsequent
+  `docker compose up -d` invocations need `-f docker-compose.tls.yaml`
+  when TLS is on (or run through `install.sh --upgrade` / `./stack`,
+  both of which auto-include it).
+- Existing values in `.env` are preserved when an `install.sh` flag is
+  omitted (via `merge_env_files`), so the flags are safe to omit on
+  re-run.
+
+**Manual docker-compose flow** (for operators not using install.sh):
+document that the overlay is opt-in with
+`docker compose -f docker-compose.yaml -f docker-compose.tls.yaml up -d`,
+and that host ports default to 443/80 but can be overridden via
+`VHOST_HTTPS_PORT` / `VHOST_HTTP_PORT` in `.env`.
+
+**Helm chart docs** (`charts/helix-controlplane/values-example.yaml`
+is updated in this PR, but if there's a separate operator-facing
+Helm page in `docs/`, update it too): document the new
+`controlplane.vhostTLS` values block — `enabled`, `httpsPort`,
+`httpEnabled`, `httpPort`.
 
 ## Out of scope (deferred, not regressions)
 
