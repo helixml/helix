@@ -18,9 +18,10 @@ Every Dockerfile in this repository pins its base images by both tag and `@sha25
 5. Internal consistency: the same `image:tag` resolves to one and only one digest string across the whole repository.
 6. No toolchain version ARGs (Go, Node, Rust, Docker, gosu, containerd, Goose commit, Ghostty tag, etc.) are modified.
 7. Pin-date comments listed in design.md are updated to `2026-06-01`:
-   - `Dockerfile.sandbox:12`
-   - `Dockerfile.sandbox:42`
+   - `Dockerfile.sway-helix:9`
+   - `Dockerfile.sway-helix:37`
    - `Dockerfile.ubuntu-helix:10`
+   - `Dockerfile.ubuntu-helix:33`
 8. At least one Dockerfile is verified with a `docker buildx` multi-arch dry-run after the digest swap to confirm the new digests resolve.
 9. The change lands as a single commit whose message documents the bump and the resolution date.
 
