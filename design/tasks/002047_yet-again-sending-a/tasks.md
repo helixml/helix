@@ -2,13 +2,13 @@
 
 ## Frontend — Fix A (remove the self-invalidate)
 
-- [~] In `frontend/src/utils/optimisticSessionStarting.ts`, delete the
+- [x] In `frontend/src/utils/optimisticSessionStarting.ts`, delete the
       `queryClient.invalidateQueries(...)` call at the end of
       `optimisticallyMarkSessionStarting` (lines 50-53).
-- [ ] Update the comment block at lines 11-18 to describe the new
+- [x] Update the comment block at lines 11-18 to describe the new
       contract: the optimistic write survives until the next 3s
       `useSandboxState` poll; we no longer self-invalidate.
-- [ ] Add a frontend test in
+- [x] Add a frontend test in
       `frontend/src/utils/__tests__/optimisticSessionStarting.test.ts`
       (or extend the existing one from commit `279b2128b`): after
       calling `optimisticallyMarkSessionStarting`, the
@@ -16,8 +16,12 @@
       entries must show `external_agent_status="starting"` AND the
       query must not be marked stale (no `invalidateQueries` side
       effect).
-- [ ] Verify the existing tests from commit `279b2128b` still pass.
-- [ ] `cd frontend && yarn test optimisticSessionStarting` passes.
+- [x] Verify the existing tests from commit `279b2128b` still pass.
+- [x] `cd frontend && yarn test optimisticSessionStarting` passes.
+      → All 11 tests pass (extended existing
+      `optimisticSessionStarting.test.ts` rather than creating a new
+      `__tests__/` file — co-located test convention used elsewhere
+      in this codebase).
 
 ## Backend — Fix B (synchronous "mark starting" in syncPromptHistory)
 
