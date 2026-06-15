@@ -88,12 +88,24 @@ type GitHTTPServer struct {
 	authorizeFn      AuthorizationToRepositoryFunc
 	triggerManager   TriggerManager
 	attentionService *AttentionService
-	wg               sync.WaitGroup
+	// onDefaultBranchPush, when set, is invoked asynchronously after a
+	// successful receive-pack on the repository's default branch. The
+	// project-web-service auto-deploy hook uses this to trigger
+	// webservice.Controller.Redeploy on the user pushing to main.
+	onDefaultBranchPush func(ctx context.Context, repoID, branch, userID string)
+	wg                  sync.WaitGroup
 }
 
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (s *GitHTTPServer) SetAttentionService(svc *AttentionService) {
 	s.attentionService = svc
+}
+
+// SetOnDefaultBranchPush installs the post-receive hook that fires
+// (in a goroutine) after every successful push to a repo's default
+// branch. Used by the api server to wire up the web-service auto-deploy.
+func (s *GitHTTPServer) SetOnDefaultBranchPush(fn func(ctx context.Context, repoID, branch, userID string)) {
+	s.onDefaultBranchPush = fn
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -602,6 +614,19 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
+
+	// Fire the project-web-service auto-deploy hook (if installed) for
+	// every push that touched the repo's default branch. Detached so a
+	// slow deploy never blocks the git client's response.
+	if s.onDefaultBranchPush != nil && repo != nil && repo.DefaultBranch != "" {
+		if _, hit := pushedBranchesMap[repo.DefaultBranch]; hit {
+			var deployUserID string
+			if pushUser := s.getUser(r); pushUser != nil {
+				deployUserID = pushUser.ID
+			}
+			go s.onDefaultBranchPush(context.Background(), repoID, repo.DefaultBranch, deployUserID)
+		}
+	}
 
 	// Note: Branch restrictions for agent API keys are now enforced by the pre-receive hook
 	// via the HELIX_ALLOWED_BRANCHES environment variable set above. No post-receive

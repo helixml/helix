@@ -26,6 +26,8 @@ export function GetAppVersion():Promise<string>;
 
 export function GetAutoLoginURL():Promise<string>;
 
+export function GetClipboardImagePNG():Promise<string>;
+
 export function GetConsoleOutput():Promise<string>;
 
 export function GetConsolePassword():Promise<string>;
@@ -81,6 +83,8 @@ export function ResizeDataDisk(arg1:number):Promise<void>;
 export function SaveSettings(arg1:main.AppSettings):Promise<void>;
 
 export function SendConsoleInput(arg1:string):Promise<void>;
+
+export function SetClipboardImagePNG(arg1:string):Promise<void>;
 
 export function SetCursor(arg1:string):Promise<void>;
 
