@@ -6,4 +6,4 @@
 - [x] In the inner Helix at `http://localhost:8080`, **light mode**: queue messages in a session and confirm the header label and icon are legible in all three states (online, offline, editing); navigate to the Projects cards view and hover a sparkline — confirm the tooltip and the vertical dashed guideline are visible/legible
 - [x] Switch to **dark mode** and confirm no visual regression in either surface (header still readable; sparkline tooltip still has dark surface with light text)
 - [x] Capture before/after screenshots into `screenshots/` in this task folder (light-mode "before" for both bugs is the critical evidence)
-- [ ] Commit with a conventional-commit subject like `fix(frontend): repair light-mode contrast in queue header and sparkline tooltip` and open a PR against `helixml/helix`
+- [~] Commit with a conventional-commit subject like `fix(frontend): repair light-mode contrast in queue header and sparkline tooltip` and open a PR against `helixml/helix`
