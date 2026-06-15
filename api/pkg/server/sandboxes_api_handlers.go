@@ -567,14 +567,14 @@ echo "tmux not available — falling back to bash (session will not persist acro
 exec /bin/bash -l
 `)
 		if err := client.WriteSandboxFile(r.Context(), sb.ID, scriptPath, scriptBody, 0o755); err != nil {
-			wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to install attach script: `+jsonEscapeString(err.Error())+`"}`))
+			writeWSError(wsConn, "failed to install attach script: "+err.Error())
 			return
 		}
 		shell = scriptPath
 	}
 	hydraConn, err := client.OpenSandboxTerminal(r.Context(), sb.ID, shell)
 	if err != nil {
-		wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"`+jsonEscapeString(err.Error())+`"}`))
+		writeWSError(wsConn, err.Error())
 		return
 	}
 	defer hydraConn.Close()
@@ -958,14 +958,18 @@ func writeJSON(rw http.ResponseWriter, status int, body interface{}) {
 	_ = json.NewEncoder(rw).Encode(body)
 }
 
-// jsonEscapeString returns a JSON-safe inner string (no surrounding quotes).
-func jsonEscapeString(s string) string {
-	b, err := json.Marshal(s)
+// writeWSError sends a structured error frame on the websocket. We marshal a
+// struct rather than splicing strings into a JSON literal so the message field
+// is always validly escaped - error strings from upstream callers can contain
+// quotes, backslashes, or control characters that would otherwise break out of
+// the surrounding JSON.
+func writeWSError(wsConn *websocket.Conn, message string) {
+	b, err := json.Marshal(struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}{Type: "error", Message: message})
 	if err != nil {
-		return ""
+		return
 	}
-	if len(b) < 2 {
-		return ""
-	}
-	return string(b[1 : len(b)-1])
+	_ = wsConn.WriteMessage(websocket.TextMessage, b)
 }

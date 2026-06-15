@@ -29,7 +29,7 @@ var deleteCmd = &cobra.Command{
 
 		// If provider ID does not start with "pe_" then look up by name
 		if !strings.HasPrefix(id, "pe_") {
-			providers, err := apiClient.ListProviderEndpoints(cmd.Context())
+			providers, err := apiClient.ListProviderEndpoints(cmd.Context(), nil)
 			if err != nil {
 				return fmt.Errorf("failed to get provider endpoint: %w", err)
 			}

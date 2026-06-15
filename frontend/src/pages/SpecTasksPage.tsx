@@ -903,6 +903,7 @@ const SpecTasksPage: FC = () => {
             <ProjectMembersBar
               currentUser={account.user}
               projectOwnerId={project?.user_id}
+              projectOwner={project?.user}
               projectId={projectId || ""}
               organizationId={project?.organization_id}
               accessGrants={accessGrants}

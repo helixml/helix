@@ -200,6 +200,7 @@ type Project struct {
 	Name           string   `json:"name" gorm:"index"` // Indexed for search prefix matching
 	Description    string   `json:"description"`
 	UserID         string   `json:"user_id" gorm:"index"`
+	User           User     `json:"user" gorm:"-"` // Populated by the server if UserID is set
 	OrganizationID string   `json:"organization_id" gorm:"index"`
 	GitHubRepoURL  string   `json:"github_repo_url"`
 	DefaultBranch  string   `json:"default_branch"`

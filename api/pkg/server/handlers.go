@@ -29,6 +29,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// publicServerURL returns the operator-configured public origin to
+// surface to the frontend. Returns empty string when the config
+// value is missing or points at localhost — both cases signal "the
+// frontend can't trust this; use window.location.origin instead and
+// warn the user if that's also unreachable". Trims trailing slashes
+// so callers can concatenate without doubling up.
+func publicServerURL(raw string) string {
+	raw = strings.TrimSpace(strings.TrimRight(raw, "/"))
+	if raw == "" {
+		return ""
+	}
+	low := strings.ToLower(raw)
+	if strings.Contains(low, "://localhost") || strings.Contains(low, "://127.0.0.1") || strings.Contains(low, "://0.0.0.0") {
+		return ""
+	}
+	return raw
+}
+
 // getConfig godoc
 // @Summary Get config
 // @Description Get config
@@ -83,6 +101,12 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
 		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
+		// ServerURL: operator-configured public origin. Empty when
+		// only the default localhost listen-URL is set, which signals
+		// the frontend to surface its window.location.origin instead
+		// (and to warn the user if that ends up being a localhost
+		// URL that GitHub can't reach).
+		ServerURL: publicServerURL(apiServer.Cfg.WebServer.URL),
 	}
 
 	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)

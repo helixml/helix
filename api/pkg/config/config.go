@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -34,6 +35,7 @@ type ServerConfig struct {
 	SSL                SSL
 	Organizations      Organizations
 	Sandboxes          Sandboxes
+	Compute            Compute
 
 	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
 	// Inactivity is measured as the time since the last interaction was created or updated
@@ -78,9 +80,9 @@ type ServerConfig struct {
 	// HelixOrgEnabled is the deployment-wide kill switch for the
 	// embedded helix-org alpha. When false (the default), none of
 	// the helix-org init runs and none of its HTTP surfaces
-	// (/api/v1/org/, /ui/, /api/v1/mcp/helix-org/) are mounted —
-	// the per-user alpha feature flag in the DB has no effect.
-	// Set HELIX_ORG_ENABLED=true to opt in.
+	// (/api/v1/orgs/{org}/, /api/v1/mcp/helix-org/) are mounted —
+	// the per-user alpha feature flag in the DB has no effect. Set
+	// HELIX_ORG_ENABLED=true to opt in.
 	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
 }
 
@@ -112,6 +114,126 @@ type Sandboxes struct {
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
+}
+
+// Compute configures the cloud-provisioning side of Helix's sandbox
+// host management. When Provider is empty (the default) the entire
+// subsystem is disabled - no Provider is constructed, no reconcile
+// loop runs, no SandboxInstance rows are auto-created. Self-registered
+// hosts (the legacy path) continue to work unchanged.
+//
+// When Provider is set, Helix constructs the named compute.Provider
+// from the rest of this section + the provider-specific config block
+// (e.g. Yellowdog) and starts a compute.Manager reconcile loop.
+type Compute struct {
+	// Provider selects which compute.Provider implementation Helix
+	// uses to bring sandbox hosts into existence. Empty (default)
+	// disables the whole subsystem. Currently the only supported
+	// value is "yellowdog".
+	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
+
+	// DeploymentTag distinguishes work requirements created by this
+	// Helix install from WRs created by other tooling (e.g. someone
+	// running yd-submit directly against the same YD account) or by
+	// another Helix install that happens to share the YD namespace.
+	// It is the primary filter applied to YD's List endpoint.
+	//
+	// Auto-derived from the provider-specific namespace at boot when
+	// unset (e.g. "helix-<namespace>"). For the common deployment
+	// (one Helix install per YD namespace) the default is sufficient.
+	// Operators running multiple Helix installs in the same YD
+	// namespace MUST set this explicitly per install or the two
+	// Managers will see each other's WRs as their own.
+	//
+	// Also forms the suffix of the value written to
+	// SandboxInstance.Provider (e.g. "yellowdog-prod"). The two
+	// purposes share one knob.
+	DeploymentTag string `envconfig:"HELIX_COMPUTE_DEPLOYMENT_TAG" default:""`
+
+	// Floor is the minimum number of provisioned hosts the Manager
+	// keeps available at all times. The reconcile loop kicks off
+	// Provision calls until (Ready + Provisioning) reaches this count.
+	// Zero (the default) disables pre-warming - the Manager exists
+	// but does no work in floor-only mode. On-demand scaling lands
+	// in a follow-up; for now, Floor=0 means "Manager is a no-op".
+	Floor int `envconfig:"HELIX_COMPUTE_FLOOR" default:"0"`
+
+	// ReconcileInterval is how often the Manager's reconcile loop
+	// runs. Lower values respond faster to drift; higher values
+	// reduce pressure on Helix and the upstream Provider API. 30s
+	// is a reasonable default matching the existing sandbox
+	// heartbeat cadence.
+	ReconcileInterval time.Duration `envconfig:"HELIX_COMPUTE_RECONCILE_INTERVAL" default:"30s"`
+
+	// HealthCheckTimeout caps how long one Provider.HealthCheck call
+	// can take per provisioning row before the loop moves on.
+	HealthCheckTimeout time.Duration `envconfig:"HELIX_COMPUTE_HEALTHCHECK_TIMEOUT" default:"10s"`
+
+	// MaxConcurrentProvisions caps how many Provision calls the
+	// Manager fires per reconcile cycle when below Floor. Default 1.
+	// Raise this when bringing up a large Floor on cold boot;
+	// MaxConcurrentProvisions=5 with ReconcileInterval=30s reaches
+	// Floor=5 in one cycle instead of five.
+	MaxConcurrentProvisions int `envconfig:"HELIX_COMPUTE_MAX_CONCURRENT_PROVISIONS" default:"1"`
+
+	// MaxProvisioningAge bounds how long a row may sit in
+	// ComputeState=provisioning before the Manager rolls it back.
+	// Default 30m - covers the YD g5.xlarge happy path (~10m) plus
+	// headroom for cross-region fallback and slow NVIDIA image pulls.
+	MaxProvisioningAge time.Duration `envconfig:"HELIX_COMPUTE_MAX_PROVISIONING_AGE" default:"30m"`
+
+	// Yellowdog is the provider-specific config block. Only consulted
+	// when Provider="yellowdog".
+	Yellowdog Yellowdog
+}
+
+// Yellowdog is the YellowDog-provider-specific configuration block.
+// All fields are required when Compute.Provider="yellowdog"; an empty
+// value at boot causes Helix to fail fast rather than start with a
+// half-configured Manager.
+type Yellowdog struct {
+	// APIKeyID and APISecret are the YD account credentials. Generate
+	// them in the YD portal under Applications. Treat as secrets.
+	APIKeyID  string `envconfig:"HELIX_YD_KEY"`
+	APISecret string `envconfig:"HELIX_YD_SECRET"`
+
+	// BaseURL overrides the production API endpoint. Leave unset for
+	// the public portal at https://portal.yellowdog.co/api.
+	BaseURL string `envconfig:"HELIX_YD_BASE_URL" default:""`
+
+	// Namespace is the YD namespace work requirements live in. Match
+	// the namespace your YD account administrator allocated for this
+	// Helix install.
+	Namespace string `envconfig:"HELIX_YD_NAMESPACE" default:""`
+
+	// WorkerTag is the tag the operator-provisioned YD worker pool
+	// advertises. Tasks include this in their RunSpecification so
+	// the YD scheduler only assigns them to matching workers.
+	//
+	// Auto-derived from Namespace when unset:
+	//   WorkerTag = "worker-" + Namespace
+	//
+	// Matches the yd-provision POC convention (`worker_tag =
+	// "worker-{{tag}}"`), so an operator who set up their pool
+	// per the POC docs gets working defaults. Override via
+	// HELIX_YD_WORKER_TAG when the pool was created with a
+	// different naming scheme.
+	//
+	// Mismatch between this value and the pool's advertised tag
+	// produces silent "tasks starved" failures rather than a
+	// clear error - the YD scheduler simply finds no eligible
+	// workers and leaves the task pending. Boot logs the resolved
+	// tag so the operator can spot a mismatch quickly.
+	WorkerTag string `envconfig:"HELIX_YD_WORKER_TAG" default:""`
+
+	// TaskTimeout bounds individual task runtime upstream-side. The
+	// platform aborts the task and records TaskError type=TIMED_OUT
+	// when exceeded. 4h matches the POC's safety circuit-breaker.
+	TaskTimeout time.Duration `envconfig:"HELIX_YD_TASK_TIMEOUT" default:"4h"`
+
+	// MaxRetries caps retry attempts for idempotent YD API requests
+	// (GET, PUT, DELETE). POST is never retried.
+	MaxRetries int `envconfig:"HELIX_YD_MAX_RETRIES" default:"3"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -221,13 +343,8 @@ type Anthropic struct {
 }
 
 type Helix struct {
-	OwnerID            string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
-	OwnerType          string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
-	ModelTTL           time.Duration `envconfig:"HELIX_MODEL_TTL" default:"10s"`                          // How long to keep models warm before allowing other work to be scheduled
-	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"600s"`                          // How long to wait for work to complete before slots are considered dead
-	RunnerTTL          time.Duration `envconfig:"HELIX_RUNNER_TTL" default:"30s"`                         // How long before runners are considered dead
-	SchedulingStrategy string        `envconfig:"HELIX_SCHEDULING_STRATEGY" default:"max_spread" description:"The strategy to use for scheduling workloads."`
-	QueueSize          int           `envconfig:"HELIX_QUEUE_SIZE" default:"100" description:"The size of the queue when buffering workloads."`
+	OwnerID   string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+	OwnerType string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 }
 
 type Tools struct {
@@ -610,6 +727,38 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+	// AppSlug is the public URL slug of this deployment's Helix GitHub App
+	// (e.g. "helix-agent" → https://github.com/apps/helix-agent). NOT a
+	// secret — just the public app handle used to build the install URL the
+	// New Stream "Install Helix" gate opens. The app's private key lives
+	// encrypted in a ServiceConnection, never here.
+	AppSlug string `envconfig:"GITHUB_APP_SLUG" description:"Public slug of the Helix GitHub App used to build the install URL."`
+	// URL is the base web URL of the GitHub instance: https://github.com
+	// (default) or a GitHub Enterprise Server origin (e.g.
+	// https://github.acme.com). It drives the app create/install/manage links
+	// and points the API client at the right host for GHES customers.
+	URL string `envconfig:"GITHUB_URL" default:"https://github.com" description:"Base web URL of the GitHub instance (https://github.com or a GitHub Enterprise Server origin)."`
+}
+
+// WebURL returns the GitHub web origin (no trailing slash), defaulting to
+// github.com. Used to build the app create / install / manage links.
+func (g GitHub) WebURL() string {
+	u := strings.TrimRight(strings.TrimSpace(g.URL), "/")
+	if u == "" {
+		return "https://github.com"
+	}
+	return u
+}
+
+// APIBaseURL returns the value to hand the github client/transport: empty for
+// public github.com (the client special-cases it to api.github.com), or the
+// GHES origin otherwise. This is also what gets stored on a github_app
+// ServiceConnection so later API calls target the right host.
+func (g GitHub) APIBaseURL() string {
+	if g.WebURL() == "https://github.com" {
+		return ""
+	}
+	return g.WebURL()
 }
 
 type FineTuning struct {
