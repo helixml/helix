@@ -45,8 +45,8 @@
 - [x] Frontend typecheck (`tsc -b`) passes
 
 ## Fork path preservation
-- [ ] Leave `POST /sessions/{id}/fork` and all `fork_*` handlers/markers intact and working
-- [ ] Confirm no other caller of the dropdown silently loses fork behaviour it depended on
+- [x] `POST /sessions/{id}/fork` and all `fork_*` handlers/markers left fully intact (untouched)
+- [x] Only caller of the old control was `SpecTaskDetailContent` — updated to `SwitchAgentControl`; no other dropdown caller depended on fork
 
 ## Testing
 - [x] Go unit tests for `switchAgentInPlace`: same-session mutation, ZedThreadID cleared, AgentSwitchedAt set, fork_seed + Waiting handoff created, not paused

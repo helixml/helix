@@ -235,6 +235,43 @@ is already in its config.
 - **Switch from Zed's native UI**: treat as a new thread too, to keep UX
   consistent (per meeting); Helix maps whatever `thread_created` reports.
 
+## Implementation Notes (as built)
+
+Files changed:
+- `api/pkg/types/types.go` — added `SessionMetadata.AgentSwitchedAt time.Time`.
+- `api/pkg/server/transcript_serializer.go` — `maybePrependTranscript` now also
+  fires when `AgentSwitchedAt` is set (not just forks via `ParentSessionID`).
+- `api/pkg/server/session_switch_agent_handlers.go` — **new**. `switchAgent`
+  HTTP handler + `switchAgentInPlace` + `publishAgentConfigChange`. Reuses
+  `resolveForkTarget`, `serializeTranscript`, `agentDescriptor` from the fork path.
+- `api/pkg/server/server.go` — registered `POST /sessions/{id}/switch-agent`.
+- `api/cmd/settings-sync-daemon/main.go` — `restartZed()` (`pkill -x zed`);
+  called from the config-event loop when `field=="agent"`.
+- `frontend/src/services/sessionService.ts` — `useSwitchAgent`.
+- `frontend/src/components/session/SwitchAgentControl.tsx` — renamed from
+  `ForkAgentControl`, simplified (no workspace warnings / commit checkbox).
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — uses the new control.
+- Regenerated OpenAPI client (`./stack update_openapi`).
+
+Key learnings that simplified the build:
+- The Zed thread id is stored on `session.Metadata.ZedThreadID` (DB), not an
+  in-memory map — clearing it is all that's needed to make the next message
+  open a new thread.
+- The desktop already runs Zed under `run_zed_restart_loop`, so the daemon
+  restarts Zed by killing it — no launch-ownership migration.
+- `pickupWaitingInteraction` only delivers on agent (re)connect, so the Waiting
+  handoff naturally waits for the post-restart reconnect and is never delivered
+  to the old agent. No new `agent_config_loaded` event needed.
+- Zed needs no changes: `chat_message` + `acp_thread_id:null` already creates a
+  new thread on the supplied `agent_name`.
+
+Gotcha / not yet validated:
+- The daemon change ships in the desktop image — needs `./stack build-ubuntu`
+  and a new session to validate end-to-end. The inner-Helix desktop did not
+  provision in this dev environment, so the live switch path (restart →
+  reconnect → new thread → transcript) is covered by unit tests + code analysis,
+  not yet by a full E2E run. Flagged for the reviewer.
+
 ## Why this is achievable incrementally
 The two hard parts — making an agent resolvable in the container and creating a
 new thread seeded with prior messages — are what the daemon and fork path
