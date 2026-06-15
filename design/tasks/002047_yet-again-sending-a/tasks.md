@@ -218,3 +218,8 @@ reviewer (or to CI's e2e jobs); the change is covered by:
 - [x] Push branch, open PR against `main`, watch Drone CI.
       → Push only — per project instructions, the platform creates
       the PR when the user clicks "Open PR" in the UI.
+      → Pushed as `feature/002047-show-booting-state` from commit
+      `66b6bcb0c` (rebased on top of `origin/main` @ `e45c1be30`
+      after a clean `git stash` + `git merge` cycle — the recent
+      vhost / web-service work in main did not conflict with these
+      changes; full server test suite still green post-merge).
