@@ -140,33 +140,54 @@ ZedThreadID; the agent processes the transcript, then continues.
 The previous Zed thread is left intact in the container's thread store
 ("isolated per agent"); no container restart, no re-clone.
 
-## Daemon-owned Zed lifecycle
+## Daemon-driven Zed restart (IMPLEMENTED — simplified from "daemon owns launch")
 
-Move Zed start/stop/restart out of `start-zed-core.sh` into the Settings-Sync
-daemon (Go), so the daemon can deterministically restart Zed after a config
-rewrite. Concretely:
+The meeting framed this as "move Zed start/stop/restart out of the shell scripts
+into the daemon." During implementation we found the desktop **already runs Zed
+under an auto-respawn loop** — `run_zed_restart_loop` in
+`desktop/shared/start-zed-core.sh`: `while true; do /zed-build/zed …; sleep 2; done`.
 
-- The daemon gains a supervisor: launches the Zed process, tracks its PID,
-  exposes start/stop/restart, and restarts on demand for a switch (Strategy B)
-  or on crash.
-- Hot reload stays for cheap changes (theme — already works). A **full clean
-  restart** is used for agent switches in Strategy B because it avoids the
-  edge cases of live agent reconfiguration.
-- The desktop shell scripts shrink to "start the daemon"; the daemon owns Zed.
-- Sequencing on switch: rewrite config → restart Zed → wait for Zed to
-  reconnect the WS → emit `agent_config_loaded` → Helix sends the handoff.
+So we did NOT migrate launch ownership (a risky rewrite of desktop boot).
+Instead the daemon **restarts Zed by killing the editor process**
+(`pkill -x zed`); the existing loop respawns it ~2s later, and the new process
+reads the freshly-written `settings.json`. This achieves the goal — the daemon
+deterministically controls *when* Zed restarts — with minimal blast radius.
 
-## New WS-sync event: `agent_config_loaded`
+- `restartZed()` in the daemon (`api/cmd/settings-sync-daemon/main.go`) runs
+  `pkill -x zed` (exact name match → only the editor, not the bash loop).
+- Hot reload still handles cheap changes (theme — unchanged). A **full restart**
+  is used only for agent switches, because Zed's per-project MCP `context_servers`
+  can't be hot-swapped per-thread.
+- Sequencing on switch: API publishes `config_changed{field:"agent"}` → daemon
+  `syncFromHelix()` rewrites `settings.json` for the new agent → daemon
+  `restartZed()` → loop respawns Zed with the new agent + MCP surface → Zed
+  reconnects the external-agent WS.
 
-Extend the external-agent sync protocol with an event (Zed→Helix or
-daemon→Helix) signalling the target agent's config is loaded and resolvable.
-Helix awaits this event before creating the new thread, so a custom
-`agent_server` (`qwen`/`goose`) is never referenced before it exists. For
-registry/native agents (`claude`/`zed-agent`) the agent is resolvable
-immediately and the event can fire fast (or be short-circuited).
+(If a future need arises for true daemon-owned launch — e.g. start/stop without
+a respawn loop — it can be added later; the restart-loop approach covers the
+switch use case fully.)
 
-This replaces the polling/ack idea from the earlier draft with the event-driven
-mechanism the team specified.
+## Coordination: reuse agent-reconnect instead of a new `agent_config_loaded` event
+
+The earlier draft proposed a new `agent_config_loaded` WS event to gate
+new-thread creation. During implementation we found this is **unnecessary** —
+the existing reconnect flow already provides the gate:
+
+- The switch handler creates a **Waiting** `fork_handoff` interaction.
+- `pickupWaitingInteraction` only delivers Waiting interactions **on agent
+  (re)connect** (`websocket_external_agent_sync.go:413`), never to an
+  already-connected agent. So the handoff is NOT delivered to the old agent.
+- The Zed restart forces a disconnect+reconnect. When the NEW Zed connects, it
+  re-fetches `zed-config` (now the new agent), and `pickupWaitingInteraction`
+  delivers the handoff to it: `agent_name` comes from `getAgentNameForSession`
+  (new `ParentApp`), `ZedThreadID` is empty → new thread, and
+  `maybePrependTranscript` injects the transcript.
+
+This means **no new protocol message and no Zed-side change** are required for
+the happy path. The custom-agent-not-yet-resolvable race the event was meant to
+prevent is handled by ordering: the daemon writes `settings.json` *before*
+killing Zed, so by the time Zed respawns and reconnects, the new `agent_server`
+is already in its config.
 
 ## Components to change
 

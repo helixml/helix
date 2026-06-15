@@ -6,16 +6,15 @@
 - [x] Record findings: **100 agent_servers ≈ free (0 procs, flat RSS); 100 MCP context_servers = ~3.9 GB / 100 procs (the real cost)**
 - [x] **DECISION (reviewer-confirmed): Strategy B — configure ONLY the current agent in Zed.** No all-agents listing, no Zed-native multi-agent picking. Helix dropdown is the sole switch path; daemon rewrites config (new agent's agent_servers + MCP context_servers) and cleanly restarts Zed, then a new thread is created and repopulated.
 
-## Settings-Sync daemon — Zed lifecycle ownership
-- [ ] Add a Zed process supervisor to the daemon (launch, track PID, start/stop/restart, restart on crash)
-- [ ] Move Zed launch out of `desktop/shared/start-zed-core.sh` so the daemon owns the process; shell scripts only start the daemon
-- [ ] On `config_changed` for a switch: Strategy A verify-only / Strategy B rewrite `settings.json` then clean-restart Zed
-- [ ] Keep theme-style hot reload for cheap changes; use full restart only for agent switches (Strategy B)
+## Settings-Sync daemon — Zed restart on switch
+- [x] Daemon restarts Zed via `restartZed()` (`pkill -x zed`); the desktop's existing `run_zed_restart_loop` respawns it with the new config — no launch-ownership migration needed (lower risk)
+- [x] On `config_changed{field:"agent"}`: `syncFromHelix()` rewrites `settings.json`, then `restartZed()`
+- [x] Theme hot reload unchanged; full restart used only for agent switches
+- [~] Build daemon into desktop image (`./stack build-ubuntu`) + verify on a live session — needs rebuild (flagged)
 
-## WebSocket sync protocol — event-driven config load
-- [ ] Add an `agent_config_loaded` event (daemon/Zed → Helix) signalling the target agent is resolvable (and Zed reconnected, in Strategy B)
-- [ ] Fast-path `claude`/`zed-agent` (registry/native) so the event fires immediately for them
-- [ ] Helix awaits this event before creating the new thread
+## WebSocket coordination — reuse agent-reconnect (no new event)
+- [x] DECISION: `agent_config_loaded` event NOT needed — existing `pickupWaitingInteraction`-on-reconnect gates handoff delivery; daemon writes settings.json before killing Zed so the new agent is resolvable on respawn
+- [x] Old agent never receives the handoff (Waiting interactions only deliver on reconnect, never to an already-connected agent)
 
 ## Backend — switch endpoint & session mutation
 - [x] Add `POST /api/v1/sessions/{id}/switch-agent` handler (`session_switch_agent_handlers.go`), swagger-annotated, taking `{ helix_app_id }`
