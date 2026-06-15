@@ -57,3 +57,13 @@ End-to-end in the inner Helix (`http://localhost:8080`):
 6. (If feasible) repeat in a personal/no-org workspace.
 
 Also run `cd frontend && yarn build` before committing.
+
+## Implementation Notes (as built)
+
+**Files changed (helix repo):**
+- `frontend/src/pages/GitRepoDetail.tsx` — repo list query is now org-aware (`organizationId` in an org, else `ownerId`). The old `ownerId` local (`currentOrg?.id || account.user?.id`) became **unused** after the change (the create/link handlers use `currentOrg?.id` directly), so it was removed. `ownerSlug` was left untouched.
+- `frontend/src/components/project/CreateProjectDialog.tsx` — dropdown `disabled` is now just `reposLoading`; the repo-mode tiles no longer lock when `preselectedRepoId` is set (removed the `isDisabled`/`opacity`/`cursor`/guarded-`onClick`/empty-`hover` branches). Preselection still seeds the initial mode + repo via the existing `useEffect` at lines ~267-271, so the repo opens preselected but the user can change it.
+
+**Gotcha:** `yarn build` (vite) fails in this environment with `EACCES … mkdir dist/external-libs` because `frontend/dist` is a root-owned bind mount (production frontend mode). This is NOT a code error — all 21652 modules transform successfully and `yarn tsc -b` exits 0. Use `tsc -b` for compile verification here.
+
+**Verified e2e** in the inner Helix (org context): "Use in Another Project" on a repo page now opens the dialog with the repo preselected, the dropdown interactive, and the mode tiles switchable. Screenshots in `screenshots/`.
