@@ -486,6 +486,14 @@ type SessionMetadata struct {
 	ForkedAt              time.Time `json:"forked_at,omitempty"`
 	ForkedAtInteractionID string    `json:"forked_at_interaction_id,omitempty"`
 
+	// AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+	// this same session (no fork / new container) — see
+	// design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+	// fork_seed interaction carrying the prior thread's transcript exists on
+	// THIS session, so maybePrependTranscript seeds the new Zed thread even
+	// though ParentSessionID is empty (the session continues from itself).
+	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
+
 	// Pause state — sessions cannot accept new messages while paused.
 	// PausedReason is the only producer in v1: "forked_to:<child_id>".
 	Paused       bool      `json:"paused,omitempty"`
