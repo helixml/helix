@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
-	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -334,20 +333,20 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// inboundFailStatus maps a streams.Failure (from the inbound-provisioning
+// inboundFailStatus maps a streaming.Failure (from the inbound-provisioning
 // seam) to its HTTP code. Non-Failure errors fall through to errStatus
 // (404 for a missing stream, else 500).
 func inboundFailStatus(err error) int {
-	var f *streams.Failure
+	var f *streaming.Failure
 	if errors.As(err, &f) {
 		switch f.Kind {
-		case streams.FailBadRequest:
+		case streaming.FailBadRequest:
 			return http.StatusBadRequest
-		case streams.FailPrecondition:
+		case streaming.FailPrecondition:
 			return http.StatusPreconditionFailed
-		case streams.FailUpstream:
+		case streaming.FailUpstream:
 			return http.StatusBadGateway
-		case streams.FailNotFound:
+		case streaming.FailNotFound:
 			return http.StatusNotFound
 		default:
 			return http.StatusInternalServerError

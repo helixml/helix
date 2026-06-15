@@ -1,7 +1,7 @@
 // Package webhook is the infrastructure side of the webhook transport:
 // the outbound emitter that POSTs an appended Event to a Stream's
 // configured OutboundURL. The dispatcher (application) dispatches to it
-// via the streams.Outbound port — it owns the HTTP mechanics
+// via the streaming.Outbound port — it owns the HTTP mechanics
 // (client, timeout, headers, status handling) so that delivery detail
 // stays out of the core dispatcher.
 package webhook
@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -24,7 +23,7 @@ import (
 const outboundTimeout = 5 * time.Second
 
 // OutboundEmitter POSTs Events to a webhook Stream's OutboundURL. It
-// satisfies streams.Outbound.
+// satisfies streaming.Outbound.
 type OutboundEmitter struct {
 	client *http.Client
 	logger *slog.Logger
@@ -80,4 +79,4 @@ func (e *OutboundEmitter) Emit(_ context.Context, stream streaming.Stream, event
 }
 
 // compile-time assertion that the emitter satisfies the port.
-var _ streams.Outbound = (*OutboundEmitter)(nil)
+var _ streaming.Outbound = (*OutboundEmitter)(nil)

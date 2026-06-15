@@ -24,7 +24,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -35,9 +34,9 @@ import (
 
 // Dispatcher routes Events to subscribed AI Workers and runs the
 // configured Spawner for each one. It also fans Events out to the
-// registered streams.Outbound emitter for the Stream's Transport Kind
+// registered streaming.Outbound emitter for the Stream's Transport Kind
 // (webhook, email, …) — but it knows nothing about how each transport
-// delivers; that lives behind the streams.Outbound port.
+// delivers; that lives behind the streaming.Outbound port.
 //
 // The per-Worker coalescing logic (one in-flight Spawn per Worker,
 // bursts folded into the next batch) moved out to
@@ -47,7 +46,7 @@ type Dispatcher struct {
 	store    *store.Store
 	queue    *activation.Queue
 	logger   *slog.Logger
-	outbound map[transport.Kind]streams.Outbound
+	outbound map[transport.Kind]streaming.Outbound
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -62,16 +61,16 @@ func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatch
 		store:    s,
 		queue:    activation.NewQueue(spawn, logger),
 		logger:   logger,
-		outbound: map[transport.Kind]streams.Outbound{},
+		outbound: map[transport.Kind]streaming.Outbound{},
 	}
 }
 
-// RegisterOutbound wires the streams.Outbound emitter for a transport
+// RegisterOutbound wires the streaming.Outbound emitter for a transport
 // Kind. Late-binding (rather than constructor injection) because some
 // transports also take the Dispatcher for inbound activation, so the
 // wiring is Dispatcher.New → Transport.New → RegisterOutbound. Kinds
 // with no registered emitter no-op on outbound.
-func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streams.Outbound) {
+func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streaming.Outbound) {
 	d.outbound[kind] = e
 }
 

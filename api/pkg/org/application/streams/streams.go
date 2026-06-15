@@ -32,7 +32,7 @@ type Streams struct {
 	// provisioners is the per-transport-Kind inbound-webhook registry the
 	// InstallInbound / InboundStatus seam dispatches on. nil/empty → those
 	// endpoints report the transport as unsupported.
-	provisioners map[transport.Kind]Inbound
+	provisioners map[transport.Kind]streaming.Inbound
 }
 
 // Deps are the constructor-injected collaborators for New. Grouping
@@ -45,7 +45,7 @@ type Deps struct {
 	// provisioner (GitHub today, Slack next). Each impl lives in that
 	// transport's infrastructure package; the composition root registers
 	// them here. Optional.
-	Provisioners map[transport.Kind]Inbound
+	Provisioners map[transport.Kind]streaming.Inbound
 }
 
 // New constructs the Streams service. Now/NewID fall back to wall-clock
