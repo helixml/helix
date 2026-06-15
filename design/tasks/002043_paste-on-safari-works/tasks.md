@@ -18,9 +18,9 @@
 
 ## macOS Wails app (for-mac/)
 
-- [~] Add `for-mac/clipboard_darwin.go` with cgo + AppKit (mirror `cursor_darwin.go` pattern). Implement `(a *App) SetClipboardImagePNG(base64PNG string) error` writing `NSPasteboardTypePNG`, and `(a *App) GetClipboardImagePNG() (string, error)` reading the same type and returning base64 or `""`
-- [ ] Run `wails dev` (or `wails build`) to regenerate `for-mac/frontend/wailsjs/go/main/App.d.ts` and `.js`; include the regenerated files in the PR
-- [ ] Extend the `handleMessage` event handler in `for-mac/frontend/src/App.tsx`:
+- [x] Add `for-mac/clipboard_darwin.go` with cgo + AppKit (mirror `cursor_darwin.go` pattern). Implement `(a *App) SetClipboardImagePNG(base64PNG string) error` writing `NSPasteboardTypePNG`, and `(a *App) GetClipboardImagePNG() (string, error)` reading the same type and returning base64 or `""` — also fall back to NSPasteboardTypeTIFF and transcode to PNG, since macOS screenshots-to-clipboard land as TIFF
+- [x] Update `for-mac/frontend/wailsjs/go/main/App.d.ts` and `.js` to declare the two new methods (auto-generated normally by `wails dev`, but we hand-edit since we don't run wails here)
+- [~] Extend the `handleMessage` event handler in `for-mac/frontend/src/App.tsx`:
   - [ ] Accept `{ type: "helix-clipboard-write", mime: "image/png", base64: string }` and call `SetClipboardImagePNG`
   - [ ] For `helix-clipboard-read`, query `GetClipboardImagePNG` first; if non-empty respond with `mime: "image/png"`, else fall back to `ClipboardGetText` and respond with `mime: "text/plain"`, else `mime: "empty"`
   - [ ] Keep accepting the old `{ type, text }` write shape (treat as `mime: "text/plain"`) for back-compat
