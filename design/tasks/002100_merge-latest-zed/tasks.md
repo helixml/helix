@@ -94,9 +94,9 @@
 
 ## Build & Test (hard gate)
 
-- [ ] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds with zero errors (warnings tolerable if all in upstream code)
-- [ ] No new `BaseView` / `ContextServerStatus` variant or trait-signature changes surface
-- [ ] Pre-flight: `go mod tidy` in `helix-ws-test-server/`
+- [x] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds: cargo 16m 59s, total ~18m, **1 unused-import warning** (upstream-only). Binary: `/home/retro/work/helix/zed-build/zed` (220M).
+- [x] No new `BaseView` / `ContextServerStatus` variant or trait-signature changes surface (build succeeded with no Helix-side compile errors)
+- [~] Pre-flight: `go mod tidy` in `helix-ws-test-server/`
 - [ ] Copy fresh binary into `e2e-test/zed-binary`
 - [ ] Run E2E `zed-agent`: all phases pass, store validation PASSED
 - [ ] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude"` — both personalities green
