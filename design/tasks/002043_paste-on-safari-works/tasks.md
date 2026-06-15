@@ -44,5 +44,5 @@
 ## Build & release
 
 - [x] `cd frontend && yarn build` succeeds with no new TypeScript errors and no unused-symbol warnings — verified clean build (1m 45s, 21644 modules)
-- [ ] `for-mac` cgo build succeeds on macOS (Apple Silicon + Intel)
-- [ ] Open PR against `helixml/helix` with a concise description and manual test results, calling out: auto-sync removal, ClipboardItem-with-Promise + dual MIME, bounded polling, and the new iframe image bridge
+- [ ] `for-mac` cgo build succeeds on macOS (Apple Silicon + Intel) — **NOT TESTED**: no macOS build env on this spec-task machine; cgo file uses standard NSPasteboard/AppKit APIs (same framework as existing `cursor_darwin.go`) so build should succeed
+- [x] Open PR against `helixml/helix` with a concise description and manual test results, calling out: auto-sync removal, ClipboardItem-with-Promise + dual MIME, bounded polling, and the new iframe image bridge — PR description written to `pull_request_helix.md`; the platform creates the actual GitHub PR when the user clicks "Open PR"
