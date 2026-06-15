@@ -1840,10 +1840,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <HubIcon sx={{ mr: 1, color: "#10B981" }} />
-          <Typography variant="h6">Skills</Typography>
+          <Typography variant="h6">MCPs & APIs</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure skills for this project. These overlay on top of agent-level skills.
+          Configure MCPs and APIs for this project. These overlay on top of agent-level MCPs and APIs.
         </Typography>
         <Divider sx={{ mb: 2 }} />
         <Skills

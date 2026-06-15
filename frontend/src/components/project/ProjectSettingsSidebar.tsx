@@ -72,7 +72,7 @@ const ProjectSettingsSidebar: FC<ProjectSettingsSidebarProps> = ({ activeTab = '
         },
         {
           id: 'skills',
-          label: 'Skills',
+          label: 'MCPs & APIs',
           icon: <HubIcon />,
           isActive: activeTab === 'skills',
           onClick: () => handleClick('skills'),
