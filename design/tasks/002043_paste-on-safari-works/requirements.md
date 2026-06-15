@@ -60,10 +60,15 @@ failed`), so the user is told the copy succeeded when locally it did not.
    warning/error style).
 4. Chrome on macOS and Linux continues to behave as it does today, for
    both text and image copy.
-5. The macOS Wails app (iframe + postMessage bridge) continues to work
-   as it does today for text. Image copy inside the iframe shows a
-   clear error toast (matches the existing limitation that the
-   postMessage bridge has no image path).
+5. The macOS Wails app (iframe + postMessage bridge) gains image
+   clipboard support in **both directions** as part of this change:
+   - Copying an image on the remote desktop with Cmd+C lands the
+     image on the macOS system clipboard (verified by pasting into
+     Preview / a chat app from inside *and* outside the Wails app).
+   - Pasting an image from the macOS system clipboard with Cmd+V
+     transfers the image to the remote desktop's clipboard (verified
+     by pasting into an image-capable remote app).
+   The existing text postMessage bridge keeps working unchanged.
 6. No regression in the existing paste flows (Safari paste button, Chrome
    keyboard paste, native `paste` DOM event, iframe paste).
 7. The 2.7-second background clipboard polling loop (`syncClipboard`
@@ -97,9 +102,9 @@ into Preview / chat apps / image editors. Same gesture-anchored
 an image-only destination, or vice versa, yields nothing instead of
 the right content — user retries with the matching destination).
 
-The macOS Wails app (iframe) keeps its existing limitation that the
-postMessage bridge has no image path — image copy there shows a
-clear error toast rather than silently failing.
+Image copy/paste also works inside the macOS Wails app via an
+extended postMessage bridge backed by a new cgo binding to
+NSPasteboard. See `design.md` decision 6 for the protocol.
 
 ## Out of scope
 

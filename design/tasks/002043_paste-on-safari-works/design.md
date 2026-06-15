@@ -232,25 +232,16 @@ if (isCopyKeystroke && sessionIdRef.current) {
     fetchPromise
       .then(async (d) => {
         if (d?.type === "text" && d.data) {
-          await clipboardWriteText(d.data);
+          // Writes via extended postMessage (mime: "text/plain") in iframe,
+          // or navigator.clipboard.writeText() in plain browsers.
+          await clipboardWrite({ mime: "text/plain", text: d.data });
           showClipboardToast("Copied text", "success");
-        } else if (
-          d?.type === "image" &&
-          d.data &&
-          !isInIframe &&
-          navigator.clipboard?.write
-        ) {
-          const blob = new Blob([base64ToBytes(d.data)], { type: "image/png" });
-          await navigator.clipboard.write([
-            new ClipboardItem({ "image/png": blob }),
-          ]);
+        } else if (d?.type === "image" && d.data) {
+          // Same dispatch — postMessage carries mime "image/png" + base64
+          // to the Wails parent, which calls SetClipboardImagePNG via cgo;
+          // outside iframe, navigator.clipboard.write writes the Blob.
+          await clipboardWrite({ mime: "image/png", base64: d.data });
           showClipboardToast("Copied image", "success");
-        } else if (d?.type === "image" && isInIframe) {
-          // No postMessage image bridge today — match existing limitation.
-          showClipboardToast(
-            "Image copy not supported in macOS app — use Chrome/Safari directly",
-            "error",
-          );
         } else {
           showClipboardToast("Clipboard empty", "error");
         }
@@ -318,11 +309,8 @@ standard probe (available in Chrome 113+, Safari 16.4+). When it
 returns false (very old browsers), drop the image representation and
 fall through with text-only.
 
-**iframe / postMessage bridge**: the existing bridge does not carry
-images today (`type === "image"` already takes the non-iframe path
-via `navigator.clipboard.write`). We preserve that behaviour — copy
-of an image inside the macOS Wails app shows a clear error toast
-instead of silently failing.
+**iframe / postMessage bridge**: extended to carry images. See
+decision 6.
 
 ### 5. Remove the 2.7-second auto-sync polling loop
 
@@ -365,6 +353,94 @@ diagnose (it sometimes papered over the gesture problem on Chrome by
 re-writing the right value 2.7 s later), and the simplification it
 buys makes the new code substantially easier to reason about.
 
+### 6. Extend the iframe postMessage bridge to carry images
+
+Today the bridge between the desktop stream iframe and the macOS
+Wails app passes only text:
+
+```ts
+// iframe → parent
+window.parent.postMessage({ type: "helix-clipboard-write", text }, "*");
+window.parent.postMessage({ type: "helix-clipboard-read",  id    }, "*");
+// parent → iframe
+window.postMessage({ type: "helix-clipboard-response", id, text }, "*");
+```
+
+The Wails runtime exposes only `ClipboardSetText` /
+`ClipboardGetText`, which is why we never wired up images. NSPasteboard
+itself supports `NSPasteboardTypePNG` natively, so a small cgo binding
+gets us symmetrical image support.
+
+**Wails-side additions (`for-mac/`)**:
+
+- New file `for-mac/clipboard_darwin.go` (cgo + AppKit, same pattern
+  as `cursor_darwin.go`). Two exported methods on `*App`:
+
+  ```go
+  // SetClipboardImagePNG accepts base64-encoded PNG bytes, writes them
+  // as NSPasteboardTypePNG to the general pasteboard.
+  func (a *App) SetClipboardImagePNG(base64PNG string) error
+
+  // GetClipboardImagePNG returns base64-encoded PNG bytes from the
+  // general pasteboard, or "" if no image is present.
+  func (a *App) GetClipboardImagePNG() (string, error)
+  ```
+
+  Implementation: `[NSPasteboard generalPasteboard]` → `clearContents`
+  + `setData:forType:NSPasteboardTypePNG` for write;
+  `dataForType:NSPasteboardTypePNG` for read.
+
+- `wails build` / `wails dev` auto-regenerates the TS bindings in
+  `for-mac/frontend/wailsjs/go/main/App.d.ts` — no manual binding
+  registration; `*app` is already in `main.go`'s `Bind` list.
+
+**Protocol (extended postMessage)**:
+
+```ts
+// iframe → parent: extended write
+{ type: "helix-clipboard-write", mime: "text/plain", text: string }
+{ type: "helix-clipboard-write", mime: "image/png", base64: string }
+// iframe → parent: extended read (returns whichever type is on the
+// pasteboard; parent picks based on what NSPasteboard.types contains)
+{ type: "helix-clipboard-read",  id: string }
+// parent → iframe: response carries the type discriminator
+{ type: "helix-clipboard-response", id, mime: "text/plain", text }
+{ type: "helix-clipboard-response", id, mime: "image/png",  base64 }
+{ type: "helix-clipboard-response", id, mime: "empty" }
+```
+
+The old-shape `text`-only write/response remain accepted by the parent
+(treated as `mime: "text/plain"`) for forward-compatibility during the
+deploy window when an older Wails app sees a newer iframe or vice
+versa.
+
+**App.tsx changes**: route incoming messages by `mime`. For write
+images call `SetClipboardImagePNG`. For read, query both
+`ClipboardGetText` and `GetClipboardImagePNG` and pick image if
+present (matches what macOS would return for a "best" type request).
+
+**DesktopStreamViewer.tsx changes**: in the iframe code path, replace
+the "image copy not supported in macOS app" error toast with a
+postMessage of `mime: "image/png", base64: <data>`. In the paste path,
+extend `clipboardReadText` to a `clipboardReadAny` that returns
+`{ mime, data } | null` and feed an image result into the existing
+`syncAndPaste({ type: "image", data: base64 }, ...)` upload.
+
+**Size considerations**: postMessage in iframes is structured-cloned
+in-process with no documented size limit (in practice limited by
+memory; Chrome and Safari both handle tens of MB without trouble).
+Base64-encoding a PNG inflates it ~33 %; a 4K screenshot is on the
+order of 5–10 MB base64, which round-trips in <50 ms locally. The
+existing HTTP path already moves the same data at the same size, so
+we are not introducing a new bottleneck.
+
+**Why now, not separate**: the reviewer explicitly asked for parity.
+Once the cgo file and the protocol-with-mime are in place, the wiring
+in App.tsx and DesktopStreamViewer.tsx is small. Splitting it out
+would mean shipping the new ClipboardItem multi-MIME code first
+with the iframe still showing an error toast, then having to revisit
+the same files later — net more disruption.
+
 ## Risks and mitigations
 
 | Risk | Mitigation |
@@ -379,6 +455,10 @@ buys makes the new code substantially easier to reason about.
 | Safari user has denied clipboard permission | Caught in `.catch`, toast tells them why; matches acceptance criterion 2 |
 | Paste into image-only app when remote is text (or vice versa) gets a 0-byte representation | Accepted UX cost of not knowing MIME type at gesture time; documented in design decision 4. User retries with appropriate destination |
 | `base64ToBytes` choking on large images | Use the same decode loop already present in the file (it handles the existing image case); add streaming via `fetch("data:image/png;base64,...")` only if perf becomes a problem |
+| Old Wails app shipped with no image-bridge handlers, new iframe sends `helix-clipboard-write` with `mime: "image/png"` | Old App.tsx checks `event.data.text` is a string — image messages fall through to no-op. Iframe never receives a `helix-clipboard-response` for image read, falls back to text-only paste path. Graceful degradation |
+| New Wails app, old iframe sends old-shape `{ type, text }` writes | App.tsx keeps the old code path active (treats it as `mime: "text/plain"`). No behaviour change for unchanged iframes |
+| cgo build adds Apple framework dependency in `for-mac/` | `cursor_darwin.go` already depends on AppKit (`#cgo LDFLAGS: -framework AppKit`). Same framework, no new link dependency |
+| Image size > a few MB stresses base64 + postMessage path | Existing HTTP clipboard endpoint already moves the same data at the same size with no reports of issues. Add a soft cap at e.g. 32 MB with an error toast if we hit it in testing |
 
 ## Future work (out of scope for this PR)
 
@@ -403,8 +483,15 @@ buys makes the new code substantially easier to reason about.
 
 - `frontend/src/components/external-agent/DesktopStreamViewer.tsx`
   - Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` (around lines
-    3905–4049) to use the ClipboardItem-with-Promise pattern.
+    3905–4049) to use the ClipboardItem-with-Promise pattern with
+    bounded adaptive polling and dual-MIME (`text/plain` + `image/png`).
   - Update the toast logic so failed local writes don't claim success.
+  - Replace `clipboardWriteText` with `clipboardWrite({mime, text|base64})`
+    so the iframe / browser dispatch can carry images as well as text.
+    Update the existing call sites accordingly.
+  - Extend `clipboardReadText` to `clipboardReadAny`
+    returning `{ mime: "text/plain" | "image/png" | "empty", text?, base64? }`;
+    feed image results into the paste-upload path.
   - Remove the `useEffect` that polls `v1ExternalAgentsClipboardDetail`
     every 2.7 s (around lines 2664–2740).
   - Remove the `lastRemoteClipboardHash` and `lastAutoSyncedText` refs
@@ -413,7 +500,26 @@ buys makes the new code substantially easier to reason about.
     skips the upload when `text === lastAutoSyncedText.current` — with
     auto-sync gone, the upload always happens.
 
-No backend or generated-API-client changes.
+- `for-mac/clipboard_darwin.go` (NEW)
+  - cgo + AppKit, mirrors `cursor_darwin.go` pattern.
+  - `(a *App) SetClipboardImagePNG(base64PNG string) error` — writes
+    `NSPasteboardTypePNG`.
+  - `(a *App) GetClipboardImagePNG() (string, error)` — reads
+    `NSPasteboardTypePNG`, returns base64 or `""`.
+
+- `for-mac/frontend/src/App.tsx`
+  - Extend the `message` event handler to recognise `mime` discriminator
+    in `helix-clipboard-write` and `helix-clipboard-read`.
+  - For read: if `GetClipboardImagePNG` returns non-empty, respond with
+    `mime: "image/png"`; else fall back to `ClipboardGetText` and respond
+    with `mime: "text/plain"`; else `mime: "empty"`.
+  - Keep accepting old-shape `{ type, text }` writes for back-compat.
+
+- `for-mac/frontend/wailsjs/go/main/App.d.ts` and `.js`
+  - Auto-regenerated by `wails dev` / `wails build`; do not hand-edit.
+  - PR should include the regenerated files.
+
+No Go API or generated-API-client changes.
 
 ## Test plan
 
@@ -443,16 +549,29 @@ quirk):
    (0-byte representation). Retry by pasting into Notes — that
    works.
 4. **Chrome on macOS** — verify no regression. Repeat tests 1 and 2.
-5. **macOS Wails app (iframe)** — text copy still works via the
-   postMessage bridge. Image copy shows a clear error toast
-   (preserves existing limitation).
-6. **Paste flows on Safari** — Cmd+V via Safari's paste button,
+5. **macOS Wails app (iframe) — text** — copy and paste still work via
+   the postMessage bridge unchanged.
+6. **macOS Wails app (iframe) — image copy** — copy an image on the
+   remote desktop (e.g. screenshot, then GNOME Files → Copy), press
+   Cmd+C in the Wails window. Switch to a native Mac app (Preview,
+   Messages) and paste. Expected: the image pastes.
+7. **macOS Wails app (iframe) — image paste** — copy an image on the
+   Mac (e.g. screenshot to clipboard via `Cmd+Shift+Ctrl+4`), focus
+   the desktop stream inside the Wails window, press Cmd+V. Expected:
+   the image lands on the remote clipboard and pastes into a remote
+   image-capable app (e.g. GIMP, Files → paste).
+8. **Paste flows on Safari** — Cmd+V via Safari's paste button,
    native `paste` DOM event, keyboard fallback. None should
    regress.
-7. **Latency** — copy on a fast local desktop, observe console
+9. **Latency** — copy on a fast local desktop, observe console
    timing logs. The poll loop should resolve in 30–90 ms on a
    healthy setup; 500 ms deadline only kicks in on a slow or
    unresponsive backend.
+10. **Old Wails ↔ new iframe / new Wails ↔ old iframe** — confirm
+    backward-compatibility: an older Wails app that doesn't
+    understand `mime: "image/png"` simply ignores the message (text
+    still works). A new Wails app that receives an old-shape
+    `{ type, text }` write treats it as `mime: "text/plain"`.
 
 ## Notes for the implementer
 
