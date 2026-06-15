@@ -32,10 +32,10 @@
 - [x] `thread_created` mapping + `ZedThreadID` persistence already handled by existing handler — reused as-is
 - [x] `getZedConfig`/`buildCodeAgentConfig` already resolve the agent from `ParentApp` — verified, no change needed
 
-## Zed (Rust) — verify / minimal change
-- [ ] Verify `chat_message` + `acp_thread_id: null` creates a new thread bound to the supplied `agent_name` (dispatch `websocket_sync.rs:400`); no new command type if so
-- [ ] Emit `agent_config_loaded` if sourced from Zed (vs daemon)
-- [ ] Bump `ZED_COMMIT` in `sandbox-versions.txt` if Zed is touched (per repo ordering rule)
+## Zed (Rust) — verified, NO change needed
+- [x] Verified `chat_message` + `acp_thread_id: null` creates a new thread bound to `agent_name` (`websocket_sync.rs:401` → `thread_service.rs:1401-1410`: zed-agent/None→Native, claude→claude-acp, others→Custom)
+- [x] Zed already sends `agent_ready` on thread creation (`thread_service.rs:1607`) → triggers `pickupWaitingInteraction` on reconnect
+- [x] No new command type / no `agent_config_loaded` emission needed → **no `ZED_COMMIT` bump**
 
 ## Frontend — rewire the dropdown to a toggle
 - [ ] Point `ForkAgentControl` confirm action at the new `switch-agent` mutation instead of `useForkSession`
