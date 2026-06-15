@@ -1,4 +1,4 @@
-# Requirements: In-Place Agent Framework Switching on Running Sessions
+# Requirements: In-Place Agent Switching via New Zed Threads
 
 ## Background
 
@@ -13,104 +13,117 @@ container is restarted and the workspace is re-cloned. Anything that happened
 in the environment up to that point (uncommitted edits, running processes,
 installed tools, scratch files) is lost or has to be laboriously duplicated.
 
-We want a **second, default path**: keep the *same* environment and just switch
-the agent that Zed ("Z") is using inside it. The session's container, workspace,
-and history all stay put; only the agentic framework changes.
+Per the team meeting, we are adding a **second, default path**: keep the *same*
+environment and just switch the agent that Zed ("Z") is using inside it, by
+**creating a new Zed thread** bound to the selected agent. The session's
+container, workspace, and history all stay put.
+
+## Decisions from the meeting (authoritative)
+
+These supersede earlier assumptions:
+
+1. **Switch = new Zed thread, not a new container.** Selecting an agent creates
+   a new Z thread with that agent; the existing container/session is reused.
+2. **Threads are isolated per agent.** Sessions are **not** migrated between
+   agents (the agent runtime owns session persistence). Each switch creates a
+   new thread; existing threads remain intact but bound to their own agent.
+   Helix copies/restreams the right context into the new thread transparently.
+3. **Keep "fork" as a separate, clearly-distinct feature.** The container-clone
+   path stays in the codebase. Only the dropdown is rewired to the switch path.
+4. **No "fork" jargon in the UI.** Present this as a simple agent toggle.
+5. **The Settings-Sync daemon owns the Zed process lifecycle.** Starting,
+   stopping, and restarting Zed moves out of shell scripts into the Go daemon,
+   so config rewrites + clean restarts during a switch are reliable.
+6. **Prefer configuring Zed with all agents up front** (so switching needs no
+   runtime reconfiguration) — *gated on a performance spike*. If startup
+   degrades, fall back to partial/lazy/selective syncing.
+7. **Extend the WebSocket sync protocol with an event** that signals when an
+   agent's configuration has loaded, so the switch is event-driven (no polling,
+   fewer races).
 
 ## Goal
 
-Decouple the agent dropdown from the fork behaviour. When a user switches the
-agent on a running session, Helix should switch the agent **in place** inside
-the existing Zed environment — without restarting the container or creating a
-new Helix session — while preserving the conversation by repopulating a fresh
-Zed thread with the prior thread's messages.
-
-The fork path and its handlers remain in the codebase, available for callers
-that still want a clean-slate fork. Only the dropdown's wiring changes.
+Decouple the agent dropdown from the fork behaviour. Switching an agent on a
+running session should create a new Zed thread with the selected agent inside
+the existing environment, repopulate it with the prior conversation's context,
+and feel like a simple toggle — no container teardown, no new Helix session.
 
 ## User Stories
 
-### US-1: Switch framework without losing the environment
-As a user mid-session, when I pick a different agent from the dropdown, I want
-the agent to change inside my current environment so that all my in-progress
-work (files, processes, git state) is preserved.
+### US-1: Toggle agent without losing the environment
+As a user mid-session, when I pick a different agent from the dropdown, the
+agent changes inside my current environment so my in-progress work (files,
+processes, git state) is preserved.
 
 **Acceptance criteria:**
-- Picking a new agent does **not** fork the session, create a new session id,
-  or restart/replace the desktop container.
-- The session keeps the same id, URL, and desktop container.
+- Switching does **not** fork, create a new session id, or restart/replace the
+  desktop container; the session keeps the same id, URL, and container.
 - Uncommitted edits and workspace state survive the switch (no re-clone).
-- The conversation continues in the same session view.
+- The UI uses toggle/switch language — never "fork".
 
-### US-2: Conversation continuity across the switch
-As a user, I want the new agent to see the full conversation that happened
-before the switch, so it can continue the work with context.
+### US-2: New thread per agent, with prior context
+As a user, switching creates a new Zed thread for the selected agent that has
+the previous conversation as context.
 
 **Acceptance criteria:**
-- After the switch, the new agent's first turn has the prior thread's
-  transcript as context (reusing the existing fork transcript serializer).
-- The Helix chat panel continues to show the prior interactions followed by the
-  new agent's turns (no duplicate or lost messages).
+- A new Zed thread is created bound to the selected agent; the previous thread
+  is left intact (not migrated).
+- The new thread's first turn carries the prior transcript (reusing the fork
+  transcript serializer).
+- The Helix chat panel shows prior interactions followed by the new agent's
+  turns — no duplicates, no lost messages.
 - The session's stored agent (`ParentApp` / `Metadata.ZedAgentName`) and
-  `ZedThreadID` reflect the new agent and the new Zed thread.
+  `ZedThreadID` reflect the new agent and new thread.
 
-### US-3: Make the new agent available in the Zed environment
-As the system, I must ensure the target agent's configuration (runtime,
-model, provider, base URL, credentials, MCP tools) is present in the Zed
-container before the new thread is created, so the new thread can bind to it.
+### US-3: Daemon-managed Zed lifecycle + config
+As the system, the Settings-Sync daemon makes the target agent available and
+controls Zed's process lifecycle so the switch is clean and reliable.
 
 **Acceptance criteria:**
-- The settings-sync daemon writes the target agent's `agent_servers` /
-  managed-settings into the container before Helix asks Zed to create the new
-  thread (ordering is coordinated; no race where Zed can't resolve the agent).
-- Switching is supported between the external-agent runtimes that make sense to
-  run in Zed (`zed_agent`, `claude_code`, `qwen_code`, `goose_code`). Agents
-  that don't map to a Zed runtime are excluded from the dropdown (current
-  `zed_external` filter is retained).
+- Zed start/stop/restart is driven by the daemon (Go), not the desktop shell
+  scripts.
+- The daemon rewrites Zed's config for the switch and, where a clean restart is
+  needed, stops and restarts Zed deterministically.
+- A new WS-sync event signals when the agent config has loaded; the switch
+  proceeds on that event rather than a timer.
 
-### US-4: Fork path preserved
-As a developer, I want the fork-and-pause code to remain intact so that a
-clean-slate fork is still possible for callers that want it.
+### US-4: Switching is fast and scales with agent count
+As a user in an installation with many agents, switching stays responsive.
+
+**Acceptance criteria:**
+- A spike measures Zed startup/resource impact with ~100 agents configured
+  (including their MCP servers). Findings recorded.
+- If all-agents config is acceptable, switching requires no per-switch
+  reconfiguration. If not, the partial/lazy/selective fallback is implemented so
+  startup stays acceptable.
+
+### US-5: Fork path preserved
+As a developer, the container-clone fork code remains intact for callers that
+want a clean slate.
 
 **Acceptance criteria:**
 - `POST /sessions/{id}/fork` and all `fork_*` handlers/markers remain and keep
   working.
-- The dropdown no longer calls the fork endpoint by default; it calls the new
-  in-place switch path.
+- The dropdown no longer calls the fork endpoint by default.
 
-## Research Questions (answered — see design.md for detail)
+## Research findings feeding the spike (see design.md for detail)
 
-1. **Is it efficient to pre-configure *all* installation/project agents in Zed
-   at startup?**
-   Configuring many entries in `agent_servers` is **CPU-cheap**: Zed validates
-   and indexes them at startup but only spawns an agent subprocess **lazily**,
-   on the first thread that targets it (`AgentConnectionCache`). So a long list
-   does not cost startup CPU. **However**, "all agents" has real drawbacks:
-   per-agent credentials/model can collide (e.g. claude managed-settings holds
-   one model), and **MCP `context_servers` are shared per-project in Zed, not
-   per-agent** — so it cannot cleanly give each agent its own toolset.
-
-2. **All-agents vs. inject-the-selected-agent?**
-   Because the thread→agent binding is immutable, *both* approaches still
-   require creating a new thread and repopulating it. The all-agents approach
-   only removes the "push new config before switch" step — at the cost of the
-   MCP/credential collisions above. We therefore recommend **on-demand
-   injection of the selected agent** (the daemon already detects
-   `code_agent_config` changes), which scales to any agent count and lets MCP
-   tools follow the active agent. See design.md §"Decision".
-
-3. **How do we switch the Zed thread to a new framework while keeping prior
-   messages?**
-   Reuse the existing mechanism: `chat_message` with `acp_thread_id: null`
-   already creates a *new* Zed thread bound to the supplied `agent_name`. The
-   in-place switch is effectively "fork minus the new container/session":
-   reset the session's thread binding, set the new agent, and send a handoff
-   message seeded with the serialized prior transcript.
+- **`agent_servers` entries are CPU-cheap at startup** — Zed validates/indexes
+  them but spawns the agent subprocess **lazily** on first thread use
+  (`AgentConnectionCache`). So the agent list itself is not the startup cost.
+- **The real startup cost is MCP `context_servers`.** They are **per-project /
+  shared across agents** in Zed, initialized up front, and several spawn `npx`
+  processes. Configuring all agents *and unioning their MCP servers* is what the
+  spike must measure. This per-project sharing also means "all agents" cannot
+  give each agent its own isolated toolset.
+- **Thread→agent binding is immutable** — confirming the new-thread approach is
+  the only viable one (sessions can't be migrated between agents).
+- **`chat_message` with `acp_thread_id: null` already creates a new thread**
+  bound to the supplied `agent_name`, so the switch reuses existing machinery.
 
 ## Out of Scope
 
-- Migrating a single Zed thread's internal state to a different agent (Zed
-  binds a thread to one agent immutably — not supported, not attempted).
+- Migrating a single Zed thread to a different agent (not supported by Zed).
 - Changing how the fork path itself works.
-- Letting an agent have a *different* MCP toolset while other agents are
-  simultaneously configured (blocked by Zed's per-project context servers).
+- Per-agent isolated MCP toolsets while multiple agents are simultaneously
+  configured (blocked by Zed's per-project context servers; revisit later).
