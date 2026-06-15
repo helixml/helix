@@ -436,8 +436,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       }, 
       {
         name: 'skills',
-        title: 'Skills',       
-      }, 
+        title: 'MCPs & APIs',
+      },
       {
         name: 'triggers',
         title: 'Triggers',

@@ -19,9 +19,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
+// SettingsPath and KeymapPath are vars (not consts) so unit tests can point
+// them at a tempdir without touching the real Zed config.
+var (
 	SettingsPath = "/home/retro/.config/zed/settings.json"
 	KeymapPath   = "/home/retro/.config/zed/keymap.json"
+)
+
+const (
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -1123,23 +1128,63 @@ var HELIX_MANAGED_THEMES = map[string]bool{
 // Helix-managed themes; otherwise it returns the on-disk value, preserving
 // the user's manual Zed-UI choice. apiTheme=="" disables the assignment in
 // the caller (we don't want to delete an existing theme key).
+//
+// Emits one structured INFO log line per call so that future debugging of
+// the helix→zed theme sync can `grep` for "theme sync:" and see which
+// branch fired without having to re-derive the logic from source.
 func (d *SettingsDaemon) effectiveTheme(apiTheme string) string {
+	result, branch, onDiskRepr := d.computeEffectiveTheme(apiTheme)
+	log.Printf("theme sync: branch=%s on_disk=%s wrote=%q api=%q",
+		branch, onDiskRepr, result, apiTheme)
+	return result
+}
+
+// computeEffectiveTheme is the pure decision function behind effectiveTheme.
+// Split out so unit tests can assert the branch taken without having to
+// scrape log output. Returns the value to write (or "" to skip the write),
+// the branch label, and a human-readable repr of what was on disk.
+//
+// Branches:
+//   - no_api_theme       — apiTheme is empty; caller should skip the assign.
+//   - no_existing_file   — settings.json missing; write apiTheme.
+//   - unparseable        — settings.json corrupt; write apiTheme.
+//   - no_theme_key       — theme key absent; write apiTheme.
+//   - structured_replace — theme is a {mode,light,dark} object; replace with apiTheme string.
+//   - empty_string       — theme is "" on disk; write apiTheme.
+//   - managed_overwrite  — theme is one of HELIX_MANAGED_THEMES; write apiTheme.
+//   - preserve_custom    — theme is a custom string the user picked in Zed; preserve it.
+func (d *SettingsDaemon) computeEffectiveTheme(apiTheme string) (result, branch, onDiskRepr string) {
 	if apiTheme == "" {
-		return ""
+		return "", "no_api_theme", "<not_read>"
 	}
 	data, err := os.ReadFile(SettingsPath)
 	if err != nil {
-		return apiTheme // no existing settings, safe to write
+		return apiTheme, "no_existing_file", "<missing>"
 	}
 	var existing map[string]interface{}
 	if err := json.Unmarshal(data, &existing); err != nil {
-		return apiTheme // unparseable, treat as if missing
+		return apiTheme, "unparseable", "<unparseable>"
 	}
-	onDisk, ok := existing["theme"].(string)
-	if !ok || onDisk == "" || HELIX_MANAGED_THEMES[onDisk] {
-		return apiTheme
+	raw, present := existing["theme"]
+	if !present {
+		return apiTheme, "no_theme_key", "<absent>"
 	}
-	return onDisk
+	onDisk, ok := raw.(string)
+	if !ok {
+		// Structured theme — most likely {mode, light, dark} written by Zed's
+		// own theme picker / ToggleMode action. Replace with the bare string
+		// the API chose; this also dislodges any sticky Dynamic{mode:System}
+		// state Zed may be holding.
+		encoded, _ := json.Marshal(raw)
+		return apiTheme, "structured_replace", string(encoded)
+	}
+	if onDisk == "" {
+		return apiTheme, "empty_string", `""`
+	}
+	if HELIX_MANAGED_THEMES[onDisk] {
+		return apiTheme, "managed_overwrite", fmt.Sprintf("%q", onDisk)
+	}
+	return onDisk, "preserve_custom", fmt.Sprintf("%q", onDisk)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
