@@ -223,3 +223,8 @@ reviewer (or to CI's e2e jobs); the change is covered by:
       after a clean `git stash` + `git merge` cycle — the recent
       vhost / web-service work in main did not conflict with these
       changes; full server test suite still green post-merge).
+      → Drone build #2148 for `66b6bcb0` is GREEN: all 14 steps
+      pass (clone, postgres, chrome, build-frontend, helm-lint,
+      check-for-secrets, shell-script-tests, build-api-binary,
+      run-migrations, unit-test, unit-test-nocgo,
+      api-integration-test, build-operator, run-linter-operator).
