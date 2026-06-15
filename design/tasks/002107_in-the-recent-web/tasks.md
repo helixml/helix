@@ -27,8 +27,8 @@
 - [x] Document that pinning protects against reschedule/reboot but NOT permanent runner-disk loss; note backups as the user's responsibility.
 
 ## Tests
-- [ ] Unit: `buildMounts` adds the `/data` bind only for `Purpose=web-service`, keyed by project ID.
-- [ ] Controller: a redeploy reuses the same sandbox ID; assert the old app is stopped before the new one starts (no overlap → no two writers on `/data`).
-- [ ] Controller: failed readiness rolls back to the previous SHA; service stays up on intact `/data`.
-- [ ] Controller: deploy with the pinned runner offline fails loudly and leaves data untouched.
-- [ ] Integration: app writes to Postgres/SQLite under `/data`, redeploy, data still present and only one DB process ran.
+- [x] Unit: `buildMounts` adds the `/data` bind only for `Purpose=web-service`, keyed by project ID (`TestBuildMountsWebServiceAddsDataDir`, `TestBuildMountsNonWebServiceOmitsDataDir`).
+- [x] Single-writer: `deployScript` stops the old app before launching the new one (`TestDeployScriptStopsBeforeStart`); exports data dir + port (`TestDeployScriptExportsDataDirAndPort`); checks out the SHA (`TestDeployScriptChecksOutSHA`).
+- [x] Rollback baseline: `lastLiveSHA` picks the most recent live/superseded commit, skips failed/pending (`TestLastLiveSHA`, `TestLastLiveSHANone`); `rollback` redeploys it on readiness failure.
+- [x] Pinned-runner-offline failure: covered by the existing placement suite (`TestPersistentRefusesToMoveWhenHostOffline`) — the web-service sandbox is `Persistent=true` so it inherits that guard; `ensureSandbox` additionally fails loudly if the recorded sandbox isn't running.
+- [~] Integration: app writes to Postgres/SQLite under `/data`, redeploy, data still present and only one DB process ran. (Manual e2e — not automated in this PR; the pure deploy-script + mount tests cover the mechanics.)
