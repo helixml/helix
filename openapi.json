@@ -31105,6 +31105,10 @@
                         "description": "ProjectID optionally associates the sandbox with a project the caller\nbelongs to. Empty means org-scoped only.",
                         "type": "string"
                     },
+                    "purpose": {
+                        "description": "Purpose is an optional marker (e.g. \"web-service\") that selects extra\nprovisioning behaviour. Empty for ordinary sandboxes. Not settable via\nthe public REST API — set internally by the web-service controller.",
+                        "type": "string"
+                    },
                     "runtime": {
                         "description": "Runtime selects one of the operator-configured runtimes\n(e.g. \"headless-ubuntu\", \"node22\", \"ubuntu-desktop\"). Mutually\nexclusive with Image.",
                         "allOf": [
@@ -35107,6 +35111,10 @@
                     "enabled": {
                         "type": "boolean"
                     },
+                    "host_device_id": {
+                        "description": "HostDeviceID is the runner the project's web service is pinned to. It is\nrecorded from the web-service sandbox after first provision and surfaced\nfor visibility. Enforcement of the pin lives in the sandbox scheduler's\npersistent-sandbox sticky guard; this column mirrors it for the UI/API.",
+                        "type": "string"
+                    },
                     "project_id": {
                         "type": "string"
                     },
@@ -36245,6 +36253,10 @@
                     },
                     "project_id": {
                         "description": "ProjectID is optional. When set, the sandbox is associated with a\nspecific project for organisational/UI grouping purposes; nothing in the\nlifecycle path branches on it. Empty means org-scoped only.",
+                        "type": "string"
+                    },
+                    "purpose": {
+                        "description": "Purpose is an optional marker describing what the sandbox is used for.\nEmpty for ordinary agent/dev sandboxes. \"web-service\" marks the single\nlong-lived sandbox that hosts a project's web service; the provisioner\nuses it to bind-mount the per-project durable data dir at /data.",
                         "type": "string"
                     },
                     "runtime": {

@@ -2801,6 +2801,12 @@ export interface TypesCreateSandboxRequest {
    */
   project_id?: string;
   /**
+   * Purpose is an optional marker (e.g. "web-service") that selects extra
+   * provisioning behaviour. Empty for ordinary sandboxes. Not settable via
+   * the public REST API — set internally by the web-service controller.
+   */
+  purpose?: string;
+  /**
    * Runtime selects one of the operator-configured runtimes
    * (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
    * exclusive with Image.
@@ -4509,6 +4515,13 @@ export interface TypesProjectWebServiceState {
   container_port?: number;
   created_at?: string;
   enabled?: boolean;
+  /**
+   * HostDeviceID is the runner the project's web service is pinned to. It is
+   * recorded from the web-service sandbox after first provision and surfaced
+   * for visibility. Enforcement of the pin lives in the sandbox scheduler's
+   * persistent-sandbox sticky guard; this column mirrors it for the UI/API.
+   */
+  host_device_id?: string;
   project_id?: string;
   updated_at?: string;
 }
@@ -5025,6 +5038,13 @@ export interface TypesSandbox {
    * lifecycle path branches on it. Empty means org-scoped only.
    */
   project_id?: string;
+  /**
+   * Purpose is an optional marker describing what the sandbox is used for.
+   * Empty for ordinary agent/dev sandboxes. "web-service" marks the single
+   * long-lived sandbox that hosts a project's web service; the provisioner
+   * uses it to bind-mount the per-project durable data dir at /data.
+   */
+  purpose?: string;
   runtime?: TypesSandboxRuntime;
   started_at?: string;
   status?: TypesSandboxStatus;

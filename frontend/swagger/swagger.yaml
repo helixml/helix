@@ -4459,6 +4459,12 @@ definitions:
           ProjectID optionally associates the sandbox with a project the caller
           belongs to. Empty means org-scoped only.
         type: string
+      purpose:
+        description: |-
+          Purpose is an optional marker (e.g. "web-service") that selects extra
+          provisioning behaviour. Empty for ordinary sandboxes. Not settable via
+          the public REST API — set internally by the web-service controller.
+        type: string
       runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -7294,6 +7300,13 @@ definitions:
         type: string
       enabled:
         type: boolean
+      host_device_id:
+        description: |-
+          HostDeviceID is the runner the project's web service is pinned to. It is
+          recorded from the web-service sandbox after first provision and surfaced
+          for visibility. Enforcement of the pin lives in the sandbox scheduler's
+          persistent-sandbox sticky guard; this column mirrors it for the UI/API.
+        type: string
       project_id:
         type: string
       updated_at:
@@ -8130,6 +8143,13 @@ definitions:
           ProjectID is optional. When set, the sandbox is associated with a
           specific project for organisational/UI grouping purposes; nothing in the
           lifecycle path branches on it. Empty means org-scoped only.
+        type: string
+      purpose:
+        description: |-
+          Purpose is an optional marker describing what the sandbox is used for.
+          Empty for ordinary agent/dev sandboxes. "web-service" marks the single
+          long-lived sandbox that hosts a project's web service; the provisioner
+          uses it to bind-mount the per-project durable data dir at /data.
         type: string
       runtime:
         $ref: '#/definitions/types.SandboxRuntime'
