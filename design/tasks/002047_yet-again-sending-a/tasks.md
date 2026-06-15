@@ -25,7 +25,7 @@
 
 ## Backend — Fix B (synchronous "mark starting" in syncPromptHistory)
 
-- [ ] In `api/pkg/server/prompt_history_handlers.go`, extract the
+- [~] In `api/pkg/server/prompt_history_handlers.go`, extract the
       canonical-session lookup (`Store.GetSpecTask(...).PlanningSessionID`)
       so it runs in the handler before the goroutine dispatch.
 - [ ] After persisting the prompt and before
