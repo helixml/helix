@@ -285,16 +285,25 @@ const (
 //
 // `registry` is the registry HOSTNAME ONLY (e.g. "ghcr.io" or
 // "<acct>.dkr.ecr.us-east-1.amazonaws.com"). Empty means "use the
-// default GHCR host". Whitespace and trailing slashes are stripped.
-// This semantic matches the pre-existing HELIX_SANDBOX_REGISTRY
-// consumers - sandbox/04-start-dockerd.sh and composemgr.rewriteRegistry -
-// which both expect a bare hostname and join the helixml/<image> path
-// themselves. Using the same shape avoids the cross-consumer
-// double-org footgun.
+// default GHCR host". Whitespace and trailing/leading slashes are
+// stripped.
 //
-// URL-form values (containing "://") are rejected loudly: docker pull
-// would fail with "invalid reference format" deep inside the worker,
-// far from the env-var setting that caused it.
+// This semantic matches the pre-existing HELIX_SANDBOX_REGISTRY
+// consumer in sandbox/04-start-dockerd.sh which `sed`-swaps the
+// leading hostname of an image ref. Using the same shape avoids
+// cross-consumer divergence on the same env var.
+//
+// Several malformed shapes are rejected loudly at boot rather than
+// passed through to fail opaquely at docker pull on the worker:
+//
+//   - URL form ("://"):           https://mirror.corp
+//   - Embedded path ("/"):        mirror.corp/helixml
+//                                 (would produce double-org path)
+//   - Internal whitespace:        mirror.corp\nbaz, "foo bar"
+//                                 (TrimSpace only strips edges)
+//   - Empty after trim:           "/", "  /  ", "   "
+//                                 (silent fallback to GHCR is wrong
+//                                  for air-gapped deployments)
 func helixSandboxImageFor(version, registry string) (string, error) {
 	if sentinelVersions[version] {
 		return "", fmt.Errorf(
@@ -304,11 +313,12 @@ func helixSandboxImageFor(version, registry string) (string, error) {
 			version,
 		)
 	}
-	host := strings.TrimRight(strings.TrimSpace(registry), "/")
-	// Reject inputs that collapse to empty after trimming (e.g. "/", "  /  ").
-	// Silent fallback to GHCR is the wrong default for an air-gapped deployment
-	// where the operator probably tried to set the var and would prefer a loud
-	// failure over an egress to ghcr.io.
+	host := strings.Trim(strings.TrimSpace(registry), "/")
+	// Reject inputs that collapse to empty after trimming (e.g. "/",
+	// "  /  ", "   "). Silent fallback to GHCR is the wrong default
+	// for an air-gapped deployment where the operator probably tried
+	// to set the var and would prefer a loud failure over an egress
+	// to ghcr.io.
 	if registry != "" && host == "" {
 		return "", fmt.Errorf(
 			"compute: HELIX_SANDBOX_REGISTRY=%q is invalid (collapses to empty after trimming whitespace and slashes)",
@@ -318,6 +328,28 @@ func helixSandboxImageFor(version, registry string) (string, error) {
 	if strings.Contains(host, "://") {
 		return "", fmt.Errorf(
 			"compute: HELIX_SANDBOX_REGISTRY=%q must be a registry HOSTNAME only (e.g. \"ghcr.io\" or \"<acct>.dkr.ecr.us-east-1.amazonaws.com\"), not a URL",
+			registry,
+		)
+	}
+	// Reject any embedded slash. The hostname-only contract means the
+	// org+image suffix is appended by the consumers themselves; a
+	// value like "mirror.corp/helixml" produces a double-org path
+	// (helixml/helixml/helix-sandbox:tag) on the YD path and a
+	// different garbage on the shell path. Fail loud here.
+	if strings.Contains(host, "/") {
+		return "", fmt.Errorf(
+			"compute: HELIX_SANDBOX_REGISTRY=%q must be a registry HOSTNAME only without any path segments; do not include the org (just \"ghcr.io\", not \"ghcr.io/helixml\")",
+			registry,
+		)
+	}
+	// Reject internal whitespace (newlines, tabs, embedded spaces).
+	// TrimSpace only strips edges; a line-wrapped paste or a copied
+	// ConfigMap value with an embedded newline survives. Use
+	// strings.Fields to split on any whitespace - if it yields more
+	// than one token, the value has internal whitespace.
+	if len(strings.Fields(host)) > 1 {
+		return "", fmt.Errorf(
+			"compute: HELIX_SANDBOX_REGISTRY=%q contains internal whitespace; must be a single hostname token",
 			registry,
 		)
 	}

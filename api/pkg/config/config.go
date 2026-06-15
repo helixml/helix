@@ -207,14 +207,17 @@ type Compute struct {
 	//     -> "internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17"
 	//
 	// IMPORTANT: this env var is ALSO read by sandbox/04-start-dockerd.sh
-	// (the in-container hydra dockerd loader) and by composemgr's
-	// rewriteRegistry (Runner Profile compose-stack image rewriting),
-	// and both expect the same HOSTNAME ONLY semantic. The shared
-	// variable lets one operator setting (`HELIX_SANDBOX_REGISTRY=
-	// my-mirror.corp`) work consistently across all three consumers.
-	// Passing a host+org prefix here (e.g. "my-mirror.corp/helixml")
-	// produces a double-org path in the other consumers' output and
-	// docker-pull fails with manifest-not-found.
+	// (the in-container hydra dockerd loader, which sed-swaps the
+	// leading hostname segment of the desktop image ref). That consumer
+	// expects the same HOSTNAME ONLY semantic. Passing a host+org
+	// prefix here is REJECTED at boot to prevent cross-consumer
+	// divergence on the same env var.
+	//
+	// composemgr's rewriteRegistry (Runner Profile compose-stack image
+	// rewriting) does NOT read this var - it reads the parallel
+	// HELIX_RUNNER_REGISTRY. To mirror Runner Profile pulls as well as
+	// sandbox host pulls, operators set both vars (and ideally to the
+	// same hostname).
 	//
 	// URL-form values (with "://") are rejected at boot. So are
 	// values that trim to empty (e.g. "/" or whitespace-only) - those

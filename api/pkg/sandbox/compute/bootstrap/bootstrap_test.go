@@ -560,6 +560,21 @@ func TestHelixSandboxImageFor(t *testing.T) {
 				"  ghcr.io  ",
 				"ghcr.io/helixml/helix-sandbox:2.11.17",
 			},
+			// Leading slash from a templating bug ("/${REGISTRY}")
+			// normalises to bare hostname after Trim. Lenient
+			// recovery rather than loud rejection - leading slash
+			// produces a valid output once stripped (unlike
+			// embedded path segments which would double-org).
+			{
+				"2.11.17",
+				"/ghcr.io",
+				"ghcr.io/helixml/helix-sandbox:2.11.17",
+			},
+			{
+				"2.11.17",
+				"/mirror.local/",
+				"mirror.local/helixml/helix-sandbox:2.11.17",
+			},
 		}
 		for _, tc := range cases {
 			t.Run(tc.registry, func(t *testing.T) {
@@ -583,11 +598,26 @@ func TestHelixSandboxImageFor(t *testing.T) {
 			registry string
 			wantErr  string
 		}{
+			// URL form
 			{"url form", "https://123.dkr.ecr.us-east-1.amazonaws.com", "must be a registry HOSTNAME only"},
+
+			// Empty after trim
 			{"single slash", "/", "collapses to empty"},
 			{"slashes only", "///", "collapses to empty"},
 			{"whitespace only", "   ", "collapses to empty"},
 			{"whitespace+slashes", "  /  ", "collapses to empty"},
+
+			// Host+org form - the original ultrareview's bug class.
+			// Operators who copy their ECR push target ("acct.dkr.ecr.../helixml")
+			// MUST get a loud error pointing at the right shape.
+			{"host+org trailing slash stripped first", "mirror.corp/helixml/", "without any path segments"},
+			{"host+org bare", "mirror.corp/helixml", "without any path segments"},
+			{"ecr push target shape", "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml", "without any path segments"},
+
+			// Internal whitespace - TrimSpace handles edges only
+			{"embedded newline", "mirror.corp\nhelixml", "internal whitespace"},
+			{"embedded tab", "mirror.corp\thelixml", "internal whitespace"},
+			{"embedded space", "mirror corp", "internal whitespace"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
