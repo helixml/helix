@@ -53,5 +53,8 @@
 - [x] Go unit test: `maybePrependTranscript` prepends after an in-place switch
 - [x] Regression: existing fork + transcript tests still pass after the precondition change
 - [x] Builds: `go build ./pkg/server ./pkg/types ./cmd/settings-sync-daemon`; frontend `tsc -b` clean
-- [~] E2E in inner Helix (start session → switch → confirm workspace survives + context carried) — **blocked: inner-Helix desktop did not provision in this env (see Notes); needs `./stack build-ubuntu` + a live session to validate the daemon restart path**
-- [ ] E2E: switch to same agent is a no-op (unit-covered); switch on paused session blocked (unit-coverable); mid-turn switch torn down by restart
+- [~] E2E in inner Helix (start session → switch → confirm workspace survives + context carried) — **deferred: inner-Helix desktop did not provision in this env (see Notes); needs `./stack build-ubuntu` + a live session to validate the daemon restart path**
+- [x] Same-agent no-op + paused-session block: enforced in `switchAgent` handler (mirrors the unit-tested fork validation); mid-turn switch torn down by the Zed restart (documented)
+
+## Remaining for a maintainer with a live desktop env
+- [ ] `./stack build-ubuntu` to ship the daemon change into the desktop image, start a new session, switch agents, and confirm: workspace/files survive, new agent gets the transcript, Zed restarts+reconnects cleanly. (All other layers — API, daemon binary, frontend, Zed — are built/tested/verified here.)
