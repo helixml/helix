@@ -3,18 +3,18 @@
 ## Frontend (DesktopStreamViewer.tsx)
 
 - [x] Reproduce the bug in Safari on macOS: select text in the remote desktop, press Cmd+C, paste into a native macOS app, confirm previous clipboard content is pasted (not the new selection) while the UI shows "Copied" — confirmed from user report + code trace
-- [~] Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` (around lines 3905–4049) so the local clipboard write is initiated synchronously inside the user-gesture handler
-- [ ] Construct a single `ClipboardItem` that declares **both** `text/plain` and `image/png` synchronously, with each MIME's `Promise<Blob>` resolving to the real Blob if the fetched type matches or a 0-byte Blob otherwise
-- [ ] Replace the hard-coded `setTimeout(300)` with bounded adaptive polling: snapshot the pre-copy clipboard hash (in parallel with forwarding Ctrl+C), then poll `v1ExternalAgentsClipboardDetail` every ~30 ms for up to ~500 ms, return as soon as the hash differs
-- [ ] Use `ClipboardItem.supports("image/png")` to feature-detect image support; on browsers that lack it, drop the image representation and write text-only
-- [ ] Replace `clipboardWriteText(text)` with `clipboardWrite({ mime, text? | base64? })` so the dispatcher can carry images as well as text. Update all call sites
-- [ ] Extend `clipboardReadText` to `clipboardReadAny` returning `{ mime: "text/plain" | "image/png" | "empty", text?, base64? }`; feed image results into the paste-upload path so paste-image-into-iframe works
-- [ ] Feature-detect `ClipboardItem` and `navigator.clipboard.write`; fall back to the existing text-only path when missing
-- [ ] Fix the misleading toast: show green "Copied text" / "Copied image" only when the local clipboard write actually succeeds; error variant when the local write fails or is rejected
-- [ ] Remove the 2.7-second background polling `useEffect` (lines 2664–2740)
-- [ ] Delete the `lastRemoteClipboardHash` ref and all references
-- [ ] Delete the `lastAutoSyncedText` ref and the paste-flow short-circuit at ~line 4091 that reads it
-- [ ] Preserve existing `[Clipboard]` / `[Paste DEBUG]` logging; add a `[Clipboard] poll resolved in NNms` log inside the new poll loop
+- [x] Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` so the local clipboard write is initiated synchronously inside the user-gesture handler
+- [x] Construct a single `ClipboardItem` that declares **both** `text/plain` and `image/png` synchronously, with each MIME's `Promise<Blob>` resolving to the real Blob if the fetched type matches or a 0-byte Blob otherwise
+- [x] Replace the hard-coded `setTimeout(300)` with bounded adaptive polling: snapshot the pre-copy clipboard hash (in parallel with forwarding Ctrl+C), then poll `v1ExternalAgentsClipboardDetail` every ~30 ms for up to ~500 ms, return as soon as the hash differs
+- [x] Use `ClipboardItem.supports("image/png")` to feature-detect image support; on browsers that lack it, drop the image representation and write text-only
+- [x] Replace `clipboardWriteText(text)` with `clipboardWrite({ mime, text? | base64? })` so the dispatcher can carry images as well as text. Update all call sites
+- [~] Extend `clipboardReadText` to `clipboardReadAny` returning `{ mime: "text/plain" | "image/png" | "empty", text?, base64? }`; feed image results into the paste-upload path so paste-image-into-iframe works
+- [x] Feature-detect `ClipboardItem` and `navigator.clipboard.write`; fall back to the existing text-only path when missing
+- [x] Fix the misleading toast: show green "Copied text" / "Copied image" only when the local clipboard write actually succeeds; error variant when the local write fails or is rejected
+- [x] Remove the 2.7-second background polling `useEffect`
+- [x] Delete the `lastRemoteClipboardHash` ref and all references
+- [ ] Delete the `lastAutoSyncedText` ref and the paste-flow short-circuit that reads it
+- [x] Preserve existing `[Clipboard]` / `[Paste DEBUG]` logging; added `[Clipboard] poll resolved in NNms` log inside the new poll loop
 
 ## macOS Wails app (for-mac/)
 
