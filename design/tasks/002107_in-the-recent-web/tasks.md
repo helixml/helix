@@ -19,7 +19,7 @@
 - [x] After first provision, record the bound runner onto `ProjectWebServiceState.HostDeviceID` (+ active sandbox id).
 
 ## API / UI surfacing
-- [ ] Expose the pinned runner and `/data` location on the web-service GET endpoint and in `WebServiceTab.tsx`.
+- [x] Expose the pinned runner and `/data` location on the web-service GET endpoint (via the new `host_device_id` field on `ProjectWebServiceState`, already returned by GET) and in `WebServiceTab.tsx` (new "Storage & runner" section). Regenerated swagger + TS client via `./stack update_openapi`.
 
 ## Docs
 - [ ] Document the `HELIX_WEB_SERVICE_DATA_DIR=/data` convention (apps must write durable state there).
