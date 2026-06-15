@@ -52,6 +52,18 @@ bubble is suppressed entirely when this case fires.
 - [x] Reverted to `main` briefly to capture the wall-of-text baseline
       (screenshot `00-before-wall-of-text.png`) so the contrast is
       obvious to reviewers.
+- [x] **Verified on the spec-task detail page too** (the more important
+      surface, since this is where users review approved tasks). Attached
+      the test session to a `spec_tasks` row and loaded
+      `/orgs/:org/projects/:proj/tasks/:taskId`. The detail page renders
+      its chat through `EmbeddedSessionView`, which mounts the same
+      `Interaction` component — confirmed empirically that the
+      "Spec Approved — Implementation Instructions" disclosure appears
+      collapsed (screenshot `03-after-spec-task-detail-collapsed.png`)
+      and expands correctly (`04-after-spec-task-detail-expanded.png`).
+      Only one importer of `Interaction.tsx` exists in the codebase
+      (`EmbeddedSessionView.tsx`), so this fix is automatically applied
+      everywhere chat is rendered.
 
 ## Screenshots
 
@@ -67,6 +79,14 @@ pushing the actual chat off-screen:
 **After — expanded:**
 
 ![After — expanded disclosure](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002099_planning-instructions/screenshots/02-after-expanded.png)
+
+**Spec-task detail page — collapsed:**
+
+![Spec-task detail collapsed](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002099_planning-instructions/screenshots/03-after-spec-task-detail-collapsed.png)
+
+**Spec-task detail page — expanded:**
+
+![Spec-task detail expanded](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002099_planning-instructions/screenshots/04-after-spec-task-detail-expanded.png)
 
 ## Follow-up (out of scope)
 
