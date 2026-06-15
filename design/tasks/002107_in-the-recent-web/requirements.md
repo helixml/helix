@@ -53,6 +53,12 @@ files) to be intact afterwards, so an upgrade does not wipe customer data.
 - A failed deploy never destroys the existing data volume.
 - The persistent data directory is at a stable, documented in-container path
   that is the same across every deploy.
+- **At most one app/database instance accesses the durable data directory at
+  any instant.** A deploy must stop the old instance before the new one opens
+  the data dir — two database processes (e.g. two Postgres) must never run
+  against the same files concurrently. (This rules out concurrent blue/green
+  cutover for stateful services; deploys are in-place with a brief restart
+  window. See design.md.)
 
 ### US-2: Database survives reboots
 As a project owner, when my web service's container or its runner restarts,
