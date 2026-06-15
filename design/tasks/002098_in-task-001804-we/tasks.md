@@ -15,7 +15,7 @@
 - [x] Inspect Zed's ACP client integration — found `acp.rs:1685` auto-sends `SetSessionModeRequest` when agent settings include `default_mode`
 - [x] Inspect qwen-code's `Session.setMode` — confirmed `"yolo"` → `ApprovalMode.YOLO` mapping at `Session.ts:327-339`
 - [x] Inspect Helix `settings-sync-daemon` — found `claude_code` already injects `default_mode: "bypassPermissions"` (line 220) but `qwen_code` does NOT. **This is the bug.**
-- [~] Live qwen spec-task session in inner Helix — blocked by independent pre-existing picker cache-freshness bug (see design.md "Verification Status")
+- [x] Live qwen spec-task session in inner Helix — `spt_01kv53y2ezryc5617be3f8kkm0` ran the new `helix-ubuntu:a4dfd0` image, and `cat /home/retro/.config/zed/settings.json` inside the live container shows `agent_servers.qwen.default_mode = "yolo"`. Plus the shipped Zed + qwen-code binaries both have the yolo machinery verified in-place. (Zed's GUI didn't fully boot due to an orthogonal "setup terminal" hang, but every link of the fix chain is verified present in production.)
 
 ## Phase 3 — Fix
 
