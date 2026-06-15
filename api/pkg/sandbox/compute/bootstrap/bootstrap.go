@@ -285,25 +285,44 @@ const (
 //
 // `registry` is the registry HOSTNAME ONLY (e.g. "ghcr.io" or
 // "<acct>.dkr.ecr.us-east-1.amazonaws.com"). Empty means "use the
-// default GHCR host". Whitespace and trailing/leading slashes are
-// stripped.
+// default GHCR host". Edge whitespace and trailing slashes are
+// tolerated and stripped; anything else malformed is rejected loudly
+// at boot.
 //
 // This semantic matches the pre-existing HELIX_SANDBOX_REGISTRY
 // consumer in sandbox/04-start-dockerd.sh which `sed`-swaps the
 // leading hostname of an image ref. Using the same shape avoids
 // cross-consumer divergence on the same env var.
 //
-// Several malformed shapes are rejected loudly at boot rather than
-// passed through to fail opaquely at docker pull on the worker:
+// Rejected shapes (each fails loudly at boot rather than passing
+// through to fail opaquely at docker pull on a worker):
 //
-//   - URL form ("://"):           https://mirror.corp
-//   - Embedded path ("/"):        mirror.corp/helixml
-//                                 (would produce double-org path)
-//   - Internal whitespace:        mirror.corp\nbaz, "foo bar"
-//                                 (TrimSpace only strips edges)
+//   - Internal whitespace:        "mirror.corp\nbaz", "foo bar"
+//                                 - TrimSpace only strips edges, the
+//                                   shell consumer would receive the
+//                                   embedded whitespace too.
+//   - URL form ("://"):           "https://mirror.corp"
+//                                 - shell consumer would produce
+//                                   "https://mirror.corp/..." which
+//                                   docker pull rejects.
+//   - Leading slash:              "/mirror.corp", "/ghcr.io"
+//                                 - Go side could strip it but the
+//                                   shell consumer (sed) would not,
+//                                   producing "/mirror.corp/...".
+//                                   Reject so the two consumers stay
+//                                   consistent.
+//   - Embedded path ("/" in middle): "mirror.corp/helixml"
+//                                    - would produce double-org path
+//                                      on YD side (helixml/helixml/...)
+//                                      and different garbage on shell.
 //   - Empty after trim:           "/", "  /  ", "   "
-//                                 (silent fallback to GHCR is wrong
-//                                  for air-gapped deployments)
+//                                 - silent fallback to GHCR is wrong
+//                                   for an air-gapped deployment.
+//
+// Order of checks below: whitespace first (most-fundamental
+// corruption), then URL form, then leading-slash, then embedded path.
+// Each error message names the specific shape so adjacent typos give
+// distinct, actionable diagnostics.
 func helixSandboxImageFor(version, registry string) (string, error) {
 	if sentinelVersions[version] {
 		return "", fmt.Errorf(
@@ -313,15 +332,36 @@ func helixSandboxImageFor(version, registry string) (string, error) {
 			version,
 		)
 	}
-	host := strings.Trim(strings.TrimSpace(registry), "/")
+
+	// TrimSpace strips edge whitespace ONLY (newline/tab/space). Any
+	// internal whitespace surviving this is a corruption (line-wrap,
+	// ConfigMap multi-line value, etc.) and gets rejected below. Do
+	// NOT iterate Trim/TrimSpace - an internally-spaced input like
+	// "/ ghcr.io / " trimming to " ghcr.io " would silently produce
+	// a host with edge spaces if we kept stripping, but we want that
+	// to surface as "internal whitespace" so the operator fixes the
+	// source rather than relying on us to normalise it.
+	trimmedSpace := strings.TrimSpace(registry)
+
+	// Internal whitespace check FIRST: the most fundamental corruption,
+	// usually surfaces a wrapped or multi-line source. strings.Fields
+	// splits on Unicode whitespace; a single-token result means no
+	// internal gaps.
+	if len(strings.Fields(trimmedSpace)) > 1 {
+		return "", fmt.Errorf(
+			"compute: HELIX_SANDBOX_REGISTRY=%q contains internal whitespace; must be a single hostname token (likely a line-wrap or multi-line ConfigMap value)",
+			registry,
+		)
+	}
+
+	host := strings.TrimRight(trimmedSpace, "/")
 	// Reject inputs that collapse to empty after trimming (e.g. "/",
 	// "  /  ", "   "). Silent fallback to GHCR is the wrong default
-	// for an air-gapped deployment where the operator probably tried
-	// to set the var and would prefer a loud failure over an egress
-	// to ghcr.io.
+	// for an air-gapped deployment where the operator tried to set
+	// the var and would prefer a loud failure over an egress to ghcr.io.
 	if registry != "" && host == "" {
 		return "", fmt.Errorf(
-			"compute: HELIX_SANDBOX_REGISTRY=%q is invalid (collapses to empty after trimming whitespace and slashes)",
+			"compute: HELIX_SANDBOX_REGISTRY=%q is invalid (collapses to empty after trimming whitespace and trailing slashes)",
 			registry,
 		)
 	}
@@ -331,25 +371,26 @@ func helixSandboxImageFor(version, registry string) (string, error) {
 			registry,
 		)
 	}
-	// Reject any embedded slash. The hostname-only contract means the
-	// org+image suffix is appended by the consumers themselves; a
-	// value like "mirror.corp/helixml" produces a double-org path
-	// (helixml/helixml/helix-sandbox:tag) on the YD path and a
-	// different garbage on the shell path. Fail loud here.
-	if strings.Contains(host, "/") {
+	// Reject leading slash. The Go side could strip it cheaply, but
+	// the shell consumer (sandbox/04-start-dockerd.sh:231) does not -
+	// it `sed`-substitutes the value verbatim. Allowing leading
+	// slashes on the Go side while the shell rejected them at docker
+	// pull was a cross-consumer divergence the first ultrareview
+	// flagged. Loud rejection here keeps the two paths consistent.
+	if strings.HasPrefix(host, "/") {
 		return "", fmt.Errorf(
-			"compute: HELIX_SANDBOX_REGISTRY=%q must be a registry HOSTNAME only without any path segments; do not include the org (just \"ghcr.io\", not \"ghcr.io/helixml\")",
+			"compute: HELIX_SANDBOX_REGISTRY=%q must not start with a slash; provide just the hostname (likely a templating leak, e.g. \"/${REGISTRY_HOST}\" with REGISTRY_HOST unset)",
 			registry,
 		)
 	}
-	// Reject internal whitespace (newlines, tabs, embedded spaces).
-	// TrimSpace only strips edges; a line-wrapped paste or a copied
-	// ConfigMap value with an embedded newline survives. Use
-	// strings.Fields to split on any whitespace - if it yields more
-	// than one token, the value has internal whitespace.
-	if len(strings.Fields(host)) > 1 {
+	// Reject any embedded slash. The hostname-only contract means the
+	// org+image suffix is appended by the consumers themselves; a
+	// value like "mirror.corp/helixml" produces a double-org path
+	// (helixml/helixml/helix-sandbox:tag) on the YD path and different
+	// garbage on the shell path. Fail loud here.
+	if strings.Contains(host, "/") {
 		return "", fmt.Errorf(
-			"compute: HELIX_SANDBOX_REGISTRY=%q contains internal whitespace; must be a single hostname token",
+			"compute: HELIX_SANDBOX_REGISTRY=%q must be a registry HOSTNAME only without any path segments; do not include the org (just \"ghcr.io\", not \"ghcr.io/helixml\")",
 			registry,
 		)
 	}

@@ -219,10 +219,34 @@ type Compute struct {
 	// sandbox host pulls, operators set both vars (and ideally to the
 	// same hostname).
 	//
-	// URL-form values (with "://") are rejected at boot. So are
-	// values that trim to empty (e.g. "/" or whitespace-only) - those
-	// would silently fall back to ghcr.io, the wrong default for an
-	// air-gapped deployment that meant to set a value.
+	// Several malformed shapes are rejected loudly at boot rather
+	// than passed through to fail opaquely at docker pull on the
+	// worker:
+	//
+	//   - Embedded path segments: "mirror.corp/helixml"
+	//     - would produce a DOUBLE-ORG path on the YD side
+	//       ("mirror.corp/helixml/helixml/helix-sandbox:tag") and
+	//       different garbage on the shell side. The exact footgun
+	//       the hostname-only contract exists to prevent.
+	//
+	//   - Leading slash: "/mirror.corp", "/${REGISTRY}" (templating
+	//     leak) - Go side could strip it but the shell consumer
+	//     (sandbox/04-start-dockerd.sh sed) does not, so a leading
+	//     slash on the env var means the two consumers diverge.
+	//
+	//   - URL form: "https://mirror.corp" - shell consumer would
+	//     produce "https://mirror.corp/..." which docker rejects.
+	//
+	//   - Internal whitespace: "mirror.corp\nhelixml", "foo bar" -
+	//     usually a line-wrapped paste or a multi-line ConfigMap value.
+	//
+	//   - Empty after trim: "/", "  /  ", "   " - silent fallback to
+	//     ghcr.io is the wrong default for air-gapped deployments
+	//     that meant to set a value.
+	//
+	// Edge whitespace and a single trailing slash ARE tolerated and
+	// stripped ("  ghcr.io/" -> "ghcr.io"); they're common in
+	// copy-pasted values.
 	//
 	// The version tag is still auto-derived from data.GetHelixVersion()
 	// — operators override the registry hostname, never the version.

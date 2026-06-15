@@ -560,21 +560,6 @@ func TestHelixSandboxImageFor(t *testing.T) {
 				"  ghcr.io  ",
 				"ghcr.io/helixml/helix-sandbox:2.11.17",
 			},
-			// Leading slash from a templating bug ("/${REGISTRY}")
-			// normalises to bare hostname after Trim. Lenient
-			// recovery rather than loud rejection - leading slash
-			// produces a valid output once stripped (unlike
-			// embedded path segments which would double-org).
-			{
-				"2.11.17",
-				"/ghcr.io",
-				"ghcr.io/helixml/helix-sandbox:2.11.17",
-			},
-			{
-				"2.11.17",
-				"/mirror.local/",
-				"mirror.local/helixml/helix-sandbox:2.11.17",
-			},
 		}
 		for _, tc := range cases {
 			t.Run(tc.registry, func(t *testing.T) {
@@ -614,10 +599,31 @@ func TestHelixSandboxImageFor(t *testing.T) {
 			{"host+org bare", "mirror.corp/helixml", "without any path segments"},
 			{"ecr push target shape", "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml", "without any path segments"},
 
-			// Internal whitespace - TrimSpace handles edges only
+			// Leading slash. Second-pass ultrareview caught this: the
+			// Go validator silently normalising a leading slash while
+			// the shell consumer doesn't is a cross-consumer
+			// divergence regression. Reject so the two paths stay
+			// consistent.
+			{"leading slash bare host", "/ghcr.io", "must not start with a slash"},
+			{"leading slash with trailing", "/mirror.local/", "must not start with a slash"},
+			{"templating leak shape", "/${REGISTRY_HOST}", "must not start with a slash"},
+
+			// Internal whitespace - TrimSpace handles edges only.
+			// Now checked BEFORE the path-segment check so adjacent
+			// typos give distinct diagnostics.
 			{"embedded newline", "mirror.corp\nhelixml", "internal whitespace"},
 			{"embedded tab", "mirror.corp\thelixml", "internal whitespace"},
 			{"embedded space", "mirror corp", "internal whitespace"},
+
+			// Iterated whitespace+slash corruption. "/ ghcr.io / "
+			// would TrimSpace to "/ ghcr.io /" - the internal space
+			// survives Trim("/") so strings.Fields sees ["ghcr.io"]
+			// (length 1)... actually wait, this trims to "/ ghcr.io /"
+			// which has spaces between the slashes. Fields = ["/",
+			// "ghcr.io", "/"], length 3 = internal whitespace, fires
+			// before the slash check. Caught by the new whitespace-first
+			// ordering.
+			{"slash+internal whitespace", "/ ghcr.io / ", "internal whitespace"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
