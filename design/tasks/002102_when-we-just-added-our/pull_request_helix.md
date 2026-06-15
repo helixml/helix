@@ -78,10 +78,12 @@ deployment surfaces never mapped those host/Service ports through —
 meaning the auto-mode listener was operationally unreachable in every
 standard deployment. Fixed here:
 
-- `docker-compose.yaml` / `docker-compose.dev.yaml` — commented-out
-  `${VHOST_HTTPS_PORT:-443}:443` and `${VHOST_HTTP_PORT:-80}:80` lines
-  on the API service, with a header pointing operators at the right
-  one to uncomment per challenge type.
+- `docker-compose.tls.yaml` (new) — opt-in compose overlay. Operators
+  add `-f docker-compose.tls.yaml` to their `docker compose up` command
+  to expose `:443`/`:80` on the API container. Host port numbers come
+  from `.env` (`VHOST_HTTPS_PORT`, `VHOST_HTTP_PORT`) with sensible
+  defaults. Kept as a separate file rather than modifying the main
+  compose files so operators don't hit merge conflicts on `git pull`.
 - `charts/helix-controlplane/values.yaml` — new
   `controlplane.vhostTLS` block (`enabled`, `httpsPort`, `httpEnabled`,
   `httpPort`). Default `enabled: false` so existing deployments are
